@@ -64,10 +64,14 @@ if echo "$NORMALIZED_GIT" | grep -qi "co-authored-by"; then
   exit 2
 fi
 
-# Blokiraj git add .claude/
+# .claude/ — samo orkestrator sme commitovati promene u workflow fajlovima
 if echo "$NORMALIZED_GIT" | grep -qiE "git add.*\.claude"; then
-  echo "BLOKIRANO: .claude/ direktorijum ne sme ici na git." >&2
-  exit 2
+  if echo "$COMMAND" | grep -qE "^APD_ORCHESTRATOR_COMMIT=1 "; then
+    exit 0
+  else
+    echo "BLOKIRANO: git add .claude/ dozvoljen samo sa APD_ORCHESTRATOR_COMMIT=1 prefixom." >&2
+    exit 2
+  fi
 fi
 
 # Blokiraj destruktivne git operacije

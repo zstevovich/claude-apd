@@ -1,29 +1,38 @@
 #!/bin/bash
-# APD Verifier — pokreće se pre svakog commit-a
-# PRILAGODITI: build i test komande za svoj projekat
+# APD Verifier — pokreće se automatski pre svakog commit-a (poziva ga guard-git.sh)
+#
+# PRILAGODITI: Otkomentariši i podesi build/test komande za svoj projekat.
+# Dok je sve zakomentarisano, verifikacija uvek prolazi — ovo je NAMERNO
+# za nov projekat, ali MORA se konfigurisati pre produkcijskog rada.
 
-# PROMENITI na apsolutnu putanju projekta:
 PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_DIR" || exit 0
 
 ERRORS=()
 
+# Detektuj promenjene fajlove (staged za commit, ili sve ako nema prethodnog commit-a)
+if git rev-parse HEAD &>/dev/null; then
+    CHANGED_FILES=$(git diff --cached --name-only 2>/dev/null)
+    [ -z "$CHANGED_FILES" ] && CHANGED_FILES=$(git diff --name-only HEAD 2>/dev/null)
+else
+    CHANGED_FILES=$(git diff --cached --name-only 2>/dev/null)
+fi
+
 # ====================
 # BACKEND VERIFIKACIJA
 # ====================
-# PRILAGODITI: komande za build i test
-if git diff --name-only HEAD 2>/dev/null | grep -qE '^src/|^tests/'; then
-    echo "→ Backend build..."
-    # PRIMER: dotnet build src/MyProject.sln -v q --nologo
-    # BUILD=$(dotnet build src/MyProject.sln -v q --nologo 2>&1)
-    # if echo "$BUILD" | grep -q "Build FAILED"; then
+# PRILAGODITI: putanje i komande za svoj backend
+if echo "$CHANGED_FILES" | grep -qE '^src/|^tests/'; then
+    echo "→ Backend promene detektovane..."
+    # PRIMER (Node.js):  npm test
+    # PRIMER (Python):   pytest tests/
+    # PRIMER (Go):       go build ./... && go test ./...
+    # PRIMER (.NET):     dotnet build && dotnet test
+    #
+    # if ! YOUR_BUILD_COMMAND 2>&1; then
     #     ERRORS+=("Backend build FAILED")
     # fi
-
-    echo "→ Backend testovi..."
-    # PRIMER: dotnet test src/MyProject.sln -v q --nologo --no-build
-    # TEST=$(dotnet test src/MyProject.sln -v q --nologo --no-build 2>&1)
-    # if echo "$TEST" | grep -q "Failed:"; then
+    # if ! YOUR_TEST_COMMAND 2>&1; then
     #     ERRORS+=("Backend testovi FAILED")
     # fi
     echo "  (KONFIGURIŠI build/test komande u verify-all.sh)"
@@ -32,13 +41,14 @@ fi
 # ====================
 # FRONTEND VERIFIKACIJA
 # ====================
-# PRILAGODITI: putanja i komande za frontend
-if git diff --name-only HEAD 2>/dev/null | grep -qE '^apps/|^frontend/|^web/'; then
-    echo "→ Frontend TypeScript check..."
-    # PRIMER: cd apps/frontend && npx tsc --noEmit
-    # TSC_ERRORS=$(npx tsc --noEmit 2>&1 | grep ": error TS" | wc -l)
-    # if [ "$TSC_ERRORS" -gt 0 ]; then
-    #     ERRORS+=("Frontend TS: $TSC_ERRORS grešaka")
+# PRILAGODITI: putanje i komande za svoj frontend
+if echo "$CHANGED_FILES" | grep -qE '^apps/|^frontend/|^web/'; then
+    echo "→ Frontend promene detektovane..."
+    # PRIMER (React/TS): cd apps/frontend && npx tsc --noEmit && npm test
+    # PRIMER (Vue):      cd apps/frontend && npm run type-check && npm test
+    #
+    # if ! YOUR_TYPECHECK_COMMAND 2>&1; then
+    #     ERRORS+=("Frontend type check FAILED")
     # fi
     echo "  (KONFIGURIŠI frontend check u verify-all.sh)"
 fi

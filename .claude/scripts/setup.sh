@@ -1,9 +1,19 @@
 #!/bin/bash
 # APD Setup — zamenjuje placeholder-e sa apsolutnom putanjom projekta
+# Radi na macOS i Linux
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CLAUDE_DIR="$PROJECT_DIR/.claude"
+
+# Cross-platform sed -i
+sedi() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
 
 echo "APD Setup"
 echo "========="
@@ -13,7 +23,7 @@ echo ""
 # Zameni [APSOLUTNA_PUTANJA] u settings.json
 if [ -f "$CLAUDE_DIR/settings.json" ]; then
     if grep -q '\[APSOLUTNA_PUTANJA\]' "$CLAUDE_DIR/settings.json"; then
-        sed -i '' "s|\[APSOLUTNA_PUTANJA\]|$PROJECT_DIR|g" "$CLAUDE_DIR/settings.json"
+        sedi "s|\[APSOLUTNA_PUTANJA\]|$PROJECT_DIR|g" "$CLAUDE_DIR/settings.json"
         echo "✓ settings.json — putanja konfigurisana"
     else
         echo "· settings.json — već konfigurisano"
@@ -24,7 +34,7 @@ fi
 for f in "$CLAUDE_DIR/agents/"*.md; do
     [ -f "$f" ] || continue
     if grep -q '\[APSOLUTNA_PUTANJA\]' "$f"; then
-        sed -i '' "s|\[APSOLUTNA_PUTANJA\]|$PROJECT_DIR|g" "$f"
+        sedi "s|\[APSOLUTNA_PUTANJA\]|$PROJECT_DIR|g" "$f"
         echo "✓ $(basename "$f") — putanja konfigurisana"
     fi
 done
@@ -33,7 +43,6 @@ done
 echo ""
 read -p "Naziv projekta (ili Enter za preskakanje): " PROJECT_NAME
 if [ -n "$PROJECT_NAME" ]; then
-    # Svi fajlovi koji sadrže [PROJECT_NAME]
     TARGET_FILES=(
         "$CLAUDE_DIR/settings.json"
         "$CLAUDE_DIR/scripts/session-start.sh"
@@ -44,7 +53,7 @@ if [ -n "$PROJECT_NAME" ]; then
     for f in "${TARGET_FILES[@]}"; do
         [ -f "$f" ] || continue
         if grep -q '\[PROJECT_NAME\]' "$f"; then
-            sed -i '' "s|\[PROJECT_NAME\]|$PROJECT_NAME|g" "$f"
+            sedi "s|\[PROJECT_NAME\]|$PROJECT_NAME|g" "$f"
             echo "✓ $(basename "$f") — naziv projekta setovan"
         fi
     done

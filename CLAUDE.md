@@ -102,7 +102,7 @@
 ├── tests/                           # [Testovi]
 ├── apps/                            # [Frontend/mobile]
 ├── docs/                            # [Dokumentacija]
-└── .claude/                         # Claude Code okruženje (gitignored)
+└── .claude/                         # Claude Code okruženje (deljeni workflow)
     ├── agents/                      # Custom agenti
     ├── skills/                      # Convention snippet-ovi
     ├── rules/                       # Pravila (workflow, konvencije)

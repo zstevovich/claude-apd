@@ -22,27 +22,34 @@ Spec kartica → Builder → Reviewer → Verifier → Commit → [Human gate] �
 3. Prilagodi `CLAUDE.md` za svoj projekat (stack, konvencije, struktura)
 4. Prilagodi agente u `.claude/agents/` za svoje domene
 5. Prilagodi `verify-all.sh` za svoj build/test sistem
-6. Dodaj `.claude/` u `.gitignore`
 
 ## Struktura
 
 ```
 .claude/
 ├── agents/              # Builder agenti — jedan per domen
-│   └── TEMPLATE.md      # Šablon za novog agenta
+│   ├── TEMPLATE.md      # Šablon za novog agenta
+│   └── EXAMPLE-backend-builder.md  # Primer popunjenog agenta
 ├── rules/
 │   ├── workflow.md      # APD workflow definicija (UNIVERZALNO)
-│   └── principles.md   # Projektna pravila (PRILAGODITI)
+│   ├── principles.md   # Projektna pravila (PRILAGODITI)
+│   └── conventions.md  # Coding konvencije (PRILAGODITI)
 ├── skills/              # Convention snippet-ovi za agente
+│   └── TEMPLATE.md      # Šablon za novi skill
 ├── scripts/
 │   ├── guard-git.sh     # Blokira neovlašćene git operacije (UNIVERZALNO)
 │   ├── verify-all.sh    # Build + test verifikacija (PRILAGODITI)
 │   ├── setup.sh         # Inicijalni setup — zamena placeholder-a
 │   └── session-start.sh # Učitava kontekst na početku sesije
 └── memory/
-    └── MEMORY.md        # Indeks memorije — akumulira se tokom rada
+    ├── MEMORY.md        # Indeks memorije — akumulira se tokom rada
+    ├── session-log.md   # Append-only log završenih taskova
+    └── status.md        # Trenutni status projekta
 
 CLAUDE.md                # Projektne instrukcije za Claude Code (PRILAGODITI)
+docs/
+└── plans/               # Implementacioni planovi
+    └── TEMPLATE.md      # Šablon za plan
 ```
 
 ## Principi
@@ -54,3 +61,14 @@ CLAUDE.md                # Projektne instrukcije za Claude Code (PRILAGODITI)
 5. **Cross-layer verifikacija** — frontend/mobile tipovi moraju biti 1:1 sa backend DTO-ovima
 6. **Greškom-vođeni guardrail-i** — svaka greška postaje novo pravilo u memoriji
 7. **Session memory** — posle svakog taska: šta je urađeno, šta je pošlo po zlu, nova pravila
+
+## Fajlovi za prilagođavanje
+
+| Fajl | Šta prilagoditi |
+|------|-----------------|
+| `CLAUDE.md` | Stack, konvencije, struktura projekta |
+| `principles.md` | Jezik, error handling, arhitekturni pattern |
+| `verify-all.sh` | Build i test komande za svoj stack |
+| `conventions.md` | Imenovanje, struktura fajlova, error handling, API stil |
+| `agents/TEMPLATE.md` | Kreirati konkretne agente za svoje domene (vidi EXAMPLE-*) |
+| `settings.json` | Automatski konfiguriše `setup.sh` |

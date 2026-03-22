@@ -117,15 +117,24 @@ Posle SVAKOG završenog taska, orkestrator upisuje zapis u `.claude/memory/sessi
 
 Kad task uključuje backend + frontend/mobile:
 
-| Backend | Frontend (TS) | Mobile (Kotlin) |
-|---------|--------------|----------------|
-| `string` | `string` | `String` |
-| `string?` | `string \| null` | `String?` |
-| `Guid` | `string` | `String` |
-| `DateTimeOffset` | `string` | `String` (ISO 8601) |
-| `int` | `number` | `Int` |
-| `bool` | `boolean` | `Boolean` |
-| `enum` | union literal | `String` |
+1. Identifikovati backend DTO/response model kao **izvor istine**
+2. Za svako polje u DTO-u, mapirati tip na frontend/mobile ekvivalent
+3. Nullable polja moraju biti nullable na svim slojevima
+4. Datumi: uvek ISO 8601 string na frontend/mobile strani
+5. Enum-ovi: uskladiti reprezentaciju (string literal, union type, ili enum — zavisno od stack-a)
+6. ID tipovi (UUID, GUID, itd.): string na frontend/mobile strani
+
+**PRILAGODITI:** Dodaj tabelu mapiranja tipova za svoj stack. Primer:
+
+```
+| Backend (tvoj jezik) | Frontend (tvoj framework) | Mobile (ako postoji) |
+|----------------------|---------------------------|----------------------|
+| string               | string                    | String               |
+| string?              | string | null             | String?              |
+| int                  | number                    | Int                  |
+| bool                 | boolean                   | Boolean              |
+| DateTime             | string (ISO 8601)         | String               |
+```
 
 Pravilo: NIKADA ne kreirati frontend/mobile tip iz specifikacije — uvek čitaj backend DTO.
 

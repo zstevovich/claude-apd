@@ -3,6 +3,14 @@ name: [agent-name]
 description: [Kratak opis — domen i odgovornost]
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: [model]
+# permissionMode opcije:
+#   bypassPermissions — agent radi bez potvrda (brže, ali rizičnije)
+#   default           — traži potvrdu za opasne operacije
+#   plan              — samo čita i predlaže, ne menja fajlove
+# Builder agenti koriste bypassPermissions jer:
+#   1. guard-git.sh štiti od neovlašćenih git operacija
+#   2. Orkestrator reviewuje rezultat pre commit-a
+#   3. Agenti rade u izolovanom scope-u (jasno vlasništvo nad fajlovima)
 permissionMode: bypassPermissions
 memory: project
 skills:
