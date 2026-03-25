@@ -12,8 +12,20 @@ Interaktivni bootstrap za Agent Pipeline Development framework.
 Pre bilo čega, proveri:
 
 1. **Git inicijalizovan** — pokreni `git rev-parse --is-inside-work-tree`. Ako nije, ponudi korisniku `git init`.
-2. **Postojeći `.claude/` ili `CLAUDE.md`** — ako postoji, ponudi tri opcije:
-   > Projekat već ima Claude Code konfiguraciju.
+2. **Postojeći `.claude/` ili `CLAUDE.md`** — ako postoji, detektuj situaciju:
+
+   **Detekcija:** Proveri da li postoji `.claude/rules/workflow.md`. Ako postoji, projekat VEĆ IMA APD. Ako ne, ima Claude Code ali bez APD-a.
+
+   **Projekat VEĆ IMA APD** (workflow.md postoji):
+   > Projekat već koristi APD framework.
+   > (a) **Update** — ažurira APD na najnoviju verziju iz template-a (guardrail-i, workflow, template-i)
+   > (b) **Fresh install** — briše sve i kreira iznova (OPREZ: gubi session-log i memoriju)
+   > (c) **Prekid**
+
+   Ako korisnik izabere **(a) Update**, prati sekciju "Update režim" ispod.
+
+   **Projekat IMA Claude Code ali NE APD** (workflow.md ne postoji):
+   > Projekat ima Claude Code konfiguraciju ali ne koristi APD.
    > (a) **Fresh install** — briše postojeći `.claude/` i `CLAUDE.md`, kreira sve iznova
    > (b) **Merge** — dodaje APD fajlove uz očuvanje postojećih podešavanja
    > (c) **Prekid**
@@ -446,6 +458,87 @@ VAŽNO — pregledaj ove fajlove:
 1. CLAUDE.md — proveri da merge nije pokvario strukturu
 2. settings.json — proveri da stari hook-ovi rade
 3. Postojeći agenti — dodaj guard-scope.sh hook ako želiš file-scope zaštitu
+```
+
+---
+
+## Update režim
+
+Ako korisnik izabere **(a) Update** u pre-flight proveri (projekat već ima APD), prati ove instrukcije. Cilj: ažurirati APD infrastrukturu na najnoviju verziju iz template-a bez gubitka projektnih podataka.
+
+### Šta se AŽURIRA (univerzalni fajlovi iz template-a)
+
+Ovi fajlovi se prepisuju sa najnovijom verzijom iz template-a:
+
+| Fajl | Razlog |
+|------|--------|
+| `.claude/rules/workflow.md` | Workflow pravila mogu biti ažurirana |
+| `.claude/scripts/guard-git.sh` | Guardrail-i mogu imati nove blokade |
+| `.claude/scripts/guard-scope.sh` | Scope guard može biti poboljšan |
+| `.claude/scripts/session-start.sh` | Zameni `[PROJECT_NAME]` sa postojećim nazivom projekta |
+| `.claude/skills/TEMPLATE.md` | Template može biti ažuriran |
+| `.claude/agents/TEMPLATE.md` | Agent template može imati nove hook-ove |
+| `docs/adr/TEMPLATE.md` | ADR format može biti proširen |
+| `docs/plans/TEMPLATE.md` | Plan format može biti proširen |
+
+**Za session-start.sh:** Pročitaj postojeći fajl da izvučeš naziv projekta (iz `echo "=== ... ==="` linije), pa zameni `[PROJECT_NAME]` u novoj verziji.
+
+### Šta se AŽURIRA u CLAUDE.md
+
+1. Pročitaj postojeći CLAUDE.md
+2. Zameni `## APD Hard Rules` sekciju sa najnovijom verzijom iz template-a (VERBATIM)
+3. Proveri da li nedostaju nove APD sekcije (npr. ADR sekcija ako je dodata u novijoj verziji) — dodaj ih
+4. **NE diraj** korisnikov sadržaj (stack, pravila, struktura)
+
+### Šta se AŽURIRA u settings.json
+
+1. Pročitaj postojeći settings.json
+2. Proveri da li hook komande referenciraju iste skripte — ažuriraj putanje ako treba
+3. Dodaj nove hook-ove koji ne postoje (npr. ako je dodat novi hook u novijoj verziji)
+4. **NE briši** korisnikove custom hook-ove
+
+### Šta se NE DIRA
+
+Ovi fajlovi su projektno-specifični i NE smeju se prepisati:
+
+- `.claude/rules/principles.md` — korisnikova pravila
+- `.claude/rules/conventions.md` — korisnikove konvencije
+- `.claude/scripts/verify-all.sh` — korisnikove build/test komande
+- `.claude/agents/*-builder.md` — korisnikovi agenti (osim TEMPLATE.md)
+- `.claude/memory/MEMORY.md` — projektna memorija
+- `.claude/memory/session-log.md` — session log (NIKADA ne brisati)
+- `.claude/memory/status.md` — trenutni status
+- `docs/adr/README.md` — ADR indeks
+- `docs/adr/0001-*.md` — postojeći ADR-ovi
+- `CLAUDE.md` — osim APD Hard Rules sekcije (vidi gore)
+
+### Pitanja u Update režimu
+
+NE postavljaj svih 8 pitanja. Postavi samo:
+- **Pitanje 0:** Putanja do APD template-a (obavezno — za čitanje novih verzija fajlova)
+
+Sve ostale informacije (naziv, stack, itd.) već postoje u projektu.
+
+### Commit za update
+
+```bash
+APD_ORCHESTRATOR_COMMIT=1 git commit -m "chore: ažuriraj APD framework na najnoviju verziju"
+```
+
+### Završna poruka za update
+
+```
+APD framework ažuriran.
+
+Ažurirano:
+- workflow.md — najnovija pravila
+- guard-git.sh — najnoviji guardrail-i
+- guard-scope.sh — najnoviji scope guard
+- APD Hard Rules u CLAUDE.md — najnovija verzija
+- Template fajlovi (agent, ADR, plan)
+
+Nije dirano:
+- Vaši agenti, pravila, konvencije, memorija, ADR-ovi, verify-all.sh
 ```
 
 ---
