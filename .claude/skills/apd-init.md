@@ -12,7 +12,15 @@ Interaktivni bootstrap za Agent Pipeline Development framework.
 Pre bilo čega, proveri:
 
 1. **Git inicijalizovan** — pokreni `git rev-parse --is-inside-work-tree`. Ako nije, ponudi korisniku `git init`.
-2. **Postojeći `.claude/`** — ako direktorijum postoji, pitaj korisnika: "Projekat već ima .claude/ direktorijum. Da li želiš overwrite (briše postojeći) ili prekid?" Ako prekid, zaustavi skill.
+2. **Postojeći `.claude/` ili `CLAUDE.md`** — ako postoji, ponudi tri opcije:
+   > Projekat već ima Claude Code konfiguraciju.
+   > (a) **Fresh install** — briše postojeći `.claude/` i `CLAUDE.md`, kreira sve iznova
+   > (b) **Merge** — dodaje APD fajlove uz očuvanje postojećih podešavanja
+   > (c) **Prekid**
+
+   Ako korisnik izabere **(b) Merge**, prati sekciju "Merge režim" ispod.
+   Ako korisnik izabere **(a) Fresh install**, nastavi normalno (Grupa 1 + Grupa 2).
+   Ako korisnik izabere **(c) Prekid**, zaustavi skill.
 3. **jq instaliran** — pokreni `command -v jq`. Ako nije, obavesti: "jq je potreban za APD hook skripte. Instaliraj sa: brew install jq (macOS) ili apt install jq (Linux)."
 
 ## Pitanja — jedno po jedno
@@ -362,9 +370,89 @@ Arhitekturne odluke za {naziv}. Svaka odluka je dokumentovana kao ADR.
 
 Generiši ADR-0001 koji dokumentuje sve stack odluke iz pitanja 2-4 i 7. Prati format iz `docs/adr/TEMPLATE.md`. Uključi relevantne alternative i trade-off-ove za izabrani stack.
 
+## Merge režim
+
+Ako korisnik izabere **(b) Merge** u pre-flight proveri, prati ove instrukcije umesto standardnog toka za Grupu 2. Grupa 1 (as-is fajlovi) se kopira normalno jer su to novi fajlovi koji ne postoje u projektu.
+
+### CLAUDE.md — merge
+
+1. Pročitaj postojeći CLAUDE.md
+2. Proveri da li postoji `## APD Hard Rules` sekcija — ako ne, dodaj je PRE prvog `## Pravila` ili ekvivalentnog heading-a. Kopiraj VERBATIM.
+3. Proveri da li postoji `## Tehnički stack` sekcija — ako ne, dodaj je. Ako postoji, ostavi korisnikov sadržaj.
+4. Dodaj sekcije koje nedostaju: `### Agent Pipeline Development (APD)`, `### ADR (Architecture Decision Records)`, `### Plugini i alati`
+5. Ažuriraj `## Struktura projekta` da uključi `.claude/` i `docs/adr/` ako ih nema
+6. **NE briši** postojeći sadržaj korisnika — samo dodaj APD sekcije
+
+### settings.json — merge
+
+1. Pročitaj postojeći `.claude/settings.json`
+2. Dodaj hook-ove koji nedostaju:
+   - `SessionStart` → `session-start.sh` (ako nema SessionStart hook-a)
+   - `PreToolUse (Bash)` → `guard-git.sh` (ako nema Bash matcher-a)
+   - `Notification` → desktop notifikacija (ako nema Notification hook-a)
+3. Dodaj `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"` ako ne postoji
+4. Postavi `attribution.commit: ""` i `attribution.pr: ""` ako ne postoje
+5. **NE briši** postojeće hook-ove ili env varijable
+
+### .claude/agents/ — merge
+
+1. Ako direktorijum postoji i ima fajlove, **NE briši** ih
+2. Dodaj `TEMPLATE.md` ako ne postoji
+3. Kreira prvog APD agenta ({stack}-builder.md) normalno
+4. Prikaži korisniku listu postojećih agenata i predloži da doda guard-scope.sh hook u njihove definicije
+
+### .claude/memory/ — merge
+
+1. Ako direktorijum postoji, **NE briši** postojeće fajlove
+2. Ako `MEMORY.md` postoji, dodaj APD sekcije (Dva sistema memorije tabela, Naučene lekcije) na kraj
+3. Ako `session-log.md` ne postoji, kreiraj
+4. Ako `status.md` ne postoji, kreiraj
+
+### .claude/rules/ — uvek kreira
+
+Rules direktorijum obično ne postoji u projektima bez APD-a. Kreiraj normalno:
+- `workflow.md` — kopiraj as-is
+- `principles.md` — generiši
+- `conventions.md` — generiši
+
+### .claude/skills/ — merge
+
+1. Ako direktorijum postoji, **NE briši** postojeće skill-ove
+2. Dodaj `TEMPLATE.md` ako ne postoji
+
+### docs/ — uvek kreira
+
+Kreiraj `docs/adr/` i `docs/plans/` normalno — ovi direktorijumi obično ne postoje.
+
+### Commit poruka za merge
+
+```bash
+APD_ORCHESTRATOR_COMMIT=1 git commit -m "feat: dodaj APD framework u postojeći projekat {naziv}"
+```
+
+### Završna poruka za merge
+
+```
+APD framework je integrisan u {naziv}.
+
+Dodano:
+- APD Hard Rules u CLAUDE.md
+- Guard hook-ovi u settings.json
+- .claude/rules/ sa workflow-om i pravilima
+- Prvi APD agent ({stack}-builder)
+- ADR-0001 sa dokumentovanim stack odlukama
+
+VAŽNO — pregledaj ove fajlove:
+1. CLAUDE.md — proveri da merge nije pokvario strukturu
+2. settings.json — proveri da stari hook-ovi rade
+3. Postojeći agenti — dodaj guard-scope.sh hook ako želiš file-scope zaštitu
+```
+
+---
+
 ## Commit
 
-Posle generisanja SVIH fajlova, commituj eksplicitno po imenu:
+Posle generisanja SVIH fajlova (fresh install režim), commituj eksplicitno po imenu:
 
 ```bash
 APD_ORCHESTRATOR_COMMIT=1 git add \
