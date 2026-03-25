@@ -19,6 +19,13 @@ Pre bilo čega, proveri:
 
 Postavi svako pitanje pojedinačno. Čekaj odgovor pre sledećeg.
 
+### Pitanje 0: Putanja do APD template-a
+> Putanja do APD template repozitorijuma? (npr. ~/Projects/apd-template)
+
+Proveri da putanja postoji i da sadrži `.claude/rules/workflow.md`. Ako ne, obavesti korisnika da putanja nije validna.
+
+Ovu putanju koristi za čitanje univerzalnih fajlova (Grupa 1) — Read alatom čitaj direktno iz template repo-a i Write alatom piši u ciljni projekat.
+
 ### Pitanje 1: Naziv projekta
 > Kako se zove projekat?
 
@@ -55,117 +62,25 @@ Posle svih odgovora, generiši fajlove u dve grupe.
 
 ### Grupa 1: Kopiraj as-is (univerzalni fajlovi)
 
-Ovi fajlovi se kreiraju sa TAČNIM sadržajem iz template-a. NE menjaj ništa.
+Za svaki fajl u ovoj grupi: **Read** iz `{template putanja}/{fajl}`, zatim **Write** u ciljni projekat sa identičnim sadržajem. NE menjaj ništa.
 
-#### `.claude/rules/workflow.md`
+Za svaki fajl ispod: `Read` iz template putanje, `Write` u ciljni projekat. Sadržaj mora biti **identičan** — ne parafraziraj, ne skraćuj.
 
-Kopiraj CELOKUPAN sadržaj iz APD template workflow.md. Ovo uključuje:
-- HARD GATE sekciju
-- Spec karticu sa ADR poljem
-- Tri role agenata
-- Mikro-zadaci
-- Verifikacija pre "gotovo"
-- Human gate
-- Session memory update
-- Cross-layer verifikacija
-- Reasoning effort
+| Template putanja | Ciljni fajl |
+|-----------------|-------------|
+| `.claude/rules/workflow.md` | `.claude/rules/workflow.md` |
+| `.claude/scripts/guard-git.sh` | `.claude/scripts/guard-git.sh` |
+| `.claude/scripts/guard-scope.sh` | `.claude/scripts/guard-scope.sh` |
+| `.claude/skills/TEMPLATE.md` | `.claude/skills/TEMPLATE.md` |
+| `.claude/agents/TEMPLATE.md` | `.claude/agents/TEMPLATE.md` |
+| `.claude/memory/session-log.md` | `.claude/memory/session-log.md` |
+| `docs/adr/TEMPLATE.md` | `docs/adr/TEMPLATE.md` |
+| `docs/plans/TEMPLATE.md` | `docs/plans/TEMPLATE.md` |
 
-**NE skraćuj i NE parafraziraj. Kopiraj verbatim.**
-
-#### `.claude/scripts/guard-git.sh`
-
-Kopiraj CELOKUPAN sadržaj APD template guard-git.sh. Ovo uključuje:
-- jq provera
-- RAW_COMMAND čuvanje pre normalizacije
-- --no-verify blokada
-- Masovni staging blokada (git add ., -A, --all, -u, *)
-- git commit blokada bez APD_ORCHESTRATOR_COMMIT=1 prefiksa
-- git commit -a blokada
-- verify-all.sh poziv pre commit-a
-- git push blokada
-- AI potpis blokada
-- .claude/ zaštita
-- Destruktivne operacije blokada
-
-**NE skraćuj. Kopiraj verbatim.**
-
-#### `.claude/scripts/guard-scope.sh`
-
-Kopiraj CELOKUPAN sadržaj APD template guard-scope.sh. Ovo uključuje:
-- Allowed paths iz argumenata
-- jq provera
-- file_path ekstrakcija iz JSON-a
-- Apsolutna → relativna putanja konverzija
-- Trailing slash normalizacija
-- Blokada sa jasnom porukom
-
-**NE skraćuj. Kopiraj verbatim.**
-
-#### `.claude/skills/TEMPLATE.md`
-
-```markdown
----
-name: [skill-name]
-description: [Kada koristiti ovaj skill — jedna rečenica]
----
-
-# [Skill Name]
-
-## Kada koristiti
-
-- [Situacija 1]
-- [Situacija 2]
-
-## Konvencije
-
-### [Kategorija 1]
-
-- [Pravilo/pattern]
-- [Primer]
-
-## Primeri
-
-### Dobro
-
-[Primer koda koji poštuje konvenciju]
-
-### Loše
-
-[Primer koda koji krši konvenciju]
+Posle kopiranja, postavi execute permisije na shell skripte:
+```bash
+chmod +x .claude/scripts/guard-git.sh .claude/scripts/guard-scope.sh
 ```
-
-#### `.claude/agents/TEMPLATE.md`
-
-Kopiraj CELOKUPAN sadržaj APD template TEMPLATE.md za agente. Ovo uključuje:
-- Frontmatter sa name, description, tools, model, permissionMode, memory, hooks
-- Write|Edit hook sa guard-scope.sh i [DOZVOLJENE_PUTANJE] placeholder
-- Bash hook sa guard-git.sh i [APSOLUTNA_PUTANJA] placeholder
-- Body sa Stack, Arhitektura, Workflow, API Contract Rule, ZABRANJENO, Agent Memory sekcijama
-
-**NE skraćuj. Kopiraj verbatim.**
-
-#### `.claude/memory/session-log.md`
-
-```markdown
-# Session Log
-
-<!-- Svaki završen task dobija zapis ispod. Format: pogledaj .claude/rules/workflow.md sekcija 6. -->
-```
-
-#### `docs/adr/TEMPLATE.md`
-
-Kopiraj CELOKUPAN sadržaj APD template ADR TEMPLATE.md sa svim sekcijama:
-- Status, Datum, Zamenjuje, Zamenjen sa
-- Kontekst, Razmatrane opcije, Odluka, Posledice (Pozitivne, Negativne, Rizici)
-
-#### `docs/plans/TEMPLATE.md`
-
-Kopiraj CELOKUPAN sadržaj APD template plan TEMPLATE.md sa:
-- Goal, Architecture, Tech Stack header
-- File Map tabela
-- Task struktura sa Steps
-- Redosled izvršavanja
-- Finalna verifikacija
 
 ### Grupa 2: Generiši (popunjeni fajlovi)
 
