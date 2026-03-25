@@ -28,9 +28,22 @@ Pre SVAKOG taska (bez obzira na veličinu) kreirati mini-spec:
 **Rizici:** Šta može poći po zlu.
 **Rollback:** Kako vratiti ako pukne.
 **Human gate:** Da li zahteva odobrenje (API promene, migracije, auth, prod data).
+**ADR:** ADR-NNNN | Potreban | N/A
 ```
 
 Spec se deli sa korisnikom PRE implementacije. Korisnik odobrava ili koriguje.
+
+### Kada kreirati ADR
+
+Orkestrator predlaže kreiranje ADR-a kada task uključuje:
+- Uvođenje nove tehnologije ili biblioteke
+- Promena API dizajna ili komunikacionog paterna
+- Izbor između dva validna arhitekturna pristupa
+- Promena auth/security strategije
+- Migracija podataka ili promena šeme
+
+ADR se kreira PRE implementacije. Builder vidi ADR referencu u spec kartici.
+ADR se NE forsira — orkestrator predlaže, korisnik odlučuje.
 
 ## 2. Tri role agenata
 

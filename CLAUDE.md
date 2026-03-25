@@ -73,6 +73,13 @@ Spec → Builder → Reviewer → Verifier → Commit
 - **Verifikacija:** build + test + cross-layer contract + smoke test pre svakog commit-a
 - **Session memory:** posle svakog taska zapisati šta je pošlo po zlu i nova pravila
 
+### ADR (Architecture Decision Records)
+
+- Arhitekturne odluke se dokumentuju u `docs/adr/`
+- Immutable posle prihvatanja: kad se odluka promeni, novi ADR zamenjuje stari
+- Spec kartica referencira ADR ako task uključuje arhitekturnu odluku
+- Orkestrator predlaže ADR, korisnik odlučuje
+
 ### Plugini i alati
 
 **Pre implementacije:**
@@ -130,6 +137,7 @@ Spec → Builder → Reviewer → Verifier → Commit
 ├── tests/                           # [Testovi]
 ├── apps/                            # [Frontend/mobile]
 ├── docs/                            # [Dokumentacija]
+│   └── adr/                         # Architecture Decision Records
 └── .claude/                         # Claude Code okruženje (deljeni workflow)
     ├── agents/                      # Custom agenti
     ├── skills/                      # Convention snippet-ovi

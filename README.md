@@ -48,6 +48,9 @@ Spec kartica → Builder → Reviewer → Verifier → Commit → [Human gate] �
 
 CLAUDE.md                # Projektne instrukcije za Claude Code (PRILAGODITI)
 docs/
+├── adr/                 # Architecture Decision Records
+│   ├── TEMPLATE.md      # Šablon za ADR
+│   └── README.md        # Indeks svih ADR-ova
 └── plans/               # Implementacioni planovi
     └── TEMPLATE.md      # Šablon za plan
 ```
@@ -72,3 +75,4 @@ docs/
 | `conventions.md` | Imenovanje, struktura fajlova, error handling, API stil |
 | `agents/TEMPLATE.md` | Kreirati konkretne agente za svoje domene (vidi EXAMPLE-*) |
 | `settings.json` | Automatski konfiguriše `setup.sh` |
+| `docs/adr/TEMPLATE.md` | Kreirati ADR za svaku arhitekturnu odluku |
