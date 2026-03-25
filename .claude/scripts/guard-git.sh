@@ -15,6 +15,9 @@ if [ -z "$COMMAND" ]; then
   exit 0
 fi
 
+# Sačuvaj raw komandu pre normalizacije (za --no-verify detekciju)
+RAW_COMMAND="$COMMAND"
+
 # Normalizuj: kolapsiraj razmake, skini vodeći whitespace
 COMMAND=$(echo "$COMMAND" | tr -s ' ' | sed 's/^ //')
 
@@ -30,7 +33,7 @@ NORMALIZED_GIT=$(echo "$STRIPPED_CMD" | sed -E 's/git[[:space:]]+(-[A-Za-z][[:sp
 
 # Blokiraj --no-verify kao standalone flag (ne u commit poruci)
 # Matchuje --no-verify okružen razmakom ili na kraju stringa
-if echo "$COMMAND" | grep -qE '(^| )--no-verify( |$)'; then
+if echo "$RAW_COMMAND" | grep -qE '(^| )--no-verify( |$)'; then
   echo "BLOKIRANO: --no-verify nije dozvoljen. Hook-ovi moraju proći." >&2
   exit 2
 fi
