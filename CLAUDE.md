@@ -23,6 +23,34 @@
 ### Infrastruktura
 [Hosting, CI/CD, Docker...]
 
+## APD Hard Rules — NE KOMPRESOVATI, NE ZAOBILAZITI
+
+### Commit pravilo
+
+- Svaki git commit MORA koristiti prefix: `APD_ORCHESTRATOR_COMMIT=1 git commit ...`
+- Svaki git push MORA koristiti prefix: `APD_ORCHESTRATOR_COMMIT=1 git push ...`
+- Bez prefiksa → hook blokira. NE pokušavaj bez njega.
+
+### Pipeline redosled — OBAVEZAN
+
+Spec → Builder → Reviewer → Verifier → Commit
+
+- NIKADA preskočiti Reviewer, čak ni za "trivijalne" promene
+- NIKADA commitovati pre nego Verifier prođe
+
+### Agent scope
+
+- Builder agenti menjaju SAMO fajlove u svom domenu
+- SAMO orkestrator commituje, push-uje, komunicira sa korisnikom
+
+### Human gate
+
+- API promene, migracije, auth logika, deploy → korisnik MORA odobriti pre akcije
+
+### Session memory
+
+- Posle SVAKOG taska → append u .claude/memory/session-log.md
+
 ## Pravila
 
 ### Jezik i dokumentacija
