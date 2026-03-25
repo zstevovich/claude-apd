@@ -66,6 +66,9 @@ if echo "$NORMALIZED_GIT" | grep -qiE "git commit"; then
         exit 2
       fi
     fi
+    # Podsetnik za pipeline disciplinu
+    echo "⚠ PODSETNIK: Da li je Reviewer korak završen pre commit-a?" >&2
+    echo "  Pipeline: Spec → Builder → Reviewer → Verifier → Commit" >&2
     # Verifikacija prošla — dozvoli commit
     exit 0
   else
@@ -77,6 +80,12 @@ fi
 
 # --- git push ---
 if echo "$NORMALIZED_GIT" | grep -qiE "git push"; then
+  # Blokiraj force push — čak i sa prefiksom
+  if echo "$NORMALIZED_GIT" | grep -qE "git push.*(-f([[:space:]]|$)|--force([[:space:]]|$)|--force-with-lease([[:space:]]|$))"; then
+    echo "BLOKIRANO: git push --force nije dozvoljen. Koristi regularni push." >&2
+    echo "Ako zaista treba force push, uradi to ručno van Claude-a." >&2
+    exit 2
+  fi
   if echo "$COMMAND" | grep -qE "^APD_ORCHESTRATOR_COMMIT=1 "; then
     exit 0
   else
@@ -102,9 +111,15 @@ if echo "$NORMALIZED_GIT" | grep -qiE "git add.*\.claude"; then
   fi
 fi
 
-# Blokiraj destruktivne git operacije
-if echo "$NORMALIZED_GIT" | grep -qiE "git (reset[[:space:]]+--hard|clean[[:space:]]+-[fdx]|checkout[[:space:]]+(--[[:space:]]+)?[.*]|restore[[:space:]]|branch[[:space:]]+-[Dd]|stash[[:space:]]+drop)"; then
+# Blokiraj destruktivne git operacije (case-insensitive za većinu)
+if echo "$NORMALIZED_GIT" | grep -qiE "git (reset[[:space:]]+--hard|clean[[:space:]]+-[fdx]|checkout[[:space:]]+--[[:space:]]|checkout[[:space:]]+\.([[:space:]]|$)|restore[[:space:]]|stash[[:space:]]+drop|tag[[:space:]]+-d([[:space:]]|$))"; then
   echo "BLOKIRANO: Destruktivna git operacija nije dozvoljena." >&2
+  exit 2
+fi
+
+# branch -D (force delete) — MORA biti case-sensitive jer -d (safe) treba da prođe
+if echo "$NORMALIZED_GIT" | grep -qE "git branch[[:space:]]+-D([[:space:]]|$)"; then
+  echo "BLOKIRANO: git branch -D (force delete) nije dozvoljen. Koristi -d za safe delete." >&2
   exit 2
 fi
 
