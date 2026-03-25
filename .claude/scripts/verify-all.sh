@@ -9,6 +9,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_DIR" || exit 0
 
 ERRORS=()
+CHECKS_RAN=0
 
 # Detektuj promenjene fajlove (staged za commit, ili sve ako nema prethodnog commit-a)
 if git rev-parse HEAD &>/dev/null; then
@@ -29,6 +30,7 @@ if echo "$CHANGED_FILES" | grep -qE '^src/|^tests/'; then
     # PRIMER (Go):       go build ./... && go test ./...
     # PRIMER (.NET):     dotnet build && dotnet test
     #
+    # CHECKS_RAN=1
     # if ! YOUR_BUILD_COMMAND 2>&1; then
     #     ERRORS+=("Backend build FAILED")
     # fi
@@ -47,6 +49,7 @@ if echo "$CHANGED_FILES" | grep -qE '^apps/|^frontend/|^web/'; then
     # PRIMER (React/TS): cd apps/frontend && npx tsc --noEmit && npm test
     # PRIMER (Vue):      cd apps/frontend && npm run type-check && npm test
     #
+    # CHECKS_RAN=1
     # if ! YOUR_TYPECHECK_COMMAND 2>&1; then
     #     ERRORS+=("Frontend type check FAILED")
     # fi
@@ -63,6 +66,13 @@ if [ ${#ERRORS[@]} -gt 0 ]; then
         echo "  - $err"
     done
     exit 1
+fi
+
+# Failsafe: upozori ako nijedna provera nije konfigurisana
+if [ "$CHECKS_RAN" -eq 0 ]; then
+    echo "UPOZORENJE: verify-all.sh nema konfigurisanih provera!" >&2
+    echo "  Verifier faza ne testira ništa — konfiguriši build/test komande." >&2
+    echo "  Fajl: .claude/scripts/verify-all.sh" >&2
 fi
 
 echo "Verifikacija prošla"
