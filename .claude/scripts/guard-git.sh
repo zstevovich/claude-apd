@@ -28,10 +28,33 @@ NORMALIZED_GIT=$(echo "$STRIPPED_CMD" | sed -E 's/git[[:space:]]+(-[A-Za-z][[:sp
 # subagent hallucinate. Samo orkestrator sme koristiti ovaj prefix.
 # Ovo je "soft" guardrail — dovoljno robustan za praktičnu upotrebu.
 
+# Blokiraj --no-verify kao standalone flag (ne u commit poruci)
+# Matchuje --no-verify okružen razmakom ili na kraju stringa
+if echo "$COMMAND" | grep -qE '(^| )--no-verify( |$)'; then
+  echo "BLOKIRANO: --no-verify nije dozvoljen. Hook-ovi moraju proći." >&2
+  exit 2
+fi
+
+# Blokiraj masovni staging — forsira eksplicitno dodavanje fajlova po imenu
+# Regex koristi word boundary (razmak ili kraj stringa) da ne blokira fajlove kao .gitignore
+if echo "$NORMALIZED_GIT" | grep -qE "git add[[:space:]]+(\.([[:space:]]|$)|-[AuU]([[:space:]]|$)|--all([[:space:]]|$)|\*)"; then
+  echo "BLOKIRANO: git add . / git add -A / git add --all / git add -u / git add * nije dozvoljen." >&2
+  echo "Koristi: git add <fajl1> <fajl2> ..." >&2
+  exit 2
+fi
+
 # --- git commit ---
 if echo "$NORMALIZED_GIT" | grep -qiE "git commit"; then
   if echo "$COMMAND" | grep -qE "^APD_ORCHESTRATOR_COMMIT=1 "; then
+    # Blokiraj commit -a čak i sa prefixom — forsira eksplicitno staging
+    # Napomena: ovo je strožije od spec-a (koji traži blokadu samo bez prefiksa),
+    # ali je ispravno ponašanje — staging mora uvek biti eksplicitan
+    if echo "$NORMALIZED_GIT" | grep -qE "git commit[[:space:]]+.*(-a([[:space:]]|$)|--all([[:space:]]|$))"; then
+      echo "BLOKIRANO: git commit -a / --all nije dozvoljen. Stage-uj fajlove eksplicitno pre commit-a." >&2
+      exit 2
+    fi
     # Autorizovani commit — pokreni verifikaciju pre propuštanja
+    # VAŽNO: zadrži CELU postojeću logiku ispod (verify-all.sh poziv itd.)
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
     if [ -x "$SCRIPT_DIR/verify-all.sh" ]; then
       echo "→ Pokretanje verifikacije pre commit-a..." >&2
@@ -44,6 +67,7 @@ if echo "$NORMALIZED_GIT" | grep -qiE "git commit"; then
     exit 0
   else
     echo "BLOKIRANO: git commit dozvoljen samo sa APD_ORCHESTRATOR_COMMIT=1 prefixom." >&2
+    echo "Koristi: APD_ORCHESTRATOR_COMMIT=1 git commit -m \"opis promene\"" >&2
     exit 2
   fi
 fi
@@ -54,6 +78,7 @@ if echo "$NORMALIZED_GIT" | grep -qiE "git push"; then
     exit 0
   else
     echo "BLOKIRANO: git push dozvoljen samo sa APD_ORCHESTRATOR_COMMIT=1 prefixom." >&2
+    echo "Koristi: APD_ORCHESTRATOR_COMMIT=1 git push origin <branch>" >&2
     exit 2
   fi
 fi
