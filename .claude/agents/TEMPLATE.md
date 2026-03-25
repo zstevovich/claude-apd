@@ -30,6 +30,12 @@ hooks:
         - type: command
           command: "bash [APSOLUTNA_PUTANJA]/.claude/scripts/guard-git.sh"
           timeout: 5
+        - type: command
+          command: "bash [APSOLUTNA_PUTANJA]/.claude/scripts/guard-bash-scope.sh [DOZVOLJENE_PUTANJE]"
+          timeout: 5
+        - type: command
+          command: "bash [APSOLUTNA_PUTANJA]/.claude/scripts/guard-secrets.sh"
+          timeout: 5
 ---
 
 Ti si [uloga] za [PROJECT_NAME].

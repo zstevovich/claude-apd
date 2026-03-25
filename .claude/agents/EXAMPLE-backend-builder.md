@@ -17,6 +17,12 @@ hooks:
         - type: command
           command: "bash [APSOLUTNA_PUTANJA]/.claude/scripts/guard-git.sh"
           timeout: 5
+        - type: command
+          command: "bash [APSOLUTNA_PUTANJA]/.claude/scripts/guard-bash-scope.sh src/ tests/"
+          timeout: 5
+        - type: command
+          command: "bash [APSOLUTNA_PUTANJA]/.claude/scripts/guard-secrets.sh"
+          timeout: 5
 ---
 
 Ti si backend builder za [PROJECT_NAME].
