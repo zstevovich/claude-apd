@@ -15,8 +15,16 @@ permissionMode: bypassPermissions
 memory: project
 skills:
   - [skill-name-if-needed]
+# [DOZVOLJENE_PUTANJE] — zameni sa putanjama koje agent sme menjati, razdvojene razmakom
+# Primer: src/ tests/
+# guard-scope.sh blokira Write/Edit operacije van ovih putanja
 hooks:
   PreToolUse:
+    - matcher: "Write|Edit"
+      hooks:
+        - type: command
+          command: "bash [APSOLUTNA_PUTANJA]/.claude/scripts/guard-scope.sh [DOZVOLJENE_PUTANJE]"
+          timeout: 5
     - matcher: "Bash"
       hooks:
         - type: command

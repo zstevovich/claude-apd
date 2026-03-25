@@ -7,6 +7,11 @@ permissionMode: bypassPermissions
 memory: project
 hooks:
   PreToolUse:
+    - matcher: "Write|Edit"
+      hooks:
+        - type: command
+          command: "bash [APSOLUTNA_PUTANJA]/.claude/scripts/guard-scope.sh src/ tests/"
+          timeout: 5
     - matcher: "Bash"
       hooks:
         - type: command
