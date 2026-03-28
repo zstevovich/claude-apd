@@ -91,7 +91,7 @@ Za svaki fajl ispod: `Read` iz template putanje, `Write` u ciljni projekat. Sadr
 | `.claude/rules/workflow.md` | `.claude/rules/workflow.md` |
 | `.claude/scripts/guard-git.sh` | `.claude/scripts/guard-git.sh` |
 | `.claude/scripts/guard-scope.sh` | `.claude/scripts/guard-scope.sh` |
-| `.claude/skills/TEMPLATE.md` | `.claude/skills/TEMPLATE.md` |
+| `.claude/skills/TEMPLATE/SKILL.md` | `.claude/skills/TEMPLATE/SKILL.md` |
 | `.claude/agents/TEMPLATE.md` | `.claude/agents/TEMPLATE.md` |
 | `.claude/memory/session-log.md` | `.claude/memory/session-log.md` |
 | `docs/adr/TEMPLATE.md` | `docs/adr/TEMPLATE.md` |
@@ -476,7 +476,7 @@ Ovi fajlovi se prepisuju sa najnovijom verzijom iz template-a:
 | `.claude/scripts/guard-git.sh` | Guardrail-i mogu imati nove blokade |
 | `.claude/scripts/guard-scope.sh` | Scope guard može biti poboljšan |
 | `.claude/scripts/session-start.sh` | Zameni `[PROJECT_NAME]` sa postojećim nazivom projekta |
-| `.claude/skills/TEMPLATE.md` | Template može biti ažuriran |
+| `.claude/skills/TEMPLATE/SKILL.md` | Template može biti ažuriran |
 | `.claude/agents/TEMPLATE.md` | Agent template može imati nove hook-ove |
 | `docs/adr/TEMPLATE.md` | ADR format može biti proširen |
 | `docs/plans/TEMPLATE.md` | Plan format može biti proširen |
@@ -551,7 +551,7 @@ Posle generisanja SVIH fajlova (fresh install režim), commituj eksplicitno po i
 APD_ORCHESTRATOR_COMMIT=1 git add \
   .claude/rules/workflow.md .claude/rules/principles.md .claude/rules/conventions.md \
   .claude/scripts/guard-git.sh .claude/scripts/guard-scope.sh .claude/scripts/verify-all.sh .claude/scripts/session-start.sh \
-  .claude/settings.json .claude/skills/TEMPLATE.md .claude/agents/TEMPLATE.md .claude/agents/{stack}-builder.md \
+  .claude/settings.json .claude/skills/TEMPLATE/SKILL.md .claude/agents/TEMPLATE.md .claude/agents/{stack}-builder.md \
   .claude/memory/MEMORY.md .claude/memory/session-log.md .claude/memory/status.md \
   CLAUDE.md docs/adr/TEMPLATE.md docs/adr/README.md docs/adr/0001-inicijalni-stack.md docs/plans/TEMPLATE.md
 
