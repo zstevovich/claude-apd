@@ -19,6 +19,7 @@ Pokreni ovaj skill na novom projektu da konfigurišeš APD okruženje.
    - Jezik dokumentacije
    - Agenti koje treba kreirati (po sloju)
    - Figma URL (ako postoji dizajn)
+   - Miro board URL (ako postoji board za specifikacije/arhitekturu)
 
 2. **Zameni placeholder-e u svim fajlovima:**
    - `{{PROJECT_NAME}}` → ime projekta
@@ -33,6 +34,7 @@ Pokreni ovaj skill na novom projektu da konfigurišeš APD okruženje.
    - `{{AGENT_LIST}}` → lista agenata
    - `{{STACK}}` → kratki opis stack-a
    - `{{FIGMA_URL}}` → Figma link ili ukloni Figma sekciju iz CLAUDE.md ako nema dizajn
+   - `{{MIRO_BOARD_URL}}` → Miro link ili ukloni Miro sekciju iz CLAUDE.md ako nema board
 
 3. **Kreiraj agente iz TEMPLATE.md:**
    - Po jednog za svaki sloj koji korisnik navede
@@ -46,6 +48,7 @@ Pokreni ovaj skill na novom projektu da konfigurišeš APD okruženje.
 5. **Konfiguriši .mcp.json:**
    - Kopiraj iz `.mcp.json.example`
    - Zameni DB credentials
+   - Ako korisnik ima Miro board → dodaj Miro MCP: `claude mcp add --transport http miro https://mcp.miro.com`
 
 6. **Učini skripte executable:**
    ```bash
@@ -72,7 +75,9 @@ Claude: Portovi?
 Korisnik: 3000 API, 5433 PG, 6380 Redis, 5173 Frontend
 Claude: Imate li Figma dizajn?
 Korisnik: Da, https://www.figma.com/design/abc123/MyCRM
-Claude: [generiše sve fajlove, kreira agente, podešava hooks, konfiguriše Figma sekciju]
+Claude: Imate li Miro board za specifikacije/arhitekturu?
+Korisnik: Da, https://miro.com/app/board/xyz789
+Claude: [generiše sve fajlove, kreira agente, podešava hooks, konfiguriše Figma i Miro sekcije, dodaje Miro MCP]
 ```
 
 ## Posle init-a

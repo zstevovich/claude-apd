@@ -17,6 +17,7 @@
 | Frontend | {{FRONTEND_STACK}} |
 | Mobile | {{MOBILE_STACK}} (ako postoji) |
 | Design | {{FIGMA_URL}} (ako postoji) |
+| Board | {{MIRO_BOARD_URL}} (ako postoji) |
 
 ## Portovi (lokalni razvoj)
 
@@ -88,6 +89,17 @@ Posle SVAKOG taska → append u .claude/memory/session-log.md
 - Pre implementacije UI komponente — uvek proveri da li postoji Figma dizajn
 - Builder agent koji radi frontend MORA koristiti `get_design_context` za dizajn kontekst
 - Dizajn tokeni i boje iz Figma-e su izvor istine — ne izmišljaj vrednosti
+
+## Miro board
+
+<!-- Obriši ovu sekciju ako projekat nema Miro board -->
+
+- **Miro board:** {{MIRO_BOARD_URL}}
+- Miro MCP čita board sadržaj — sticky notes, frames, dijagrame, dokumente
+- Pre kreiranja spec kartice — proveri da li postoji relevantan sadržaj na Miro boardu
+- Orkestrator može čitati taskove, flow dijagrame i arhitekturu direktno sa boarda
+- Za vizualizaciju arhitekture ili procesa — kreiraj dijagram na Miro boardu
+- Instalacija: `claude mcp add --transport http miro https://mcp.miro.com`
 
 ## Anti-patterns
 

@@ -413,6 +413,49 @@ Ako projekat ima Figma dizajn, APD ga integriše u workflow:
 - Ne izmišljaj vrednosti — koristi `get_design_context`
 - Ako nema Figma dizajna — obriši Figma sekciju iz `CLAUDE.md`
 
+## Miro integracija (opciono)
+
+Ako projekat koristi Miro za specifikacije, arhitekturu ili planiranje, APD ga integriše u workflow.
+
+### Setup
+
+```bash
+claude mcp add --transport http miro https://mcp.miro.com
+```
+
+Posle toga: `/mcp auth` za OAuth autentifikaciju sa Miro nalogom.
+
+Alternativno, instaliraj Miro skill-ove:
+```bash
+npx skills add miroapp/miro-ai
+```
+
+### Mogućnosti
+
+| Akcija | Opis |
+|--------|------|
+| Čitaj board | Structured summary — sticky notes, frames, dijagrami, dokumenti |
+| Kreiraj dijagram | Iz tekst opisa, auto-detect tip (flowchart, sequence, ER...) |
+| Kreiraj dokument | Markdown dokument na boardu |
+| Kreiraj tabelu | Sa tipovanim kolonama |
+| Explore board | Listaj item-e po frameovima i tipovima |
+
+### Kako se uklapa u APD pipeline
+
+| APD faza | Miro uloga |
+|----------|------------|
+| **Pre spec-a** | Orkestrator čita Miro board → generiše spec karticu iz sticky notes/frameova |
+| **Spec** | Wireframe-ovi i flow dijagrami sa boarda kao input za spec |
+| **Arhitektura** | System dijagram na boardu — živi dokument koji se ažurira |
+| **Review** | Vizuelizacija realizovane arhitekture posle implementacije |
+| **Planiranje** | Task board sa sticky notes → orkestrator parsira u pipeline taskove |
+
+**Pravila kad postoji Miro board:**
+- Pre kreiranja spec kartice — proveri da li postoji relevantan sadržaj na boardu
+- Miro board je izvor istine za procese i arhitekturu
+- Orkestrator može kreirati dijagrame na boardu za dokumentaciju
+- Ako nema Miro boarda — obriši Miro sekciju iz `CLAUDE.md`
+
 ## Memorija — dva sistema
 
 | | APD memorija (`.claude/memory/`) | Claude auto memorija (`~/.claude/projects/`) |
