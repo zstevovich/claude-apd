@@ -134,14 +134,34 @@ chmod +x .claude/scripts/*.sh
 ### 5. Verifikuj
 
 ```bash
+# Kompletna funkcionalna verifikacija (guard testovi, pipeline end-to-end, struktura)
+bash .claude/scripts/verify-apd.sh
+
+# Očekivan rezultat:
+# ╔══════════════════════════════════════╗
+# ║  PASS: 49  │ FAIL: 0   │ WARN: 0       ║
+# ╚══════════════════════════════════════╝
+# APD JE POTPUNO KONFIGURISAN. Spreman za rad.
+```
+
+`verify-apd.sh` testira 10 kategorija:
+
+| # | Kategorija | Šta proverava |
+|---|-----------|---------------|
+| 1 | Preduslovi | jq, git, git repo |
+| 2 | Struktura | Direktorijumi, skripte (executable), memory fajlovi |
+| 3 | Settings | Hook registracija, attribution prazna |
+| 4 | Placeholder-i | Nijedan `{{...}}` ne sme ostati |
+| 5 | CLAUDE.md | Obavezne sekcije (Stack, APD, Pipeline, Guardrails...) |
+| 6 | Agenti | Frontmatter, model, guard-scope/git/secrets registrovani |
+| 7 | Guard testovi | Funkcionalno testira svaki guard (blokira/propušta) |
+| 8 | Pipeline E2E | Spec → Builder → Reviewer → Verifier → gate pass + rollback |
+| 9 | verify-all.sh | Da li su build/test komande konfigurisane |
+| 10 | Gitignore | .pipeline/ i settings.local.json zaštićeni |
+
+Za brzu statičku proveru (bez funkcionalnih testova):
+```bash
 bash .claude/scripts/test-hooks.sh
-# → PASS: 15 | FAIL: 0 | WARN: 3
-
-bash .claude/scripts/pipeline-advance.sh status
-# → Pipeline status: [nema aktivnog taska]
-
-bash .claude/scripts/session-start.sh
-# → === Ime Projekta ===
 ```
 
 ## Četiri role
@@ -216,7 +236,7 @@ Format: orkestrator prikaže diff summary → korisnik kaže "ok" → tek onda a
 
 APD koristi mehaničke guardrail-e (hook skripte) koji blokiraju kršenja čak i kad agent "zaboravi" pravila.
 
-### Skripte (11)
+### Skripte (12)
 
 | Skripta | Funkcija |
 |---------|----------|
@@ -225,7 +245,8 @@ APD koristi mehaničke guardrail-e (hook skripte) koji blokiraju kršenja čak i
 | `guard-bash-scope.sh` | Blokira bash write van scope-a |
 | `guard-secrets.sh` | Blokira pristup osetljivim fajlovima |
 | `guard-lockfile.sh` | Blokira modifikaciju lock fajlova |
-| `test-hooks.sh` | Verifikuje da su hook-ovi i skripte ispravno konfigurisani |
+| `test-hooks.sh` | Brza statička provera (fajlovi, JSON, placeholder-i) |
+| `verify-apd.sh` | Kompletna funkcionalna verifikacija (guard testovi, pipeline E2E, agenti) |
 | `pipeline-advance.sh` | Pipeline flag sistem sa timestampovima, rollback-om i skip log-om |
 | `pipeline-gate.sh` | Blokira commit bez svih 4 pipeline koraka |
 | `rotate-session-log.sh` | Automatski arhivira stare session log entry-je |
