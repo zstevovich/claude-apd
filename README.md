@@ -457,6 +457,81 @@ Zameni:
 | mobile | mobile/ | sonnet |
 | devops | docker/ .github/ | sonnet |
 
+### CQRS arhitektura — agenti po odgovornosti
+
+CQRS prirodno deli kod na write (Command) i read (Query) stranu. APD enforceuje tu granicu — guard-scope mehanički sprečava da command agent dira read modele i obrnuto.
+
+#### CQRS agenti — .NET (MediatR / Wolverine)
+
+| Agent | Scope | Odgovornost |
+|-------|-------|------------|
+| command-builder | src/Commands/ src/Domain/ src/Validators/ | Command handleri, agregati, validacija |
+| query-builder | src/Queries/ src/ReadModels/ | Query handleri, read modeli, projekcije |
+| event-builder | src/Events/ src/Projections/ src/Subscribers/ | Event handleri, projekcije, denormalizacija |
+| infra-builder | src/Infrastructure/ src/Persistence/ | EventStore, MessageBus, repozitorijumi |
+| testing | tests/ | Unit + integration testovi |
+
+#### CQRS agenti — Java (Axon Framework / Spring)
+
+| Agent | Scope | Odgovornost |
+|-------|-------|------------|
+| command-builder | src/main/java/**/command/ src/main/java/**/aggregate/ | Command handleri, agregati |
+| query-builder | src/main/java/**/query/ src/main/java/**/projection/ | Query handleri, projekcije |
+| event-builder | src/main/java/**/event/ src/main/java/**/saga/ | Event handleri, sage |
+| infra-builder | src/main/java/**/config/ src/main/resources/ | Axon konfiguracija, persistence |
+| testing | src/test/ | Testovi |
+
+#### CQRS agenti — Node.js (NestJS CQRS)
+
+| Agent | Scope | Odgovornost |
+|-------|-------|------------|
+| command-builder | src/commands/ src/domain/ src/validators/ | Command handleri, agregati |
+| query-builder | src/queries/ src/read-models/ | Query handleri, read modeli |
+| event-builder | src/events/ src/sagas/ | Event handleri, sage |
+| infra-builder | src/infrastructure/ src/config/ | EventStore, konfiguracija |
+| testing | test/ | Testovi |
+
+#### Spec kartica za CQRS — Command
+
+```
+## [CreateOrder Command]
+**Tip:** Command
+**Cilj:** Kreiranje narudžbine sa validacijom dostupnosti artikala.
+**Handler:** OrderCommandHandler
+**Agregat:** OrderAggregate
+**Validacija:** OrderValidator — artikli postoje, količina > 0, korisnik aktivan.
+**Emitovani eventi:** OrderCreated, InventoryReserved
+**Pogođene projekcije:** OrderSummaryView, InventoryView
+**Van scope-a:** Query strana — ne menjamo read modele direktno.
+**Rollback:** Kompenzacioni event OrderCancelled ako InventoryReserved failuje.
+```
+
+#### Spec kartica za CQRS — Query
+
+```
+## [GetOrderSummary Query]
+**Tip:** Query
+**Cilj:** Prikaz sumarnog pregleda narudžbine iz denormalizovanog read modela.
+**Handler:** OrderQueryHandler
+**Read model:** OrderSummaryView
+**Zavisi od evenata:** OrderCreated, OrderStatusChanged, OrderItemAdded
+**Van scope-a:** Command strana — ne menjamo agregate.
+**Rizik:** Read model nije ažuran ako projekcija kasni (eventual consistency).
+```
+
+#### CQRS cross-layer contract verifikacija
+
+Standardna cross-layer verifikacija (backend ↔ frontend) za CQRS projekte dobija dodatne provere:
+
+| Contract | Izvor istine | Verifikacija |
+|----------|-------------|-------------|
+| Command → Event | Event klasa | Svaki command handler mora emitovati deklarisane evente |
+| Event → Projection | Event klasa | Projekcija mora handlovati SVE evente koje konzumira |
+| Query → Read Model | Read Model klasa | Query response mora odgovarati read model strukturi |
+| Read Model → Frontend | Read Model klasa | Frontend tip mora biti 1:1 sa read modelom |
+
+**Ključno pravilo:** Nikada ne kreiraj frontend tip iz specifikacije ili Figma dizajna — uvek čitaj read model iz koda. Read model je jedini izvor istine za query stranu.
+
 ## Session memory
 
 Posle svakog završenog taska, orkestrator append-uje zapis u `memory/session-log.md`:
