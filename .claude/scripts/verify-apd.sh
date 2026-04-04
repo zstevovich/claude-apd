@@ -15,6 +15,19 @@ FAIL=0
 WARN=0
 SECTION=""
 
+# Summary podaci — prikupljaju se tokom provera
+SUM_PROJECT=""
+SUM_AGENTS=""
+SUM_AGENT_NAMES=""
+SUM_SCRIPTS_OK=0
+SUM_SCRIPTS_TOTAL=0
+SUM_GUARDS=""
+SUM_PIPELINE="nepoznat"
+SUM_VERIFY_ALL="nije konfigurisan"
+SUM_MEMORY=0
+SUM_GITIGNORE=""
+SUM_ATTRIBUTION=""
+
 pass() { echo "  ✓ $1"; ((PASS++)); }
 fail() { echo "  ✗ $1"; ((FAIL++)); }
 warn() { echo "  ! $1"; ((WARN++)); }
@@ -71,8 +84,12 @@ done
 # CLAUDE.md
 if [ -f "$PROJECT_DIR/CLAUDE.md" ]; then
     pass "CLAUDE.md postoji"
+    # Izvuci ime projekta (prvi heading)
+    SUM_PROJECT=$(head -5 "$PROJECT_DIR/CLAUDE.md" | grep '^# ' | head -1 | sed 's/^# //')
+    [ -z "$SUM_PROJECT" ] && SUM_PROJECT="(nepoznat)"
 else
     fail "CLAUDE.md NE POSTOJI — kreiran je pri /apd-init"
+    SUM_PROJECT="(nema CLAUDE.md)"
 fi
 
 # Skripte — postoje i executable
@@ -84,6 +101,8 @@ REQUIRED_SCRIPTS=(
 )
 
 SCRIPTS_OK=true
+SUM_SCRIPTS_TOTAL=${#REQUIRED_SCRIPTS[@]}
+SUM_SCRIPTS_OK=0
 for script in "${REQUIRED_SCRIPTS[@]}"; do
     if [ ! -f "$CLAUDE_DIR/scripts/$script" ]; then
         fail "$script NE POSTOJI"
@@ -91,6 +110,8 @@ for script in "${REQUIRED_SCRIPTS[@]}"; do
     elif [ ! -x "$CLAUDE_DIR/scripts/$script" ]; then
         fail "$script NIJE executable — pokreni: chmod +x .claude/scripts/*.sh"
         SCRIPTS_OK=false
+    else
+        ((SUM_SCRIPTS_OK++))
     fi
 done
 if [ "$SCRIPTS_OK" = true ]; then
@@ -101,6 +122,7 @@ fi
 for file in MEMORY.md status.md session-log.md pipeline-skip-log.md; do
     if [ -f "$CLAUDE_DIR/memory/$file" ]; then
         pass "memory/$file"
+        ((SUM_MEMORY++))
     else
         fail "memory/$file NE POSTOJI"
     fi
@@ -151,10 +173,13 @@ else
         PR_ATTR=$(jq -r '.attribution.pr // "N/A"' "$SETTINGS" 2>/dev/null)
         if [ "$COMMIT_ATTR" = "" ] && [ "$PR_ATTR" = "" ]; then
             pass "Attribution prazna (bez AI potpisa)"
+            SUM_ATTRIBUTION="prazna (OK)"
         elif [ "$COMMIT_ATTR" = "N/A" ]; then
             warn "Attribution sekcija ne postoji u settings.json"
+            SUM_ATTRIBUTION="nije definisana"
         else
             warn "Attribution nije prazna — AI potpis može završiti u commitima"
+            SUM_ATTRIBUTION="AKTIVNA (proveri!)"
         fi
     fi
 fi
@@ -272,8 +297,12 @@ done
 
 if [ "$AGENT_COUNT" -eq 0 ]; then
     warn "Nema definisanih agenata (samo TEMPLATE.md)"
+    SUM_AGENTS="0"
+    SUM_AGENT_NAMES="nema"
 else
     pass "$AGENT_COUNT agent(a) ukupno"
+    SUM_AGENTS="$AGENT_COUNT"
+    SUM_AGENT_NAMES=$(find "$CLAUDE_DIR/agents" -name "*.md" ! -name "TEMPLATE.md" -exec basename {} .md \; 2>/dev/null | sort | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g')
 fi
 
 # ============================================================
@@ -281,11 +310,15 @@ fi
 # ============================================================
 section "7. Guard testovi (funkcionalni)"
 
+# Prikupljaj guard summary
+GUARD_LIST=()
+
 # guard-git: blokira git commit bez prefiksa
 RESULT=$(echo '{"tool_input":{"command":"git commit -m test"}}' | bash "$CLAUDE_DIR/scripts/guard-git.sh" 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-git blokira: git commit bez APD_ORCHESTRATOR_COMMIT=1"
+    GUARD_LIST+=("git")
 else
     fail "guard-git NE BLOKIRA git commit bez prefiksa (exit: $EXIT_CODE)"
 fi
@@ -341,6 +374,7 @@ RESULT=$(echo "{\"tool_input\":{\"file_path\":\"$PROJECT_DIR/outside/file.ts\"}}
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-scope blokira: fajl van dozvoljenog scope-a"
+    GUARD_LIST+=("scope")
 else
     fail "guard-scope NE BLOKIRA fajl van scope-a (exit: $EXIT_CODE)"
 fi
@@ -359,6 +393,7 @@ RESULT=$(echo '{"tool_input":{"command":"echo test > /tmp/outside.txt"}}' | bash
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-bash-scope blokira: bash write van scope-a"
+    GUARD_LIST+=("bash-scope")
 else
     fail "guard-bash-scope NE BLOKIRA bash write van scope-a (exit: $EXIT_CODE)"
 fi
@@ -368,6 +403,7 @@ RESULT=$(echo "{\"tool_input\":{\"file_path\":\"$PROJECT_DIR/package-lock.json\"
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-lockfile blokira: package-lock.json"
+    GUARD_LIST+=("lockfile")
 else
     fail "guard-lockfile NE BLOKIRA package-lock.json (exit: $EXIT_CODE)"
 fi
@@ -377,9 +413,12 @@ RESULT=$(echo "{\"tool_input\":{\"file_path\":\"$PROJECT_DIR/.env.production\"}}
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-secrets blokira: .env.production"
+    GUARD_LIST+=("secrets")
 else
     fail "guard-secrets NE BLOKIRA .env.production (exit: $EXIT_CODE)"
 fi
+
+SUM_GUARDS=$(printf '%s, ' "${GUARD_LIST[@]}" | sed 's/, $//')
 
 # ============================================================
 # 8. PIPELINE END-TO-END TEST
@@ -470,8 +509,10 @@ RESULT=$(bash "$CLAUDE_DIR/scripts/pipeline-gate.sh" 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "pipeline-gate blokira posle rollback-a"
+    SUM_PIPELINE="funkcionalan (E2E + rollback)"
 else
     fail "pipeline-gate NE BLOKIRA posle rollback-a (exit: $EXIT_CODE)"
+    SUM_PIPELINE="ima grešaka"
 fi
 
 # Čišćenje
@@ -510,9 +551,11 @@ if [ -f "$CLAUDE_DIR/scripts/verify-all.sh" ]; then
     UNCOMMENTED_CHECKS=$(grep -cE '^\s*(if.*CHANGED_FILES|dotnet |npm |python |go |php )' "$CLAUDE_DIR/scripts/verify-all.sh" 2>/dev/null || echo 0)
     if [ "$UNCOMMENTED_CHECKS" -gt 0 ]; then
         pass "verify-all.sh ima aktivne build/test provere ($UNCOMMENTED_CHECKS)"
+        SUM_VERIFY_ALL="aktivan ($UNCOMMENTED_CHECKS provera)"
     else
         warn "verify-all.sh je potpuno zakomentarisan — verifikacija nije aktivna"
         echo "       Otkomentiraj relevantne sekcije za svoj stack."
+        SUM_VERIFY_ALL="zakomentarisan"
     fi
 fi
 
@@ -521,29 +564,53 @@ fi
 # ============================================================
 section "10. Gitignore"
 
+GIT_IGNORE_ITEMS=()
 if [ -f "$PROJECT_DIR/.gitignore" ]; then
     if grep -q '\.claude/settings\.local\.json' "$PROJECT_DIR/.gitignore" 2>/dev/null; then
         pass ".gitignore: settings.local.json"
+        GIT_IGNORE_ITEMS+=("local.json")
     else
         warn ".gitignore ne sadrži .claude/settings.local.json"
     fi
 
     if grep -q '\.claude/\.pipeline' "$PROJECT_DIR/.gitignore" 2>/dev/null; then
         pass ".gitignore: .claude/.pipeline/"
+        GIT_IGNORE_ITEMS+=(".pipeline/")
     else
         fail ".gitignore ne sadrži .claude/.pipeline/ — pipeline flags mogu završiti u repo-u"
     fi
 else
     fail ".gitignore NE POSTOJI"
 fi
+SUM_GITIGNORE=$(printf '%s, ' "${GIT_IGNORE_ITEMS[@]}" | sed 's/, $//')
+[ -z "$SUM_GITIGNORE" ] && SUM_GITIGNORE="nepotpun"
 
 # ============================================================
-# REZULTAT
+# SUMMARY TABELA
 # ============================================================
+
+# Skrati agent imena ako je lista predugačka
+AGENT_DISPLAY="$SUM_AGENT_NAMES"
+if [ ${#AGENT_DISPLAY} -gt 40 ]; then
+    AGENT_DISPLAY="${AGENT_DISPLAY:0:37}..."
+fi
+
 echo ""
-echo "╔══════════════════════════════════════╗"
-echo "║  PASS: $(printf '%-3s' $PASS) │ FAIL: $(printf '%-3s' $FAIL) │ WARN: $(printf '%-3s' $WARN)     ║"
-echo "╚══════════════════════════════════════╝"
+echo "╔══════════════════════════════════════════════════════╗"
+echo "║              APD — Setup Summary                     ║"
+echo "╠══════════════════════════════════════════════════════╣"
+printf "║  %-15s │ %-36s ║\n" "Projekat"       "$SUM_PROJECT"
+printf "║  %-15s │ %-36s ║\n" "Agenti"         "$SUM_AGENTS ($AGENT_DISPLAY)"
+printf "║  %-15s │ %-36s ║\n" "Skripte"        "$SUM_SCRIPTS_OK/$SUM_SCRIPTS_TOTAL"
+printf "║  %-15s │ %-36s ║\n" "Guard-ovi"      "$SUM_GUARDS"
+printf "║  %-15s │ %-36s ║\n" "Pipeline"       "$SUM_PIPELINE"
+printf "║  %-15s │ %-36s ║\n" "verify-all.sh"  "$SUM_VERIFY_ALL"
+printf "║  %-15s │ %-36s ║\n" "Memory fajlovi" "$SUM_MEMORY/4"
+printf "║  %-15s │ %-36s ║\n" "Gitignore"      "$SUM_GITIGNORE"
+printf "║  %-15s │ %-36s ║\n" "Attribution"    "$SUM_ATTRIBUTION"
+echo "╠══════════════════════════════════════════════════════╣"
+printf "║  PASS: %-3s │ FAIL: %-3s │ WARN: %-3s               ║\n" "$PASS" "$FAIL" "$WARN"
+echo "╚══════════════════════════════════════════════════════╝"
 
 if [ "$FAIL" -gt 0 ]; then
     echo ""
