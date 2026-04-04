@@ -8,45 +8,114 @@ MEMORY_DIR=".claude/memory"
 PIPELINE_DIR=".claude/.pipeline"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# ===== CANARY — brzi health check =====
-CANARY_FAIL=0
-canary_fail() { echo "  ⚠ CANARY: $1"; ((CANARY_FAIL++)); }
+# ===== SELF-HEALING — detektuj i popravi probleme =====
+HEALED=0
+BLOCKED=0
 
-# jq — bez njega guard-ovi ne rade
+heal()  { echo "  ✓ HEALED: $1"; ((HEALED++)); }
+block() { echo "  ✗ BLOCKED: $1"; ((BLOCKED++)); }
+
+# 1. jq — bez njega guard-ovi ne rade (ne može se auto-popraviti)
 if ! command -v jq &>/dev/null; then
-    canary_fail "jq NIJE instaliran — guard skripte neće raditi!"
+    block "jq NIJE instaliran — guard skripte neće raditi!"
+    echo "    → Instaliraj: brew install jq (macOS) / apt install jq (Linux)"
 fi
 
-# Kritične skripte — postoje i executable
-for script in guard-git.sh pipeline-advance.sh pipeline-gate.sh; do
-    if [ ! -x "$SCRIPT_DIR/$script" ]; then
-        canary_fail "$script nedostaje ili nije executable"
+# 2. Skripte — ako postoje ali nisu executable, popravi automatski
+for script in guard-git.sh guard-scope.sh guard-bash-scope.sh guard-secrets.sh guard-lockfile.sh pipeline-advance.sh pipeline-gate.sh verify-all.sh session-start.sh rotate-session-log.sh verify-apd.sh verify-contracts.sh; do
+    SCRIPT_PATH="$SCRIPT_DIR/$script"
+    if [ -f "$SCRIPT_PATH" ] && [ ! -x "$SCRIPT_PATH" ]; then
+        chmod +x "$SCRIPT_PATH" 2>/dev/null
+        if [ -x "$SCRIPT_PATH" ]; then
+            heal "$script nije bio executable — popravljeno (chmod +x)"
+        else
+            block "$script nije executable i ne može se popraviti (dozvole?)"
+        fi
+    elif [ ! -f "$SCRIPT_PATH" ]; then
+        # Samo kritične skripte su blocker
+        case "$script" in
+            guard-git.sh|pipeline-advance.sh|pipeline-gate.sh)
+                block "$script NEDOSTAJE — pipeline neće raditi"
+                ;;
+        esac
     fi
 done
 
-# settings.json — validan JSON
-if [ -f "$PROJECT_DIR/.claude/settings.json" ]; then
-    if ! jq empty "$PROJECT_DIR/.claude/settings.json" 2>/dev/null; then
-        canary_fail "settings.json NIJE validan JSON (merge conflict?)"
+# 3. settings.json — detektuj merge conflict markere
+SETTINGS_FILE="$PROJECT_DIR/.claude/settings.json"
+if [ -f "$SETTINGS_FILE" ]; then
+    if grep -qE '^(<<<<<<<|=======|>>>>>>>)' "$SETTINGS_FILE" 2>/dev/null; then
+        CONFLICT_LINE=$(grep -nE '^(<<<<<<<|=======|>>>>>>>)' "$SETTINGS_FILE" | head -1 | cut -d: -f1)
+        block "settings.json ima merge conflict (linija $CONFLICT_LINE) — reši ručno"
+    elif ! jq empty "$SETTINGS_FILE" 2>/dev/null; then
+        block "settings.json NIJE validan JSON — proveri sintaksu"
     fi
 fi
 
-# Stale pipeline — .done fajlovi stariji od 24h
+# 4. Stale pipeline — flags stariji od 24h
 if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
     OLDEST_FLAG=$(ls -t "$PIPELINE_DIR"/*.done 2>/dev/null | tail -1)
     if [ -n "$OLDEST_FLAG" ]; then
         FLAG_AGE=$(( $(date +%s) - $(stat -f %m "$OLDEST_FLAG" 2>/dev/null || stat -c %Y "$OLDEST_FLAG" 2>/dev/null || echo $(date +%s)) ))
         if [ "$FLAG_AGE" -gt 86400 ]; then
-            canary_fail "Pipeline flags stariji od 24h — prethodna sesija crashovala? Pokreni: pipeline-advance.sh reset"
+            # Prikupi kontekst pre reset-a
+            STALE_TASK="[nepoznat]"
+            STALE_STEP="spec"
+            if [ -f "$PIPELINE_DIR/spec.done" ]; then
+                STALE_TASK=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done" 2>/dev/null)
+            fi
+            for step in verifier reviewer builder spec; do
+                if [ -f "$PIPELINE_DIR/$step.done" ]; then
+                    STALE_STEP="$step"
+                    break
+                fi
+            done
+
+            STALE_HOURS=$((FLAG_AGE / 3600))
+            heal "Stale pipeline detektovan (${STALE_HOURS}h star)"
+            echo "    → Task: $STALE_TASK (poslednji korak: $STALE_STEP)"
+            echo "    → Automatski resetujem..."
+            bash "$SCRIPT_DIR/pipeline-advance.sh" reset >/dev/null 2>&1
+            echo "    → Pipeline resetovan. Spreman za novi task."
         fi
     fi
 fi
 
-if [ "$CANARY_FAIL" -gt 0 ]; then
-    echo "╔═══════════════════════════════════════════╗"
-    echo "║  ⚠ APD CANARY: $CANARY_FAIL problem(a) detektovan(o)    ║"
-    echo "║  Pokreni: bash .claude/scripts/verify-apd.sh   ║"
-    echo "╚═══════════════════════════════════════════╝"
+# 5. Nedovršen pipeline — prikaži gde je stao i šta je sledeće
+if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
+    # Pipeline postoji ali nije stale — prikaži kontekst
+    INCOMPLETE=false
+    NEXT_STEP=""
+    for step in spec builder reviewer verifier; do
+        if [ ! -f "$PIPELINE_DIR/$step.done" ]; then
+            INCOMPLETE=true
+            NEXT_STEP="$step"
+            break
+        fi
+    done
+
+    if [ "$INCOMPLETE" = true ] && [ -n "$NEXT_STEP" ]; then
+        CURRENT_TASK="[nepoznat]"
+        if [ -f "$PIPELINE_DIR/spec.done" ]; then
+            CURRENT_TASK=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done" 2>/dev/null)
+        fi
+        echo "  → Pipeline u toku: $CURRENT_TASK — sledeći korak: $NEXT_STEP"
+    fi
+fi
+
+# Prikaži summary
+if [ "$HEALED" -gt 0 ] || [ "$BLOCKED" -gt 0 ]; then
+    echo ""
+    if [ "$BLOCKED" -gt 0 ]; then
+        echo "╔═══════════════════════════════════════════════════╗"
+        printf "║  ⚠ APD: %d popravljeno, %d zahteva pažnju           ║\n" "$HEALED" "$BLOCKED"
+        echo "║  Pokreni: bash .claude/scripts/verify-apd.sh      ║"
+        echo "╚═══════════════════════════════════════════════════╝"
+    else
+        echo "╔═══════════════════════════════════════════════════╗"
+        printf "║  ✓ APD: %d problem(a) automatski popravljeno        ║\n" "$HEALED"
+        echo "╚═══════════════════════════════════════════════════╝"
+    fi
     echo ""
 fi
 # ========================================
