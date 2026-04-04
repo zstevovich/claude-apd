@@ -362,6 +362,40 @@ Zameni:
 | testing | tests/ __tests__/ | sonnet |
 | devops | docker/ .github/ | sonnet |
 
+#### Java / Spring Boot
+| Agent | Scope | Model |
+|-------|-------|-------|
+| backend-api | src/main/java/ src/test/ | sonnet |
+| database | src/main/resources/db/ src/main/java/**/repository/ | sonnet |
+| frontend | frontend/ | sonnet |
+| mobile | mobile/ | sonnet |
+| testing | src/test/ | sonnet |
+| devops | docker/ .github/ | sonnet |
+
+#### Python / Django
+| Agent | Scope | Model |
+|-------|-------|-------|
+| backend | apps/ | sonnet |
+| frontend | frontend/ templates/ static/ | sonnet |
+| testing | tests/ | sonnet |
+| devops | docker/ .github/ | sonnet |
+
+#### Python / FastAPI
+| Agent | Scope | Model |
+|-------|-------|-------|
+| backend | app/ | sonnet |
+| frontend | frontend/ | sonnet |
+| testing | tests/ | sonnet |
+| devops | docker/ .github/ | sonnet |
+
+#### Go
+| Agent | Scope | Model |
+|-------|-------|-------|
+| backend | internal/ cmd/ | sonnet |
+| frontend | web/ | sonnet |
+| testing | internal/ cmd/ (test files) | sonnet |
+| devops | docker/ .github/ deploy/ | sonnet |
+
 #### PHP / Symfony
 | Agent | Scope | Model |
 |-------|-------|-------|
