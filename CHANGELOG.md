@@ -1,5 +1,31 @@
 # Changelog
 
+## v2.3 — 2026-04-04
+
+Security and reliability fixes based on independent framework audit.
+
+### Bug fixes
+
+- **CRITICAL: Pipeline reset timing** — moved pipeline reset from PreToolUse (before commit) to PostToolUse (after successful commit). Previously, if `git commit` failed after guard-git approved it (merge conflict, disk full, native pre-commit hook), the pipeline was already reset and the next commit would bypass pipeline checks. Now `pipeline-post-commit.sh` runs only after successful commit execution
+- **guard-secrets coverage** — added guard-secrets.sh to `Read` and `Write|Edit` matchers in agent TEMPLATE.md. Previously, agents could `Read .env.production` or `Write` to sensitive files without being blocked (guard-secrets was only on the `Bash` matcher)
+
+### New features
+
+- **gh-sync.sh** — wrapper script that synchronises pipeline steps with GitHub Projects. Creates issues with spec cards, adds comments on each step, closes with commit reference or skip label. Remembers issue number across pipeline steps
+- **pipeline-post-commit.sh** — PostToolUse hook that resets pipeline only after confirmed successful commit
+
+### Updated files
+
+- `.claude/scripts/guard-git.sh` — removed background pipeline reset (the timing bug)
+- `.claude/scripts/pipeline-post-commit.sh` — new PostToolUse hook
+- `.claude/scripts/gh-sync.sh` — new GitHub sync wrapper
+- `.claude/settings.json` — added PostToolUse hook registration
+- `.claude/agents/TEMPLATE.md` — guard-secrets on Read + Write|Edit matchers
+- `.claude/skills/github-projects/SKILL.md` — gh-sync.sh documentation
+- `examples/nodejs-react/` — both agents updated with new hook coverage
+
+---
+
 ## v2.2 — 2026-04-04
 
 Adds GitHub Projects integration for pipeline task tracking.

@@ -8,10 +8,18 @@ permissionMode: bypassPermissions
 memory: project
 hooks:
   PreToolUse:
+    - matcher: "Read"
+      hooks:
+        - type: command
+          command: "bash /Users/alex/Projects/taskflow/.claude/scripts/guard-secrets.sh"
+          timeout: 5
     - matcher: "Write|Edit"
       hooks:
         - type: command
           command: "bash /Users/alex/Projects/taskflow/.claude/scripts/guard-scope.sh server/"
+          timeout: 5
+        - type: command
+          command: "bash /Users/alex/Projects/taskflow/.claude/scripts/guard-secrets.sh"
           timeout: 5
     - matcher: "Bash"
       hooks:

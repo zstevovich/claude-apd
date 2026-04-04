@@ -7,6 +7,23 @@ description: Upravljaj APD pipeline taskovima kroz GitHub Projects — kreiraj i
 
 Mapira APD pipeline faze na GitHub Projects v2 kolone. Svaki task postaje issue sa spec karticom, a pipeline napredak se reflektuje na boardu.
 
+## Automatizacija — gh-sync.sh
+
+Umesto ručnog pozivanja `gh issue create` i `gh issue close`, koristi `gh-sync.sh` wrapper:
+
+```bash
+# Umesto ručno:
+bash .claude/scripts/gh-sync.sh spec "User login"      # kreira issue + pokreće pipeline spec
+bash .claude/scripts/gh-sync.sh builder                 # komentariše na issue + pokreće pipeline builder
+bash .claude/scripts/gh-sync.sh reviewer                # komentariše + pokreće reviewer
+bash .claude/scripts/gh-sync.sh verifier                # komentariše + pokreće verifier
+bash .claude/scripts/gh-sync.sh done 42 abc1234         # zatvara issue sa commit referencom
+bash .claude/scripts/gh-sync.sh skip 42 "Hotfix"        # zatvara sa apd-skip labelom
+bash .claude/scripts/gh-sync.sh status                  # prikazuje aktivan issue
+```
+
+`gh-sync.sh` automatski pamti issue number za tekući pipeline — ne moraš ga prosleđivati na svakom koraku.
+
 ## Preduslov
 
 - GitHub MCP server konfigurisan u `.mcp.json`

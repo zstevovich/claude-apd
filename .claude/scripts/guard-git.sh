@@ -84,8 +84,8 @@ if echo "$NORMALIZED_GIT" | grep -qiE "git commit"; then
       fi
     fi
 
-    # 3. Auto-reset pipeline
-    (bash "$SCRIPT_DIR/pipeline-advance.sh" reset >/dev/null 2>&1 &)
+    # Pipeline reset se dešava u PostToolUse hook-u (pipeline-post-commit.sh)
+    # — tek POSLE uspešnog commita, ne pre njega
     echo "Pipeline + Verifikacija prošli — commit dozvoljen." >&2
     exit 0
   else

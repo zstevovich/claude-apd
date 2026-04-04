@@ -12,10 +12,18 @@ skills:
 # Primer: src/ tests/
 hooks:
   PreToolUse:
+    - matcher: "Read"
+      hooks:
+        - type: command
+          command: "bash {{PROJECT_PATH}}/.claude/scripts/guard-secrets.sh"
+          timeout: 5
     - matcher: "Write|Edit"
       hooks:
         - type: command
           command: "bash {{PROJECT_PATH}}/.claude/scripts/guard-scope.sh {{SCOPE_PATHS}}"
+          timeout: 5
+        - type: command
+          command: "bash {{PROJECT_PATH}}/.claude/scripts/guard-secrets.sh"
           timeout: 5
     - matcher: "Bash"
       hooks:
