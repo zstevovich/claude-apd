@@ -1,15 +1,17 @@
 # Agent Pipeline Development (APD) Template
 
-Softverski razvoj kroz specijalizovane agente u definisanom pipeline-u sa verifikacijama i human gate-ovima.
+Software development through specialised agents in a defined pipeline with verifications and human gates.
 
-## Šta je APD?
+🇷🇸 [Srpska verzija](README.sr.md)
 
-APD je workflow za AI-asistiran razvoj softvera gde:
-- **Agent** — rad dele specijalizovani agenti sa jasnim domenima, ne jedan generički AI
-- **Pipeline** — definisan tok sa fazama, verifikacijama i gate-ovima koji se ne preskaču
-- **Development** — softverski razvoj kao krajnji cilj
+## What is APD?
 
-## Pun lanac: od ideje do koda
+APD is a workflow for AI-assisted software development where:
+- **Agent** — work is divided among specialised agents with clear domains, not a single generic AI
+- **Pipeline** — a defined flow with phases, verifications, and gates that cannot be skipped
+- **Development** — software development as the end goal
+
+## Full chain: from idea to code
 
 ```mermaid
 graph LR
@@ -72,31 +74,31 @@ graph LR
     style OK fill:#66cc66,stroke:#339933,color:#fff
 ```
 
-Svaki korak ima mašinski čitljiv izvor istine — niko ne prepisuje ručno iz jednog alata u drugi:
+Each step has a machine-readable source of truth — no one manually copies data from one tool to another:
 
-| Faza | Alat | Šta definiše | Ko čita |
-|------|------|-------------|---------|
-| Koncept | **Miro** | Flow, user journey, system arhitektura, wireframe | Orkestrator → generiše spec |
-| Dizajn | **Figma** | UI komponente, tokeni, boje, layout | Builder → implementira UI |
-| Implementacija | **APD pipeline** | Kod, testovi, build | Builder → Reviewer → Verifier |
+| Phase | Tool | What it defines | Who reads it |
+|-------|------|----------------|--------------|
+| Concept | **Miro** | Flow, user journey, system architecture, wireframe | Orchestrator → generates spec |
+| Design | **Figma** | UI components, tokens, colours, layout | Builder → implements UI |
+| Implementation | **APD pipeline** | Code, tests, build | Builder → Reviewer → Verifier |
 
-Miro i Figma su opcioni — APD radi i bez njih, ali sa njima pokriva ceo put od ideje do koda.
+Miro and Figma are optional — APD works without them, but with them it covers the entire path from idea to code.
 
 ## APD Pipeline
 
-Svaka implementacija prolazi sve faze — bez izuzetaka. Reviewer se nikad ne preskače, čak ni za "trivijalne" promene.
+Every implementation passes through all phases — no exceptions. The Reviewer is never skipped, not even for "trivial" changes.
 
-Svaki korak je **tehnički zaštićen** — hook-ovi blokiraju commit ako koraci nisu završeni.
+Each step is **technically enforced** — hooks block the commit if steps have not been completed.
 
-## Brzi start
+## Quick start
 
-### Preduslovi
+### Prerequisites
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI instaliran
-- `jq` instaliran (`brew install jq` na macOS, `apt install jq` na Linux) — potreban za hook skripte
-- Git repozitorijum inicijalizovan
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed
+- `jq` installed (`brew install jq` on macOS, `apt install jq` on Linux) — required for hook scripts
+- Git repository initialised
 
-### 1. Kopiraj template u svoj projekat
+### 1. Copy the template into your project
 
 ```bash
 cp -r apd-template/.claude/ /path/to/my-project/.claude/
@@ -105,230 +107,230 @@ cp apd-template/.mcp.json.example /path/to/my-project/.mcp.json
 cp -r apd-template/docs/ /path/to/my-project/docs/
 ```
 
-### 2. Pokreni APD Init
+### 2. Run APD Init
 
-U Claude Code na svom projektu:
+In Claude Code within your project:
 ```
 /apd-init
 ```
 
-Skill će te provesti kroz konfiguraciju — ime projekta, stack, putanje, agenti.
+The skill will guide you through configuration — project name, stack, paths, agents.
 
-### 3. Ili ručno prilagodi
+### 3. Or customise manually
 
-Zameni `{{PLACEHOLDER}}` vrednosti u:
-- `CLAUDE.md` — projektne instrukcije
-- `.claude/settings.json` — putanje do skripti
-- `.claude/scripts/session-start.sh` — ime projekta
-- `.claude/scripts/verify-all.sh` — build komande
-- `.claude/scripts/guard-secrets.sh` — osetljivi fajlovi
-- `.claude/memory/MEMORY.md` — indeks
-- `.claude/agents/TEMPLATE.md` → kopiraj za svakog agenta
+Replace `{{PLACEHOLDER}}` values in:
+- `CLAUDE.md` — project instructions
+- `.claude/settings.json` — script paths
+- `.claude/scripts/session-start.sh` — project name
+- `.claude/scripts/verify-all.sh` — build commands
+- `.claude/scripts/guard-secrets.sh` — sensitive files
+- `.claude/memory/MEMORY.md` — index
+- `.claude/agents/TEMPLATE.md` → copy for each agent
 
-### 4. Učini skripte executable
+### 4. Make scripts executable
 
 ```bash
 chmod +x .claude/scripts/*.sh
 ```
 
-### 5. Verifikuj
+### 5. Verify
 
 ```bash
-# Kompletna funkcionalna verifikacija (guard testovi, pipeline end-to-end, struktura)
+# Full functional verification (guard tests, pipeline end-to-end, structure)
 bash .claude/scripts/verify-apd.sh
 
-# Očekivan rezultat:
+# Expected result:
 # ╔══════════════════════════════════════╗
 # ║  PASS: 49  │ FAIL: 0   │ WARN: 0       ║
 # ╚══════════════════════════════════════╝
 # APD JE POTPUNO KONFIGURISAN. Spreman za rad.
 ```
 
-`verify-apd.sh` testira 10 kategorija:
+`verify-apd.sh` tests 10 categories:
 
-| # | Kategorija | Šta proverava |
-|---|-----------|---------------|
-| 1 | Preduslovi | jq, git, git repo |
-| 2 | Struktura | Direktorijumi, skripte (executable), memory fajlovi |
-| 3 | Settings | Hook registracija, attribution prazna |
-| 4 | Placeholder-i | Nijedan `{{...}}` ne sme ostati |
-| 5 | CLAUDE.md | Obavezne sekcije (Stack, APD, Pipeline, Guardrails...) |
-| 6 | Agenti | Frontmatter, model, guard-scope/git/secrets registrovani |
-| 7 | Guard testovi | Funkcionalno testira svaki guard (blokira/propušta) |
+| # | Category | What it checks |
+|---|----------|----------------|
+| 1 | Prerequisites | jq, git, git repo |
+| 2 | Structure | Directories, scripts (executable), memory files |
+| 3 | Settings | Hook registration, attribution empty |
+| 4 | Placeholders | No `{{...}}` must remain |
+| 5 | CLAUDE.md | Required sections (Stack, APD, Pipeline, Guardrails...) |
+| 6 | Agents | Frontmatter, model, guard-scope/git/secrets registered |
+| 7 | Guard tests | Functionally tests each guard (blocks/allows) |
 | 8 | Pipeline E2E | Spec → Builder → Reviewer → Verifier → gate pass + rollback |
-| 9 | verify-all.sh | Da li su build/test komande konfigurisane |
-| 10 | Gitignore | .pipeline/ i settings.local.json zaštićeni |
+| 9 | verify-all.sh | Whether build/test commands are configured |
+| 10 | Gitignore | .pipeline/ and settings.local.json protected |
 
-Za brzu statičku proveru (bez funkcionalnih testova):
+For a quick static check (without functional tests):
 ```bash
 bash .claude/scripts/test-hooks.sh
 ```
 
-## Četiri role
+## Four roles
 
-### Orkestrator (Claude Code — glavna sesija)
-Centralni koordinator koji upravlja celim pipeline-om:
-- Kreira spec karticu i deli sa korisnikom pre implementacije
-- Dispatch-uje Builder agente (paralelno gde je moguće)
-- Automatski pokreće Reviewer-a posle svake implementacije
-- Pokreće Verifier-a pre commitovanja
-- **Jedini** commituje i push-uje (koristi `APD_ORCHESTRATOR_COMMIT=1` prefix)
-- **Jedini** komunicira sa korisnikom
+### Orchestrator (Claude Code — main session)
+Central coordinator that manages the entire pipeline:
+- Creates the spec card and shares it with the user before implementation
+- Dispatches Builder agents (in parallel where possible)
+- Automatically triggers the Reviewer after each implementation
+- Triggers the Verifier before committing
+- **Only one** that commits and pushes (uses the `APD_ORCHESTRATOR_COMMIT=1` prefix)
+- **Only one** that communicates with the user
 
 ### Builder (subagent)
-Specijalizovani agenti koji implementiraju kod prema spec-u:
-- Jedan agent per domen (backend, frontend, mobile...)
-- Max 3-4 edit operacije po dispatch-u
-- Jasno vlasništvo nad fajlovima — bez preklapanja između agenata
-- **Ne sme** commitovati, push-ovati, niti menjati fajlove van svog domena
-- Definisan u `.claude/agents/` sa hook-ovima koji mehanički blokiraju kršenja
+Specialised agents that implement code according to the spec:
+- One agent per domain (backend, frontend, mobile...)
+- Max 3-4 edit operations per dispatch
+- Clear file ownership — no overlap between agents
+- **Must not** commit, push, or modify files outside its domain
+- Defined in `.claude/agents/` with hooks that mechanically block violations
 
 ### Reviewer (subagent)
-Traži bagove, rizike i propuste u Builder-ovom radu:
-- Pokreće se automatski posle svakog Builder-a
-- Traži: regresije, edge case-ove, security rupe, cross-layer mismatch
-- **Ne** predlaže stilske promene ili refactoring van scope-a
+Finds bugs, risks, and gaps in the Builder's work:
+- Triggered automatically after each Builder
+- Looks for: regressions, edge cases, security holes, cross-layer mismatches
+- Does **not** suggest style changes or refactoring outside scope
 
-### Verifier (skripta)
-Automatska verifikacija pre commit-a:
-- Pokreće `verify-all.sh` (build + test)
-- Automatski se pokreće kroz `guard-git.sh` hook kad orkestrator pokušava commit
-- Blokira commit ako build ili testovi ne prolaze
+### Verifier (script)
+Automatic verification before commit:
+- Runs `verify-all.sh` (build + test)
+- Triggered automatically through the `guard-git.sh` hook when the orchestrator attempts a commit
+- Blocks the commit if build or tests fail
 
-## Spec kartica
+## Spec card
 
-Pre svakog taska (bez obzira na veličinu), orkestrator kreira spec karticu:
+Before each task (regardless of size), the orchestrator creates a spec card:
 
 ```
-## [Naziv taska]
-**Cilj:** Jedna rečenica.
+## [Task name]
+**Goal:** One sentence.
 **Effort:** max | high
-**Van scope-a:** Šta NE radimo.
-**Acceptance kriterijumi:** Lista uslova za "gotovo".
-**Pogođeni moduli:** Fajlovi/slojevi koji se menjaju.
-**Rizici:** Šta može poći po zlu.
-**Rollback:** Kako vratiti ako pukne.
-**Human gate:** Da li zahteva odobrenje (API promene, migracije, auth, prod data).
-**ADR:** ADR-NNNN | Potreban | N/A
+**Out of scope:** What we are NOT doing.
+**Acceptance criteria:** List of conditions for "done".
+**Affected modules:** Files/layers that change.
+**Risks:** What can go wrong.
+**Rollback:** How to revert if it breaks.
+**Human gate:** Whether approval is required (API changes, migrations, auth, prod data).
+**ADR:** ADR-NNNN | Required | N/A
 ```
 
-Spec se deli sa korisnikom PRE implementacije. Korisnik odobrava ili koriguje.
+The spec is shared with the user BEFORE implementation. The user approves or adjusts.
 
-### Effort nivoi
+### Effort levels
 
-| Effort | Kada | Ko |
-|--------|------|----|
-| **max** | Odluke koje je skupo ispraviti | Orkestrator, Reviewer, Verifier |
-| **high** | Implementacija po jasnom spec-u | Builder agenti |
+| Effort | When | Who |
+|--------|------|-----|
+| **max** | Decisions that are expensive to reverse | Orchestrator, Reviewer, Verifier |
+| **high** | Implementation following a clear spec | Builder agents |
 
 ## Human gate
 
-Korisnik MORA odobriti pre:
-- API promene (novi endpointi, promena potpisa)
-- Migracije baze (nove tabele, promene kolona)
-- Auth/role logika (promene u autorizaciji)
-- Deploy na staging/produkciju
-- Bilo šta što utiče na produkcijske podatke
+The user MUST approve before:
+- API changes (new endpoints, signature changes)
+- Database migrations (new tables, column changes)
+- Auth/role logic (authorisation changes)
+- Deploy to staging/production
+- Anything that affects production data
 
-Format: orkestrator prikaže diff summary → korisnik kaže "ok" → tek onda akcija.
+Format: the orchestrator presents a diff summary → the user says "ok" → only then does the action proceed.
 
-## Guardrail sistem
+## Guardrail system
 
-APD koristi mehaničke guardrail-e (hook skripte) koji blokiraju kršenja čak i kad agent "zaboravi" pravila.
+APD uses mechanical guardrails (hook scripts) that block violations even when an agent "forgets" the rules.
 
-### Skripte (12)
+### Scripts (12)
 
-| Skripta | Funkcija |
-|---------|----------|
-| `guard-git.sh` | Blokira neovlašćen git (commit/push samo orkestrator, bez force push, bez mass staging) |
-| `guard-scope.sh` | Blokira Write/Edit van agentovog scope-a |
-| `guard-bash-scope.sh` | Blokira bash write van scope-a |
-| `guard-secrets.sh` | Blokira pristup osetljivim fajlovima |
-| `guard-lockfile.sh` | Blokira modifikaciju lock fajlova |
-| `test-hooks.sh` | Brza statička provera (fajlovi, JSON, placeholder-i) |
-| `verify-apd.sh` | Kompletna funkcionalna verifikacija (guard testovi, pipeline E2E, agenti) |
-| `pipeline-advance.sh` | Pipeline flag sistem sa timestampovima, rollback-om i skip log-om |
-| `pipeline-gate.sh` | Blokira commit bez svih 4 pipeline koraka |
-| `rotate-session-log.sh` | Automatski arhivira stare session log entry-je |
-| `session-start.sh` | Učitava kontekst projekta na startu sesije |
-| `verify-all.sh` | Build + test + contract check pre commit-a |
+| Script | Function |
+|--------|----------|
+| `guard-git.sh` | Blocks unauthorised git operations (commit/push only by orchestrator, no force push, no mass staging) |
+| `guard-scope.sh` | Blocks Write/Edit outside the agent's scope |
+| `guard-bash-scope.sh` | Blocks bash writes outside scope |
+| `guard-secrets.sh` | Blocks access to sensitive files |
+| `guard-lockfile.sh` | Blocks modification of lock files |
+| `test-hooks.sh` | Quick static check (files, JSON, placeholders) |
+| `verify-apd.sh` | Full functional verification (guard tests, pipeline E2E, agents) |
+| `pipeline-advance.sh` | Pipeline flag system with timestamps, rollback, and skip log |
+| `pipeline-gate.sh` | Blocks commit without all 4 pipeline steps |
+| `rotate-session-log.sh` | Automatically archives old session log entries |
+| `session-start.sh` | Loads project context at session start |
+| `verify-all.sh` | Build + test + contract check before commit |
 
-### guard-git.sh — Git operacije
+### guard-git.sh — Git operations
 
-PreToolUse hook na svakom Bash pozivu. Blokira:
+PreToolUse hook on every Bash call. Blocks:
 
-| Operacija | Razlog |
+| Operation | Reason |
 |-----------|--------|
-| `git commit` bez `APD_ORCHESTRATOR_COMMIT=1` prefiksa | Samo orkestrator sme commitovati |
-| `git push` bez `APD_ORCHESTRATOR_COMMIT=1` prefiksa | Samo orkestrator sme push-ovati |
-| `git add .` / `git add -A` / `git add --all` / `git add -u` / `git add *` | Forsira eksplicitno dodavanje fajlova po imenu |
-| `git commit -a` / `git commit --all` | Forsira eksplicitno staging pre commit-a |
-| `--no-verify` | Sprečava zaobilaženje hook-ova |
-| `git reset --hard`, `git clean -f`, itd. | Blokira destruktivne operacije |
-| `Co-Authored-By` | Blokira AI potpise u commitima |
-| `git add .claude/` bez prefiksa | Štiti workflow fajlove |
+| `git commit` without `APD_ORCHESTRATOR_COMMIT=1` prefix | Only the orchestrator may commit |
+| `git push` without `APD_ORCHESTRATOR_COMMIT=1` prefix | Only the orchestrator may push |
+| `git add .` / `git add -A` / `git add --all` / `git add -u` / `git add *` | Forces explicit file-by-file staging |
+| `git commit -a` / `git commit --all` | Forces explicit staging before commit |
+| `--no-verify` | Prevents bypassing hooks |
+| `git reset --hard`, `git clean -f`, etc. | Blocks destructive operations |
+| `Co-Authored-By` | Blocks AI signatures in commits |
+| `git add .claude/` without prefix | Protects workflow files |
 
-Kad blokira commit/push, ispisuje tačnu sintaksu koju orkestrator treba da koristi.
+When it blocks a commit/push, it outputs the exact syntax the orchestrator should use.
 
-### guard-scope.sh — File scope za agente
+### guard-scope.sh — File scope for agents
 
-PreToolUse hook na Write/Edit pozivima u agent definicijama. Svaki agent definiše dozvoljene putanje:
+PreToolUse hook on Write/Edit calls in agent definitions. Each agent defines its allowed paths:
 
 ```yaml
-# U agent .md fajlu:
+# In the agent .md file:
 hooks:
   PreToolUse:
     - matcher: "Write|Edit"
       hooks:
         - type: command
-          command: "bash /putanja/.claude/scripts/guard-scope.sh src/ tests/"
+          command: "bash /path/.claude/scripts/guard-scope.sh src/ tests/"
 ```
 
-Agent koji pokuša da edituje fajl van `src/` ili `tests/` dobija:
+An agent that attempts to edit a file outside `src/` or `tests/` receives:
 ```
-BLOKIRANO: Fajl apps/frontend/App.tsx je van dozvoljenog scope-a.
-Dozvoljene putanje: src/ tests/
+BLOCKED: File apps/frontend/App.tsx is outside the allowed scope.
+Allowed paths: src/ tests/
 ```
 
-### guard-bash-scope.sh — Bash write operacije
+### guard-bash-scope.sh — Bash write operations
 
-Komplementira guard-scope.sh — blokira bash komande koje pišu van dozvoljenog scope-a (redirect, `tee`, `sed -i`, `cp`, `mv`).
+Complements guard-scope.sh — blocks bash commands that write outside the allowed scope (redirect, `tee`, `sed -i`, `cp`, `mv`).
 
-### guard-secrets.sh — Osetljivi fajlovi
+### guard-secrets.sh — Sensitive files
 
-Blokira pristup i čitanje osetljivih fajlova: `.env.production`, `.pem`, `.key`, `credentials.json`, `service-account` i drugi. Prilagodljiv za svaki stack.
+Blocks access to and reading of sensitive files: `.env.production`, `.pem`, `.key`, `credentials.json`, `service-account`, and others. Customisable for each stack.
 
-### guard-lockfile.sh — Lock fajlovi
+### guard-lockfile.sh — Lock files
 
-Blokira direktnu modifikaciju lock fajlova (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `composer.lock`, `Cargo.lock`, `go.sum` i dr.).
+Blocks direct modification of lock files (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `composer.lock`, `Cargo.lock`, `go.sum`, and others).
 
-### verify-all.sh — Build i test verifikacija
+### verify-all.sh — Build and test verification
 
-Automatski se pokreće pre svakog commit-a (poziva ga `guard-git.sh`). Detektuje koje fajlove commitujete i pokreće relevantne provere:
-- Backend promene → build + test komande
-- Frontend promene → type check + test komande
+Runs automatically before each commit (called by `guard-git.sh`). Detects which files are being committed and runs the relevant checks:
+- Backend changes → build + test commands
+- Frontend changes → type check + test commands
 
-**VAŽNO:** Dolazi sa zakomentarisanim primerima — mora se konfigurisati za vaš build/test sistem.
+**Important:** Ships with commented-out examples — must be configured for your build/test system.
 
-### session-start.sh — Kontekst na početku sesije
+### session-start.sh — Context at session start
 
-SessionStart hook koji učitava:
-- Trenutni status projekta iz `memory/status.md`
+SessionStart hook that loads:
+- Current project status from `memory/status.md`
 - Pipeline status
-- Poslednjih 20 linija iz `memory/session-log.md`
-- Automatska rotacija session log-a (čuva poslednjih 10 entry-ja)
+- Last 20 lines from `memory/session-log.md`
+- Automatic session log rotation (keeps the last 10 entries)
 
-## Pipeline u praksi
+## Pipeline in practice
 
 ```bash
 # 1. Spec
 bash .claude/scripts/pipeline-advance.sh spec "Implementiraj user login"
 
-# 2. Builder implementira
-# ... agent radi ...
+# 2. Builder implements
+# ... agent works ...
 bash .claude/scripts/pipeline-advance.sh builder
 
-# 3. Reviewer pregleda
+# 3. Reviewer reviews
 # ... code review ...
 bash .claude/scripts/pipeline-advance.sh reviewer
 
@@ -336,87 +338,87 @@ bash .claude/scripts/pipeline-advance.sh reviewer
 # ... dotnet build && dotnet test ...
 bash .claude/scripts/pipeline-advance.sh verifier
 
-# 5. Commit (dozvoljen tek sada)
+# 5. Commit (allowed only now)
 APD_ORCHESTRATOR_COMMIT=1 git commit -m "feat: user login"
 
-# Pipeline se auto-resetuje i loguje u session-log.md
+# Pipeline auto-resets and logs to session-log.md
 ```
 
-### Pipeline komande
+### Pipeline commands
 
 ```bash
-bash .claude/scripts/pipeline-advance.sh spec "Naziv taska"
+bash .claude/scripts/pipeline-advance.sh spec "Task name"
 bash .claude/scripts/pipeline-advance.sh builder
 bash .claude/scripts/pipeline-advance.sh reviewer
 bash .claude/scripts/pipeline-advance.sh verifier
 bash .claude/scripts/pipeline-advance.sh status
 bash .claude/scripts/pipeline-advance.sh reset
-bash .claude/scripts/pipeline-advance.sh rollback           # Vrati jedan korak nazad
+bash .claude/scripts/pipeline-advance.sh rollback           # Revert one step back
 bash .claude/scripts/pipeline-advance.sh stats
-bash .claude/scripts/pipeline-advance.sh skip "Razlog"      # Samo za hitne hotfix-ove
+bash .claude/scripts/pipeline-advance.sh skip "Reason"      # Only for urgent hotfixes
 ```
 
-### Skip analiza
+### Skip analysis
 
 ```bash
 bash .claude/scripts/pipeline-advance.sh stats
-# Pipeline statistika:
-#   Ukupno skip-ova: 4
-#   Poslednjih 5:
-#   | 2026-04-03 | Pre-existing TS greške | pre-existing-debt |
+# Pipeline statistics:
+#   Total skips: 4
+#   Last 5:
+#   | 2026-04-03 | Pre-existing TS errors | pre-existing-debt |
 ```
 
-Ako je >30% commitova sa skip — nešto u pipeline-u treba popraviti.
+If >30% of commits use skip — something in the pipeline needs fixing.
 
 ## ADR (Architecture Decision Records)
 
-Arhitekturne odluke se dokumentuju u `docs/adr/` sa punim kontekstom: zašto je odluka doneta, koje alternative su razmatrane, i koje su posledice.
+Architectural decisions are documented in `docs/adr/` with full context: why the decision was made, which alternatives were considered, and what the consequences are.
 
-### Kada kreirati ADR
+### When to create an ADR
 
-- Uvođenje nove tehnologije ili biblioteke
-- Promena API dizajna ili komunikacionog paterna
-- Izbor između dva validna arhitekturna pristupa
-- Promena auth/security strategije
-- Migracija podataka ili promena šeme
+- Introducing a new technology or library
+- Changing API design or communication patterns
+- Choosing between two valid architectural approaches
+- Changing auth/security strategy
+- Data migration or schema change
 
-### Životni ciklus
+### Lifecycle
 
 ```
-Predložen → Prihvaćen → [Zamenjen (novi ADR) | Povučen]
+Proposed → Accepted → [Superseded (new ADR) | Withdrawn]
 ```
 
-- `Predložen` — može se menjati dok nije prihvaćen
-- `Prihvaćen` — **immutable**. Ako se odluka promeni, kreira se novi ADR koji zamenjuje starog
-- Numeracija: `0001`, `0002`, ... (4 cifre sa vodećim nulama)
+- `Proposed` — can be modified until accepted
+- `Accepted` — **immutable**. If the decision changes, a new ADR is created that supersedes the old one
+- Numbering: `0001`, `0002`, ... (4 digits with leading zeros)
 
-### Veza sa principles.md
+### Relationship with principles.md
 
-`principles.md` kaže **šta** (pravila), ADR kaže **zašto** (kontekst odluke):
+`principles.md` states **what** (rules), ADR states **why** (decision context):
 
 ```markdown
-## Kod
-- Error handling: Result pattern (vidi ADR-0004)
-- Arhitekturni pattern: Vertical Slice (vidi ADR-0001)
+## Code
+- Error handling: Result pattern (see ADR-0004)
+- Architecture pattern: Vertical Slice (see ADR-0001)
 ```
 
-## Kreiranje agenata
+## Creating agents
 
-Za svaki sloj projekta kreiraj agenta iz `TEMPLATE.md`:
+For each layer of the project, create an agent from `TEMPLATE.md`:
 
 ```bash
 cp .claude/agents/TEMPLATE.md .claude/agents/backend-builder.md
 ```
 
-Zameni:
+Replace:
 - `{{agent-name}}` → `backend-builder`
 - `{{SCOPE_PATHS}}` → `src/ tests/`
-- `{{PROJECT_PATH}}` → apsolutna putanja
-- `{{model}}` → `sonnet` (Builder) ili `opus` (Reviewer/Guardian)
+- `{{PROJECT_PATH}}` → absolute path
+- `{{model}}` → `sonnet` (Builder) or `opus` (Reviewer/Guardian)
 
-**VAŽNO:** Ako ne zameniš `{{SCOPE_PATHS}}`, guard-scope.sh će blokirati SVE Write/Edit operacije tog agenta.
+**Important:** If you do not replace `{{SCOPE_PATHS}}`, guard-scope.sh will block ALL Write/Edit operations for that agent.
 
-### Tipični agenti po stack-u
+### Typical agents by stack
 
 #### .NET / C#
 | Agent | Scope | Model |
@@ -478,143 +480,143 @@ Zameni:
 | mobile | mobile/ | sonnet |
 | devops | docker/ .github/ | sonnet |
 
-### CQRS arhitektura — agenti po odgovornosti
+### CQRS architecture — agents by responsibility
 
-CQRS prirodno deli kod na write (Command) i read (Query) stranu. APD enforceuje tu granicu — guard-scope mehanički sprečava da command agent dira read modele i obrnuto.
+CQRS naturally divides code into a write (Command) side and a read (Query) side. APD enforces that boundary — guard-scope mechanically prevents the command agent from touching read models and vice versa.
 
-#### CQRS agenti — .NET (MediatR / Wolverine)
+#### CQRS agents — .NET (MediatR / Wolverine)
 
-| Agent | Scope | Odgovornost |
-|-------|-------|------------|
-| command-builder | src/Commands/ src/Domain/ src/Validators/ | Command handleri, agregati, validacija |
-| query-builder | src/Queries/ src/ReadModels/ | Query handleri, read modeli, projekcije |
-| event-builder | src/Events/ src/Projections/ src/Subscribers/ | Event handleri, projekcije, denormalizacija |
-| infra-builder | src/Infrastructure/ src/Persistence/ | EventStore, MessageBus, repozitorijumi |
-| testing | tests/ | Unit + integration testovi |
+| Agent | Scope | Responsibility |
+|-------|-------|----------------|
+| command-builder | src/Commands/ src/Domain/ src/Validators/ | Command handlers, aggregates, validation |
+| query-builder | src/Queries/ src/ReadModels/ | Query handlers, read models, projections |
+| event-builder | src/Events/ src/Projections/ src/Subscribers/ | Event handlers, projections, denormalisation |
+| infra-builder | src/Infrastructure/ src/Persistence/ | EventStore, MessageBus, repositories |
+| testing | tests/ | Unit + integration tests |
 
-#### CQRS agenti — Java (Axon Framework / Spring)
+#### CQRS agents — Java (Axon Framework / Spring)
 
-| Agent | Scope | Odgovornost |
-|-------|-------|------------|
-| command-builder | src/main/java/**/command/ src/main/java/**/aggregate/ | Command handleri, agregati |
-| query-builder | src/main/java/**/query/ src/main/java/**/projection/ | Query handleri, projekcije |
-| event-builder | src/main/java/**/event/ src/main/java/**/saga/ | Event handleri, sage |
-| infra-builder | src/main/java/**/config/ src/main/resources/ | Axon konfiguracija, persistence |
-| testing | src/test/ | Testovi |
+| Agent | Scope | Responsibility |
+|-------|-------|----------------|
+| command-builder | src/main/java/**/command/ src/main/java/**/aggregate/ | Command handlers, aggregates |
+| query-builder | src/main/java/**/query/ src/main/java/**/projection/ | Query handlers, projections |
+| event-builder | src/main/java/**/event/ src/main/java/**/saga/ | Event handlers, sagas |
+| infra-builder | src/main/java/**/config/ src/main/resources/ | Axon configuration, persistence |
+| testing | src/test/ | Tests |
 
-#### CQRS agenti — Node.js (NestJS CQRS)
+#### CQRS agents — Node.js (NestJS CQRS)
 
-| Agent | Scope | Odgovornost |
-|-------|-------|------------|
-| command-builder | src/commands/ src/domain/ src/validators/ | Command handleri, agregati |
-| query-builder | src/queries/ src/read-models/ | Query handleri, read modeli |
-| event-builder | src/events/ src/sagas/ | Event handleri, sage |
-| infra-builder | src/infrastructure/ src/config/ | EventStore, konfiguracija |
-| testing | test/ | Testovi |
+| Agent | Scope | Responsibility |
+|-------|-------|----------------|
+| command-builder | src/commands/ src/domain/ src/validators/ | Command handlers, aggregates |
+| query-builder | src/queries/ src/read-models/ | Query handlers, read models |
+| event-builder | src/events/ src/sagas/ | Event handlers, sagas |
+| infra-builder | src/infrastructure/ src/config/ | EventStore, configuration |
+| testing | test/ | Tests |
 
-#### Spec kartica za CQRS — Command
+#### Spec card for CQRS — Command
 
 ```
 ## [CreateOrder Command]
-**Tip:** Command
-**Cilj:** Kreiranje narudžbine sa validacijom dostupnosti artikala.
+**Type:** Command
+**Goal:** Create an order with item availability validation.
 **Handler:** OrderCommandHandler
-**Agregat:** OrderAggregate
-**Validacija:** OrderValidator — artikli postoje, količina > 0, korisnik aktivan.
-**Emitovani eventi:** OrderCreated, InventoryReserved
-**Pogođene projekcije:** OrderSummaryView, InventoryView
-**Van scope-a:** Query strana — ne menjamo read modele direktno.
-**Rollback:** Kompenzacioni event OrderCancelled ako InventoryReserved failuje.
+**Aggregate:** OrderAggregate
+**Validation:** OrderValidator — items exist, quantity > 0, user active.
+**Emitted events:** OrderCreated, InventoryReserved
+**Affected projections:** OrderSummaryView, InventoryView
+**Out of scope:** Query side — we do not modify read models directly.
+**Rollback:** Compensating event OrderCancelled if InventoryReserved fails.
 ```
 
-#### Spec kartica za CQRS — Query
+#### Spec card for CQRS — Query
 
 ```
 ## [GetOrderSummary Query]
-**Tip:** Query
-**Cilj:** Prikaz sumarnog pregleda narudžbine iz denormalizovanog read modela.
+**Type:** Query
+**Goal:** Display a summary view of an order from a denormalised read model.
 **Handler:** OrderQueryHandler
 **Read model:** OrderSummaryView
-**Zavisi od evenata:** OrderCreated, OrderStatusChanged, OrderItemAdded
-**Van scope-a:** Command strana — ne menjamo agregate.
-**Rizik:** Read model nije ažuran ako projekcija kasni (eventual consistency).
+**Depends on events:** OrderCreated, OrderStatusChanged, OrderItemAdded
+**Out of scope:** Command side — we do not modify aggregates.
+**Risk:** Read model may be stale if the projection lags (eventual consistency).
 ```
 
-#### CQRS cross-layer contract verifikacija
+#### CQRS cross-layer contract verification
 
-Standardna cross-layer verifikacija (backend ↔ frontend) za CQRS projekte dobija dodatne provere:
+Standard cross-layer verification (backend <-> frontend) for CQRS projects gains additional checks:
 
-| Contract | Izvor istine | Verifikacija |
-|----------|-------------|-------------|
-| Command → Event | Event klasa | Svaki command handler mora emitovati deklarisane evente |
-| Event → Projection | Event klasa | Projekcija mora handlovati SVE evente koje konzumira |
-| Query → Read Model | Read Model klasa | Query response mora odgovarati read model strukturi |
-| Read Model → Frontend | Read Model klasa | Frontend tip mora biti 1:1 sa read modelom |
+| Contract | Source of truth | Verification |
+|----------|----------------|--------------|
+| Command → Event | Event class | Every command handler must emit its declared events |
+| Event → Projection | Event class | The projection must handle ALL events it consumes |
+| Query → Read Model | Read Model class | Query response must match the read model structure |
+| Read Model → Frontend | Read Model class | Frontend type must be 1:1 with the read model |
 
-**Ključno pravilo:** Nikada ne kreiraj frontend tip iz specifikacije ili Figma dizajna — uvek čitaj read model iz koda. Read model je jedini izvor istine za query stranu.
+**Key rule:** Never create a frontend type from a specification or Figma design — always read the read model from code. The read model is the sole source of truth for the query side.
 
 ## Session memory
 
-Posle svakog završenog taska, orkestrator append-uje zapis u `memory/session-log.md`:
+After each completed task, the orchestrator appends a record to `memory/session-log.md`:
 
 ```markdown
-## [YYYY-MM-DD] [Naziv taska]
-**Status:** Završen | Delimičan | Blokiran
-**Šta je urađeno:** [1-2 rečenice]
-**Problemi:** [Šta je pošlo po zlu, ili "Bez problema"]
-**Guardrail koji je pomogao:** [Koji mehanizam je uhvatio problem, ili "N/A"]
-**Novo pravilo:** [Šta dodajemo u workflow, ili "Nema"]
+## [YYYY-MM-DD] [Task name]
+**Status:** Completed | Partial | Blocked
+**What was done:** [1-2 sentences]
+**Issues:** [What went wrong, or "None"]
+**Guardrail that helped:** [Which mechanism caught a problem, or "N/A"]
+**New rule:** [What we are adding to workflow, or "None"]
 ```
 
-Ako je novo pravilo identifikovano, orkestrator ga odmah dodaje u relevantni rules fajl. Greške postaju guardrail-i.
+If a new rule is identified, the orchestrator adds it immediately to the relevant rules file. Mistakes become guardrails.
 
-Pipeline reset automatski dodaje skeleton entry u session-log — orkestrator popunjava detalje.
+Pipeline reset automatically adds a skeleton entry to session-log — the orchestrator fills in the details.
 
-### Memory fajlovi
+### Memory files
 
-- `memory/MEMORY.md` — indeks projektne memorije (uvek se učitava, minimalan kontekst)
-- `memory/session-log.md` — append-only log završenih taskova (sa automatskom rotacijom)
-- `memory/status.md` — trenutni status projekta (faza, fokus, blokeri)
-- `memory/pipeline-skip-log.md` — skip metrika za analizu
+- `memory/MEMORY.md` — project memory index (always loaded, minimal context)
+- `memory/session-log.md` — append-only log of completed tasks (with automatic rotation)
+- `memory/status.md` — current project status (phase, focus, blockers)
+- `memory/pipeline-skip-log.md` — skip metrics for analysis
 
-## Cross-layer verifikacija
+## Cross-layer verification
 
-Kad task uključuje backend + frontend/mobile:
+When a task involves backend + frontend/mobile:
 
-1. Backend DTO/response model je **izvor istine**
-2. Za svako polje, mapirati tip na frontend/mobile ekvivalent
-3. Nullable polja moraju biti nullable na svim slojevima
-4. Datumi: uvek ISO 8601 string na frontend/mobile strani
-5. **NIKADA** ne kreirati frontend/mobile tip iz specifikacije — uvek čitaj backend DTO
+1. The backend DTO/response model is the **source of truth**
+2. For each field, map the type to its frontend/mobile equivalent
+3. Nullable fields must be nullable on all layers
+4. Dates: always ISO 8601 string on the frontend/mobile side
+5. **NEVER** create a frontend/mobile type from a specification — always read the backend DTO
 
-Dodaj tabelu mapiranja tipova za svoj stack u `workflow.md`.
+Add a type mapping table for your stack to `workflow.md`.
 
-## Figma integracija (opciono)
+## Figma integration (optional)
 
-Ako projekat ima Figma dizajn, APD ga integriše u workflow:
+If the project has a Figma design, APD integrates it into the workflow:
 
-1. **`/apd-init`** pita za Figma URL i konfiguriše `CLAUDE.md`
-2. **CLAUDE.md** sadrži Figma sekciju sa linkom i pravilima
-3. **Frontend Builder** koristi Figma MCP (`get_design_context`, `get_screenshot`) za dizajn kontekst
-4. **Skill-ovi** za Figma workflow:
+1. **`/apd-init`** asks for the Figma URL and configures `CLAUDE.md`
+2. **CLAUDE.md** contains a Figma section with the link and rules
+3. **Frontend Builder** uses Figma MCP (`get_design_context`, `get_screenshot`) for design context
+4. **Skills** for the Figma workflow:
 
-| Skill | Kada |
+| Skill | When |
 |-------|------|
-| `figma:figma-implement-design` | Implementacija UI iz Figma dizajna |
-| `figma:figma-generate-design` | Kreiranje dizajna u Figma iz koda |
+| `figma:figma-implement-design` | Implementing UI from a Figma design |
+| `figma:figma-generate-design` | Creating a design in Figma from code |
 | `figma:figma-generate-library` | Design system / token library |
-| `figma:figma-code-connect` | Mapiranje Figma komponenti na kod |
-| `figma:figma-create-design-system-rules` | Generisanje design system pravila |
+| `figma:figma-code-connect` | Mapping Figma components to code |
+| `figma:figma-create-design-system-rules` | Generating design system rules |
 
-**Pravila kad postoji Figma dizajn:**
-- Pre implementacije UI komponente — uvek proveri Figma dizajn
-- Dizajn tokeni i boje iz Figma-e su izvor istine
-- Ne izmišljaj vrednosti — koristi `get_design_context`
-- Ako nema Figma dizajna — obriši Figma sekciju iz `CLAUDE.md`
+**Rules when a Figma design exists:**
+- Before implementing a UI component — always check the Figma design
+- Design tokens and colours from Figma are the source of truth
+- Do not invent values — use `get_design_context`
+- If there is no Figma design — remove the Figma section from `CLAUDE.md`
 
-## Miro integracija (opciono)
+## Miro integration (optional)
 
-Ako projekat koristi Miro za specifikacije, arhitekturu ili planiranje, APD ga integriše u workflow.
+If the project uses Miro for specifications, architecture, or planning, APD integrates it into the workflow.
 
 ### Setup
 
@@ -622,136 +624,136 @@ Ako projekat koristi Miro za specifikacije, arhitekturu ili planiranje, APD ga i
 claude mcp add --transport http miro https://mcp.miro.com
 ```
 
-Posle toga: `/mcp auth` za OAuth autentifikaciju sa Miro nalogom.
+After that: `/mcp auth` for OAuth authentication with your Miro account.
 
-Alternativno, instaliraj Miro skill-ove:
+Alternatively, install Miro skills:
 ```bash
 npx skills add miroapp/miro-ai
 ```
 
-### Mogućnosti
+### Capabilities
 
-| Akcija | Opis |
-|--------|------|
-| Čitaj board | Structured summary — sticky notes, frames, dijagrami, dokumenti |
-| Kreiraj dijagram | Iz tekst opisa, auto-detect tip (flowchart, sequence, ER...) |
-| Kreiraj dokument | Markdown dokument na boardu |
-| Kreiraj tabelu | Sa tipovanim kolonama |
-| Explore board | Listaj item-e po frameovima i tipovima |
+| Action | Description |
+|--------|-------------|
+| Read board | Structured summary — sticky notes, frames, diagrams, documents |
+| Create diagram | From a text description, auto-detect type (flowchart, sequence, ER...) |
+| Create document | Markdown document on the board |
+| Create table | With typed columns |
+| Explore board | List items by frames and types |
 
-### Kako se uklapa u APD pipeline
+### How it fits into the APD pipeline
 
-| APD faza | Miro uloga |
-|----------|------------|
-| **Pre spec-a** | Orkestrator čita Miro board → generiše spec karticu iz sticky notes/frameova |
-| **Spec** | Wireframe-ovi i flow dijagrami sa boarda kao input za spec |
-| **Arhitektura** | System dijagram na boardu — živi dokument koji se ažurira |
-| **Review** | Vizuelizacija realizovane arhitekture posle implementacije |
-| **Planiranje** | Task board sa sticky notes → orkestrator parsira u pipeline taskove |
+| APD phase | Miro role |
+|-----------|-----------|
+| **Pre-spec** | Orchestrator reads the Miro board → generates a spec card from sticky notes/frames |
+| **Spec** | Wireframes and flow diagrams from the board as spec input |
+| **Architecture** | System diagram on the board — a living document that gets updated |
+| **Review** | Visualisation of the realised architecture after implementation |
+| **Planning** | Task board with sticky notes → orchestrator parses into pipeline tasks |
 
-**Pravila kad postoji Miro board:**
-- Pre kreiranja spec kartice — proveri da li postoji relevantan sadržaj na boardu
-- Miro board je izvor istine za procese i arhitekturu
-- Orkestrator može kreirati dijagrame na boardu za dokumentaciju
-- Ako nema Miro boarda — obriši Miro sekciju iz `CLAUDE.md`
+**Rules when a Miro board exists:**
+- Before creating a spec card — check whether relevant content exists on the board
+- The Miro board is the source of truth for processes and architecture
+- The orchestrator can create diagrams on the board for documentation
+- If there is no Miro board — remove the Miro section from `CLAUDE.md`
 
-## Memorija — dva sistema
+## Memory — two systems
 
-| | APD memorija (`.claude/memory/`) | Claude auto memorija (`~/.claude/projects/`) |
+| | APD memory (`.claude/memory/`) | Claude auto memory (`~/.claude/projects/`) |
 |---|---|---|
-| **Šta čuva** | Projektno znanje — status, session log, naučene lekcije | Lične preference korisnika |
-| **Ko koristi** | Svi na projektu (orkestrator + agenti) | Samo taj korisnik na toj mašini |
-| **Gde živi** | U repozitorijumu — commituje se | Lokalno — NE commituje se |
-| **Primer** | "Auth middleware mora koristiti Redis sessione" | "Korisnik preferira kratke odgovore" |
+| **What it stores** | Project knowledge — status, session log, lessons learnt | User's personal preferences |
+| **Who uses it** | Everyone on the project (orchestrator + agents) | Only that user on that machine |
+| **Where it lives** | In the repository — committed | Locally — NOT committed |
+| **Example** | "Auth middleware must use Redis sessions" | "User prefers short answers" |
 
 ## Rules vs Skills
 
 | | Rules (`.claude/rules/`) | Skills (`.claude/skills/`) |
 |---|---|---|
-| **Učitavanje** | Uvek, automatski za sve agente | Eksplicitno, kad agent treba konvencije |
-| **Sadržaj** | Globalna pravila i workflow | Convention snippet-ovi i procedure |
-| **Primer** | `workflow.md` — APD pipeline definicija | Naming konvencije za API endpointe |
+| **Loading** | Always, automatically for all agents | Explicitly, when an agent needs conventions |
+| **Content** | Global rules and workflow | Convention snippets and procedures |
+| **Example** | `workflow.md` — APD pipeline definition | Naming conventions for API endpoints |
 
-## settings.json — Hook konfiguracija
+## settings.json — Hook configuration
 
-Definiše automatsko ponašanje Claude Code sesije:
+Defines automatic behaviour of the Claude Code session:
 
-| Hook | Skripta | Šta radi |
-|------|---------|----------|
-| `SessionStart` | `session-start.sh` | Učitava projektni kontekst (status, pipeline, poslednja sesija) |
-| `PreToolUse (Bash)` | `guard-git.sh` | Blokira neovlašćene git operacije |
-| `PreToolUse (Write\|Edit)` | `guard-lockfile.sh` | Blokira modifikaciju lock fajlova |
-| `Notification` | — | Desktop notifikacija kad Claude treba pažnju |
+| Hook | Script | What it does |
+|------|--------|--------------|
+| `SessionStart` | `session-start.sh` | Loads project context (status, pipeline, last session) |
+| `PreToolUse (Bash)` | `guard-git.sh` | Blocks unauthorised git operations |
+| `PreToolUse (Write\|Edit)` | `guard-lockfile.sh` | Blocks modification of lock files |
+| `Notification` | — | Desktop notification when Claude needs attention |
 
-Ostala podešavanja:
+Other settings:
 
-- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"` — omogućava agent teams
-- `attribution.commit: ""` i `attribution.pr: ""` — prazno, nema AI potpisa u commitima
+- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"` — enables agent teams
+- `attribution.commit: ""` and `attribution.pr: ""` — empty, no AI signatures in commits
 
-**Napomena:** `guard-scope.sh`, `guard-bash-scope.sh` i `guard-secrets.sh` se NE stavljaju u `settings.json` (globalni) već samo u individualne agent `.md` fajlove — jer orkestrator mora imati pristup svim fajlovima.
+**Note:** `guard-scope.sh`, `guard-bash-scope.sh`, and `guard-secrets.sh` are NOT placed in `settings.json` (global) but only in individual agent `.md` files — because the orchestrator must have access to all files.
 
-## Struktura
+## Structure
 
 ```
 .claude/
 ├── agents/
-│   └── TEMPLATE.md                  # Šablon za novog agenta
+│   └── TEMPLATE.md                  # Template for a new agent
 ├── rules/
-│   ├── workflow.md                  # APD workflow definicija (UNIVERZALNO)
-│   └── principles.md               # Projektna pravila (PRILAGODITI)
+│   ├── workflow.md                  # APD workflow definition (UNIVERSAL)
+│   └── principles.md               # Project rules (CUSTOMISE)
 ├── skills/
-│   └── apd-init/SKILL.md           # Interaktivni setup skill
+│   └── apd-init/SKILL.md           # Interactive setup skill
 ├── scripts/
-│   ├── guard-git.sh                 # Git guardrail (UNIVERZALNO)
-│   ├── guard-scope.sh               # File scope guardrail (UNIVERZALNO)
-│   ├── guard-bash-scope.sh          # Bash write scope guardrail (UNIVERZALNO)
-│   ├── guard-secrets.sh             # Secrets guardrail (PRILAGODITI)
-│   ├── guard-lockfile.sh            # Lock file guardrail (UNIVERZALNO)
-│   ├── pipeline-advance.sh          # Pipeline flag sistem
+│   ├── guard-git.sh                 # Git guardrail (UNIVERSAL)
+│   ├── guard-scope.sh               # File scope guardrail (UNIVERSAL)
+│   ├── guard-bash-scope.sh          # Bash write scope guardrail (UNIVERSAL)
+│   ├── guard-secrets.sh             # Secrets guardrail (CUSTOMISE)
+│   ├── guard-lockfile.sh            # Lock file guardrail (UNIVERSAL)
+│   ├── pipeline-advance.sh          # Pipeline flag system
 │   ├── pipeline-gate.sh             # Pipeline commit gate
-│   ├── test-hooks.sh                # Hook verifikacija
-│   ├── verify-all.sh                # Build + test verifikacija (PRILAGODITI)
-│   ├── session-start.sh             # Učitava kontekst na početku sesije
-│   └── rotate-session-log.sh        # Log rotacija
+│   ├── test-hooks.sh                # Hook verification
+│   ├── verify-all.sh                # Build + test verification (CUSTOMISE)
+│   ├── session-start.sh             # Loads context at session start
+│   └── rotate-session-log.sh        # Log rotation
 ├── memory/
-│   ├── MEMORY.md                    # Indeks memorije
-│   ├── session-log.md               # Append-only log završenih taskova
-│   ├── status.md                    # Trenutni status projekta
-│   └── pipeline-skip-log.md         # Skip metrika
-└── settings.json                    # Hook konfiguracija
+│   ├── MEMORY.md                    # Memory index
+│   ├── session-log.md               # Append-only log of completed tasks
+│   ├── status.md                    # Current project status
+│   └── pipeline-skip-log.md         # Skip metrics
+└── settings.json                    # Hook configuration
 
-CLAUDE.md                            # Projektne instrukcije (PRILAGODITI)
-.mcp.json.example                    # MCP serveri (context7, postgres, docker, github)
+CLAUDE.md                            # Project instructions (CUSTOMISE)
+.mcp.json.example                    # MCP servers (context7, postgres, docker, github)
 docs/
 └── adr/                             # Architecture Decision Records
-    ├── TEMPLATE.md                  # Šablon za ADR
-    └── README.md                    # Indeks svih ADR-ova
+    ├── TEMPLATE.md                  # ADR template
+    └── README.md                    # Index of all ADRs
 ```
 
-## Šta prilagoditi
+## What to customise
 
-| Fajl | Šta | Prioritet |
-|------|-----|-----------|
-| `CLAUDE.md` | Stack, konvencije, struktura projekta, naziv | **Obavezno** |
-| `verify-all.sh` | Build i test komande za svoj stack | **Obavezno** |
-| `principles.md` | Jezik, error handling, arhitekturni pattern | **Obavezno** |
-| `guard-secrets.sh` | Osetljivi fajlovi za svoj stack | Preporučeno |
-| `agents/TEMPLATE.md` | Kreirati konkretne agente za svoje domene | Preporučeno |
-| `settings.json` | Automatski konfiguriše `/apd-init` | Automatski |
-| `docs/adr/TEMPLATE.md` | Prilagoditi format ADR-a ako treba | Opciono |
+| File | What | Priority |
+|------|------|----------|
+| `CLAUDE.md` | Stack, conventions, project structure, name | **Required** |
+| `verify-all.sh` | Build and test commands for your stack | **Required** |
+| `principles.md` | Language, error handling, architecture pattern | **Required** |
+| `guard-secrets.sh` | Sensitive files for your stack | Recommended |
+| `agents/TEMPLATE.md` | Create concrete agents for your domains | Recommended |
+| `settings.json` | Automatically configured by `/apd-init` | Automatic |
+| `docs/adr/TEMPLATE.md` | Adjust ADR format if needed | Optional |
 
-### CLAUDE.md — šta popuniti
+### CLAUDE.md — what to fill in
 
-CLAUDE.md je najvažniji fajl — jedini koji je **uvek** u Claude Code kontekstu (nikad se ne kompresuje). Sadrži:
+CLAUDE.md is the most important file — the only one that is **always** in the Claude Code context (never compressed). It contains:
 
-- **O projektu** — kratak opis, ciljna baza korisnika — **POPUNITI**
-- **Tehnički stack** — backend, frontend, infrastruktura — **POPUNITI**
-- **APD Hard Rules** — kritična pravila koja preživljavaju context kompresiju. **NE MENJATI** — ova sekcija je univerzalna i dolazi pre-popunjena
-- **Pravila** — jezik, git konvencije — **POPUNITI**
+- **About the project** — brief description, target user base — **FILL IN**
+- **Technical stack** — backend, frontend, infrastructure — **FILL IN**
+- **APD Hard Rules** — critical rules that survive context compression. **DO NOT MODIFY** — this section is universal and comes pre-populated
+- **Rules** — language, git conventions — **FILL IN**
 
-### verify-all.sh — kako konfigurisati
+### verify-all.sh — how to configure
 
-Dolazi zakomentarisan. Otkomentariši i podesi za svoj stack:
+Ships commented out. Uncomment and adjust for your stack:
 
 ```bash
 # Node.js:  npm test
@@ -760,44 +762,44 @@ Dolazi zakomentarisan. Otkomentariši i podesi za svoj stack:
 # .NET:     dotnet build && dotnet test
 ```
 
-Skripta automatski detektuje koje fajlove commitujete i pokreće samo relevantne provere.
+The script automatically detects which files are being committed and runs only the relevant checks.
 
-## Dodavanje projektno-specifičnih pravila
+## Adding project-specific rules
 
-Kreiraj nove fajlove u `.claude/rules/`:
-- `code-style.md` — naming, formatting konvencije
-- `api-design.md` — REST/GraphQL konvencije
-- `database.md` — šema, migracije, naming
-- `security.md` — auth, validacija, secrets
-- `logging.md` — log format, nivoi, šta ne logovati
+Create new files in `.claude/rules/`:
+- `code-style.md` — naming, formatting conventions
+- `api-design.md` — REST/GraphQL conventions
+- `database.md` — schema, migrations, naming
+- `security.md` — auth, validation, secrets
+- `logging.md` — log format, levels, what not to log
 
-## Preporučeni plugini
+## Recommended plugins
 
-APD template je dizajniran da radi sa [Superpowers](https://github.com/anthropics/claude-code-plugins) pluginom za Claude Code:
+The APD template is designed to work with the [Superpowers](https://github.com/anthropics/claude-code-plugins) plugin for Claude Code:
 
-| Faza | Plugin/Skill | Opis |
-|------|-------------|------|
-| Pre implementacije | `superpowers:brainstorming` | Istražuje nameru, zahteve, dizajn |
-| Pre implementacije | `superpowers:writing-plans` | Kreira implementacioni plan iz spec-a |
-| Builder | `superpowers:subagent-driven-development` | Paralelni agenti za nezavisne taskove |
+| Phase | Plugin/Skill | Description |
+|-------|-------------|-------------|
+| Pre-implementation | `superpowers:brainstorming` | Explores intent, requirements, design |
+| Pre-implementation | `superpowers:writing-plans` | Creates an implementation plan from the spec |
+| Builder | `superpowers:subagent-driven-development` | Parallel agents for independent tasks |
 | Builder | `superpowers:test-driven-development` | TDD workflow |
-| Builder | `superpowers:systematic-debugging` | Sistematski debugging pre fix-a |
-| Reviewer | `superpowers:requesting-code-review` | Review po završetku implementacije |
-| Reviewer | `simplify` | Review za kvalitet i efikasnost |
-| Verifier | `superpowers:verification-before-completion` | Verifikacija pre tvrdnje da je gotovo |
-| Post-commit | `superpowers:finishing-a-development-branch` | Merge, PR, cleanup opcije |
+| Builder | `superpowers:systematic-debugging` | Systematic debugging before fixing |
+| Reviewer | `superpowers:requesting-code-review` | Review upon implementation completion |
+| Reviewer | `simplify` | Review for quality and efficiency |
+| Verifier | `superpowers:verification-before-completion` | Verification before claiming completion |
+| Post-commit | `superpowers:finishing-a-development-branch` | Merge, PR, cleanup options |
 
-## Principi
+## Principles
 
-1. **Spec pre koda** — svaki task počinje mini-spec karticom koju korisnik odobri
-2. **Tri role** — Builder (implementira) → Reviewer (nalazi bagove) → Verifier (potvrđuje)
-3. **Mikro-zadaci** — max 3-4 edit operacije po agentu, jasno vlasništvo nad fajlovima
-4. **Human gate** — čovek odobrava API promene, migracije, auth logiku, deploy
-5. **Cross-layer verifikacija** — frontend/mobile tipovi moraju biti 1:1 sa backend DTO-ovima
-6. **Greškom-vođeni guardrail-i** — svaka greška postaje novo pravilo u memoriji
-7. **Session memory** — posle svakog taska: šta je urađeno, šta je pošlo po zlu, nova pravila
-8. **ADR za arhitekturu** — arhitekturne odluke se dokumentuju sa kontekstom, alternativama i posledicama
+1. **Spec before code** — every task begins with a mini-spec card that the user approves
+2. **Three roles** — Builder (implements) → Reviewer (finds bugs) → Verifier (confirms)
+3. **Micro-tasks** — max 3-4 edit operations per agent, clear file ownership
+4. **Human gate** — a human approves API changes, migrations, auth logic, deploy
+5. **Cross-layer verification** — frontend/mobile types must be 1:1 with backend DTOs
+6. **Error-driven guardrails** — every mistake becomes a new rule in memory
+7. **Session memory** — after each task: what was done, what went wrong, new rules
+8. **ADR for architecture** — architectural decisions are documented with context, alternatives, and consequences
 
-## Licenca
+## Licence
 
 MIT
