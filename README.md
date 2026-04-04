@@ -11,8 +11,79 @@ APD je workflow za AI-asistiran razvoj softvera gde:
 
 ## Pun lanac: od ideje do koda
 
+```mermaid
+graph LR
+    subgraph "Faza 0 — Vizuelni dizajn (opciono)"
+        MIRO["🎯 Miro<br/>koncept · arhitektura<br/>flow · wireframe"]
+        FIGMA["🎨 Figma<br/>UI dizajn · tokeni<br/>komponente · layout"]
+        MIRO --> FIGMA
+    end
+
+    subgraph "APD Pipeline — tehnički zaštićen"
+        SPEC["📋 Spec kartica<br/>cilj · scope · rizici<br/>acceptance kriterijumi"]
+        BUILDER["🔨 Builder<br/>implementacija koda<br/>max 3-4 edit ops"]
+        REVIEWER["🔍 Reviewer<br/>bagovi · rizici · propusti<br/>NE stilske promene"]
+        VERIFIER["✅ Verifier<br/>build · test<br/>contract check"]
+        COMMIT["📦 Commit<br/>APD_ORCHESTRATOR<br/>_COMMIT=1"]
+
+        SPEC --> BUILDER
+        BUILDER --> REVIEWER
+        REVIEWER -->|"nalaz OK"| VERIFIER
+        REVIEWER -->|"nalaz → popravka"| BUILDER
+        VERIFIER --> COMMIT
+    end
+
+    FIGMA -.->|"get_design_context"| BUILDER
+    MIRO -.->|"čitaj board"| SPEC
+    COMMIT -->|"Human gate"| PUSH["🚀 Push"]
+
+    style MIRO fill:#ffe066,stroke:#e6ac00,color:#000
+    style FIGMA fill:#a259ff,stroke:#7b2eff,color:#fff
+    style SPEC fill:#4da6ff,stroke:#0073e6,color:#fff
+    style BUILDER fill:#66cc66,stroke:#339933,color:#fff
+    style REVIEWER fill:#ff884d,stroke:#cc5500,color:#fff
+    style VERIFIER fill:#66cc66,stroke:#339933,color:#fff
+    style COMMIT fill:#888,stroke:#555,color:#fff
+    style PUSH fill:#ff6666,stroke:#cc0000,color:#fff
 ```
-Miro (koncept/arhitektura) → Figma (UI dizajn) → APD pipeline (implementacija)
+
+```mermaid
+graph TB
+    subgraph "Guardrail sistem"
+        direction LR
+        GG["🛡️ guard-git.sh<br/>commit/push kontrola<br/>mass staging blokada<br/>--no-verify blokada"]
+        GS["🛡️ guard-scope.sh<br/>Write/Edit scope<br/>per-agent putanje"]
+        GB["🛡️ guard-bash-scope.sh<br/>Bash write operacije<br/>redirect/tee/cp blokada"]
+        GSE["🛡️ guard-secrets.sh<br/>.env · .pem · .key<br/>credentials zaštita"]
+        GL["🛡️ guard-lockfile.sh<br/>package-lock · yarn.lock<br/>Cargo.lock zaštita"]
+        PG["🚧 pipeline-gate.sh<br/>4/4 koraka moraju<br/>biti završena"]
+        VA["🧪 verify-all.sh<br/>build + test<br/>pre svakog commit-a"]
+    end
+
+    subgraph "Pipeline flag sistem"
+        direction LR
+        S["spec.done"] --> B["builder.done"] --> R["reviewer.done"] --> V["verifier.done"]
+    end
+
+    subgraph "Memory sistem"
+        direction LR
+        MEM["📝 MEMORY.md<br/>indeks"]
+        STAT["📊 status.md<br/>faza · fokus"]
+        LOG["📜 session-log.md<br/>hronološki pregled<br/>+ auto rotacija"]
+        SKIP["⚠️ pipeline-skip-log.md<br/>skip metrika"]
+    end
+
+    style GG fill:#ff6666,stroke:#cc0000,color:#fff
+    style GS fill:#ff6666,stroke:#cc0000,color:#fff
+    style GB fill:#ff6666,stroke:#cc0000,color:#fff
+    style GSE fill:#ff6666,stroke:#cc0000,color:#fff
+    style GL fill:#ff6666,stroke:#cc0000,color:#fff
+    style PG fill:#ff884d,stroke:#cc5500,color:#fff
+    style VA fill:#ff884d,stroke:#cc5500,color:#fff
+    style S fill:#4da6ff,stroke:#0073e6,color:#fff
+    style B fill:#66cc66,stroke:#339933,color:#fff
+    style R fill:#ff884d,stroke:#cc5500,color:#fff
+    style V fill:#66cc66,stroke:#339933,color:#fff
 ```
 
 Svaki korak ima mašinski čitljiv izvor istine — niko ne prepisuje ručno iz jednog alata u drugi:
@@ -26,10 +97,6 @@ Svaki korak ima mašinski čitljiv izvor istine — niko ne prepisuje ručno iz 
 Miro i Figma su opcioni — APD radi i bez njih, ali sa njima pokriva ceo put od ideje do koda.
 
 ## APD Pipeline
-
-```
-Spec kartica → Builder → Reviewer → Verifier → Commit → [Human gate] → Push
-```
 
 Svaka implementacija prolazi sve faze — bez izuzetaka. Reviewer se nikad ne preskače, čak ni za "trivijalne" promene.
 
