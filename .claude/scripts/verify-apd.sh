@@ -398,6 +398,15 @@ else
     fail "guard-bash-scope NE BLOKIRA bash write van scope-a (exit: $EXIT_CODE)"
 fi
 
+# guard-bash-scope: blokira runtime write (node -e writeFileSync)
+RESULT=$(echo '{"tool_input":{"command":"node -e \"require('"'"'fs'"'"').writeFileSync('"'"'/tmp/x.js'"'"', '"'"'data'"'"')\""}}' | bash "$CLAUDE_DIR/scripts/guard-bash-scope.sh" src/ 2>&1)
+EXIT_CODE=$?
+if [ $EXIT_CODE -eq 2 ]; then
+    pass "guard-bash-scope blokira: runtime write (node)"
+else
+    fail "guard-bash-scope NE BLOKIRA runtime write node -e (exit: $EXIT_CODE)"
+fi
+
 # guard-lockfile: blokira lock fajl
 RESULT=$(echo "{\"tool_input\":{\"file_path\":\"$PROJECT_DIR/package-lock.json\"}}" | bash "$CLAUDE_DIR/scripts/guard-lockfile.sh" 2>&1)
 EXIT_CODE=$?
