@@ -4,7 +4,7 @@
 # Korišćenje:
 #   pipeline-advance.sh spec "Naziv taska"
 #   pipeline-advance.sh builder|reviewer|verifier
-#   pipeline-advance.sh reset|status|stats|rollback
+#   pipeline-advance.sh reset|status|stats|metrics|rollback
 #   pipeline-advance.sh skip "Razlog"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -103,6 +103,16 @@ case "$STEP" in
                 VERIFIER_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/verifier.done" 2>/dev/null)
                 TOTAL=" ($(format_duration $((VERIFIER_TS - SPEC_TS))))"
             fi
+            # Append u metrics log
+            METRICS_LOG="$(cd "$SCRIPT_DIR/.." && pwd)/memory/pipeline-metrics.log"
+            SPEC_TS_V=${SPEC_TS:-0}
+            BUILDER_TS_V=$(cut -d'|' -f1 "$PIPELINE_DIR/builder.done" 2>/dev/null || echo 0)
+            REVIEWER_TS_V=$(cut -d'|' -f1 "$PIPELINE_DIR/reviewer.done" 2>/dev/null || echo 0)
+            VERIFIER_TS_V=$(cut -d'|' -f1 "$PIPELINE_DIR/verifier.done" 2>/dev/null || echo 0)
+            STATUS="completed"
+            if [ ! -f "$PIPELINE_DIR/verifier.done" ]; then STATUS="partial"; fi
+            echo "${NOW}|${TASK_NAME}|${SPEC_TS_V}|${BUILDER_TS_V}|${REVIEWER_TS_V}|${VERIFIER_TS_V}|${STATUS}" >> "$METRICS_LOG"
+
             SESSION_LOG="$(cd "$SCRIPT_DIR/.." && pwd)/memory/session-log.md"
             if [ -f "$SESSION_LOG" ] && [ -n "$TASK_NAME" ]; then
                 cat >> "$SESSION_LOG" << EOF
@@ -205,6 +215,105 @@ EOF
         fi
         ;;
 
+    metrics)
+        METRICS_LOG="$(cd "$SCRIPT_DIR/.." && pwd)/memory/pipeline-metrics.log"
+        if [ ! -f "$METRICS_LOG" ] || [ ! -s "$METRICS_LOG" ]; then
+            echo "Nema metrika — još nije završen nijedan task."
+            exit 0
+        fi
+
+        TOTAL_TASKS=$(wc -l < "$METRICS_LOG" | tr -d ' ')
+        COMPLETED=$(grep -c '|completed$' "$METRICS_LOG" 2>/dev/null || echo 0)
+        PARTIAL=$(grep -c '|partial$' "$METRICS_LOG" 2>/dev/null || echo 0)
+        SKIP_LOG="$(cd "$SCRIPT_DIR/.." && pwd)/memory/pipeline-skip-log.md"
+        TOTAL_SKIPS=0
+        if [ -f "$SKIP_LOG" ]; then
+            TOTAL_SKIPS=$(grep -c '^|[[:space:]]*[0-9]' "$SKIP_LOG" 2>/dev/null) || TOTAL_SKIPS=0
+        fi
+
+        # Izračunaj proseke trajanja
+        TOTAL_DURATION=0
+        FASTEST=999999
+        SLOWEST=0
+        SPEC_TO_BUILDER=0
+        BUILDER_TO_REVIEWER=0
+        REVIEWER_TO_VERIFIER=0
+        VALID_COUNT=0
+
+        while IFS='|' read -r _ts task_name spec_ts builder_ts reviewer_ts verifier_ts status; do
+            # Očisti trailing whitespace
+            verifier_ts=$(echo "$verifier_ts" | tr -d '[:space:]')
+            spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
+            builder_ts=$(echo "$builder_ts" | tr -d '[:space:]')
+            reviewer_ts=$(echo "$reviewer_ts" | tr -d '[:space:]')
+            status=$(echo "$status" | tr -d '[:space:]')
+
+            if [ "$verifier_ts" -gt 0 ] 2>/dev/null && [ "$spec_ts" -gt 0 ] 2>/dev/null; then
+                DUR=$((verifier_ts - spec_ts))
+                TOTAL_DURATION=$((TOTAL_DURATION + DUR))
+                [ "$DUR" -lt "$FASTEST" ] && FASTEST=$DUR
+                [ "$DUR" -gt "$SLOWEST" ] && SLOWEST=$DUR
+                ((VALID_COUNT++))
+
+                if [ "$builder_ts" -gt 0 ]; then
+                    SPEC_TO_BUILDER=$((SPEC_TO_BUILDER + builder_ts - spec_ts))
+                fi
+                if [ "$reviewer_ts" -gt 0 ] && [ "$builder_ts" -gt 0 ]; then
+                    BUILDER_TO_REVIEWER=$((BUILDER_TO_REVIEWER + reviewer_ts - builder_ts))
+                fi
+                if [ "$verifier_ts" -gt 0 ] && [ "$reviewer_ts" -gt 0 ]; then
+                    REVIEWER_TO_VERIFIER=$((REVIEWER_TO_VERIFIER + verifier_ts - reviewer_ts))
+                fi
+            fi
+        done < "$METRICS_LOG"
+
+        if [ "$VALID_COUNT" -gt 0 ]; then
+            AVG_DURATION=$(format_duration $((TOTAL_DURATION / VALID_COUNT)))
+            FASTEST_FMT=$(format_duration $FASTEST)
+            SLOWEST_FMT=$(format_duration $SLOWEST)
+            AVG_S2B=$(format_duration $((SPEC_TO_BUILDER / VALID_COUNT)))
+            AVG_B2R=$(format_duration $((BUILDER_TO_REVIEWER / VALID_COUNT)))
+            AVG_R2V=$(format_duration $((REVIEWER_TO_VERIFIER / VALID_COUNT)))
+        else
+            AVG_DURATION="N/A"; FASTEST_FMT="N/A"; SLOWEST_FMT="N/A"
+            AVG_S2B="N/A"; AVG_B2R="N/A"; AVG_R2V="N/A"
+        fi
+
+        SKIP_RATE="0%"
+        if [ "$TOTAL_TASKS" -gt 0 ] && [ "$TOTAL_SKIPS" -gt 0 ]; then
+            SKIP_RATE="$TOTAL_SKIPS/$((TOTAL_TASKS + TOTAL_SKIPS)) ($((TOTAL_SKIPS * 100 / (TOTAL_TASKS + TOTAL_SKIPS)))%)"
+        fi
+
+        echo "╔══════════════════════════════════════════╗"
+        echo "║        APD Pipeline Metrike              ║"
+        echo "╠══════════════════════════════════════════╣"
+        printf "║  %-22s %-17s ║\n" "Ukupno taskova:" "$TOTAL_TASKS ($COMPLETED completed, $PARTIAL partial)"
+        printf "║  %-22s %-17s ║\n" "Prosečno trajanje:" "$AVG_DURATION"
+        printf "║  %-22s %-17s ║\n" "Najbrži:" "$FASTEST_FMT"
+        printf "║  %-22s %-17s ║\n" "Najsporiji:" "$SLOWEST_FMT"
+        printf "║  %-22s %-17s ║\n" "Skip rate:" "$SKIP_RATE"
+        echo "╠──────────────────────────────────────────╣"
+        echo "║  Prosek po koraku:                       ║"
+        printf "║    %-20s %-17s ║\n" "spec→builder:" "$AVG_S2B"
+        printf "║    %-20s %-17s ║\n" "builder→reviewer:" "$AVG_B2R"
+        printf "║    %-20s %-17s ║\n" "reviewer→verifier:" "$AVG_R2V"
+        echo "╠──────────────────────────────────────────╣"
+        echo "║  Poslednjih 5:                           ║"
+        tail -5 "$METRICS_LOG" | while IFS='|' read -r _ts task_name spec_ts _b _r verifier_ts status; do
+            verifier_ts=$(echo "$verifier_ts" | tr -d '[:space:]')
+            spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
+            status=$(echo "$status" | tr -d '[:space:]')
+            DUR="N/A"
+            if [ "$verifier_ts" -gt 0 ] 2>/dev/null && [ "$spec_ts" -gt 0 ] 2>/dev/null; then
+                DUR=$(format_duration $((verifier_ts - spec_ts)))
+            fi
+            ICON="✓"
+            [ "$status" = "partial" ] && ICON="…"
+            printf "║    %-24s %-8s %s    ║\n" "$task_name" "$DUR" "$ICON"
+        done
+        echo "╚══════════════════════════════════════════╝"
+        ;;
+
     skip)
         if [ -z "$ARG" ]; then
             echo "GREŠKA: Razlog za skip je obavezan." >&2
@@ -229,7 +338,7 @@ EOF
         echo "Korišćenje:" >&2
         echo "  pipeline-advance.sh spec \"Naziv taska\"" >&2
         echo "  pipeline-advance.sh builder|reviewer|verifier" >&2
-        echo "  pipeline-advance.sh reset|status|stats" >&2
+        echo "  pipeline-advance.sh reset|status|stats|metrics" >&2
         echo "  pipeline-advance.sh rollback" >&2
         echo "  pipeline-advance.sh skip \"Razlog\"" >&2
         exit 1
