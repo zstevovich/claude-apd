@@ -8,6 +8,49 @@ MEMORY_DIR=".claude/memory"
 PIPELINE_DIR=".claude/.pipeline"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# ===== CANARY — brzi health check =====
+CANARY_FAIL=0
+canary_fail() { echo "  ⚠ CANARY: $1"; ((CANARY_FAIL++)); }
+
+# jq — bez njega guard-ovi ne rade
+if ! command -v jq &>/dev/null; then
+    canary_fail "jq NIJE instaliran — guard skripte neće raditi!"
+fi
+
+# Kritične skripte — postoje i executable
+for script in guard-git.sh pipeline-advance.sh pipeline-gate.sh; do
+    if [ ! -x "$SCRIPT_DIR/$script" ]; then
+        canary_fail "$script nedostaje ili nije executable"
+    fi
+done
+
+# settings.json — validan JSON
+if [ -f "$PROJECT_DIR/.claude/settings.json" ]; then
+    if ! jq empty "$PROJECT_DIR/.claude/settings.json" 2>/dev/null; then
+        canary_fail "settings.json NIJE validan JSON (merge conflict?)"
+    fi
+fi
+
+# Stale pipeline — .done fajlovi stariji od 24h
+if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
+    OLDEST_FLAG=$(ls -t "$PIPELINE_DIR"/*.done 2>/dev/null | tail -1)
+    if [ -n "$OLDEST_FLAG" ]; then
+        FLAG_AGE=$(( $(date +%s) - $(stat -f %m "$OLDEST_FLAG" 2>/dev/null || stat -c %Y "$OLDEST_FLAG" 2>/dev/null || echo $(date +%s)) ))
+        if [ "$FLAG_AGE" -gt 86400 ]; then
+            canary_fail "Pipeline flags stariji od 24h — prethodna sesija crashovala? Pokreni: pipeline-advance.sh reset"
+        fi
+    fi
+fi
+
+if [ "$CANARY_FAIL" -gt 0 ]; then
+    echo "╔═══════════════════════════════════════════╗"
+    echo "║  ⚠ APD CANARY: $CANARY_FAIL problem(a) detektovan(o)    ║"
+    echo "║  Pokreni: bash .claude/scripts/verify-apd.sh   ║"
+    echo "╚═══════════════════════════════════════════╝"
+    echo ""
+fi
+# ========================================
+
 # Rotiraj session log (čuva poslednjih 10 entry-ja)
 if [ -x "$SCRIPT_DIR/rotate-session-log.sh" ]; then
     bash "$SCRIPT_DIR/rotate-session-log.sh" 10 2>/dev/null
