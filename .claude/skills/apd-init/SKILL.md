@@ -36,26 +36,58 @@ Pokreni ovaj skill na novom projektu da konfigurišeš APD okruženje.
    - `{{FIGMA_URL}}` → Figma link ili ukloni Figma sekciju iz CLAUDE.md ako nema dizajn
    - `{{MIRO_BOARD_URL}}` → Miro link ili ukloni Miro sekciju iz CLAUDE.md ako nema board
 
-3. **Kreiraj agente iz TEMPLATE.md:**
-   - Po jednog za svaki sloj koji korisnik navede
+3. **Auto-detect agenata iz strukture projekta:**
+
+   Pre nego što pitaš korisnika za agente, pročitaj strukturu projekta sa `ls` i predloži agente:
+
+   | Detektovan direktorijum | Predloženi agent | Scope |
+   |------------------------|-----------------|-------|
+   | `src/` ili `server/` ili `backend/` ili `api/` | backend-builder | detektovan dir |
+   | `client/` ili `frontend/` ili `web/` ili `apps/frontend/` | frontend-builder | detektovan dir |
+   | `mobile/` ili `apps/mobile/` ili `app/` (sa mobile config) | mobile-builder | detektovan dir |
+   | `tests/` ili `__tests__/` ili `test/` ili `src/test/` | testing | detektovan dir |
+   | `docker/` ili `.github/` ili `deploy/` ili `infra/` | devops | detektovani dirovi |
+   | `src/Commands/` + `src/Queries/` (ili slično) | CQRS agenti (command, query, event) | po odgovornosti |
+
+   **Procedura:**
+   1. Pokreni `ls -d */` u root-u projekta
+   2. Mapiraj direktorijume na agente po gornjoj tabeli
+   3. Prikaži predlog korisniku u tabeli:
+      ```
+      Detektovana struktura — predloženi agenti:
+      
+      | Agent | Scope | Izvor |
+      |-------|-------|-------|
+      | backend-builder | server/ | detektovan server/ dir |
+      | frontend-builder | client/ | detektovan client/ dir |
+      | testing | server/tests/ client/tests/ | detektovani test dirovi |
+      | devops | docker/ .github/ | detektovani infra dirovi |
+      
+      Odobri, koriguj ili dodaj agente:
+      ```
+   4. Korisnik odobri ili koriguje (dodaj/ukloni/promeni scope)
+   5. Tek posle odobrenja — kreiraj agente
+
+4. **Kreiraj agente iz TEMPLATE.md:**
+   - Po jednog za svaki odobreni agent iz koraka 3
    - Zameni `{{agent-name}}`, `{{SCOPE_PATHS}}`, `{{PROJECT_PATH}}`
    - Postavi model: `sonnet` za Builder-e, `opus` za Guardian-e
 
-4. **Konfiguriši verify-all.sh:**
+5. **Konfiguriši verify-all.sh:**
    - Otkomentiraj relevantne sekcije za stack koji korisnik koristi
    - Postavi build komande
 
-5. **Konfiguriši .mcp.json:**
+6. **Konfiguriši .mcp.json:**
    - Kopiraj iz `.mcp.json.example`
    - Zameni DB credentials
    - Ako korisnik ima Miro board → dodaj Miro MCP: `claude mcp add --transport http miro https://mcp.miro.com`
 
-6. **Učini skripte executable:**
+7. **Učini skripte executable:**
    ```bash
    chmod +x .claude/scripts/*.sh
    ```
 
-7. **Verifikuj setup:**
+8. **Verifikuj setup:**
    ```bash
    bash .claude/scripts/pipeline-advance.sh status
    bash .claude/scripts/session-start.sh
@@ -69,15 +101,24 @@ Claude: Kako se zove projekat?
 Korisnik: MyCRM
 Claude: Koji je stack? (backend, frontend, baza)
 Korisnik: Node.js + Express, React + Vite, PostgreSQL
-Claude: Koje su putanje? (backend dir, frontend dir)
-Korisnik: server/, client/
 Claude: Portovi?
 Korisnik: 3000 API, 5433 PG, 6380 Redis, 5173 Frontend
 Claude: Imate li Figma dizajn?
 Korisnik: Da, https://www.figma.com/design/abc123/MyCRM
 Claude: Imate li Miro board za specifikacije/arhitekturu?
 Korisnik: Da, https://miro.com/app/board/xyz789
-Claude: [generiše sve fajlove, kreira agente, podešava hooks, konfiguriše Figma i Miro sekcije, dodaje Miro MCP]
+Claude: Čitam strukturu projekta...
+
+  Detektovana struktura — predloženi agenti:
+  | Agent             | Scope          | Izvor                  |
+  | backend-builder   | server/        | detektovan server/ dir |
+  | frontend-builder  | client/        | detektovan client/ dir |
+  | testing           | tests/         | detektovan tests/ dir  |
+  | devops            | docker/ .github/ | detektovani infra dirovi |
+
+  Odobri, koriguj ili dodaj agente:
+Korisnik: Ok, dodaj i mobile-builder za mobile/
+Claude: [generiše sve fajlove, kreira 5 agenata, podešava hooks, konfiguriše Figma i Miro]
 ```
 
 ## Posle init-a
