@@ -20,6 +20,7 @@ Pokreni ovaj skill na novom projektu da konfigurišeš APD okruženje.
    - Agenti koje treba kreirati (po sloju)
    - Figma URL (ako postoji dizajn)
    - Miro board URL (ako postoji board za specifikacije/arhitekturu)
+   - GitHub Projects URL (ako koristi GitHub Projects za tracking)
 
 2. **Zameni placeholder-e u svim fajlovima:**
    - `{{PROJECT_NAME}}` → ime projekta
@@ -35,6 +36,7 @@ Pokreni ovaj skill na novom projektu da konfigurišeš APD okruženje.
    - `{{STACK}}` → kratki opis stack-a
    - `{{FIGMA_URL}}` → Figma link ili ukloni Figma sekciju iz CLAUDE.md ako nema dizajn
    - `{{MIRO_BOARD_URL}}` → Miro link ili ukloni Miro sekciju iz CLAUDE.md ako nema board
+   - `{{GITHUB_PROJECT_URL}}` → GitHub Projects link ili ukloni GitHub Projects sekciju iz CLAUDE.md ako ne koristi
 
 3. **Auto-detect agenata iz strukture projekta:**
 
@@ -109,6 +111,8 @@ Claude: Imate li Figma dizajn?
 Korisnik: Da, https://www.figma.com/design/abc123/MyCRM
 Claude: Imate li Miro board za specifikacije/arhitekturu?
 Korisnik: Da, https://miro.com/app/board/xyz789
+Claude: Koristite li GitHub Projects za tracking?
+Korisnik: Da, https://github.com/users/alex/projects/3
 Claude: Čitam strukturu projekta...
 
   Detektovana struktura — predloženi agenti:

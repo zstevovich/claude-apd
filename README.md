@@ -683,6 +683,64 @@ Requires Miro MCP server configured and authenticated.
 - The orchestrator can create diagrams on the board for documentation
 - If there is no Miro board — remove the Miro section from `CLAUDE.md`
 
+## GitHub Projects integration (optional)
+
+If the project uses GitHub Projects v2 for task tracking, APD maps pipeline phases directly to board columns.
+
+### Setup
+
+Ensure the GitHub MCP server is configured in `.mcp.json` (included in `.mcp.json.example`) and `gh` CLI is authenticated.
+
+### Pipeline → board column mapping
+
+| APD step | Board column | Action |
+|----------|-------------|--------|
+| `pipeline-advance.sh spec` | **Spec** | Create issue with spec card, add to board |
+| `pipeline-advance.sh builder` | **In Progress** | Move issue to In Progress |
+| `pipeline-advance.sh reviewer` | **Review** | Move issue to Review |
+| `pipeline-advance.sh verifier` | **Testing** | Move issue to Testing |
+| Successful commit | **Done** | Close issue, link commit, move to Done |
+| `pipeline-advance.sh skip` | **Done** | Close issue with `apd-skip` label |
+
+### Recommended board columns
+
+| Column | Purpose |
+|--------|---------|
+| **Backlog** | Planned tasks (not yet in pipeline) |
+| **Spec** | Spec card created, awaiting approval |
+| **In Progress** | Builder working |
+| **Review** | Reviewer examining |
+| **Testing** | Verifier testing |
+| **Done** | Committed and pushed |
+
+### Recommended labels
+
+- `apd-pipeline` — all APD-managed tasks
+- `apd-skip` — tasks with skipped pipeline
+- `human-gate` — tasks requiring manual approval
+
+### Metrics from GitHub Projects
+
+GitHub Projects tracks card movement history, providing:
+- **Cycle time** — how long an issue takes from Spec to Done
+- **Bottleneck detection** — which column holds cards the longest
+- **Throughput** — issues closed per day/week
+
+These complement `pipeline-advance.sh metrics` — GitHub gives the board-level view, the pipeline gives per-step timing.
+
+The `/github-projects` skill automates the full flow. Invoke it or let the orchestrator manage cards automatically.
+
+### Miro vs GitHub Projects
+
+| | Miro | GitHub Projects |
+|---|---|---|
+| **Audience** | PO, designers, clients — visual | Developers — technical |
+| **Content** | Wireframes, flows, architecture | Issues, PRs, status tracking |
+| **Strength** | Creative work, brainstorming | Automation, closing the loop |
+| **Coexistence** | Upstream (concept) | Downstream (implementation tracking) |
+
+Both can coexist — Miro for upstream design, GitHub Projects for downstream execution.
+
 ## Memory — two systems
 
 | | APD memory (`.claude/memory/`) | Claude auto memory (`~/.claude/projects/`) |

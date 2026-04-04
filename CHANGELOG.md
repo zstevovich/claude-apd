@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.2 — 2026-04-04
+
+Adds GitHub Projects integration for pipeline task tracking.
+
+### New features
+
+- **`/github-projects` skill** — maps APD pipeline phases to GitHub Projects v2 board columns (Spec → In Progress → Review → Testing → Done). Creates issues with spec cards, moves cards through columns, closes on commit
+- **GitHub Projects section in CLAUDE.md** — configurable `{{GITHUB_PROJECT_URL}}` placeholder with pipeline tracking rules
+- **`/apd-init` updated** — asks for GitHub Projects URL during setup
+- **README.md** — full GitHub Projects integration docs with column mapping, labels, metrics, and Miro vs GitHub comparison table
+
+---
+
 ## v2.1 — 2026-04-04
 
 Adopts Claude Code v2.1.72+ features for improved agent control and observability.

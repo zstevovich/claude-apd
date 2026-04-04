@@ -18,6 +18,7 @@
 | Mobile | {{MOBILE_STACK}} (ako postoji) |
 | Design | {{FIGMA_URL}} (ako postoji) |
 | Board | {{MIRO_BOARD_URL}} (ako postoji) |
+| Tracking | {{GITHUB_PROJECT_URL}} (ako postoji) |
 
 ## Portovi (lokalni razvoj)
 
@@ -102,6 +103,18 @@ Posle SVAKOG taska → append u .claude/memory/session-log.md
 - Instalacija: `claude mcp add --transport http miro https://mcp.miro.com`
 - Channels (push notifikacije): `claude --channels miro` za real-time board promene u sesiji
 - Dashboard: `/miro-dashboard` skill za vizuelizaciju pipeline statusa na boardu
+
+## GitHub Projects
+
+<!-- Obriši ovu sekciju ako projekat ne koristi GitHub Projects -->
+
+- **Projekat:** {{GITHUB_PROJECT_URL}}
+- Svaki APD task = GitHub issue sa spec karticom u opisu
+- Pipeline faze se mapiraju na kolone: Spec → In Progress → Review → Testing → Done
+- Orkestrator kreira issue na početku spec-a i pomera ga kroz kolone
+- Issue se automatski zatvara i linkuje sa commitom na kraju pipeline-a
+- `/github-projects` skill za automatsko upravljanje karticama
+- GitHub MCP server mora biti konfigurisan u `.mcp.json`
 
 ## Anti-patterns
 
