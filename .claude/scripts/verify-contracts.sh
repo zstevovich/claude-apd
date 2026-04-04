@@ -1,0 +1,345 @@
+#!/bin/bash
+# APD Contract Verifier — proverava da tipovi na granicama slojeva odgovaraju
+#
+# Korišćenje:
+#   verify-contracts.sh <backend_putanja> <frontend_putanja>
+#   verify-contracts.sh --changed          # samo promenjeni fajlovi (za pre-commit)
+#   verify-contracts.sh --help
+#
+# Podržava: TypeScript (interface/type) i C# (class/record DTO)
+# Ograničenja: Regex-based, ne full parser. Pokriva ~80% slučajeva.
+#              Složeni generici i deep nested tipovi zahtevaju ručnu proveru.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Boje (samo ako terminal podržava)
+if [ -t 1 ]; then
+    GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; NC='\033[0m'; BOLD='\033[1m'
+else
+    GREEN=''; RED=''; YELLOW=''; NC=''; BOLD=''
+fi
+
+RESULTS_FILE=$(mktemp)
+
+usage() {
+    echo "APD Contract Verifier"
+    echo ""
+    echo "Korišćenje:"
+    echo "  verify-contracts.sh <backend_dir> <frontend_dir>"
+    echo "  verify-contracts.sh --changed"
+    echo "  verify-contracts.sh --help"
+    echo ""
+    echo "Primeri:"
+    echo "  verify-contracts.sh server/src/types/ client/src/types/"
+    echo "  verify-contracts.sh src/Dtos/ apps/frontend/src/types/"
+    echo "  verify-contracts.sh --changed  # koristi git diff za detekciju"
+    exit 0
+}
+
+# ============================================================
+# TypeScript parser — izvlači polja iz interface/type
+# Kompatibilan sa macOS (BSD) i Linux (GNU) awk
+# ============================================================
+extract_ts_types() {
+    local dir="$1"
+    local types_file=$(mktemp)
+
+    local file_list
+    file_list=$(find "$dir" -name "*.ts" -o -name "*.tsx" 2>/dev/null | grep -v node_modules | grep -v '.d.ts')
+
+    for file in $file_list; do
+        local current_type=""
+        local in_block=0
+        local brace_count=0
+
+        while IFS= read -r line; do
+            if [ "$in_block" -eq 0 ]; then
+                TYPE_NAME=$(echo "$line" | sed -nE 's/^export (interface|type) ([A-Za-z0-9_]+).*/\2/p')
+                if [ -n "$TYPE_NAME" ]; then
+                    current_type="$TYPE_NAME"
+                    in_block=1
+                    brace_count=0
+                    OPEN=$(echo "$line" | tr -cd '{' | wc -c | tr -d ' ')
+                    CLOSE=$(echo "$line" | tr -cd '}' | wc -c | tr -d ' ')
+                    brace_count=$((brace_count + OPEN - CLOSE))
+                    continue
+                fi
+            fi
+
+            if [ "$in_block" -eq 1 ]; then
+                OPEN=$(echo "$line" | tr -cd '{' | wc -c | tr -d ' ')
+                CLOSE=$(echo "$line" | tr -cd '}' | wc -c | tr -d ' ')
+                brace_count=$((brace_count + OPEN - CLOSE))
+
+                FIELD_NAME=$(echo "$line" | sed -nE 's/^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*)\??\s*:.*/\1/p')
+                if [ -n "$FIELD_NAME" ]; then
+                    FIELD_TYPE=$(echo "$line" | sed -nE 's/^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*\??\s*:\s*(.+)[;,]?\s*$/\1/p' | sed 's/[;,]*$//')
+                    NULLABLE=""
+                    if echo "$line" | grep -qE '^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*\?' ; then
+                        NULLABLE="?"
+                    fi
+                    if [ -n "$FIELD_TYPE" ]; then
+                        echo "${current_type}|${FIELD_NAME}|${FIELD_TYPE}|${NULLABLE}" >> "$types_file"
+                    fi
+                fi
+
+                if [ "$brace_count" -le 0 ]; then
+                    in_block=0
+                    current_type=""
+                fi
+            fi
+        done < "$file"
+    done
+
+    echo "$types_file"
+}
+
+# ============================================================
+# C# parser — izvlači public property-je iz klasa
+# ============================================================
+extract_cs_types() {
+    local dir="$1"
+    local types_file=$(mktemp)
+
+    local file_list
+    file_list=$(find "$dir" -name "*.cs" 2>/dev/null | grep -v bin | grep -v obj)
+
+    for file in $file_list; do
+        local current_type=""
+        local in_block=0
+        local brace_count=0
+
+        while IFS= read -r line; do
+            if [ "$in_block" -eq 0 ]; then
+                TYPE_NAME=$(echo "$line" | sed -nE 's/.*public (class|record) ([A-Za-z0-9_]+).*/\2/p')
+                if [ -n "$TYPE_NAME" ]; then
+                    current_type="$TYPE_NAME"
+                    in_block=1
+                    brace_count=0
+                    OPEN=$(echo "$line" | tr -cd '{' | wc -c | tr -d ' ')
+                    brace_count=$((brace_count + OPEN))
+                    continue
+                fi
+            fi
+
+            if [ "$in_block" -eq 1 ]; then
+                OPEN=$(echo "$line" | tr -cd '{' | wc -c | tr -d ' ')
+                CLOSE=$(echo "$line" | tr -cd '}' | wc -c | tr -d ' ')
+                brace_count=$((brace_count + OPEN - CLOSE))
+
+                PROP_NAME=$(echo "$line" | sed -nE 's/.*public\s+[A-Za-z0-9_<>,\[\] ]+\??\s+([A-Z][a-zA-Z0-9_]*)\s*\{.*/\1/p')
+                if [ -n "$PROP_NAME" ]; then
+                    PROP_TYPE=$(echo "$line" | sed -nE 's/.*public\s+([A-Za-z0-9_<>,\[\] ]+\??)\s+[A-Z][a-zA-Z0-9_]*\s*\{.*/\1/p' | sed 's/\?$//')
+                    NULLABLE=""
+                    if echo "$line" | grep -qE 'public\s+[A-Za-z0-9_<>,\[\] ]+\?\s'; then
+                        NULLABLE="?"
+                    fi
+                    if [ -n "$PROP_TYPE" ]; then
+                        echo "${current_type}|${PROP_NAME}|${PROP_TYPE}|${NULLABLE}" >> "$types_file"
+                    fi
+                fi
+
+                if [ "$brace_count" -le 0 ]; then
+                    in_block=0
+                    current_type=""
+                fi
+            fi
+        done < "$file"
+    done
+
+    echo "$types_file"
+}
+
+# ============================================================
+# Detektuj jezik na osnovu fajlova u direktorijumu
+# ============================================================
+detect_language() {
+    local dir="$1"
+    if find "$dir" -name "*.ts" -o -name "*.tsx" 2>/dev/null | grep -qv node_modules; then
+        echo "typescript"
+    elif find "$dir" -name "*.cs" 2>/dev/null | grep -v bin | grep -qv obj; then
+        echo "csharp"
+    else
+        echo "unknown"
+    fi
+}
+
+# ============================================================
+# Uporedi tipove
+# ============================================================
+compare_types() {
+    local backend_file="$1"
+    local frontend_file="$2"
+
+    if [ ! -s "$backend_file" ]; then
+        echo -e "${YELLOW}Nema detektovanih tipova na backend strani.${NC}"
+        return
+    fi
+
+    if [ ! -s "$frontend_file" ]; then
+        echo -e "${YELLOW}Nema detektovanih tipova na frontend strani.${NC}"
+        return
+    fi
+
+    local b_count=$(cut -d'|' -f1 "$backend_file" | sort -u | wc -l | tr -d ' ')
+    local f_count=$(cut -d'|' -f1 "$frontend_file" | sort -u | wc -l | tr -d ' ')
+
+    echo -e "${BOLD}Detektovano: $b_count backend tipova, $f_count frontend tipova${NC}"
+    echo ""
+
+    # Za svaki backend tip, traži odgovarajući frontend tip
+    local type_list_file=$(mktemp)
+    cut -d'|' -f1 "$backend_file" | sort -u > "$type_list_file"
+
+    while read -r type_name <&4; do
+        local type_name_fe="$type_name"
+
+        # Traži isti tip na frontend strani
+        if ! grep -q "^${type_name}|" "$frontend_file" 2>/dev/null; then
+            # Probaj bez Response/Dto/DTO sufiksa
+            ALT_NAME=$(echo "$type_name" | sed -E 's/(Response|Dto|DTO|Model|Vm|ViewModel)$//')
+            if [ "$ALT_NAME" != "$type_name" ] && grep -q "^${ALT_NAME}|" "$frontend_file" 2>/dev/null; then
+                type_name_fe="$ALT_NAME"
+            else
+                continue
+            fi
+        fi
+
+        echo -e "${BOLD}── $type_name ↔ $type_name_fe ──${NC}"
+
+        # Izvuci backend polja u temp fajl
+        local b_tmp=$(mktemp)
+        grep "^${type_name}|" "$backend_file" | sort -t'|' -k2 > "$b_tmp"
+
+        while IFS='|' read -r _skip b_field b_type b_nullable; do
+            FE_LINE=$(grep "^${type_name_fe}|${b_field}|" "$frontend_file" | head -1)
+
+            if [ -z "$FE_LINE" ]; then
+                echo -e "  ${RED}✗ MISSING${NC}  $b_field ($b_type$b_nullable) — postoji na backendu, fali na frontendu"
+                echo "MISSING" >> "$RESULTS_FILE"
+            else
+                FE_TYPE=$(echo "$FE_LINE" | cut -d'|' -f3)
+                FE_NULLABLE=$(echo "$FE_LINE" | cut -d'|' -f4)
+
+                if [ "$b_nullable" = "?" ] && [ "$FE_NULLABLE" != "?" ]; then
+                    echo -e "  ${YELLOW}! NULL${NC}    $b_field — backend je nullable ($b_type?), frontend NIJE ($FE_TYPE)"
+                    echo "MISMATCH" >> "$RESULTS_FILE"
+                else
+                    echo -e "  ${GREEN}✓ MATCH${NC}   $b_field ($b_type$b_nullable ↔ $FE_TYPE$FE_NULLABLE)"
+                    echo "MATCH" >> "$RESULTS_FILE"
+                fi
+            fi
+        done < "$b_tmp"
+        rm -f "$b_tmp"
+        echo ""
+    done 4< "$type_list_file"
+    rm -f "$type_list_file"
+}
+
+# ============================================================
+# MAIN
+# ============================================================
+
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    usage
+fi
+
+if [ "${1:-}" = "--changed" ]; then
+    echo "APD Contract Verifier — promenjeni fajlovi"
+    echo ""
+
+    CHANGED=$(git -C "$PROJECT_DIR" diff --cached --name-only 2>/dev/null || git -C "$PROJECT_DIR" diff --name-only HEAD 2>/dev/null || echo "")
+    if [ -z "$CHANGED" ]; then
+        echo "Nema promenjenih fajlova."
+        exit 0
+    fi
+
+    HAS_BACKEND=$(echo "$CHANGED" | grep -qE '(src/|server/|backend/|api/).*(types|dto|model|response|Dto|DTO)' && echo "true" || echo "false")
+    HAS_FRONTEND=$(echo "$CHANGED" | grep -qE '(client/|frontend/|web/|apps/).*(types|model|interface)' && echo "true" || echo "false")
+
+    if [ "$HAS_BACKEND" = "false" ] && [ "$HAS_FRONTEND" = "false" ]; then
+        echo "Promene ne utiču na tipove na granicama slojeva."
+        exit 0
+    fi
+
+    echo -e "${YELLOW}Detektovane promene u tip fajlovima — pokrenite punu verifikaciju:${NC}"
+    echo "  bash .claude/scripts/verify-contracts.sh <backend_types_dir> <frontend_types_dir>"
+    exit 0
+fi
+
+if [ $# -lt 2 ]; then
+    echo "GREŠKA: Potrebne su dve putanje (backend tipovi, frontend tipovi)." >&2
+    echo "" >&2
+    usage
+fi
+
+BACKEND_DIR="$PROJECT_DIR/$1"
+FRONTEND_DIR="$PROJECT_DIR/$2"
+
+if [ ! -d "$BACKEND_DIR" ]; then
+    echo "GREŠKA: Backend direktorijum ne postoji: $1" >&2
+    exit 1
+fi
+
+if [ ! -d "$FRONTEND_DIR" ]; then
+    echo "GREŠKA: Frontend direktorijum ne postoji: $2" >&2
+    exit 1
+fi
+
+BACKEND_LANG=$(detect_language "$BACKEND_DIR")
+FRONTEND_LANG=$(detect_language "$FRONTEND_DIR")
+
+echo "╔══════════════════════════════════════════╗"
+echo "║       APD Contract Verifier              ║"
+echo "╚══════════════════════════════════════════╝"
+echo ""
+echo "Backend:  $1 ($BACKEND_LANG)"
+echo "Frontend: $2 ($FRONTEND_LANG)"
+echo ""
+
+# Izvuci tipove
+if [ "$BACKEND_LANG" = "typescript" ]; then
+    BACKEND_TYPES_FILE=$(extract_ts_types "$BACKEND_DIR")
+elif [ "$BACKEND_LANG" = "csharp" ]; then
+    BACKEND_TYPES_FILE=$(extract_cs_types "$BACKEND_DIR")
+else
+    echo "GREŠKA: Neprepoznat backend jezik u $1. Podržani: TypeScript, C#" >&2
+    exit 1
+fi
+
+if [ "$FRONTEND_LANG" = "typescript" ]; then
+    FRONTEND_TYPES_FILE=$(extract_ts_types "$FRONTEND_DIR")
+elif [ "$FRONTEND_LANG" = "csharp" ]; then
+    FRONTEND_TYPES_FILE=$(extract_cs_types "$FRONTEND_DIR")
+else
+    echo "GREŠKA: Neprepoznat frontend jezik u $2. Podržani: TypeScript, C#" >&2
+    exit 1
+fi
+
+# Uporedi
+compare_types "$BACKEND_TYPES_FILE" "$FRONTEND_TYPES_FILE"
+
+# Čišćenje
+rm -f "$BACKEND_TYPES_FILE" "$FRONTEND_TYPES_FILE"
+
+# Izračunaj rezultate iz fajla
+MATCHES=$(grep -c "^MATCH$" "$RESULTS_FILE" 2>/dev/null || echo 0)
+MISMATCHES=$(grep -c "^MISMATCH$" "$RESULTS_FILE" 2>/dev/null || echo 0)
+MISSING=$(grep -c "^MISSING$" "$RESULTS_FILE" 2>/dev/null || echo 0)
+rm -f "$RESULTS_FILE"
+
+# Rezultat
+echo "╔══════════════════════════════════════════╗"
+printf "║  MATCH: %-4s MISMATCH: %-4s MISSING: %-4s║\n" "$MATCHES" "$MISMATCHES" "$MISSING"
+echo "╚══════════════════════════════════════════╝"
+
+if [ "$MISMATCHES" -gt 0 ] || [ "$MISSING" -gt 0 ]; then
+    echo ""
+    echo "Popravi mismatch/missing polja pre commit-a."
+    exit 1
+fi
+
+exit 0
