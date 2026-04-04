@@ -1,5 +1,6 @@
-# Status
+# Status projekta
 
-**Faza:** [Trenutna faza projekta]
-**Fokus:** [Na čemu se trenutno radi]
-**Blokirano:** [Šta čeka — ili "Ništa"]
+## Trenutna faza: {{INITIAL_PHASE}}
+
+**Fokus:** {{INITIAL_FOCUS}}
+**Blokirano:** Ništa.

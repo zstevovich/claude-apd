@@ -1,28 +1,27 @@
-# Orkestrator memorija
+# {{PROJECT_NAME}} — Memorija projekta
 
-## Dva sistema memorije — ne mešati
+## Uloga
 
-| | APD memorija (`.claude/memory/`) | Claude auto memorija (`~/.claude/projects/`) |
-|---|---|---|
-| **Šta čuva** | Projektno znanje — status, session log, naučene lekcije | Lične preference korisnika, feedback, kontekst |
-| **Ko koristi** | Svi na projektu (orkestrator + agenti) | Samo taj korisnik na toj mašini |
-| **Gde živi** | U repozitorijumu — commituje se | Lokalno — NE commituje se |
-| **Ko piše** | Orkestrator (posle svakog taska) | Claude automatski |
-| **Primer** | "Auth middleware mora koristiti Redis sessione" | "Korisnik preferira kratke odgovore bez emoji-ja" |
+Orkestrator. Delegiram agentima, ne implementiram direktno osim trivijalnog.
 
-**Pravilo:** Projektne odluke, arhitekturna pravila i naučene lekcije idu u APD memoriju. Lične preference i stil komunikacije ostaviti Claude auto memoriji.
+## Okruženje
 
-## Projekat
+- **Skripte:** guard-git, guard-scope, guard-bash-scope, guard-secrets, guard-lockfile, pipeline-advance, pipeline-gate, rotate-session-log, session-start, verify-all
+- **Agenti:** {{AGENT_LIST}}
+- **Rules:** workflow, principles
+- **Pipeline:** Spec → Builder → Reviewer → Verifier → Commit (tehnički zaštićen)
 
-- **Naziv:** [PROJECT_NAME]
-- **Faza:** [Trenutna faza]
-- **Rok:** [Datum]
+## Brza referenca
 
-## Roadmap
+| Stavka | Vrednost |
+|--------|---------|
+| Stack | {{STACK}} |
+| Grane | develop → staging → main |
+| Port range | {{PORT_RANGE}} |
 
-1. [Task 1]
-2. [Task 2]
+## Memory fajlovi (po temama)
 
-## Naučene lekcije
-
-- (Akumulira se tokom rada — pogledaj session-log.md za detalje)
+### Status
+- [status.md](status.md) — aktuelna faza i fokus
+- [session-log.md](session-log.md) — hronološki pregled sesija
+- [pipeline-skip-log.md](pipeline-skip-log.md) — skip log za analizu

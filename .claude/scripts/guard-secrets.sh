@@ -1,50 +1,58 @@
 #!/bin/bash
-# APD Secrets Guard — blokira čitanje osetljivih fajlova iz Bash komandi
-# Registruje se na Bash matcher SAMO za agente (ne za orkestratora)
+# APD Secrets Guard — sprečava pristup osetljivim fajlovima
+# Prilagodi BLOCKED_PATTERNS za svoj projekat
 
 if ! command -v jq &>/dev/null; then
-  echo "GREŠKA: jq nije instaliran. Potreban za guard-secrets.sh." >&2
+  echo "GREŠKA: jq nije instaliran." >&2
   exit 2
 fi
 
 INPUT=$(cat)
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 
-if [ -z "$COMMAND" ]; then
-  exit 0
-fi
+PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
-# Osetljivi pattern-i — fajlovi koji ne smeju biti čitani od strane agenata
-# Dodaj pattern-e specifične za svoj projekat po potrebi
-SENSITIVE_PATTERNS='(\.(env|pem|key|p12|pfx|keystore|jks)(\..*)?$|/\.ssh/|credential|secret[s]?\.)'
+# ===== PRILAGODI ZA SVOJ PROJEKAT =====
+BLOCKED_PATTERNS=(
+  # Environment fajlovi
+  '.env.production'
+  '.env.staging'
+  '.env.prod'
+  # Ključevi i sertifikati
+  '.pem'
+  '.key'
+  '.pfx'
+  'id_rsa'
+  'id_ed25519'
+  'id_ecdsa'
+  # Credential fajlovi
+  'credentials.json'
+  'service-account'
+  '.sa.json'
+  # Docker registry
+  '.docker/config.json'
+  # .NET specifično (ukloni ako nije .NET)
+  'appsettings.Production.json'
+  'appsettings.Staging.json'
+  'user-secrets'
+)
+# =======================================
 
-# Detektuj read komande sa osetljivim fajlovima
-# Pokriveno: cat, head, tail, less, more, bat, grep na osetljivim fajlovima
-READ_COMMANDS='(cat|head|tail|less|more|bat|strings|xxd|hexdump|od)'
-
-# Izvuci sve argumente iz read komandi
-if echo "$COMMAND" | grep -qE "$READ_COMMANDS"; then
-  # Proveri svaki argument read komande
-  ARGS=$(echo "$COMMAND" | grep -oE "$READ_COMMANDS[[:space:]]+[^;|&]+" | sed -E "s/$READ_COMMANDS[[:space:]]+//" | tr ' ' '\n')
-  for arg in $ARGS; do
-    # Preskoči flag-ove (počinju sa -)
-    [[ "$arg" == -* ]] && continue
-    # Proveri da li matchuje osetljiv pattern
-    if echo "$arg" | grep -qiE "$SENSITIVE_PATTERNS"; then
-      echo "BLOKIRANO: Čitanje osetljivog fajla '$arg' nije dozvoljeno." >&2
-      echo "  Agenti ne smeju pristupati credential/secret/key fajlovima." >&2
-      echo "  Ako je ovo potrebno, zatraži od orkestratora." >&2
+if [ -n "$FILE_PATH" ]; then
+  REL_PATH="${FILE_PATH#$PROJECT_DIR/}"
+  for pattern in "${BLOCKED_PATTERNS[@]}"; do
+    if [[ "$REL_PATH" == *"$pattern"* ]]; then
+      echo "BLOKIRANO: Pristup osetljivom fajlu: $REL_PATH" >&2
       exit 2
     fi
   done
 fi
 
-# Proveri i source/. komande (sa razmakom iza da ne hvata svaki '.' u komandi)
-if echo "$COMMAND" | grep -qE '(source[[:space:]]|\.[[:space:]])' ; then
-  SOURCE_FILES=$(echo "$COMMAND" | grep -oE '(source|\.)[[:space:]]+[^ ;|&]+' | awk '{print $NF}')
-  for sf in $SOURCE_FILES; do
-    if echo "$sf" | grep -qiE "$SENSITIVE_PATTERNS"; then
-      echo "BLOKIRANO: Source-ovanje osetljivog fajla '$sf' nije dozvoljeno." >&2
+if [ -n "$COMMAND" ]; then
+  for pattern in "${BLOCKED_PATTERNS[@]}"; do
+    if [[ "$COMMAND" == *"$pattern"* ]]; then
+      echo "BLOKIRANO: Komanda pristupa osetljivom fajlu: $pattern" >&2
       exit 2
     fi
   done

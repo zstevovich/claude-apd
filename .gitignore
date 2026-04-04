@@ -1,7 +1,9 @@
+# Claude Code
+.claude/settings.local.json
+.claude/.pipeline/
+# Otkomentiraj ako ne želiš CLAUDE.md u repo-u:
+# CLAUDE.md
+
 # OS
 .DS_Store
-
-# Editor
-*.swp
-*.swo
-*~
+Thumbs.db

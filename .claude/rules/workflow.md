@@ -1,74 +1,84 @@
 # Agent Pipeline Development (APD) — Workflow
 
-## HARD GATE — BEZ IZUZETAKA
+## HARD GATE — TEHNIČKI ZAŠTIĆENO
 
-**Svaka implementacija MORA proći sve tri role: Builder → Reviewer → Verifier → tek onda commit.**
+**Svaka implementacija MORA proći sve korake: Spec → Builder → Reviewer → Verifier → tek onda commit.**
 
-- NIKADA ne preskakati Reviewer korak, bez obzira na veličinu ili "jednostavnost" promene
+Ovo nije samo dokumentovano pravilo — **hook-ovi tehnički blokiraju commit** ako koraci nisu završeni.
+
+### Mehanizam: Pipeline Flag System
+
+```
+.claude/.pipeline/
+├── spec.done        # Orkestrator kreira posle odobrenog spec-a
+├── builder.done     # Orkestrator kreira posle Builder-a
+├── reviewer.done    # Orkestrator kreira posle Review-a
+└── verifier.done    # Orkestrator kreira posle Verifier-a
+```
+
+- `guard-git.sh` → poziva `pipeline-gate.sh` → proverava da SVA 4 fajla postoje
+- Ako bilo koji fali → **commit je BLOKIRAN**
+- Posle commita → `pipeline-advance.sh reset` automatski briše flag-ove
+
+### Komande
+
+```bash
+bash .claude/scripts/pipeline-advance.sh spec "Naziv taska"
+bash .claude/scripts/pipeline-advance.sh builder
+bash .claude/scripts/pipeline-advance.sh reviewer
+bash .claude/scripts/pipeline-advance.sh verifier
+bash .claude/scripts/pipeline-advance.sh status
+bash .claude/scripts/pipeline-advance.sh reset
+bash .claude/scripts/pipeline-advance.sh rollback           # Vrati jedan korak nazad
+bash .claude/scripts/pipeline-advance.sh stats
+bash .claude/scripts/pipeline-advance.sh skip "Razlog"  # Samo za hitne hotfix-ove
+```
+
+### Hard rules
+- NIKADA ne preskakati Reviewer korak
 - NIKADA ne grupisati više faza bez review-a između svake
-- Brzina NIJE izgovor za preskakanje koraka — preskočen review znači propušteni bagovi koji se vraćaju kao skuplji audit
+- Brzina NIJE izgovor za preskakanje koraka
 - Ovo pravilo je APSOLUTNO i neprekršivo
 
-## Napomena: Rules vs Skills
+## 1. Spec kartica pre koda
 
-- **Rules** (`.claude/rules/`) — globalna pravila, učitavaju se UVEK za sve agente
-- **Skills** (`.claude/skills/`) — snippet-ovi i procedure, učitavaju se EKSPLICITNO kad agent treba konvencije
-
-## 1. Spec kartica pre koda (5-10 min)
-
-Pre SVAKOG taska (bez obzira na veličinu) kreirati mini-spec:
+Pre SVAKOG taska kreirati mini-spec:
 
 ```
 ## [Naziv taska]
 **Cilj:** Jedna rečenica.
-**Effort:** max | high (pogledaj sekciju 8)
+**Effort:** max | high
 **Van scope-a:** Šta NE radimo.
 **Acceptance kriterijumi:** Lista uslova za "gotovo".
 **Pogođeni moduli:** Fajlovi/slojevi koji se menjaju.
 **Rizici:** Šta može poći po zlu.
 **Rollback:** Kako vratiti ako pukne.
-**Human gate:** Da li zahteva odobrenje (API promene, migracije, auth, prod data).
-**ADR:** ADR-NNNN | Potreban | N/A
+**Human gate:** Da li zahteva odobrenje (API promene, migracije, auth, deploy).
 ```
 
-Spec se deli sa korisnikom PRE implementacije. Korisnik odobrava ili koriguje.
-
-### Kada kreirati ADR
-
-Orkestrator predlaže kreiranje ADR-a kada task uključuje:
-- Uvođenje nove tehnologije ili biblioteke
-- Promena API dizajna ili komunikacionog paterna
-- Izbor između dva validna arhitekturna pristupa
-- Promena auth/security strategije
-- Migracija podataka ili promena šeme
-
-ADR se kreira PRE implementacije. Builder vidi ADR referencu u spec kartici.
-ADR se NE forsira — orkestrator predlaže, korisnik odlučuje.
+Spec se deli sa korisnikom PRE implementacije.
 
 ## 2. Tri role agenata
 
 ### Builder
 - Implementira kod prema spec-u
-- Custom agenti u `.claude/agents/` — jedan per domen
+- Custom agenti u `.claude/agents/`
 - Max 3-4 edit operacije po dispatch-u
-- Jasno vlasništvo nad fajlovima — bez preklapanja između agenata
+- Jasno vlasništvo nad fajlovima
 
 ### Reviewer
 - Samo nalazi rizike, bagove, propuste
-- NE predlaže stilske promene ili refactoring van scope-a
-- Eksplicitno traži: regresije, edge case-ove, security rupe, cross-layer mismatch
+- NE predlaže stilske promene van scope-a
 - Pokreće se AUTOMATSKI posle svakog Builder-a
 
 ### Verifier
 - Build + test + contract check
 - Pokreće se POSLE Reviewer-a, PRE commit-a
-- Koristi `verify-all.sh` skriptu
 
-### Orkestrator (Claude)
-- Kreira spec karticu i deli sa korisnikom
+### Orkestrator
+- Kreira spec karticu
 - Dispatchuje Builder-e (paralelno gde je moguće)
-- Pokreće Reviewer-a posle svake implementacije
-- Pokreće Verifier-a pre commitovanja
+- Pokreće Reviewer-a i Verifier-a
 - Jedini commituje i push-uje
 - Jedini komunicira sa korisnikom
 
@@ -76,92 +86,60 @@ ADR se NE forsira — orkestrator predlaže, korisnik odlučuje.
 
 - Svaki task: jedna funkcionalna promena
 - Max 3-4 edit operacije po agentu
-- Jedan agent = jasno vlasništvo nad fajlovima (bez preklapanja)
+- Jedan agent = jasno vlasništvo nad fajlovima
 - Ako task zahteva >5 fajlova, razbiti na 2+ agenta
 
 ## 4. Verifikacija pre "gotovo"
 
-Minimum pre SVAKOG commit-a:
+Pre SVAKOG commit-a:
 - [ ] Build prolazi (0 errors)
 - [ ] Testovi prolaze (0 failures)
 - [ ] Frontend type check prolazi (ako ima frontend promene)
 - [ ] Cross-layer contract check (ako task uključuje >1 sloj)
-- [ ] Review nalaze primenjene i verifikovane
+- [ ] Review nalaze primenjene
 
-Minimum pre SVAKOG push-a na staging/production:
+Pre SVAKOG push-a na staging/production:
 - [ ] Sve gore
-- [ ] Smoke test na ključnim endpoint-ima
-- [ ] Proveriti da svi secrets/env vars postoje u deploy workflow-u
 - [ ] Korisnik eksplicitno odobrio push
 
 ## 5. Human gate
 
 Korisnik MORA odobriti pre:
 - API promene (novi endpointi, promena potpisa)
-- Migracije baze (nove tabele, promene kolona)
-- Auth/role logika (promene u autorizaciji)
+- Migracije baze
+- Auth/role logika
 - Deploy na staging/produkciju
-- Bilo šta što utiče na produkcijske podatke
-
-Format: orkestrator prikaže diff summary → korisnik kaže "ok" → tek onda akcija.
 
 ## 6. Session memory update
 
-Posle SVAKOG završenog taska, orkestrator upisuje zapis u `.claude/memory/session-log.md`.
-
-### Format zapisa
+Posle SVAKOG završenog taska, append u `.claude/memory/session-log.md`:
 
 ```markdown
 ## [YYYY-MM-DD] [Naziv taska]
 **Status:** Završen | Delimičan | Blokiran
-**Šta je urađeno:** [1-2 rečenice — konkretan rezultat]
+**Šta je urađeno:** [1-2 rečenice]
 **Problemi:** [Šta je pošlo po zlu, ili "Bez problema"]
 **Guardrail koji je pomogao:** [Koji mehanizam je uhvatio problem, ili "N/A"]
 **Novo pravilo:** [Šta dodajemo u workflow, ili "Nema"]
 ```
 
-### Pravila
-- Svaki zapis je **append** na kraj fajla — nikada ne brisati stare zapise
-- Maksimum 3 rečenice po polju — kratkost je ključna
-- Ako je novo pravilo identifikovano, orkestrator ga ODMAH dodaje u relevantni rules fajl
-- Session log se čita na početku sesije (session-start.sh prikazuje poslednjih 20 linija)
+- **Rotacija:** `rotate-session-log.sh` automatski arhivira starije od 10 entry-ja
 
 ## 7. Cross-layer verifikacija
 
 Kad task uključuje backend + frontend/mobile:
-
-1. Identifikovati backend DTO/response model kao **izvor istine**
-2. Za svako polje u DTO-u, mapirati tip na frontend/mobile ekvivalent
+1. Backend DTO/response model je **izvor istine**
+2. Za svako polje mapirati tip na frontend ekvivalent
 3. Nullable polja moraju biti nullable na svim slojevima
-4. Datumi: uvek ISO 8601 string na frontend/mobile strani
-5. Enum-ovi: uskladiti reprezentaciju (string literal, union type, ili enum — zavisno od stack-a)
-6. ID tipovi (UUID, GUID, itd.): string na frontend/mobile strani
-
-**PRILAGODITI:** Dodaj tabelu mapiranja tipova za svoj stack. Primer:
-
-```
-| Backend (tvoj jezik) | Frontend (tvoj framework) | Mobile (ako postoji) |
-|----------------------|---------------------------|----------------------|
-| string               | string                    | String               |
-| string?              | string | null             | String?              |
-| int                  | number                    | Int                  |
-| bool                 | boolean                   | Boolean              |
-| DateTime             | string (ISO 8601)         | String               |
-```
-
-Pravilo: NIKADA ne kreirati frontend/mobile tip iz specifikacije — uvek čitaj backend DTO.
+4. NIKADA ne kreirati frontend tip iz specifikacije — uvek čitaj backend DTO
 
 ## 8. Reasoning effort
 
-Dva nivoa effort-a za agente:
-
 | Effort | Kada | Primeri |
 |--------|------|---------|
-| **max** | Odluke koje je skupo ispraviti | Planiranje, arhitektura, review, spec kartica, security analiza, API dizajn |
-| **high** | Implementacija po jasnom spec-u | Builder kodiranje, testovi, refactoring, bug fix |
+| **max** | Odluke koje je skupo ispraviti | Planiranje, arhitektura, review, spec, security |
+| **high** | Implementacija po jasnom spec-u | Builder kodiranje, testovi, refactoring |
 
-### Pravila
-- Orkestrator **uvek radi na max** — planira, delegira, reviewuje
-- Builder agenti rade na **high** — spec je već definisan, treba ga ispratiti
-- Reviewer i Verifier rade na **max** — traže greške koje Builder može propustiti
-- Effort se definiše u spec kartici i prosleđuje agentu pri dispatch-u
+- Orkestrator uvek radi na **max**
+- Builder agenti na **high**
+- Reviewer i Verifier na **max**

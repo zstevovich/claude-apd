@@ -1,30 +1,24 @@
-# ADR-NNNN: [Naslov odluke]
+# ADR-{{NNN}}: {{Naslov odluke}}
 
-**Status:** Predložen | Prihvaćen | Zamenjen | Povučen
-**Datum:** YYYY-MM-DD
-**Zamenjuje:** ADR-XXXX (ako postoji)
-**Zamenjen sa:** ADR-YYYY (dodaje se naknadno)
+**Status:** Predlog | Usvojeno | Zamenjeno
+**Datum:** {{YYYY-MM-DD}}
 
 ## Kontekst
 
-[Zašto se ova odluka donosi? Koji problem rešavamo? Koja su ograničenja?]
-
-## Razmatrane opcije
-
-### Opcija A: [Naziv]
-- **Pro:** [...]
-- **Con:** [...]
-
-### Opcija B: [Naziv]
-- **Pro:** [...]
-- **Con:** [...]
+{{Zašto je ova odluka potrebna? Koji problem rešavamo?}}
 
 ## Odluka
 
-[Šta smo odlučili i zašto.]
+{{Šta smo odlučili i zašto baš to?}}
 
 ## Posledice
 
-- **Pozitivne:** [Šta dobijamo]
-- **Negativne:** [Šta gubimo, trade-off-ovi]
-- **Rizici:** [Šta može poći po zlu]
+**Pozitivne:**
+- {{Benefit 1}}
+
+**Negativne:**
+- {{Tradeoff 1}}
+
+## Alternativa koja je razmatrana
+
+{{Šta smo razmatrali i zašto smo odbacili?}}

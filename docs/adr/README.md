@@ -1,15 +1,15 @@
-# Architecture Decision Records
+# Architecture Decision Records (ADR)
 
-Arhitekturne odluke za [PROJECT_NAME]. Svaka odluka je dokumentovana kao ADR (Architecture Decision Record).
+Evidencija ključnih tehničkih odluka za projekat.
 
-## Konvencije
+## Format
 
-- Numeracija: 0001, 0002, ... (4 cifre sa vodećim nulama)
-- Immutable posle prihvatanja — ako se odluka promeni, novi ADR zamenjuje starog
-- Životni ciklus: Predložen → Prihvaćen → [Zamenjen | Povučen]
-- Template: [TEMPLATE.md](TEMPLATE.md)
+Svaka odluka prati šablon: kontekst → odluka → posledice.
+Status: **Usvojeno**, **Zamenjeno**, **Odbačeno**.
 
-## Indeks
+## Odluke
 
-| # | Naslov | Status | Datum |
-|---|--------|--------|-------|
+| # | Odluka | Status |
+| - | ------ | :----: |
+
+Template: [TEMPLATE.md](./TEMPLATE.md)

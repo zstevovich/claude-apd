@@ -1,17 +1,12 @@
 #!/bin/bash
-# APD Verifier — pokreće se automatski pre svakog commit-a (poziva ga guard-git.sh)
-#
-# PRILAGODITI: Otkomentariši i podesi build/test komande za svoj projekat.
-# Dok je sve zakomentarisano, verifikacija uvek prolazi — ovo je NAMERNO
-# za nov projekat, ali MORA se konfigurisati pre produkcijskog rada.
+# APD Verify All — pokreće verifikaciju za sve promenjene komponente
+# ===== PRILAGODI BUILD KOMANDE ZA SVOJ STACK =====
 
 PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_DIR" || exit 0
 
 ERRORS=()
-CHECKS_RAN=0
 
-# Detektuj promenjene fajlove (staged za commit, ili sve ako nema prethodnog commit-a)
 if git rev-parse HEAD &>/dev/null; then
     CHANGED_FILES=$(git diff --cached --name-only 2>/dev/null)
     [ -z "$CHANGED_FILES" ] && CHANGED_FILES=$(git diff --name-only HEAD 2>/dev/null)
@@ -19,46 +14,67 @@ else
     CHANGED_FILES=$(git diff --cached --name-only 2>/dev/null)
 fi
 
-# ====================
-# BACKEND VERIFIKACIJA
-# ====================
-# PRILAGODITI: putanje i komande za svoj backend
-if echo "$CHANGED_FILES" | grep -qE '^src/|^tests/'; then
-    echo "→ Backend promene detektovane..."
-    # PRIMER (Node.js):  npm test
-    # PRIMER (Python):   pytest tests/
-    # PRIMER (Go):       go build ./... && go test ./...
-    # PRIMER (.NET):     dotnet build && dotnet test
-    #
-    # CHECKS_RAN=1
-    # if ! YOUR_BUILD_COMMAND 2>&1; then
-    #     ERRORS+=("Backend build FAILED")
-    # fi
-    # if ! YOUR_TEST_COMMAND 2>&1; then
-    #     ERRORS+=("Backend testovi FAILED")
-    # fi
-    echo "  (KONFIGURIŠI build/test komande u verify-all.sh)"
+# ===== BACKEND VERIFIKACIJA =====
+# Prilagodi putanju i build komandu za svoj stack:
+#   .NET:    dotnet build *.sln -v q --nologo && dotnet test *.sln -v q --nologo --no-build
+#   PHP:     php bin/console lint:container && php vendor/bin/phpunit
+#   Node:    npm run build && npm test
+#   Python:  python -m pytest
+#   Go:      go build ./... && go test ./...
+#
+# Primer (.NET):
+# if echo "$CHANGED_FILES" | grep -qE '^src/|^tests/'; then
+#     echo "→ Backend promene detektovane..."
+#     if [ ! -f "$PROJECT_DIR/src/MyProject.sln" ]; then
+#         ERRORS+=("Backend: .sln NE POSTOJI")
+#     else
+#         if ! dotnet build src/MyProject.sln -v q --nologo 2>&1; then
+#             ERRORS+=("Backend build FAILED")
+#         fi
+#         if ! dotnet test src/MyProject.sln -v q --nologo --no-build 2>&1; then
+#             ERRORS+=("Backend testovi FAILED")
+#         fi
+#     fi
+# fi
+# ================================
+
+# ===== FRONTEND VERIFIKACIJA =====
+# Primer (React/Vite):
+# if echo "$CHANGED_FILES" | grep -qE '^apps/frontend/'; then
+#     echo "→ Frontend promene detektovane..."
+#     if [ ! -f "$PROJECT_DIR/apps/frontend/package.json" ]; then
+#         ERRORS+=("Frontend: package.json NE POSTOJI")
+#     else
+#         if ! (cd "$PROJECT_DIR/apps/frontend" && npm run build 2>&1); then
+#             ERRORS+=("Frontend build FAILED")
+#         fi
+#     fi
+# fi
+# =================================
+
+# ===== CROSS-LAYER CONTRACT VERIFIKACIJA =====
+# Pokreni verify-contracts.sh ako postoji i ako su promene u oba sloja
+# SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# HAS_BACKEND=$(echo "$CHANGED_FILES" | grep -qE '^src/' && echo "true" || echo "false")
+# HAS_FRONTEND=$(echo "$CHANGED_FILES" | grep -qE '^apps/' && echo "true" || echo "false")
+# if [ "$HAS_BACKEND" = "true" ] && [ "$HAS_FRONTEND" = "true" ]; then
+#     if [ -x "$SCRIPT_DIR/verify-contracts.sh" ]; then
+#         echo "→ Cross-layer contract check..."
+#         if ! bash "$SCRIPT_DIR/verify-contracts.sh" --changed 2>&1; then
+#             ERRORS+=("Cross-layer contract verifikacija FAILED")
+#         fi
+#     fi
+# fi
+# ==============================================
+
+# Upozorenje: ako ništa nije konfigurisano, verify-all je beskorisan
+# Ukloni ovaj blok kad prilagodiš gornje sekcije za svoj stack
+if [ ${#ERRORS[@]} -eq 0 ] && [ -n "$CHANGED_FILES" ]; then
+    echo "UPOZORENJE: verify-all.sh nije prilagođen — nijedna verifikacija nije pokrenuta." >&2
+    echo "Otkomentiraj backend/frontend sekcije za svoj stack." >&2
 fi
 
-# ====================
-# FRONTEND VERIFIKACIJA
-# ====================
-# PRILAGODITI: putanje i komande za svoj frontend
-if echo "$CHANGED_FILES" | grep -qE '^apps/|^frontend/|^web/'; then
-    echo "→ Frontend promene detektovane..."
-    # PRIMER (React/TS): cd apps/frontend && npx tsc --noEmit && npm test
-    # PRIMER (Vue):      cd apps/frontend && npm run type-check && npm test
-    #
-    # CHECKS_RAN=1
-    # if ! YOUR_TYPECHECK_COMMAND 2>&1; then
-    #     ERRORS+=("Frontend type check FAILED")
-    # fi
-    echo "  (KONFIGURIŠI frontend check u verify-all.sh)"
-fi
-
-# ====================
-# REZULTAT
-# ====================
+# Rezultat
 if [ ${#ERRORS[@]} -gt 0 ]; then
     echo ""
     echo "VERIFIKACIJA NIJE PROŠLA:"
@@ -66,13 +82,6 @@ if [ ${#ERRORS[@]} -gt 0 ]; then
         echo "  - $err"
     done
     exit 1
-fi
-
-# Failsafe: upozori ako nijedna provera nije konfigurisana
-if [ "$CHECKS_RAN" -eq 0 ]; then
-    echo "UPOZORENJE: verify-all.sh nema konfigurisanih provera!" >&2
-    echo "  Verifier faza ne testira ništa — konfiguriši build/test komande." >&2
-    echo "  Fajl: .claude/scripts/verify-all.sh" >&2
 fi
 
 echo "Verifikacija prošla"

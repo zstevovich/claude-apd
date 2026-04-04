@@ -1,147 +1,89 @@
-# [PROJECT_NAME]
+# {{PROJECT_NAME}}
 
-## O projektu
+> {{PROJECT_DESCRIPTION}}
 
-[Kratak opis projekta — jedna rečenica.]
-[Ciljna baza korisnika. Rok lansiranja.]
+## Kritična pravila
 
-## Faza projekta
+- **Jezik:** {{LANGUAGE}}
+- **Autor:** {{AUTHOR_NAME}} — BEZ AI potpisa/watermarks
+- **Stil:** Profesionalan, konkretan, human style
 
-[Trenutna faza i šta je sledeće.]
+## Stack
 
-## Tehnički stack
+| Layer | Tehnologija |
+|-------|-------------|
+| Backend | {{BACKEND_STACK}} |
+| Database | {{DATABASE}} |
+| Frontend | {{FRONTEND_STACK}} |
+| Mobile | {{MOBILE_STACK}} (ako postoji) |
 
-### Backend
-[Jezik, framework, baza, keš, messaging...]
+## Portovi (lokalni razvoj)
 
-### Frontend
-[Framework, UI biblioteka, state management...]
+| Service | Port |
+|---------|------|
+| API | {{API_PORT}} |
+| Database | {{DB_PORT}} |
+| Cache | {{CACHE_PORT}} |
+| Frontend | {{FRONTEND_PORT}} |
 
-### Mobile (ako postoji)
-[Framework, arhitektura...]
+## Arhitektura
 
-### Infrastruktura
-[Hosting, CI/CD, Docker...]
+```
+{{PROJECT_STRUCTURE}}
+```
 
-## APD Hard Rules — NE KOMPRESOVATI, NE ZAOBILAZITI
+## APD — Agent Pipeline Development
 
-### Commit pravilo
-
-- Svaki git commit MORA koristiti prefix: `APD_ORCHESTRATOR_COMMIT=1 git commit ...`
-- Svaki git push MORA koristiti prefix: `APD_ORCHESTRATOR_COMMIT=1 git push ...`
-- Bez prefiksa → hook blokira. NE pokušavaj bez njega.
-
-### Pipeline redosled — OBAVEZAN
+### Pipeline — TEHNIČKI ZAŠTIĆEN
 
 Spec → Builder → Reviewer → Verifier → Commit
 
-- NIKADA preskočiti Reviewer, čak ni za "trivijalne" promene
-- NIKADA commitovati pre nego Verifier prođe
+- **Hook-ovi BLOKIRAJU commit** ako pipeline koraci nisu završeni
+- Svaki korak: `bash .claude/scripts/pipeline-advance.sh {korak}`
+- Hotfix: `pipeline-advance.sh skip "razlog"` — samo za urgentne situacije
 
-### Agent scope
+### Guardrail-i
 
-- Builder agenti menjaju SAMO fajlove u svom domenu
-- SAMO orkestrator commituje, push-uje, komunicira sa korisnikom
+- `guard-git.sh` — git zaštita (commit/push samo orkestrator, bez force push, bez mass staging)
+- `guard-scope.sh` — file scope po agentu (Write/Edit)
+- `guard-bash-scope.sh` — bash write scope
+- `guard-secrets.sh` — osetljivi fajlovi
+- `guard-lockfile.sh` — lock fajlovi
+- `verify-all.sh` — build + test pre commit-a
+- `pipeline-advance.sh` + `pipeline-gate.sh` — pipeline flag sistem
+- `rotate-session-log.sh` — automatska arhivacija session log-a
+
+### Agenti
+
+| Agent | Domen | Scope |
+|-------|-------|-------|
+{{AGENT_TABLE}}
 
 ### Human gate
 
-- API promene, migracije, auth logika, deploy → korisnik MORA odobriti pre akcije
+API promene, migracije, auth logika, deploy → korisnik MORA odobriti pre akcije.
 
 ### Session memory
 
-- Posle SVAKOG taska → append u .claude/memory/session-log.md
+Posle SVAKOG taska → append u .claude/memory/session-log.md
+
+## Memorija
+
+@.claude/memory/MEMORY.md
+@.claude/memory/status.md
+@.claude/memory/session-log.md
 
 ## Pravila
 
-### Jezik i dokumentacija
-- [Jezik dokumentacije]
-- Stručni termini na engleskom
-- Ton: profesionalan, konkretan
-- Minimalni komentari — kod je samoobjašnjiv
+- `.claude/rules/workflow.md` — APD pipeline pravila
+- `.claude/rules/principles.md` — jezik, kod, git konvencije
 
-### Git
-- Grane: `develop` → `staging` → `main` (+ `feature/*`)
-- **Nema AI potpisa u commitima**
-- `.claude/` direktorijum **je deo repozitorijuma** (deljeni workflow)
-
-### Agent Pipeline Development (APD) — `.claude/rules/workflow.md` (izvor istine)
-- **Spec kartica** pre svakog taska — cilj, scope, acceptance kriterijumi, rizici, human gate
-- **3 role:** Builder (implementira) → Reviewer (nalazi bagove) → Verifier (build/test/contract)
-- **Orkestrator** jedini commituje, push-uje, komunicira sa korisnikom
-- **Mikro-zadaci:** max 3-4 edita po agentu, jasno vlasništvo nad fajlovima
-- **Human gate:** API promene, migracije, auth logika, deploy — korisnik mora odobriti
-- **Verifikacija:** build + test + cross-layer contract + smoke test pre svakog commit-a
-- **Session memory:** posle svakog taska zapisati šta je pošlo po zlu i nova pravila
-
-### ADR (Architecture Decision Records)
-
-- Arhitekturne odluke se dokumentuju u `docs/adr/`
-- Immutable posle prihvatanja: kad se odluka promeni, novi ADR zamenjuje stari
-- Spec kartica referencira ADR ako task uključuje arhitekturnu odluku
-- Orkestrator predlaže ADR, korisnik odlučuje
-
-### Plugini i alati
-
-**Pre implementacije:**
-
-- `superpowers:brainstorming` — pre kreativnog rada (istražuje nameru, zahteve, dizajn)
-- `superpowers:writing-plans` — kada imaš spec (kreira implementacioni plan)
-- `superpowers:using-git-worktrees` — izolovan workspace za feature rad
-
-**Builder faza:**
-
-- `superpowers:executing-plans` — izvršava plan task po task
-- `superpowers:subagent-driven-development` — paralelni agenti za nezavisne taskove
-- `superpowers:dispatching-parallel-agents` — 2+ nezavisna taska paralelno
-- `superpowers:test-driven-development` — TDD workflow (test pre implementacije)
-- `superpowers:systematic-debugging` — sistematski debugging pre predlaganja fix-a
-- `feature-dev:feature-dev` — vođeni feature development sa razumevanjem codebase-a
-- `frontend-design:frontend-design` — production-grade frontend interfejsi
-
-**Reviewer faza:**
-
-- `superpowers:requesting-code-review` — traži review po završetku implementacije
-- `superpowers:receiving-code-review` — primanje i obrada review feedback-a
-- `code-review:code-review` — review pull request-a
-- `simplify` — review koda za kvalitet, reuse i efikasnost
-
-**Verifier faza:**
-
-- `verify-all.sh` — build + test
-- `superpowers:verification-before-completion` — verifikacija pre tvrdnje da je gotovo
-- Cross-layer contract check
-
-**Post-commit:**
-
-- `superpowers:finishing-a-development-branch` — merge, PR, cleanup opcije
-- `claude-md-management:revise-claude-md` — ažuriranje CLAUDE.md sa lekcijama iz sesije
-
-**Figma integracija (ako projekat koristi Figma):**
-
-- `figma:implement-design` — Figma dizajn → kod
-- `figma:code-connect-components` — povezivanje Figma komponenti sa kodom
-- `figma:create-design-system-rules` — design system pravila za projekat
-
-**Alati:**
-
-- Context7 — up-to-date dokumentacija biblioteka
-- LSP — automatski type checking
-- `claude-code-setup:claude-automation-recommender` — preporuka automatizacija za projekat
-- `claude-md-management:claude-md-improver` — audit i poboljšanje CLAUDE.md fajlova
-
-## Struktura projekta
+## Anti-patterns
 
 ```
-├── CLAUDE.md                        # Projektne instrukcije
-├── src/                             # [Backend kod]
-├── tests/                           # [Testovi]
-├── apps/                            # [Frontend/mobile]
-├── docs/                            # [Dokumentacija]
-│   └── adr/                         # Architecture Decision Records
-└── .claude/                         # Claude Code okruženje (deljeni workflow)
-    ├── agents/                      # Custom agenti
-    ├── skills/                      # Convention snippet-ovi
-    ├── rules/                       # Pravila (workflow, konvencije)
-    ├── scripts/                     # Hook skripte
-    └── memory/                      # Perzistentna memorija
+❌ AI potpisi u kodu/dokumentaciji → ✅ Human style
+❌ Commit bez pipeline-a           → ✅ Spec → Builder → Reviewer → Verifier
+❌ Agent piše van svog scope-a     → ✅ guard-scope.sh blokira
+❌ git add . / git add -A          → ✅ Eksplicitno staging po fajlu
+❌ --no-verify                     → ✅ Hook-ovi moraju proći
 ```

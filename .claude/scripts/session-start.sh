@@ -1,34 +1,52 @@
 #!/bin/bash
 # APD Session Start — učitava kontekst projekta na početku sesije
 
-# PROMENITI na apsolutnu putanju projekta:
 PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_DIR" || exit 0
 
-# Proveri da li su placeholder-i razrešeni u settings.json
-SETTINGS_FILE="$PROJECT_DIR/.claude/settings.json"
-if [ -f "$SETTINGS_FILE" ] && grep -q '\[APSOLUTNA_PUTANJA\]' "$SETTINGS_FILE"; then
-    echo ""
-    echo "KRITIČNO: settings.json sadrži nerazrešene placeholder-e!" >&2
-    echo "  Hook-ovi (guard-git, guard-scope, session-start) NE RADE." >&2
-    echo "  Pokreni: bash .claude/scripts/setup.sh" >&2
-    echo ""
+MEMORY_DIR=".claude/memory"
+PIPELINE_DIR=".claude/.pipeline"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Rotiraj session log (čuva poslednjih 10 entry-ja)
+if [ -x "$SCRIPT_DIR/rotate-session-log.sh" ]; then
+    bash "$SCRIPT_DIR/rotate-session-log.sh" 10 2>/dev/null
 fi
 
-MEMORY_DIR=".claude/memory"
-
-echo "=== [PROJECT_NAME] ==="
+# ===== PRILAGODI IME PROJEKTA =====
+echo "=== {{PROJECT_NAME}} ==="
+# ==================================
 echo ""
 
-# Trenutni status
+# Status
 if [ -f "$MEMORY_DIR/status.md" ]; then
-    echo "--- Trenutni status ---"
-    head -30 "$MEMORY_DIR/status.md"
-    echo ""
+  echo "--- Trenutni status ---"
+  head -30 "$MEMORY_DIR/status.md"
+  echo ""
 fi
+
+# Pipeline
+echo "--- Pipeline ---"
+if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null; then
+    TASK="[idle]"
+    if [ -f "$PIPELINE_DIR/spec.done" ]; then
+        TASK=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done" 2>/dev/null)
+    fi
+    echo "Task: $TASK"
+    for step in spec builder reviewer verifier; do
+        if [ -f "$PIPELINE_DIR/$step.done" ]; then
+            echo "  [DONE] $step"
+        else
+            echo "  [----] $step"
+        fi
+    done
+else
+    echo "  [idle] Nema aktivnog pipeline-a"
+fi
+echo ""
 
 # Poslednja sesija
 if [ -f "$MEMORY_DIR/session-log.md" ]; then
-    echo "--- Poslednja sesija ---"
-    tail -20 "$MEMORY_DIR/session-log.md"
+  echo "--- Poslednja sesija ---"
+  tail -20 "$MEMORY_DIR/session-log.md"
 fi

@@ -1,64 +1,47 @@
 ---
-name: [agent-name]
-description: [Kratak opis — domen i odgovornost]
+name: {{agent-name}}
+description: {{Kratak opis — domen i odgovornost}}
 tools: Read, Write, Edit, Glob, Grep, Bash
-model: [model]
-# permissionMode opcije:
-#   bypassPermissions — agent radi bez potvrda (brže, ali rizičnije)
-#   default           — traži potvrdu za opasne operacije
-#   plan              — samo čita i predlaže, ne menja fajlove
-# Builder agenti koriste bypassPermissions jer:
-#   1. guard-git.sh štiti od neovlašćenih git operacija
-#   2. Orkestrator reviewuje rezultat pre commit-a
-#   3. Agenti rade u izolovanom scope-u (jasno vlasništvo nad fajlovima)
+model: {{model}}  # sonnet za Builder-e, opus za Guardian/Reviewer
 permissionMode: bypassPermissions
 memory: project
 skills:
-  - [skill-name-if-needed]
-# [DOZVOLJENE_PUTANJE] — zameni sa putanjama koje agent sme menjati, razdvojene razmakom
+  - {{skill-name-if-needed}}
+# {{SCOPE_PATHS}} — putanje koje agent sme menjati, razdvojene razmakom
 # Primer: src/ tests/
-# guard-scope.sh blokira Write/Edit operacije van ovih putanja
 hooks:
   PreToolUse:
     - matcher: "Write|Edit"
       hooks:
         - type: command
-          command: "bash [APSOLUTNA_PUTANJA]/.claude/scripts/guard-scope.sh [DOZVOLJENE_PUTANJE]"
+          command: "bash {{PROJECT_PATH}}/.claude/scripts/guard-scope.sh {{SCOPE_PATHS}}"
           timeout: 5
     - matcher: "Bash"
       hooks:
         - type: command
-          command: "bash [APSOLUTNA_PUTANJA]/.claude/scripts/guard-git.sh"
+          command: "bash {{PROJECT_PATH}}/.claude/scripts/guard-git.sh"
           timeout: 5
         - type: command
-          command: "bash [APSOLUTNA_PUTANJA]/.claude/scripts/guard-bash-scope.sh [DOZVOLJENE_PUTANJE]"
+          command: "bash {{PROJECT_PATH}}/.claude/scripts/guard-bash-scope.sh {{SCOPE_PATHS}}"
           timeout: 5
         - type: command
-          command: "bash [APSOLUTNA_PUTANJA]/.claude/scripts/guard-secrets.sh"
+          command: "bash {{PROJECT_PATH}}/.claude/scripts/guard-secrets.sh"
           timeout: 5
 ---
 
-Ti si [uloga] za [PROJECT_NAME].
+Ti si {{uloga}} za {{PROJECT_NAME}}.
 
 ## Stack
-- [Tehnologije koje ovaj agent koristi]
-
-## Arhitektura
-- [Arhitekturni pattern]
-- [Ključne konvencije]
+- {{Tehnologije koje ovaj agent koristi}}
 
 ## Workflow
-1. [Koraci koje agent prati pri implementaciji]
-2. [...]
-
-## API Contract Rule (ako agent radi sa API-jem)
-- [Tip]-ovi moraju odgovarati backend DTO-ovima polje po polje
-- Pre kreiranja novog tipa, pročitaj odgovarajući backend DTO
-- Nullable usklađenost obavezna
+1. Pročitaj spec karticu i razumej zahteve
+2. Učitaj relevantne skill-ove ako postoje
+3. Implementiraj promene
+4. Poštuj max 3-4 edit operacije po dispatch-u
+5. Ne preklapaj sa drugim agentima
 
 ## ZABRANJENO
 - **NIKADA ne commituj izmene** — git add, git commit, git push su ZABRANJENI. Orkestrator kontroliše commitove korišćenjem `APD_ORCHESTRATOR_COMMIT=1` prefiksa.
 - **NIKADA ne kreiraj tipove iz specifikacije** — uvek čitaj backend kod
-
-## Agent Memory
-Konsultuj svoju memoriju pre početka rada. Posle završetka, sačuvaj naučene lekcije.
+- **NIKADA ne dodavaj AI potpise** — stil je human

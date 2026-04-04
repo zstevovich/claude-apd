@@ -1,17 +1,22 @@
 # Principi
 
 ## Jezik
-- [Jezik dokumentacije i komunikacije]
-- Stručni termini ostaju na engleskom: endpoint, middleware, handler, cache, repository
-- Ton: profesionalan i konkretan
+- Dokumentacija i komunikacija: {{LANGUAGE}} (npr. srpski, latinica)
+- Stručni termini ostaju na engleskom: endpoint, middleware, handler, cache
+- Ton: profesionalan i konkretan, ne sme zvučati AI-generisano
 
 ## Kod
 - Minimalni komentari — samo gde logika nije očigledna
-- [Error handling pattern — Result, exceptions, ili hybrid] (vidi ADR-NNNN)
-- [Arhitekturni pattern — Vertical Slice, Clean Architecture, itd.] (vidi ADR-NNNN)
-- Arhitekturne odluke se dokumentuju kao ADR u `docs/adr/`
+- Aplikacija podržava višejezičnost (i18n) od početka
+- {{ARCHITECTURE_PATTERN}} (npr. Vertical Slice + CQRS, Clean Architecture, MVC)
 
 ## Git
 - Nema AI potpisa u commitima — nikakav Co-Authored-By
 - Grane: develop → staging → main, feature/* po potrebi
-- .claude/ direktorijum je deo repozitorijuma (deljeni workflow)
+- .claude/ direktorijum ne sme na git
+- Commit poruke: kratke, na engleskom, imperative mood
+
+## Docker (lokalni razvoj)
+- Samo infrastruktura (baza, cache, monitoring)
+- Aplikacije iz debug moda (IDE)
+- Port range: {{PORT_RANGE}} (npr. 4800+, 8100+)

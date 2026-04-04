@@ -6,9 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash [APSOLUTNA_PUTANJA]/.claude/scripts/session-start.sh",
+            "command": "bash {{PROJECT_PATH}}/.claude/scripts/session-start.sh",
             "timeout": 5,
-            "statusMessage": "Učitavanje konteksta projekta..."
+            "statusMessage": "Loading project context..."
           }
         ]
       }
@@ -19,7 +19,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash [APSOLUTNA_PUTANJA]/.claude/scripts/guard-git.sh",
+            "command": "bash {{PROJECT_PATH}}/.claude/scripts/guard-git.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{PROJECT_PATH}}/.claude/scripts/guard-lockfile.sh",
             "timeout": 5
           }
         ]
@@ -30,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v osascript &>/dev/null; then osascript -e 'display notification \"Claude Code treba pažnju\" with title \"[PROJECT_NAME]\"'; elif command -v notify-send &>/dev/null; then notify-send '[PROJECT_NAME]' 'Claude Code treba pažnju'; fi"
+            "command": "if command -v osascript &>/dev/null; then osascript -e 'display notification \"Claude Code needs attention\" with title \"{{PROJECT_NAME}}\"'; elif command -v notify-send &>/dev/null; then notify-send '{{PROJECT_NAME}}' 'Claude Code needs attention'; fi"
           }
         ]
       }
