@@ -390,6 +390,29 @@ Kad task uključuje backend + frontend/mobile:
 
 Dodaj tabelu mapiranja tipova za svoj stack u `workflow.md`.
 
+## Figma integracija (opciono)
+
+Ako projekat ima Figma dizajn, APD ga integriše u workflow:
+
+1. **`/apd-init`** pita za Figma URL i konfiguriše `CLAUDE.md`
+2. **CLAUDE.md** sadrži Figma sekciju sa linkom i pravilima
+3. **Frontend Builder** koristi Figma MCP (`get_design_context`, `get_screenshot`) za dizajn kontekst
+4. **Skill-ovi** za Figma workflow:
+
+| Skill | Kada |
+|-------|------|
+| `figma:figma-implement-design` | Implementacija UI iz Figma dizajna |
+| `figma:figma-generate-design` | Kreiranje dizajna u Figma iz koda |
+| `figma:figma-generate-library` | Design system / token library |
+| `figma:figma-code-connect` | Mapiranje Figma komponenti na kod |
+| `figma:figma-create-design-system-rules` | Generisanje design system pravila |
+
+**Pravila kad postoji Figma dizajn:**
+- Pre implementacije UI komponente — uvek proveri Figma dizajn
+- Dizajn tokeni i boje iz Figma-e su izvor istine
+- Ne izmišljaj vrednosti — koristi `get_design_context`
+- Ako nema Figma dizajna — obriši Figma sekciju iz `CLAUDE.md`
+
 ## Memorija — dva sistema
 
 | | APD memorija (`.claude/memory/`) | Claude auto memorija (`~/.claude/projects/`) |

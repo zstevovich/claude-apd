@@ -16,6 +16,7 @@
 | Database | {{DATABASE}} |
 | Frontend | {{FRONTEND_STACK}} |
 | Mobile | {{MOBILE_STACK}} (ako postoji) |
+| Design | {{FIGMA_URL}} (ako postoji) |
 
 ## Portovi (lokalni razvoj)
 
@@ -77,6 +78,16 @@ Posle SVAKOG taska → append u .claude/memory/session-log.md
 
 - `.claude/rules/workflow.md` — APD pipeline pravila
 - `.claude/rules/principles.md` — jezik, kod, git konvencije
+
+## Figma dizajn
+
+<!-- Obriši ovu sekciju ako projekat nema Figma dizajn -->
+
+- **Figma fajl:** {{FIGMA_URL}}
+- Koristi `figma:figma-implement-design` skill za implementaciju iz Figma-e
+- Pre implementacije UI komponente — uvek proveri da li postoji Figma dizajn
+- Builder agent koji radi frontend MORA koristiti `get_design_context` za dizajn kontekst
+- Dizajn tokeni i boje iz Figma-e su izvor istine — ne izmišljaj vrednosti
 
 ## Anti-patterns
 

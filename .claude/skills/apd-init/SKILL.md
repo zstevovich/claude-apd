@@ -18,6 +18,7 @@ Pokreni ovaj skill na novom projektu da konfigurišeš APD okruženje.
    - Autor (ime i email za git)
    - Jezik dokumentacije
    - Agenti koje treba kreirati (po sloju)
+   - Figma URL (ako postoji dizajn)
 
 2. **Zameni placeholder-e u svim fajlovima:**
    - `{{PROJECT_NAME}}` → ime projekta
@@ -31,6 +32,7 @@ Pokreni ovaj skill na novom projektu da konfigurišeš APD okruženje.
    - `{{AGENT_TABLE}}` → tabela agenata
    - `{{AGENT_LIST}}` → lista agenata
    - `{{STACK}}` → kratki opis stack-a
+   - `{{FIGMA_URL}}` → Figma link ili ukloni Figma sekciju iz CLAUDE.md ako nema dizajn
 
 3. **Kreiraj agente iz TEMPLATE.md:**
    - Po jednog za svaki sloj koji korisnik navede
@@ -68,7 +70,9 @@ Claude: Koje su putanje? (backend dir, frontend dir)
 Korisnik: server/, client/
 Claude: Portovi?
 Korisnik: 3000 API, 5433 PG, 6380 Redis, 5173 Frontend
-Claude: [generiše sve fajlove, kreira agente, podešava hooks]
+Claude: Imate li Figma dizajn?
+Korisnik: Da, https://www.figma.com/design/abc123/MyCRM
+Claude: [generiše sve fajlove, kreira agente, podešava hooks, konfiguriše Figma sekciju]
 ```
 
 ## Posle init-a
