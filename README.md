@@ -9,7 +9,23 @@ APD je workflow za AI-asistiran razvoj softvera gde:
 - **Pipeline** — definisan tok sa fazama, verifikacijama i gate-ovima koji se ne preskaču
 - **Development** — softverski razvoj kao krajnji cilj
 
-## Pipeline
+## Pun lanac: od ideje do koda
+
+```
+Miro (koncept/arhitektura) → Figma (UI dizajn) → APD pipeline (implementacija)
+```
+
+Svaki korak ima mašinski čitljiv izvor istine — niko ne prepisuje ručno iz jednog alata u drugi:
+
+| Faza | Alat | Šta definiše | Ko čita |
+|------|------|-------------|---------|
+| Koncept | **Miro** | Flow, user journey, system arhitektura, wireframe | Orkestrator → generiše spec |
+| Dizajn | **Figma** | UI komponente, tokeni, boje, layout | Builder → implementira UI |
+| Implementacija | **APD pipeline** | Kod, testovi, build | Builder → Reviewer → Verifier |
+
+Miro i Figma su opcioni — APD radi i bez njih, ali sa njima pokriva ceo put od ideje do koda.
+
+## APD Pipeline
 
 ```
 Spec kartica → Builder → Reviewer → Verifier → Commit → [Human gate] → Push
