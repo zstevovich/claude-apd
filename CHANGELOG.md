@@ -1,5 +1,26 @@
 # Changelog
 
+## v2.1 — 2026-04-04
+
+Adopts Claude Code v2.1.72+ features for improved agent control and observability.
+
+### New features
+
+- **effort frontmatter** — `high` for Builders, `max` for Reviewer/Verifier. Enforces reasoning effort at the agent level instead of relying on documentation alone
+- **agent_id audit logging** — `guard-git.sh` now logs every blocked action with agent ID, type, reason, and command to `guard-audit.log`. Enables per-agent activity analysis
+- **Miro channels** — `claude --channels miro` enables real-time push notifications when the board changes. Supports board change alerts, CI/CD integration, and async human gate approval
+
+### Updated files
+
+- `.claude/agents/TEMPLATE.md` — added `effort: {{effort}}` frontmatter field
+- `.claude/scripts/guard-git.sh` — agent metadata extraction + `log_block()` on all 10 exit points
+- `.claude/skills/apd-init/SKILL.md` — effort and channels guidance
+- `CLAUDE.md` — Miro channels and dashboard references
+- `README.md` — channels documentation in Miro integration section
+- `examples/nodejs-react/` — both agents updated with `effort: high`
+
+---
+
 ## v2.0 — 2026-04-04
 
 Major release: from template to full-stack agentic development framework.
