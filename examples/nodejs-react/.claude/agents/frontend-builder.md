@@ -3,6 +3,7 @@ name: frontend-builder
 description: Builder agent za frontend sloj — React komponente, stranice, hookovi
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
+effort: high
 permissionMode: bypassPermissions
 memory: project
 hooks:

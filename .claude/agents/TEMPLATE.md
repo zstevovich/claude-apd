@@ -3,6 +3,7 @@ name: {{agent-name}}
 description: {{Kratak opis — domen i odgovornost}}
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: {{model}}  # sonnet za Builder-e, opus za Guardian/Reviewer
+effort: {{effort}}  # high za Builder-e, max za Reviewer/Verifier
 permissionMode: bypassPermissions
 memory: project
 skills:

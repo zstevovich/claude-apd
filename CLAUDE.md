@@ -100,6 +100,8 @@ Posle SVAKOG taska → append u .claude/memory/session-log.md
 - Orkestrator može čitati taskove, flow dijagrame i arhitekturu direktno sa boarda
 - Za vizualizaciju arhitekture ili procesa — kreiraj dijagram na Miro boardu
 - Instalacija: `claude mcp add --transport http miro https://mcp.miro.com`
+- Channels (push notifikacije): `claude --channels miro` za real-time board promene u sesiji
+- Dashboard: `/miro-dashboard` skill za vizuelizaciju pipeline statusa na boardu
 
 ## Anti-patterns
 

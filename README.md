@@ -662,6 +662,21 @@ The `/miro-dashboard` skill creates or updates a visual dashboard on the Miro bo
 
 Invoke manually or configure automatic updates after each pipeline step.
 
+### Channels — real-time push notifications
+
+With Claude Code `--channels` (v2.1.80+), Miro can push board changes directly into your session:
+
+```bash
+claude --channels miro
+```
+
+This enables:
+- **Board change alerts** — if someone updates the spec on the board, the orchestrator is notified immediately
+- **CI/CD integration** — build results pushed to the board and into the session
+- **Async human gate** — approve pipeline steps from Miro sticky notes
+
+Requires Miro MCP server configured and authenticated.
+
 **Rules when a Miro board exists:**
 - Before creating a spec card — check whether relevant content exists on the board
 - The Miro board is the source of truth for processes and architecture

@@ -3,6 +3,7 @@ name: backend-builder
 description: Builder agent za backend sloj — API endpointi, servisi, repozitorijumi
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
+effort: high
 permissionMode: bypassPermissions
 memory: project
 hooks:

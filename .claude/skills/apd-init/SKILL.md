@@ -72,6 +72,7 @@ Pokreni ovaj skill na novom projektu da konfigurišeš APD okruženje.
    - Po jednog za svaki odobreni agent iz koraka 3
    - Zameni `{{agent-name}}`, `{{SCOPE_PATHS}}`, `{{PROJECT_PATH}}`
    - Postavi model: `sonnet` za Builder-e, `opus` za Guardian-e
+   - Postavi effort: `high` za Builder-e, `max` za Reviewer/Verifier
 
 5. **Konfiguriši verify-all.sh:**
    - Otkomentiraj relevantne sekcije za stack koji korisnik koristi
@@ -81,6 +82,7 @@ Pokreni ovaj skill na novom projektu da konfigurišeš APD okruženje.
    - Kopiraj iz `.mcp.json.example`
    - Zameni DB credentials
    - Ako korisnik ima Miro board → dodaj Miro MCP: `claude mcp add --transport http miro https://mcp.miro.com`
+   - Napomeni korisniku: za real-time push notifikacije sa boarda pokretati sa `claude --channels miro`
 
 7. **Učini skripte executable:**
    ```bash
