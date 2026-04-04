@@ -238,22 +238,23 @@ Format: the orchestrator presents a diff summary → the user says "ok" → only
 
 APD uses mechanical guardrails (hook scripts) that block violations even when an agent "forgets" the rules.
 
-### Scripts (12)
+### Scripts (13)
 
 | Script | Function |
 |--------|----------|
 | `guard-git.sh` | Blocks unauthorised git operations (commit/push only by orchestrator, no force push, no mass staging) |
 | `guard-scope.sh` | Blocks Write/Edit outside the agent's scope |
-| `guard-bash-scope.sh` | Blocks bash writes outside scope |
+| `guard-bash-scope.sh` | Blocks bash and runtime writes outside scope (shell redirects, node/python/ruby/php/perl) |
 | `guard-secrets.sh` | Blocks access to sensitive files |
 | `guard-lockfile.sh` | Blocks modification of lock files |
 | `test-hooks.sh` | Quick static check (files, JSON, placeholders) |
-| `verify-apd.sh` | Full functional verification (guard tests, pipeline E2E, agents) |
-| `pipeline-advance.sh` | Pipeline flag system with timestamps, rollback, and skip log |
+| `verify-apd.sh` | Full functional verification (50 checks: guards, pipeline E2E, agents, summary) |
+| `verify-contracts.sh` | Cross-layer type verification (TypeScript + C# parser, nullable awareness) |
+| `pipeline-advance.sh` | Pipeline flag system with timestamps, rollback, metrics, and skip log |
 | `pipeline-gate.sh` | Blocks commit without all 4 pipeline steps |
 | `rotate-session-log.sh` | Automatically archives old session log entries |
-| `session-start.sh` | Loads project context at session start |
-| `verify-all.sh` | Build + test + contract check before commit |
+| `session-start.sh` | Loads project context at session start with self-healing (auto-fixes broken state) |
+| `verify-all.sh` | Build + test before commit |
 
 ### guard-git.sh — Git operations
 
@@ -650,6 +651,16 @@ npx skills add miroapp/miro-ai
 | **Architecture** | System diagram on the board — a living document that gets updated |
 | **Review** | Visualisation of the realised architecture after implementation |
 | **Planning** | Task board with sticky notes → orchestrator parses into pipeline tasks |
+| **Dashboard** | `/miro-dashboard` skill pushes pipeline status, metrics, and recent tasks to the board |
+
+### Miro pipeline dashboard
+
+The `/miro-dashboard` skill creates or updates a visual dashboard on the Miro board:
+- **Pipeline status** — current step highlighted (spec/builder/reviewer/verifier)
+- **Metrics** — average duration, fastest/slowest task, skip rate
+- **Recent tasks** — last 5 tasks with durations and status
+
+Invoke manually or configure automatic updates after each pipeline step.
 
 **Rules when a Miro board exists:**
 - Before creating a spec card — check whether relevant content exists on the board
