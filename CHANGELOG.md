@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.4 — 2026-04-06
+
+Session-log enforcement based on real-world production findings.
+
+### New features
+
+- **Session-log gate** — `pipeline-advance.sh spec` now blocks new tasks if the previous session-log entry contains unfilled `[popuni]` placeholders. Shows which entry needs completion and lists the required fields. Forces the orchestrator to document what was done before starting new work
+
+### Context
+
+Production analysis of MojOff (19 pipeline tasks, 77 PASS verify-apd) revealed that 12 of 14 auto-generated session-log entries had unfilled `[popuni]` placeholders. The auto-append on pipeline reset creates skeleton entries, but without enforcement the orchestrator skips filling them in. This was the only soft rule in APD without mechanical enforcement — now it is enforced at the pipeline level.
+
+### Edge cases verified
+
+- Template session-log with HTML-commented examples: passes (no `[popuni]` in examples)
+- Empty session-log: passes
+- Missing session-log file: passes
+- Properly filled entry: passes
+- Entry with `[popuni]`: blocks with clear error message
+
+---
+
 ## v2.3 — 2026-04-04
 
 Security and reliability fixes based on independent framework audit.
