@@ -34,6 +34,33 @@ case "$STEP" in
             echo "GREŠKA: Naziv taska je obavezan." >&2
             exit 1
         fi
+
+        # Proveri da li prethodni session-log entry ima nepopunjene [popuni] placeholder-e
+        SESSION_LOG="$(cd "$SCRIPT_DIR/.." && pwd)/memory/session-log.md"
+        if [ -f "$SESSION_LOG" ]; then
+            # Nađi poslednji entry — od poslednjeg ## [datum] do kraja fajla
+            LAST_ENTRY_LINE=$(grep -n '^## \[' "$SESSION_LOG" | tail -1 | cut -d: -f1)
+            if [ -n "$LAST_ENTRY_LINE" ]; then
+                LAST_ENTRY=$(tail -n +"$LAST_ENTRY_LINE" "$SESSION_LOG")
+            else
+                LAST_ENTRY=""
+            fi
+            if echo "$LAST_ENTRY" | grep -q '\[popuni\]' 2>/dev/null; then
+                LAST_TITLE=$(echo "$LAST_ENTRY" | head -1)
+                echo "BLOKIRANO: Prethodni session-log entry nije popunjen!" >&2
+                echo "" >&2
+                echo "  Entry: $LAST_TITLE" >&2
+                echo "  Sadrži [popuni] placeholder-e." >&2
+                echo "" >&2
+                echo "  Popuni session-log.md pre pokretanja novog taska:" >&2
+                echo "  - Šta je urađeno" >&2
+                echo "  - Problemi (ili \"Bez problema\")" >&2
+                echo "  - Guardrail koji je pomogao (ili \"N/A\")" >&2
+                echo "  - Novo pravilo (ili \"Nema\")" >&2
+                exit 1
+            fi
+        fi
+
         rm -f "$PIPELINE_DIR"/*.done
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
         echo "Pipeline započet: $ARG [$NOW_HUMAN]"
