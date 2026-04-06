@@ -5,6 +5,23 @@
 PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_DIR" || exit 0
 
+# ===== CACHE — preskoči ako je Verifier korak već prošao nedavno =====
+# pipeline-advance.sh verifier piše timestamp u verified.timestamp
+# Ako je svež (<120s) i nema novih promena → preskoči rebuild
+VERIFIED_TS_FILE="$PROJECT_DIR/.claude/.pipeline/verified.timestamp"
+if [ -f "$VERIFIED_TS_FILE" ]; then
+    VERIFIED_AT=$(cat "$VERIFIED_TS_FILE" 2>/dev/null | tr -d '[:space:]')
+    NOW=$(date +%s)
+    if [ -n "$VERIFIED_AT" ] && [ "$VERIFIED_AT" -gt 0 ] 2>/dev/null; then
+        AGE=$((NOW - VERIFIED_AT))
+        if [ "$AGE" -lt 120 ]; then
+            echo "Verifikacija preskočena — Verifier prošao pre ${AGE}s (cache <120s)" >&2
+            exit 0
+        fi
+    fi
+fi
+# =================================================================
+
 ERRORS=()
 
 if git rev-parse HEAD &>/dev/null; then

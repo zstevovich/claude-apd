@@ -61,7 +61,7 @@ case "$STEP" in
             fi
         fi
 
-        rm -f "$PIPELINE_DIR"/*.done
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp"
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
         echo "Pipeline započet: $ARG [$NOW_HUMAN]"
         echo "  [DONE] spec   $NOW_HUMAN"
@@ -110,6 +110,8 @@ case "$STEP" in
         ELAPSED=$(format_duration $((NOW - REVIEWER_TS)))
         TOTAL=$(format_duration $((NOW - SPEC_TS)))
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
+        # Cache timestamp — verify-all.sh preskače rebuild ako je svež (<120s)
+        echo "$NOW" > "$PIPELINE_DIR/verified.timestamp"
         echo "Pipeline: verifier završen. COMMIT DOZVOLJEN. [$NOW_HUMAN]"
         echo "  (reviewer→verifier: $ELAPSED | ukupno: $TOTAL)"
         echo "  [DONE] spec"
@@ -225,7 +227,7 @@ EOF
                 echo "Session log ažuriran (auto-summary): $TASK_NAME" >&2
             fi
         fi
-        rm -f "$PIPELINE_DIR"/*.done
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp"
         echo "Pipeline resetovan. Spreman za novi task."
         ;;
 
@@ -235,6 +237,8 @@ EOF
         for step in verifier reviewer builder spec; do
             if [ -f "$PIPELINE_DIR/$step.done" ]; then
                 rm -f "$PIPELINE_DIR/$step.done"
+                # Ako verifier rollback-ovan, obriši i cache timestamp
+                [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp"
                 echo "Rollback: $step uklonjen."
                 ROLLED_BACK=true
 

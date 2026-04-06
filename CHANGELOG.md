@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.7 — 2026-04-06
+
+Performance optimisation based on Trivue production analysis.
+
+### New features
+
+- **Verifier cache** — `pipeline-advance.sh verifier` writes a timestamp to `verified.timestamp`. When `verify-all.sh` runs again during the commit hook (<120s later), it detects the fresh cache and skips the rebuild. Eliminates the double build+test that was causing ~12 min overhead on .NET + Next.js projects
+- Cache is invalidated on: pipeline reset, new spec, verifier rollback
+
+### Impact
+
+Trivue reported Reviewer→Verifier taking 12m 39s due to double verification (Verifier agent + guard-git commit hook both running `verify-all.sh`). With cache, the commit hook completes in <1s when Verifier has already passed.
+
+---
+
 ## v2.6 — 2026-04-06
 
 - **Getting Started guide** — step-by-step walkthrough from zero to first pipeline commit in 5 minutes. macOS terminal-style examples, verify output as readable table, spec card as blockquote, quick reference table
