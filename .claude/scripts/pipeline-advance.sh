@@ -142,17 +142,87 @@ case "$STEP" in
 
             SESSION_LOG="$(cd "$SCRIPT_DIR/.." && pwd)/memory/session-log.md"
             if [ -f "$SESSION_LOG" ] && [ -n "$TASK_NAME" ]; then
+                MEMORY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/memory"
+                PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+                # --- Prikupi kontekst ---
+
+                # 1. Promenjeni fajlovi (git diff --stat)
+                CHANGED_SUMMARY=""
+                if command -v git &>/dev/null && git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
+                    CHANGED_FILES=$(git -C "$PROJECT_DIR" diff --cached --name-only 2>/dev/null)
+                    [ -z "$CHANGED_FILES" ] && CHANGED_FILES=$(git -C "$PROJECT_DIR" diff --name-only HEAD 2>/dev/null)
+                    if [ -n "$CHANGED_FILES" ]; then
+                        FILE_COUNT=$(echo "$CHANGED_FILES" | wc -l | tr -d ' ')
+                        # Izvuci top-level direktorijume
+                        TOP_DIRS=$(echo "$CHANGED_FILES" | sed 's|/.*||' | sort -u | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g')
+                        CHANGED_SUMMARY="${FILE_COUNT} fajlova promenjeno (${TOP_DIRS})"
+                    else
+                        CHANGED_SUMMARY="Nema detektovanih promena u git-u"
+                    fi
+                else
+                    CHANGED_SUMMARY="Git nije dostupan"
+                fi
+
+                # 2. Guard blokade tokom taska
+                GUARD_SUMMARY="N/A"
+                AUDIT_LOG="$MEMORY_DIR/guard-audit.log"
+                if [ -f "$AUDIT_LOG" ] && [ -n "$SPEC_TS" ]; then
+                    SPEC_DATE=$(date -r "$SPEC_TS" +%Y-%m-%d 2>/dev/null || date -d "@$SPEC_TS" +%Y-%m-%d 2>/dev/null || echo "")
+                    if [ -n "$SPEC_DATE" ]; then
+                        BLOCKS=$(grep "^${SPEC_DATE}" "$AUDIT_LOG" 2>/dev/null | wc -l | tr -d ' ')
+                        if [ "$BLOCKS" -gt 0 ]; then
+                            BLOCK_REASONS=$(grep "^${SPEC_DATE}" "$AUDIT_LOG" 2>/dev/null | cut -d'|' -f4 | sort | uniq -c | sort -rn | head -3 | awk '{print $2 " (" $1 "x)"}' | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g')
+                            GUARD_SUMMARY="${BLOCKS} blokada: ${BLOCK_REASONS}"
+                        fi
+                    fi
+                fi
+
+                # 3. Rollback detekcija — proveri da li je verifier.done noviji od reviewer.done
+                # (indikator da je rollback bio korišćen i ponovo prošao)
+                PROBLEMS="Bez problema"
+                if [ -f "$PIPELINE_DIR/verifier.done" ] && [ -f "$PIPELINE_DIR/reviewer.done" ]; then
+                    V_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/verifier.done" 2>/dev/null || echo 0)
+                    R_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/reviewer.done" 2>/dev/null || echo 0)
+                    B_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/builder.done" 2>/dev/null || echo 0)
+                    # Ako je builder→reviewer trajalo >60% ukupnog vremena, moguć problem
+                    if [ "$V_TS" -gt 0 ] && [ "$SPEC_TS" -gt 0 ] && [ "$B_TS" -gt 0 ] && [ "$R_TS" -gt 0 ]; then
+                        TOTAL_DUR=$((V_TS - SPEC_TS))
+                        BUILD_DUR=$((R_TS - B_TS))
+                        if [ "$TOTAL_DUR" -gt 0 ] && [ "$BUILD_DUR" -gt 0 ]; then
+                            BUILD_PCT=$((BUILD_DUR * 100 / TOTAL_DUR))
+                            if [ "$BUILD_PCT" -gt 60 ]; then
+                                PROBLEMS="Builder→Reviewer trajao ${BUILD_PCT}% ukupnog vremena (moguće iteracije)"
+                            fi
+                        fi
+                    fi
+                fi
+
+                # Ako ima guard blokada, to je problem
+                if [ "$GUARD_SUMMARY" != "N/A" ]; then
+                    if [ "$PROBLEMS" = "Bez problema" ]; then
+                        PROBLEMS="Guard blokade detektovane (vidi Guardrail)"
+                    fi
+                fi
+
+                # 4. Pipeline status
+                PIPELINE_STATUS="Završen"
+                if [ ! -f "$PIPELINE_DIR/verifier.done" ]; then
+                    PIPELINE_STATUS="Delimičan (verifier nije završen)"
+                fi
+
+                # --- Generiši entry ---
                 cat >> "$SESSION_LOG" << EOF
 
 ## [$(date +%Y-%m-%d)] $TASK_NAME
-**Status:** Završen
-**Šta je urađeno:** [popuni]
-**Problemi:** [popuni ili "Bez problema"]
-**Guardrail koji je pomogao:** [popuni ili "N/A"]
+**Status:** $PIPELINE_STATUS
+**Šta je urađeno:** $CHANGED_SUMMARY
+**Problemi:** $PROBLEMS
+**Guardrail koji je pomogao:** $GUARD_SUMMARY
 **Novo pravilo:** [popuni ili "Nema"]
 **Pipeline trajanje:**$TOTAL
 EOF
-                echo "Session log ažuriran: $TASK_NAME" >&2
+                echo "Session log ažuriran (auto-summary): $TASK_NAME" >&2
             fi
         fi
         rm -f "$PIPELINE_DIR"/*.done

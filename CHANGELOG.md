@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.5 — 2026-04-06
+
+Dream Consolidation: auto-generated session-log summaries from pipeline context.
+
+### New features
+
+- **Auto-summary on pipeline reset** — `pipeline-advance.sh reset` now generates populated session-log entries from pipeline context instead of `[popuni]` skeletons. Collects: changed files from `git diff`, guard blocks from `guard-audit.log`, bottleneck detection from step timestamps. Only **Novo pravilo** remains as `[popuni]` (requires human judgement)
+- **Meta-summary on session-log rotation** — `rotate-session-log.sh` now generates a one-line consolidation when archiving entries: total tasks, date range, problem count, guard block count, new rules count
+- **Fixed rotation regex** — `rotate-session-log.sh` now correctly matches `## [date]` format (was missing the brackets)
+
+### Context
+
+Production analysis (MojOff, 19 tasks) showed 12 of 14 auto-generated entries had unfilled `[popuni]` placeholders. v2.4 added a gate that blocks new tasks until entries are filled. v2.5 eliminates most placeholders by auto-generating content from data already available in the pipeline.
+
+### Closes
+
+- Closes #2 — auto-generate session-log summary from pipeline context
+
+---
+
 ## v2.4 — 2026-04-06
 
 Session-log enforcement based on real-world production findings.
