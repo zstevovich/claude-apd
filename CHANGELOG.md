@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.5.1 — 2026-04-06
+
+Patch release: 2 HIGH and 4 MEDIUM fixes from code review.
+
+### Bug fixes
+
+- **HIGH: Session-log gate bypassed** — v2.4 gate checked for `[popuni]` but v2.5 auto-generated entries wrote `[popuni ili "Nema"]` which didn't match. Gate was non-functional against auto-summaries. Fixed: pattern now matches `[popuni` (any variant)
+- **HIGH: Spurious pipeline reset** — empty `stat` output in self-healing evaluated as `now - 0`, producing a massive age that triggered stale pipeline reset. Fixed: validates output before arithmetic
+- **MEDIUM: PostToolUse hook not verified** — `verify-apd.sh` (51 checks now) and `test-hooks.sh` now check that `pipeline-post-commit.sh` is registered
+- **MEDIUM: E2E test blocked by gate** — `verify-apd.sh` pipeline test now backs up and cleans session-log before `spec` step
+- **MEDIUM: Skip log silent drop** — `pipeline-advance.sh skip` now always appends even if skip-log file doesn't exist
+
+---
+
 ## v2.5 — 2026-04-06
 
 Dream Consolidation: auto-generated session-log summaries from pipeline context.
