@@ -14,64 +14,116 @@ APD is a workflow for AI-assisted software development where:
 ## Full chain: from idea to code
 
 ```mermaid
-graph LR
-    MIRO(("🎯<br/>Miro")) -.->|board| SPEC
-    FIGMA(("🎨<br/>Figma")) -.->|design| BUILDER
+---
+title: "APD Architecture — 20 Patterns in 4 Layers"
+---
+graph TB
+    subgraph MC ["📝 MEMORY & CONTEXT"]
+        direction TB
+        MC1["<b>1. Persistent Instructions</b><br/>CLAUDE.md — always in context<br/>never compressed"]
+        MC2["<b>2. Tiered Memory</b><br/>MEMORY.md → status.md<br/>→ session-log → metrics"]
+        MC3["<b>3. Auto-Summary</b><br/>git diff + guard-audit.log<br/>+ timestamps → populated entry"]
+        MC4["<b>4. Dream Consolidation</b><br/>rotation archives + meta-summary<br/>tasks · problems · rules"]
+        MC5["<b>5. Self-Healing Start</b><br/>auto chmod · stale reset<br/>conflict detect · context load"]
+    end
 
-    SPEC["📋 Spec"] --> BUILDER["🔨 Builder"]
-    BUILDER --> REVIEWER["🔍 Reviewer"]
-    REVIEWER -->|OK| VERIFIER["✅ Verifier"]
-    REVIEWER -->|fix| BUILDER
-    VERIFIER --> COMMIT["📦 Commit"]
-    COMMIT -->|human gate| PUSH(("🚀<br/>Push"))
+    subgraph PO ["⚙️ PIPELINE & ORCHESTRATION"]
+        direction TB
+        PO1["<b>6. Spec-Driven Pipeline</b><br/>Spec → Builder → Reviewer<br/>→ Verifier → Commit"]
+        PO2["<b>7. Four Roles</b><br/>Orchestrator · Builder<br/>Reviewer · Verifier"]
+        PO3["<b>8. Pipeline Enforcement</b><br/>.done flags + gate check<br/>all 4 required for commit"]
+        PO4["<b>9. Rollback & Recovery</b><br/>step-back · stale detection<br/>session-log gate"]
+        PO5["<b>10. Metrics Dashboard</b><br/>per-step timing · skip rate<br/>bottleneck detection"]
+    end
+
+    subgraph GP ["🛡️ GUARDS & PERMISSIONS"]
+        direction TB
+        GP1["<b>11. Git Guard</b><br/>commit · push · staging<br/>force · destructive · AI sig"]
+        GP2["<b>12. Scope Guard</b><br/>per-agent file isolation<br/>Write/Edit path enforcement"]
+        GP3["<b>13. Runtime Write Guard</b><br/>node · python · ruby<br/>php · perl detection"]
+        GP4["<b>14. Secrets Guard</b><br/>Read + Write + Edit + Bash<br/>.env · .pem · credentials"]
+        GP5["<b>15. Contract Verification</b><br/>TS + C# type parser<br/>nullable · missing · mismatch"]
+    end
+
+    subgraph IA ["🔗 INTEGRATIONS & AUTOMATION"]
+        direction TB
+        IA1["<b>16. Miro Integration</b><br/>board → spec · channels<br/>dashboard · architecture"]
+        IA2["<b>17. Figma Integration</b><br/>design → builder · tokens<br/>get_design_context"]
+        IA3["<b>18. GitHub Projects</b><br/>issue → board columns<br/>gh-sync.sh automation"]
+        IA4["<b>19. Lifecycle Hooks</b><br/>SessionStart · PreToolUse<br/>PostToolUse · Notification"]
+        IA5["<b>20. Agent ID Audit</b><br/>per-agent block logging<br/>effort frontmatter control"]
+    end
+
+    style MC fill:#e8f4fd,stroke:#4da6ff,color:#000
+    style PO fill:#e8fde8,stroke:#66cc66,color:#000
+    style GP fill:#fde8e8,stroke:#ff6666,color:#000
+    style IA fill:#fdf4e8,stroke:#ff884d,color:#000
+
+    style MC1 fill:#fff,stroke:#4da6ff,color:#000
+    style MC2 fill:#fff,stroke:#4da6ff,color:#000
+    style MC3 fill:#fff,stroke:#4da6ff,color:#000
+    style MC4 fill:#fff,stroke:#4da6ff,color:#000
+    style MC5 fill:#fff,stroke:#4da6ff,color:#000
+    style PO1 fill:#fff,stroke:#66cc66,color:#000
+    style PO2 fill:#fff,stroke:#66cc66,color:#000
+    style PO3 fill:#fff,stroke:#66cc66,color:#000
+    style PO4 fill:#fff,stroke:#66cc66,color:#000
+    style PO5 fill:#fff,stroke:#66cc66,color:#000
+    style GP1 fill:#fff,stroke:#ff6666,color:#000
+    style GP2 fill:#fff,stroke:#ff6666,color:#000
+    style GP3 fill:#fff,stroke:#ff6666,color:#000
+    style GP4 fill:#fff,stroke:#ff6666,color:#000
+    style GP5 fill:#fff,stroke:#ff6666,color:#000
+    style IA1 fill:#fff,stroke:#ff884d,color:#000
+    style IA2 fill:#fff,stroke:#ff884d,color:#000
+    style IA3 fill:#fff,stroke:#ff884d,color:#000
+    style IA4 fill:#fff,stroke:#ff884d,color:#000
+    style IA5 fill:#fff,stroke:#ff884d,color:#000
+```
+
+```mermaid
+---
+title: "Pipeline Flow — from Idea to Production"
+---
+graph LR
+    subgraph upstream ["Phase 0 — Visual Design"]
+        direction LR
+        MIRO(("🎯<br/>Miro<br/><i>concept</i>"))
+        FIGMA(("🎨<br/>Figma<br/><i>design</i>"))
+        GHP(("📋<br/>GitHub<br/><i>tracking</i>"))
+    end
+
+    subgraph pipeline ["APD Pipeline — technically enforced"]
+        direction LR
+        SPEC["📋 Spec<br/><i>card + issue</i>"]
+        BUILDER["🔨 Builder<br/><i>implement</i>"]
+        REVIEWER["🔍 Reviewer<br/><i>find bugs</i>"]
+        VERIFIER["✅ Verifier<br/><i>build + test</i>"]
+        COMMIT["📦 Commit<br/><i>post-commit reset</i>"]
+    end
+
+    MIRO -.->|"read board"| SPEC
+    FIGMA -.->|"design context"| BUILDER
+    GHP -.->|"create issue"| SPEC
+
+    SPEC --> BUILDER
+    BUILDER --> REVIEWER
+    REVIEWER -->|"OK"| VERIFIER
+    REVIEWER -->|"fix"| BUILDER
+    VERIFIER --> COMMIT
+    COMMIT -->|"human gate"| PUSH(("🚀<br/>Push"))
+    COMMIT -.->|"close issue"| GHP
+    COMMIT -.->|"update board"| MIRO
 
     style MIRO fill:#ffe066,stroke:#e6ac00,color:#000
     style FIGMA fill:#a259ff,stroke:#7b2eff,color:#fff
+    style GHP fill:#555,stroke:#333,color:#fff
     style SPEC fill:#4da6ff,stroke:#0073e6,color:#fff
     style BUILDER fill:#66cc66,stroke:#339933,color:#fff
     style REVIEWER fill:#ff884d,stroke:#cc5500,color:#fff
     style VERIFIER fill:#66cc66,stroke:#339933,color:#fff
     style COMMIT fill:#555,stroke:#333,color:#fff
     style PUSH fill:#ff6666,stroke:#cc0000,color:#fff
-```
-
-```mermaid
-graph LR
-    subgraph guards ["🛡️ Guardrails"]
-        direction TB
-        GG["guard-git"] ~~~ GS["guard-scope"] ~~~ GB["guard-bash-scope"]
-        GSE["guard-secrets"] ~~~ GL["guard-lockfile"]
-    end
-
-    subgraph pipeline ["🚧 Pipeline flags"]
-        S["spec ✓"] --> B["builder ✓"] --> R["reviewer ✓"] --> V["verifier ✓"]
-    end
-
-    subgraph gate ["🔒 Pre-commit"]
-        PG["pipeline-gate"] ~~~ VA["verify-all"]
-    end
-
-    subgraph memory ["📝 Memory"]
-        direction TB
-        MEM["MEMORY.md"] ~~~ STAT["status.md"]
-        LOG["session-log.md"] ~~~ SKIP["skip-log.md"]
-    end
-
-    pipeline --> gate
-    gate -->|"svi uslovi OK"| OK(("✅"))
-
-    style GG fill:#ff6666,stroke:#cc0000,color:#fff
-    style GS fill:#ff6666,stroke:#cc0000,color:#fff
-    style GB fill:#ff6666,stroke:#cc0000,color:#fff
-    style GSE fill:#ff6666,stroke:#cc0000,color:#fff
-    style GL fill:#ff6666,stroke:#cc0000,color:#fff
-    style PG fill:#ff884d,stroke:#cc5500,color:#fff
-    style VA fill:#ff884d,stroke:#cc5500,color:#fff
-    style S fill:#4da6ff,stroke:#0073e6,color:#fff
-    style B fill:#66cc66,stroke:#339933,color:#fff
-    style R fill:#ff884d,stroke:#cc5500,color:#fff
-    style V fill:#66cc66,stroke:#339933,color:#fff
-    style OK fill:#66cc66,stroke:#339933,color:#fff
 ```
 
 Each step has a machine-readable source of truth — no one manually copies data from one tool to another:

@@ -14,64 +14,116 @@ APD je workflow za AI-asistiran razvoj softvera gde:
 ## Pun lanac: od ideje do koda
 
 ```mermaid
-graph LR
-    MIRO(("🎯<br/>Miro")) -.->|board| SPEC
-    FIGMA(("🎨<br/>Figma")) -.->|design| BUILDER
+---
+title: "APD Arhitektura — 20 paterna u 4 sloja"
+---
+graph TB
+    subgraph MC ["📝 MEMORIJA & KONTEKST"]
+        direction TB
+        MC1["<b>1. Perzistentne instrukcije</b><br/>CLAUDE.md — uvek u kontekstu<br/>nikad se ne kompresuje"]
+        MC2["<b>2. Slojevita memorija</b><br/>MEMORY.md → status.md<br/>→ session-log → metrics"]
+        MC3["<b>3. Auto-Summary</b><br/>git diff + guard-audit.log<br/>+ timestampovi → popunjen entry"]
+        MC4["<b>4. Dream Consolidation</b><br/>rotacija arhivira + meta-summary<br/>taskovi · problemi · pravila"]
+        MC5["<b>5. Self-Healing Start</b><br/>auto chmod · stale reset<br/>conflict detekcija · kontekst"]
+    end
 
-    SPEC["📋 Spec"] --> BUILDER["🔨 Builder"]
-    BUILDER --> REVIEWER["🔍 Reviewer"]
-    REVIEWER -->|OK| VERIFIER["✅ Verifier"]
-    REVIEWER -->|fix| BUILDER
-    VERIFIER --> COMMIT["📦 Commit"]
-    COMMIT -->|human gate| PUSH(("🚀<br/>Push"))
+    subgraph PO ["⚙️ PIPELINE & ORKESTRACIJA"]
+        direction TB
+        PO1["<b>6. Spec-Driven Pipeline</b><br/>Spec → Builder → Reviewer<br/>→ Verifier → Commit"]
+        PO2["<b>7. Četiri role</b><br/>Orkestrator · Builder<br/>Reviewer · Verifier"]
+        PO3["<b>8. Pipeline Enforcement</b><br/>.done flag-ovi + gate provera<br/>sva 4 obavezna za commit"]
+        PO4["<b>9. Rollback & Recovery</b><br/>vraćanje koraka · stale detekcija<br/>session-log gate"]
+        PO5["<b>10. Metrike Dashboard</b><br/>per-step trajanje · skip rate<br/>bottleneck detekcija"]
+    end
+
+    subgraph GP ["🛡️ GUARD-OVI & DOZVOLE"]
+        direction TB
+        GP1["<b>11. Git Guard</b><br/>commit · push · staging<br/>force · destructive · AI sig"]
+        GP2["<b>12. Scope Guard</b><br/>per-agent izolacija fajlova<br/>Write/Edit path enforcement"]
+        GP3["<b>13. Runtime Write Guard</b><br/>node · python · ruby<br/>php · perl detekcija"]
+        GP4["<b>14. Secrets Guard</b><br/>Read + Write + Edit + Bash<br/>.env · .pem · credentials"]
+        GP5["<b>15. Contract Verifikacija</b><br/>TS + C# parser tipova<br/>nullable · missing · mismatch"]
+    end
+
+    subgraph IA ["🔗 INTEGRACIJE & AUTOMATIZACIJA"]
+        direction TB
+        IA1["<b>16. Miro Integracija</b><br/>board → spec · channels<br/>dashboard · arhitektura"]
+        IA2["<b>17. Figma Integracija</b><br/>dizajn → builder · tokeni<br/>get_design_context"]
+        IA3["<b>18. GitHub Projects</b><br/>issue → board kolone<br/>gh-sync.sh automatizacija"]
+        IA4["<b>19. Lifecycle Hook-ovi</b><br/>SessionStart · PreToolUse<br/>PostToolUse · Notification"]
+        IA5["<b>20. Agent ID Audit</b><br/>per-agent logovanje blokada<br/>effort frontmatter kontrola"]
+    end
+
+    style MC fill:#e8f4fd,stroke:#4da6ff,color:#000
+    style PO fill:#e8fde8,stroke:#66cc66,color:#000
+    style GP fill:#fde8e8,stroke:#ff6666,color:#000
+    style IA fill:#fdf4e8,stroke:#ff884d,color:#000
+
+    style MC1 fill:#fff,stroke:#4da6ff,color:#000
+    style MC2 fill:#fff,stroke:#4da6ff,color:#000
+    style MC3 fill:#fff,stroke:#4da6ff,color:#000
+    style MC4 fill:#fff,stroke:#4da6ff,color:#000
+    style MC5 fill:#fff,stroke:#4da6ff,color:#000
+    style PO1 fill:#fff,stroke:#66cc66,color:#000
+    style PO2 fill:#fff,stroke:#66cc66,color:#000
+    style PO3 fill:#fff,stroke:#66cc66,color:#000
+    style PO4 fill:#fff,stroke:#66cc66,color:#000
+    style PO5 fill:#fff,stroke:#66cc66,color:#000
+    style GP1 fill:#fff,stroke:#ff6666,color:#000
+    style GP2 fill:#fff,stroke:#ff6666,color:#000
+    style GP3 fill:#fff,stroke:#ff6666,color:#000
+    style GP4 fill:#fff,stroke:#ff6666,color:#000
+    style GP5 fill:#fff,stroke:#ff6666,color:#000
+    style IA1 fill:#fff,stroke:#ff884d,color:#000
+    style IA2 fill:#fff,stroke:#ff884d,color:#000
+    style IA3 fill:#fff,stroke:#ff884d,color:#000
+    style IA4 fill:#fff,stroke:#ff884d,color:#000
+    style IA5 fill:#fff,stroke:#ff884d,color:#000
+```
+
+```mermaid
+---
+title: "Pipeline Flow — od ideje do produkcije"
+---
+graph LR
+    subgraph upstream ["Faza 0 — Vizuelni dizajn"]
+        direction LR
+        MIRO(("🎯<br/>Miro<br/><i>koncept</i>"))
+        FIGMA(("🎨<br/>Figma<br/><i>dizajn</i>"))
+        GHP(("📋<br/>GitHub<br/><i>tracking</i>"))
+    end
+
+    subgraph pipeline ["APD Pipeline — tehnički zaštićen"]
+        direction LR
+        SPEC["📋 Spec<br/><i>kartica + issue</i>"]
+        BUILDER["🔨 Builder<br/><i>implementacija</i>"]
+        REVIEWER["🔍 Reviewer<br/><i>traži bagove</i>"]
+        VERIFIER["✅ Verifier<br/><i>build + test</i>"]
+        COMMIT["📦 Commit<br/><i>post-commit reset</i>"]
+    end
+
+    MIRO -.->|"čitaj board"| SPEC
+    FIGMA -.->|"dizajn kontekst"| BUILDER
+    GHP -.->|"kreiraj issue"| SPEC
+
+    SPEC --> BUILDER
+    BUILDER --> REVIEWER
+    REVIEWER -->|"OK"| VERIFIER
+    REVIEWER -->|"fix"| BUILDER
+    VERIFIER --> COMMIT
+    COMMIT -->|"human gate"| PUSH(("🚀<br/>Push"))
+    COMMIT -.->|"zatvori issue"| GHP
+    COMMIT -.->|"ažuriraj board"| MIRO
 
     style MIRO fill:#ffe066,stroke:#e6ac00,color:#000
     style FIGMA fill:#a259ff,stroke:#7b2eff,color:#fff
+    style GHP fill:#555,stroke:#333,color:#fff
     style SPEC fill:#4da6ff,stroke:#0073e6,color:#fff
     style BUILDER fill:#66cc66,stroke:#339933,color:#fff
     style REVIEWER fill:#ff884d,stroke:#cc5500,color:#fff
     style VERIFIER fill:#66cc66,stroke:#339933,color:#fff
     style COMMIT fill:#555,stroke:#333,color:#fff
     style PUSH fill:#ff6666,stroke:#cc0000,color:#fff
-```
-
-```mermaid
-graph LR
-    subgraph guards ["🛡️ Guardrails"]
-        direction TB
-        GG["guard-git"] ~~~ GS["guard-scope"] ~~~ GB["guard-bash-scope"]
-        GSE["guard-secrets"] ~~~ GL["guard-lockfile"]
-    end
-
-    subgraph pipeline ["🚧 Pipeline flags"]
-        S["spec ✓"] --> B["builder ✓"] --> R["reviewer ✓"] --> V["verifier ✓"]
-    end
-
-    subgraph gate ["🔒 Pre-commit"]
-        PG["pipeline-gate"] ~~~ VA["verify-all"]
-    end
-
-    subgraph memory ["📝 Memory"]
-        direction TB
-        MEM["MEMORY.md"] ~~~ STAT["status.md"]
-        LOG["session-log.md"] ~~~ SKIP["skip-log.md"]
-    end
-
-    pipeline --> gate
-    gate -->|"svi uslovi OK"| OK(("✅"))
-
-    style GG fill:#ff6666,stroke:#cc0000,color:#fff
-    style GS fill:#ff6666,stroke:#cc0000,color:#fff
-    style GB fill:#ff6666,stroke:#cc0000,color:#fff
-    style GSE fill:#ff6666,stroke:#cc0000,color:#fff
-    style GL fill:#ff6666,stroke:#cc0000,color:#fff
-    style PG fill:#ff884d,stroke:#cc5500,color:#fff
-    style VA fill:#ff884d,stroke:#cc5500,color:#fff
-    style S fill:#4da6ff,stroke:#0073e6,color:#fff
-    style B fill:#66cc66,stroke:#339933,color:#fff
-    style R fill:#ff884d,stroke:#cc5500,color:#fff
-    style V fill:#66cc66,stroke:#339933,color:#fff
-    style OK fill:#66cc66,stroke:#339933,color:#fff
 ```
 
 Svaki korak ima mašinski čitljiv izvor istine — niko ne prepisuje ručno iz jednog alata u drugi:
