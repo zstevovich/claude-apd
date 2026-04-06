@@ -1,6 +1,6 @@
-# Agent Pipeline Development (APD) Template
+# Agent Pipeline Development (APD) Framework
 
-Softverski razvoj kroz specijalizovane agente u definisanom pipeline-u sa verifikacijama i human gate-ovima.
+Disciplinovan AI-asistiran razvoj softvera kroz specijalizovane agente, enforceovane pipeline-ove i mehaničke guardrail-e.
 
 🇬🇧 [English version](README.md)
 
@@ -827,7 +827,7 @@ Kreiraj nove fajlove u `.claude/rules/`:
 
 ## Preporučeni plugini
 
-APD template je dizajniran da radi sa [Superpowers](https://github.com/anthropics/claude-code-plugins) pluginom za Claude Code:
+APD je dizajniran da radi sa [Superpowers](https://github.com/anthropics/claude-code-plugins) pluginom za Claude Code:
 
 | Faza | Plugin/Skill | Opis |
 |------|-------------|------|

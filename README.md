@@ -1,6 +1,6 @@
-# Agent Pipeline Development (APD) Template
+# Agent Pipeline Development (APD) Framework
 
-Software development through specialised agents in a defined pipeline with verifications and human gates.
+Disciplined AI-assisted software development through specialised agents, enforced pipelines, and mechanical guardrails.
 
 [**▶ Interactive Demo**](https://zstevovich.github.io/claude-apd/demo/) | [**Getting Started**](GETTING-STARTED.md) | 🇷🇸 [Srpska verzija](README.sr.md)
 
@@ -913,7 +913,7 @@ Create new files in `.claude/rules/`:
 
 ## Recommended plugins
 
-The APD template is designed to work with the [Superpowers](https://github.com/anthropics/claude-code-plugins) plugin for Claude Code:
+APD is designed to work with the [Superpowers](https://github.com/anthropics/claude-code-plugins) plugin for Claude Code:
 
 | Phase | Plugin/Skill | Description |
 |-------|-------------|-------------|
