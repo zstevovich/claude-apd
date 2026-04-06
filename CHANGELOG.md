@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.6 — 2026-04-06
+
+- **Getting Started guide** — step-by-step walkthrough from zero to first pipeline commit in 5 minutes. macOS terminal-style examples, verify output as readable table, spec card as blockquote, quick reference table
+- **Interactive demo** — animated terminal demo showing guardrails blocking and pipeline flow (GitHub Pages)
+- **Demo GIF** — embedded in README for instant visual preview
+- **Architecture diagrams** — "20 Patterns in 4 Layers" grid + Pipeline Flow with GitHub Projects feedback loops
+- **Gitignore cleanup** — `guard-audit.log` and `pipeline-metrics.log` added as runtime files
+- **Review fixes** — session-log gate regex, stat fallback, PostToolUse verification, skip log silent drop
+
+---
+
 ## v2.5.2 — 2026-04-06
 
 - **New architecture diagrams** — "20 Patterns in 4 Layers" grid (Memory, Pipeline, Guards, Integrations) + Pipeline Flow with GitHub Projects feedback loops. Both EN and SR README
