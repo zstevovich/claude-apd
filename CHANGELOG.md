@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.5.2 — 2026-04-06
+
+- **New architecture diagrams** — "20 Patterns in 4 Layers" grid (Memory, Pipeline, Guards, Integrations) + Pipeline Flow with GitHub Projects feedback loops. Both EN and SR README
+- **Gitignore cleanup** — added `guard-audit.log` and `pipeline-metrics.log` as runtime files
+
+---
+
 ## v2.5.1 — 2026-04-06
 
 Patch release: 2 HIGH and 4 MEDIUM fixes from code review.
