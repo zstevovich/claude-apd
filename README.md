@@ -2,7 +2,7 @@
 
 Software development through specialised agents in a defined pipeline with verifications and human gates.
 
-[**▶ Interactive Demo**](https://zstevovich.github.io/claude-apd/demo/) | 🇷🇸 [Srpska verzija](README.sr.md)
+[**▶ Interactive Demo**](https://zstevovich.github.io/claude-apd/demo/) | [**Getting Started**](GETTING-STARTED.md) | 🇷🇸 [Srpska verzija](README.sr.md)
 
 ![APD Demo](docs/demo/apd-demo.gif)
 
