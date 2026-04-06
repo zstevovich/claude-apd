@@ -2,7 +2,7 @@
 
 Software development through specialised agents in a defined pipeline with verifications and human gates.
 
-🇷🇸 [Srpska verzija](README.sr.md)
+[**▶ Interactive Demo**](https://zstevovich.github.io/claude-apd/demo/) | 🇷🇸 [Srpska verzija](README.sr.md)
 
 ## What is APD?
 
