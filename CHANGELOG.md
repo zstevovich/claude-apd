@@ -1,5 +1,32 @@
 # Changelog
 
+## v2.8 — 2026-04-07
+
+Adopts Claude Code v2.1.85–v2.1.89 platform features. Reduces hook overhead, adds context resilience and audit coverage.
+
+### New features
+
+- **Conditional `if` hooks** (v2.1.85+) — guard-git fires only on `Bash(git *)`, guard-lockfile only on lock file writes, pipeline-post-commit only on `APD_ORCHESTRATOR_COMMIT=1 git commit*`. Eliminates unnecessary process spawning for every `ls`, `cat`, or non-git Bash command
+- **PostCompact hook** (v2.1.76+) — re-runs `session-start.sh` after context compaction to reinject project status, pipeline state, and last session. Prevents context loss in long sessions
+- **PermissionDenied hook** (v2.1.89+) — `guard-permission-denied.sh` logs denied actions with tool name and agent ID (read from stdin JSON via jq) to `guard-audit.log`. Catches what guard scripts do not cover
+- **`effort` frontmatter** (v2.1.80+) — `/apd-init` runs at `effort: max`, `/miro-dashboard` and `/github-projects` at `effort: high`
+- **Version check** — `session-start.sh` warns on startup if Claude Code is below v2.1.89 (recommended) or v2.1.32 (minimum functional). `verify-apd.sh` includes version as a PASS/WARN/FAIL check (54 checks total)
+
+### Review fixes
+
+- PermissionDenied hook changed from inline `echo` with shell env vars (always logged `unknown`/`orchestrator`) to proper script that reads `tool_name` and `agent_id` from stdin JSON
+- `if` pattern on guard-git expanded to `Bash(git *) | Bash(APD_ORCHESTRATOR_COMMIT=1 git *)` to catch prefixed commands in both orchestrator and agent contexts
+- `verify-apd.sh` now checks PostCompact and PermissionDenied hook registration
+
+### Minimum Claude Code versions
+
+| Level | Version | What works |
+|-------|---------|-----------|
+| Minimum functional | v2.1.32 | Pipeline, guards, agents |
+| Recommended | v2.1.89+ | All features including conditional hooks, PostCompact, PermissionDenied, effort |
+
+---
+
 ## v2.7 — 2026-04-06
 
 Performance optimisation based on Trivue production analysis.

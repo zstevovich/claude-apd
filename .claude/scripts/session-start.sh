@@ -8,6 +8,42 @@ MEMORY_DIR=".claude/memory"
 PIPELINE_DIR=".claude/.pipeline"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# ===== VERSION CHECK =====
+APD_MIN_VERSION="2.1.89"
+APD_FUNCTIONAL_VERSION="2.1.32"
+
+if command -v claude &>/dev/null; then
+    CC_VERSION=$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    if [ -n "$CC_VERSION" ]; then
+        # Uporedi verzije: pretvori u numeričku vrednost (major*10000 + minor*100 + patch)
+        ver_to_num() {
+            echo "$1" | awk -F. '{ printf "%d%02d%02d", $1, $2, $3 }'
+        }
+        CC_NUM=$(ver_to_num "$CC_VERSION")
+        MIN_NUM=$(ver_to_num "$APD_MIN_VERSION")
+        FUNC_NUM=$(ver_to_num "$APD_FUNCTIONAL_VERSION")
+
+        if [ "$CC_NUM" -lt "$FUNC_NUM" ] 2>/dev/null; then
+            echo "╔═══════════════════════════════════════════════════════╗"
+            echo "║  ⛔ APD: Claude Code $CC_VERSION je PRESTARA                ║"
+            echo "║  Minimum za APD: v$APD_FUNCTIONAL_VERSION (agenti + pipeline)       ║"
+            echo "║  Ažuriraj: npm install -g @anthropic-ai/claude-code  ║"
+            echo "╚═══════════════════════════════════════════════════════╝"
+            echo ""
+        elif [ "$CC_NUM" -lt "$MIN_NUM" ] 2>/dev/null; then
+            echo "╔═══════════════════════════════════════════════════════╗"
+            echo "║  ⚠ APD: Claude Code $CC_VERSION — nedostaju feature-i      ║"
+            echo "║  Preporučeno: v$APD_MIN_VERSION+ za pun APD feature set     ║"
+            echo "║  Nedostaje: conditional hooks, PostCompact,         ║"
+            echo "║    PermissionDenied, effort frontmatter             ║"
+            echo "║  Ažuriraj: npm install -g @anthropic-ai/claude-code ║"
+            echo "╚═══════════════════════════════════════════════════════╝"
+            echo ""
+        fi
+    fi
+fi
+# =========================
+
 # ===== SELF-HEALING — detektuj i popravi probleme =====
 HEALED=0
 BLOCKED=0

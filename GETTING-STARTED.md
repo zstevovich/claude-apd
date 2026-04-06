@@ -4,9 +4,11 @@ From zero to your first pipeline commit in 5 minutes.
 
 ## Prerequisites
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) **v2.1.89+** recommended (v2.1.32+ minimum)
 - `jq` installed (`brew install jq` on macOS, `apt install jq` on Linux)
 - A git repository with some code in it
+
+> APD checks your Claude Code version automatically on session start. If it is below the recommended version, you will see a warning with instructions to update.
 
 ---
 

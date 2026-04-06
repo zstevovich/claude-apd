@@ -1,6 +1,7 @@
 ---
 name: apd-init
 description: Inicijalizuj APD okruženje za novi projekat — zameni placeholder-e, kreiraj agente, podesi settings
+effort: max
 ---
 
 # APD Init

@@ -42,6 +42,31 @@ echo "╚═══════════════════════�
 # ============================================================
 section "1. Preduslovi"
 
+# Claude Code verzija
+APD_MIN_VERSION="2.1.89"
+APD_FUNCTIONAL_VERSION="2.1.32"
+if command -v claude &>/dev/null; then
+    CC_VERSION=$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    if [ -n "$CC_VERSION" ]; then
+        ver_to_num() { echo "$1" | awk -F. '{ printf "%d%02d%02d", $1, $2, $3 }'; }
+        CC_NUM=$(ver_to_num "$CC_VERSION")
+        MIN_NUM=$(ver_to_num "$APD_MIN_VERSION")
+        FUNC_NUM=$(ver_to_num "$APD_FUNCTIONAL_VERSION")
+
+        if [ "$CC_NUM" -lt "$FUNC_NUM" ] 2>/dev/null; then
+            fail "Claude Code $CC_VERSION — PRESTARA za APD (minimum: v$APD_FUNCTIONAL_VERSION)"
+        elif [ "$CC_NUM" -lt "$MIN_NUM" ] 2>/dev/null; then
+            warn "Claude Code $CC_VERSION — preporučeno v$APD_MIN_VERSION+ za pun feature set"
+        else
+            pass "Claude Code $CC_VERSION (>= $APD_MIN_VERSION)"
+        fi
+    else
+        warn "Claude Code instaliran ali verzija se ne može pročitati"
+    fi
+else
+    warn "Claude Code CLI nije u PATH-u — ne mogu proveriti verziju"
+fi
+
 # jq
 if command -v jq &>/dev/null; then
     pass "jq instaliran"
@@ -173,6 +198,20 @@ else
             pass "PostToolUse(Bash) → pipeline-post-commit.sh"
         else
             fail "pipeline-post-commit.sh NIJE registrovan — pipeline neće resetovati posle commita"
+        fi
+
+        # PostCompact hook
+        if jq -e '.hooks.PostCompact[0].hooks[0].command' "$SETTINGS" &>/dev/null; then
+            pass "PostCompact hook konfigurisan"
+        else
+            warn "PostCompact hook nije konfigurisan — kontekst se ne reinjectuje posle kompakcije"
+        fi
+
+        # PermissionDenied hook
+        if jq -e '.hooks.PermissionDenied[0].hooks[0].command' "$SETTINGS" &>/dev/null; then
+            pass "PermissionDenied hook konfigurisan"
+        else
+            warn "PermissionDenied hook nije konfigurisan"
         fi
 
         # Attribution prazna

@@ -1,6 +1,7 @@
 ---
 name: github-projects
 description: Upravljaj APD pipeline taskovima kroz GitHub Projects — kreiraj issue za spec, pomeraj kartice kroz kolone, zatvori po završetku
+effort: high
 ---
 
 # GitHub Projects — APD Pipeline Tracking

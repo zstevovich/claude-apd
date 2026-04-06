@@ -148,9 +148,11 @@ Each step is **technically enforced** — hooks block the commit if steps have n
 
 ### Prerequisites
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) **v2.1.89+** (full feature set) or v2.1.32+ (minimum functional)
 - `jq` installed (`brew install jq` on macOS, `apt install jq` on Linux) — required for hook scripts
 - Git repository initialised
+
+Version is checked automatically on session start and by `verify-apd.sh`.
 
 ### 1. Copy the template into your project
 

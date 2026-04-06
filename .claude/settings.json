@@ -16,6 +16,7 @@
     "PreToolUse": [
       {
         "matcher": "Bash",
+        "if": "Bash(git *) | Bash(APD_ORCHESTRATOR_COMMIT=1 git *)",
         "hooks": [
           {
             "type": "command",
@@ -26,6 +27,7 @@
       },
       {
         "matcher": "Write|Edit",
+        "if": "Write(*/package-lock.json) | Write(*/pnpm-lock.yaml) | Write(*/yarn.lock) | Write(*/composer.lock) | Write(*/Cargo.lock) | Write(*/go.sum) | Write(*/packages.lock.json) | Write(*/Gemfile.lock) | Write(*/poetry.lock) | Edit(*/package-lock.json) | Edit(*/pnpm-lock.yaml) | Edit(*/yarn.lock) | Edit(*/composer.lock) | Edit(*/Cargo.lock) | Edit(*/go.sum) | Edit(*/packages.lock.json) | Edit(*/Gemfile.lock) | Edit(*/poetry.lock)",
         "hooks": [
           {
             "type": "command",
@@ -38,11 +40,34 @@
     "PostToolUse": [
       {
         "matcher": "Bash",
+        "if": "Bash(APD_ORCHESTRATOR_COMMIT=1 git commit*)",
         "hooks": [
           {
             "type": "command",
             "command": "bash {{PROJECT_PATH}}/.claude/scripts/pipeline-post-commit.sh",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{PROJECT_PATH}}/.claude/scripts/session-start.sh",
+            "timeout": 5,
+            "statusMessage": "Reinjectujem kontekst posle kompakcije..."
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{PROJECT_PATH}}/.claude/scripts/guard-permission-denied.sh"
           }
         ]
       }

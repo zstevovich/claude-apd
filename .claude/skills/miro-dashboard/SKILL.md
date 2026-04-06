@@ -1,6 +1,7 @@
 ---
 name: miro-dashboard
 description: Vizualizuj APD pipeline status i metrike na Miro boardu — ažurira board sa trenutnim stanjem pipeline-a, završenim taskovima i metrikama
+effort: high
 ---
 
 # Miro Pipeline Dashboard

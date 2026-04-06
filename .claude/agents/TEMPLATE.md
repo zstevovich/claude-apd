@@ -26,10 +26,13 @@ hooks:
           command: "bash {{PROJECT_PATH}}/.claude/scripts/guard-secrets.sh"
           timeout: 5
     - matcher: "Bash"
+      if: "Bash(git *) | Bash(APD_ORCHESTRATOR_COMMIT=1 git *)"
       hooks:
         - type: command
           command: "bash {{PROJECT_PATH}}/.claude/scripts/guard-git.sh"
           timeout: 5
+    - matcher: "Bash"
+      hooks:
         - type: command
           command: "bash {{PROJECT_PATH}}/.claude/scripts/guard-bash-scope.sh {{SCOPE_PATHS}}"
           timeout: 5
