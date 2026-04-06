@@ -4,6 +4,8 @@ Software development through specialised agents in a defined pipeline with verif
 
 [**▶ Interactive Demo**](https://zstevovich.github.io/claude-apd/demo/) | 🇷🇸 [Srpska verzija](README.sr.md)
 
+![APD Demo](docs/demo/apd-demo.gif)
+
 ## What is APD?
 
 APD is a workflow for AI-assisted software development where:
