@@ -168,6 +168,13 @@ else
             warn "guard-lockfile.sh nije registrovan kao PreToolUse hook za Write|Edit"
         fi
 
+        # PostToolUse Bash → pipeline-post-commit
+        if jq -e '.hooks.PostToolUse[] | select(.matcher == "Bash") | .hooks[].command' "$SETTINGS" 2>/dev/null | grep -q 'pipeline-post-commit'; then
+            pass "PostToolUse(Bash) → pipeline-post-commit.sh"
+        else
+            fail "pipeline-post-commit.sh NIJE registrovan — pipeline neće resetovati posle commita"
+        fi
+
         # Attribution prazna
         COMMIT_ATTR=$(jq -r '.attribution.commit // "N/A"' "$SETTINGS" 2>/dev/null)
         PR_ATTR=$(jq -r '.attribution.pr // "N/A"' "$SETTINGS" 2>/dev/null)
@@ -443,6 +450,23 @@ if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
     cp "$PIPELINE_DIR"/*.done /tmp/apd-verify-backup/ 2>/dev/null
 fi
 
+# Sačuvaj session-log i privremeno ukloni [popuni] entry-je
+# (spec gate blokira ako prethodni entry ima [popuni])
+SESSION_LOG_BACKUP=""
+if [ -f "$CLAUDE_DIR/memory/session-log.md" ]; then
+    SESSION_LOG_BACKUP=$(mktemp)
+    cp "$CLAUDE_DIR/memory/session-log.md" "$SESSION_LOG_BACKUP"
+    # Ukloni poslednji entry ako ima [popuni]
+    LAST_LINE=$(grep -n '^## \[' "$CLAUDE_DIR/memory/session-log.md" | tail -1 | cut -d: -f1)
+    if [ -n "$LAST_LINE" ]; then
+        TAIL_CONTENT=$(tail -n +"$LAST_LINE" "$CLAUDE_DIR/memory/session-log.md")
+        if echo "$TAIL_CONTENT" | grep -q '\[popuni' 2>/dev/null; then
+            head -n $((LAST_LINE - 1)) "$CLAUDE_DIR/memory/session-log.md" > "$CLAUDE_DIR/memory/session-log.md.tmp"
+            mv "$CLAUDE_DIR/memory/session-log.md.tmp" "$CLAUDE_DIR/memory/session-log.md"
+        fi
+    fi
+fi
+
 # Čist start
 bash "$CLAUDE_DIR/scripts/pipeline-advance.sh" reset >/dev/null 2>&1
 
@@ -548,6 +572,12 @@ if [ "$HAD_EXISTING_PIPELINE" = true ]; then
     mkdir -p "$PIPELINE_DIR"
     cp /tmp/apd-verify-backup/*.done "$PIPELINE_DIR/" 2>/dev/null
     rm -rf /tmp/apd-verify-backup
+fi
+
+# Vrati session-log iz backup-a
+if [ -n "$SESSION_LOG_BACKUP" ] && [ -f "$SESSION_LOG_BACKUP" ]; then
+    cp "$SESSION_LOG_BACKUP" "$CLAUDE_DIR/memory/session-log.md"
+    rm -f "$SESSION_LOG_BACKUP"
 fi
 
 # ============================================================

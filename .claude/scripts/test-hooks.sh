@@ -105,6 +105,13 @@ else
         else
             warn "SessionStart hook nije konfigurisan"
         fi
+
+        POST_HOOK=$(jq '.hooks.PostToolUse // empty' "$SETTINGS" 2>/dev/null)
+        if [ -n "$POST_HOOK" ] && [ "$POST_HOOK" != "null" ]; then
+            pass "PostToolUse hook konfigurisan"
+        else
+            warn "PostToolUse hook nije konfigurisan — pipeline neće resetovati posle commita"
+        fi
     fi
 fi
 

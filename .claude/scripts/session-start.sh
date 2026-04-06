@@ -56,7 +56,12 @@ fi
 if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
     OLDEST_FLAG=$(ls -t "$PIPELINE_DIR"/*.done 2>/dev/null | tail -1)
     if [ -n "$OLDEST_FLAG" ]; then
-        FLAG_AGE=$(( $(date +%s) - $(stat -f %m "$OLDEST_FLAG" 2>/dev/null || stat -c %Y "$OLDEST_FLAG" 2>/dev/null || echo $(date +%s)) ))
+        MTIME=$(stat -f %m "$OLDEST_FLAG" 2>/dev/null || stat -c %Y "$OLDEST_FLAG" 2>/dev/null || echo "")
+        if [ -n "$MTIME" ] && [ "$MTIME" -gt 0 ] 2>/dev/null; then
+            FLAG_AGE=$(( $(date +%s) - MTIME ))
+        else
+            FLAG_AGE=0
+        fi
         if [ "$FLAG_AGE" -gt 86400 ]; then
             # Prikupi kontekst pre reset-a
             STALE_TASK="[nepoznat]"

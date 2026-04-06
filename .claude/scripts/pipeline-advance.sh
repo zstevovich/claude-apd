@@ -45,7 +45,7 @@ case "$STEP" in
             else
                 LAST_ENTRY=""
             fi
-            if echo "$LAST_ENTRY" | grep -q '\[popuni\]' 2>/dev/null; then
+            if echo "$LAST_ENTRY" | grep -q '\[popuni' 2>/dev/null; then
                 LAST_TITLE=$(echo "$LAST_ENTRY" | head -1)
                 echo "BLOKIRANO: Prethodni session-log entry nije popunjen!" >&2
                 echo "" >&2
@@ -421,11 +421,9 @@ EOF
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
 
-        # Append u skip log
+        # Append u skip log (kreiraj ako ne postoji)
         SKIP_LOG="$(cd "$SCRIPT_DIR/.." && pwd)/memory/pipeline-skip-log.md"
-        if [ -f "$SKIP_LOG" ]; then
-            echo "| ${NOW_HUMAN} | ${ARG} | — |" >> "$SKIP_LOG"
-        fi
+        echo "| ${NOW_HUMAN} | ${ARG} | — |" >> "$SKIP_LOG"
 
         echo "Pipeline PRESKOČEN: $ARG [$NOW_HUMAN]"
         echo "  Ovo se loguje. Koristi samo za hitne produkcijske popravke."
