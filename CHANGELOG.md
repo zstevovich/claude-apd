@@ -1,39 +1,101 @@
 # Changelog
 
-## v3.0.0 — 2026-04-07
+## v3.0.0 — 2026-04-08
 
-**Major release: APD is now an installable Claude Code plugin.**
+**Major release: APD evolves from a copy-paste template into a full Claude Code plugin ecosystem.**
+
+APD v1.0 started as a folder you copied into your project. v2.0 grew into a framework with 20 patterns across 4 layers. v3.0 completes the transformation: APD is now a proper Claude Code plugin — install it once, use it everywhere.
+
+### The journey: template → framework → ecosystem
+
+| Version | Era | How it worked |
+|---------|-----|---------------|
+| v1.0 | Template | Copy `.claude/` into project, replace placeholders manually |
+| v2.0–2.8 | Framework | 17 scripts, 4 skills, 20 patterns, but still copy-paste |
+| **v3.0** | **Ecosystem** | **Install once via marketplace, `/apd-init` generates everything** |
 
 ### Breaking changes
 
 - APD no longer works by copying `.claude/` into projects
-- Install via `/plugin marketplace add zstevovich/claude-apd` + `/plugin install claude-apd@zstevovich-plugins`, then run `/apd-init`
+- Install via marketplace: `/plugin marketplace add zstevovich/claude-apd` + `/plugin install claude-apd@zstevovich-plugins`
+- Start new session, then run `/apd-init`
 - Scripts live in the plugin (`${CLAUDE_PLUGIN_ROOT}/scripts/`), not in the project
 - Only `verify-all.sh` remains in the project (stack-specific build commands)
-- Agent hooks use `${CLAUDE_PLUGIN_ROOT}` instead of `{{PROJECT_PATH}}`
+- Agent hooks use `${CLAUDE_PLUGIN_ROOT}` instead of hardcoded paths
 
 ### New architecture
 
 ```
-Plugin (installed once):     Project (generated per-project):
-  scripts/ (15 scripts)        .claude/agents/*.md
-  hooks/hooks.json          .claude/rules/principles.md
-  rules/workflow.md            .claude/scripts/verify-all.sh
-  skills/ (4 skills)           .claude/memory/
-  agents/TEMPLATE.md           .claude/.apd-config
-  templates/                   .claude/.apd-version
-  .claude-plugin/plugin.json   CLAUDE.md
+Plugin (installed once):           Project (generated per-project):
+  scripts/ (17 scripts)              .claude/agents/*.md
+  hooks/hooks.json                   .claude/rules/workflow.md
+  rules/workflow.md                  .claude/rules/principles.md
+  skills/ (4 skills)                 .claude/scripts/verify-all.sh
+  templates/agent-template.md        .claude/memory/
+  templates/verify-all/              .claude/.apd-config
+  templates/principles/              .claude/.apd-version
+  templates/memory/                  .claude/settings.json
+  .claude-plugin/plugin.json         CLAUDE.md
+  .claude-plugin/marketplace.json
 ```
 
 ### New features
 
-- **`resolve-project.sh`** — shared library sourced by all scripts. Resolves `PROJECT_DIR` (user's project) and `APD_PLUGIN_ROOT` (plugin install) automatically
+- **Plugin distribution** — marketplace.json for self-hosted distribution via `/plugin install`
+- **`resolve-project.sh`** — shared library sourced by all scripts. Resolves `PROJECT_DIR` (user's project) and `APD_PLUGIN_ROOT` (plugin install) automatically. Enables scripts to work from any directory
 - **`/apd-upgrade` skill** — migrates v2.x copy-paste installations to v3.x plugin architecture (backup, extract config, remove old scripts, update agent hooks)
+- **`pipeline-advance.sh init`** — dedicated command for initial project setup. Distinct from `skip` (hotfix): no HOTFIX label, no skip log entry, auto-fills "None" in session log
+- **Visual pipeline progress** — ASCII progress bar shows pipeline state at every step:
+  ```
+  [spec]---[builder]---[reviewer]--- verifier  --> commit
+  ```
+- **Improved auto-summary** — session-log entries now capture committed files (via `git diff HEAD~1`) instead of working tree. Guard block count filtered by task timestamp (excludes E2E test blocks)
+- **Complete settings.json** — `/apd-init` generates attribution (empty, no AI signatures) and Notification hook
 - **`.apd-config`** — project configuration file (`PROJECT_NAME`, `APD_VERSION`, `STACK`) read by session-start.sh for dynamic project name
 - **`.apd-version`** — tracks installed APD version for upgrade detection
 - **Per-stack verify-all templates** — `templates/verify-all/` with ready-made snippets for .NET, Node.js, Java, Python, Go, PHP
 - **Per-language principles templates** — `templates/principles/` for English and Serbian
 - **Plugin hooks** — `hooks/hooks.json` with `${CLAUDE_PLUGIN_ROOT}` paths, conditional `if` fields, PostCompact, PermissionDenied
+
+### Full English internationalization
+
+All 400+ Serbian strings translated to English across 46 files:
+- 17 bash scripts (comments, echo messages, error output)
+- 4 skills (descriptions, procedures, examples)
+- Rules, templates, agents, examples, documentation
+- README.sr.md removed — single English README
+
+### Deep audit — 52 issues fixed
+
+Pre-release audit identified and fixed 52 issues:
+- 11 critical (broken YAML quotes, missing files, wrong paths)
+- 13 high (unquoted patterns, non-atomic writes, missing script lists)
+- 14 medium (POSIX compatibility, trap cleanup, template gaps)
+- 14 low (documentation, comments, minor inconsistencies)
+
+Critical fixes include:
+- Agent TEMPLATE.md had missing opening quotes in all `command:` values — hooks would not work
+- `[popuni]` grep pattern not updated to `[fill in]` — session-log gate was non-functional
+- 6 verify-all templates had untranslated Serbian error messages
+- Script paths in skills/rules referenced `.claude/scripts/` instead of `${CLAUDE_PLUGIN_ROOT}/scripts/`
+
+### Plugin system alignment
+
+Verified against real Claude Code v2.1.94 plugin system:
+- `hooks/hooks.json` auto-discovered (NOT declared in plugin.json — causes duplicate error)
+- `skills/` auto-discovered (NOT declared in plugin.json)
+- Agent template moved from `agents/` to `templates/` (avoid auto-discovery as invocable agent)
+- Rules NOT auto-loaded from plugins — `/apd-init` copies `workflow.md` to project
+- Marketplace file enables self-hosted distribution
+
+### Real-world validation
+
+Tested end-to-end on a PHP + PostgreSQL + Vanilla JS project:
+- `/apd-init` generated 80 PASS, 0 FAIL setup
+- Guard system blocked 16 violations (mass-staging, force-push, pipeline-incomplete, verify-failed)
+- Pipeline gate correctly blocked commits without completed steps
+- verify-all.sh ran PHPUnit and blocked on test failures
+- Session log populated with auto-summaries
 
 ### Migration from v2.x
 
@@ -41,9 +103,20 @@ Run `/apd-upgrade` after installing the plugin. It will:
 1. Backup your `.claude/` directory
 2. Extract configuration from existing files
 3. Remove scripts (now in plugin)
-4. Update agent hook paths
+4. Update agent hook paths to `${CLAUDE_PLUGIN_ROOT}`
 5. Create `.apd-config` and `.apd-version`
 6. Verify with `verify-apd.sh`
+
+### Installation
+
+```bash
+# In Claude Code:
+/plugin marketplace add zstevovich/claude-apd
+/plugin install claude-apd@zstevovich-plugins
+
+# Start new session, then:
+/apd-init
+```
 
 ---
 
