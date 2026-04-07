@@ -110,7 +110,7 @@ case "$STEP" in
             fi
         fi
 
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents"
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
         echo "Pipeline started: $ARG"
         show_pipeline "builder"
@@ -121,7 +121,30 @@ case "$STEP" in
             echo "ERROR: Spec must be completed before builder!" >&2
             exit 1
         fi
+
+        # Verify that a builder agent actually ran (not orchestrator doing it directly)
+        AGENTS_LOG="$PIPELINE_DIR/.agents"
         SPEC_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/spec.done")
+        if [ -f "$AGENTS_LOG" ]; then
+            # Check for any agent stop event after spec was created
+            BUILDER_RAN=$(grep '|stop|' "$AGENTS_LOG" | grep -i 'builder' | tail -1)
+        fi
+        if [ -z "${BUILDER_RAN:-}" ]; then
+            echo "BLOCKED: No Builder agent was dispatched!" >&2
+            echo "" >&2
+            echo "  The orchestrator must dispatch a Builder agent to implement code." >&2
+            echo "  You cannot mark builder as complete without running an agent." >&2
+            echo "" >&2
+            echo "  Available agents:" >&2
+            if [ -d "$CLAUDE_DIR/agents" ]; then
+                for f in "$CLAUDE_DIR/agents"/*.md; do
+                    [ -f "$f" ] || continue
+                    echo "    - $(basename "$f" .md)" >&2
+                done
+            fi
+            exit 1
+        fi
+
         ELAPSED=$(format_duration $((NOW - SPEC_TS)))
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/builder.done"
         echo "Builder completed (+$ELAPSED)"
@@ -133,6 +156,21 @@ case "$STEP" in
             echo "ERROR: Builder must be completed before reviewer!" >&2
             exit 1
         fi
+
+        # Verify that a reviewer agent actually ran
+        AGENTS_LOG="$PIPELINE_DIR/.agents"
+        if [ -f "$AGENTS_LOG" ]; then
+            REVIEWER_RAN=$(grep '|stop|' "$AGENTS_LOG" | grep -iE 'review' | tail -1)
+        fi
+        if [ -z "${REVIEWER_RAN:-}" ]; then
+            echo "BLOCKED: No Reviewer agent was dispatched!" >&2
+            echo "" >&2
+            echo "  Code review is MANDATORY. Dispatch a Reviewer agent." >&2
+            echo "  The reviewer finds bugs, risks, and security issues." >&2
+            echo "  NEVER skip this step." >&2
+            exit 1
+        fi
+
         BUILDER_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/builder.done")
         ELAPSED=$(format_duration $((NOW - BUILDER_TS)))
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
@@ -281,7 +319,7 @@ EOF
                 echo "Session log updated (auto-summary): $TASK_NAME" >&2
             fi
         fi
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents"
         echo "Pipeline reset. Ready for new task."
         ;;
 

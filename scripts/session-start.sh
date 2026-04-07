@@ -62,7 +62,7 @@ if ! command -v jq &>/dev/null; then
 fi
 
 # 2. Scripts — if they exist but are not executable, fix automatically
-for script in guard-git.sh guard-scope.sh guard-bash-scope.sh guard-secrets.sh guard-lockfile.sh guard-permission-denied.sh guard-orchestrator.sh pipeline-advance.sh pipeline-gate.sh pipeline-post-commit.sh verify-all.sh session-start.sh rotate-session-log.sh verify-apd.sh verify-contracts.sh; do
+for script in guard-git.sh guard-scope.sh guard-bash-scope.sh guard-secrets.sh guard-lockfile.sh guard-permission-denied.sh guard-orchestrator.sh track-agent.sh pipeline-advance.sh pipeline-gate.sh pipeline-post-commit.sh verify-all.sh session-start.sh rotate-session-log.sh verify-apd.sh verify-contracts.sh; do
     SCRIPT_PATH="$SCRIPT_DIR/$script"
     if [ -f "$SCRIPT_PATH" ] && [ ! -x "$SCRIPT_PATH" ]; then
         chmod +x "$SCRIPT_PATH" 2>/dev/null

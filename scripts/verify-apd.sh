@@ -157,7 +157,7 @@ fi
 PLUGIN_SCRIPTS=(
     guard-git.sh guard-scope.sh guard-bash-scope.sh
     guard-secrets.sh guard-lockfile.sh guard-permission-denied.sh guard-orchestrator.sh
-    pipeline-advance.sh pipeline-gate.sh pipeline-post-commit.sh
+    track-agent.sh pipeline-advance.sh pipeline-gate.sh pipeline-post-commit.sh
     rotate-session-log.sh session-start.sh
 )
 
