@@ -10,16 +10,16 @@
   "license": "MIT",
   "userConfig": {
     "project_name": {
-      "description": "Project name (e.g., MyCRM, TaskFlow)",
-      "sensitive": false
+      "title": "Project name (e.g., MyCRM, TaskFlow)",
+      "type": "string"
     },
     "stack": {
-      "description": "Tech stack: nodejs, php, python, dotnet, go, java",
-      "sensitive": false
+      "title": "Tech stack: nodejs, php, python, dotnet, go, java",
+      "type": "string"
     },
     "author_name": {
-      "description": "Author name for git commits",
-      "sensitive": false
+      "title": "Author name for git commits",
+      "type": "string"
     }
   }
 }
