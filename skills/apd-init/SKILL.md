@@ -77,7 +77,7 @@ Generate with sections (ALL populated, NO placeholders):
 - `## Stack` — table with layers (backend, database, frontend, mobile, design, board, tracking)
 - `## Ports` — table
 - `## Architecture` — `ls` output
-- `## APD` — pipeline, guardrails, agents table, human gate, session memory
+- `## APD` — orchestrator role, pipeline, guardrails, agents table (with Model + Effort columns), model discipline, human gate, session memory
 - `## Memory` — `@.claude/memory/` references
 - `## Rules` — references to rules
 - `## Figma design` — only if present

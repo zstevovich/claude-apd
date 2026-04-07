@@ -60,13 +60,25 @@ taskflow/
 
 ## APD — Agent Pipeline Development
 
+### YOU ARE THE ORCHESTRATOR
+
+You coordinate the pipeline. You DO NOT implement code yourself. You:
+1. Create the spec card and get user approval
+2. **Dispatch Builder agents** to implement (NEVER write code directly)
+3. **Dispatch Reviewer** to find bugs after each Builder
+4. **Run Verifier** (build + test) before commit
+5. Commit only after ALL 4 steps are complete
+
+**NEVER implement code directly. ALWAYS dispatch the appropriate agent.**
+
 ### Pipeline — TECHNICALLY ENFORCED
 
 Spec → Builder → Reviewer → Verifier → Commit
 
 - **Hooks BLOCK commits** if pipeline steps are not completed
 - Each step: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh {step}`
-- Hotfix: `pipeline-advance.sh skip "reason"` — only for urgent situations
+- `skip` is for PRODUCTION HOTFIXES ONLY — not for convenience
+- `init` is for first project setup ONLY — not for features
 
 ### Guardrails
 
@@ -81,12 +93,24 @@ Spec → Builder → Reviewer → Verifier → Commit
 
 ### Agents
 
-| Agent | Domain | Scope |
-|-------|--------|-------|
-| backend-builder | API, services, repositories | server/ |
-| frontend-builder | React components, pages, hooks | client/ |
-| testing | Unit + integration tests | server/tests/ client/tests/ |
-| devops | Docker, CI/CD | docker/ .github/ |
+| Agent | Domain | Scope | Model | Effort |
+|-------|--------|-------|-------|--------|
+| backend-builder | API, services, repositories | server/ | sonnet | high |
+| frontend-builder | React components, pages, hooks | client/ | sonnet | high |
+| testing | Unit + integration tests | server/tests/ client/tests/ | sonnet | high |
+| devops | Docker, CI/CD | docker/ .github/ | sonnet | high |
+
+**For every task, dispatch the appropriate agent(s) above. Do not implement yourself.**
+
+### Model discipline
+
+| Role | Model | Effort |
+|------|-------|--------|
+| Orchestrator (you) | opus | max |
+| Builder agents | sonnet | high |
+| Reviewer | opus | max |
+
+**Never use sonnet for review. Never use opus for building. Never skip the Reviewer.**
 
 ### Human gate
 

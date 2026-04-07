@@ -59,29 +59,46 @@ Before EVERY task, create a mini-spec:
 
 The spec is shared with the user BEFORE implementation.
 
-## 2. Three agent roles
+## 2. Four roles — strict model and effort enforcement
 
-### Builder
-- Implements code according to the spec
-- Custom agents in `.claude/agents/`
-- Max 3-4 edit operations per dispatch
-- Clear file ownership
-
-### Reviewer
-- Only finds risks, bugs, omissions
-- Does NOT suggest style changes outside scope
-- Runs AUTOMATICALLY after every Builder
-
-### Verifier
-- Build + test + contract check
-- Runs AFTER Reviewer, BEFORE commit
-
-### Orchestrator
-- Creates the spec card
-- Dispatches Builders (in parallel where possible)
-- Runs Reviewer and Verifier
-- Only one who commits and pushes
+### Orchestrator (you — main session)
+- **Model:** opus | **Effort:** max
+- Creates the spec card and gets user approval
+- **Dispatches Builder agents — NEVER implements code directly**
+- Dispatches Reviewer after each Builder
+- Runs Verifier before commit
+- Only one who commits and pushes (`APD_ORCHESTRATOR_COMMIT=1`)
 - Only one who communicates with the user
+- **If you find yourself writing code: STOP. Dispatch an agent instead.**
+
+### Builder (dispatched agent)
+- **Model:** sonnet | **Effort:** high
+- Implements code according to the spec
+- Defined in `.claude/agents/` with scope guards
+- Max 3-4 edit operations per dispatch
+- Clear file ownership — no overlap between agents
+- **Must not** commit, push, or modify files outside its scope
+
+### Reviewer (dispatched agent)
+- **Model:** opus | **Effort:** max
+- Finds risks, bugs, omissions in Builder's work
+- Does NOT suggest style changes outside scope
+- Runs AUTOMATICALLY after every Builder — **never skip**
+- Reports findings to orchestrator who decides action
+
+### Verifier (script, not agent)
+- Runs `verify-all.sh` (build + test)
+- Triggered by `pipeline-advance.sh verifier`
+- Blocks commit if build or tests fail
+
+### Model and effort summary
+
+| Role | Model | Effort | Why |
+|------|-------|--------|-----|
+| Orchestrator | opus | max | Decisions, planning, coordination — expensive to reverse |
+| Builder | sonnet | high | Implementation following clear spec — fast, focused |
+| Reviewer | opus | max | Finding bugs, security issues — must be thorough |
+| Verifier | — | — | Script, not a model — runs build + test |
 
 ## 3. Micro-tasks
 
@@ -134,13 +151,16 @@ When a task involves backend + frontend/mobile:
 3. Nullable fields must be nullable on all layers
 4. NEVER create frontend types from the specification — always read the backend DTO
 
-## 8. Reasoning effort
+## 8. Model and effort discipline
 
-| Effort | When | Examples |
-|--------|------|----------|
-| **max** | Decisions that are expensive to reverse | Planning, architecture, review, spec, security |
-| **high** | Implementation with a clear spec | Builder coding, tests, refactoring |
+**This is NOT optional. Every dispatch MUST specify the correct model and effort.**
 
-- Orchestrator always runs at **max**
-- Builder agents at **high**
-- Reviewer and Verifier at **max**
+| Role | Model | Effort | Dispatch example |
+|------|-------|--------|-----------------|
+| Orchestrator | opus | max | (main session — always opus max) |
+| Builder | sonnet | high | `dispatch backend-builder` (model: sonnet, effort: high in frontmatter) |
+| Reviewer | opus | max | `dispatch code-reviewer` (model: opus, effort: max in frontmatter) |
+
+- **Never use sonnet for review** — it misses subtle bugs
+- **Never use opus for building** — it's slower and not needed for spec-driven work
+- **Never use effort: low or medium** — APD only uses high and max
