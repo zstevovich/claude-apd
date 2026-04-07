@@ -146,10 +146,13 @@ case "$STEP" in
 
                 # --- Collect context ---
 
-                # 1. Changed files (git diff --stat)
+                # 1. Changed files — check last commit first, fall back to working tree
                 CHANGED_SUMMARY=""
                 if command -v git &>/dev/null && git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
-                    CHANGED_FILES=$(git -C "$PROJECT_DIR" diff --cached --name-only 2>/dev/null)
+                    # Try last commit (most common — reset happens after commit)
+                    CHANGED_FILES=$(git -C "$PROJECT_DIR" diff --name-only HEAD~1 HEAD 2>/dev/null)
+                    # Fall back to staged/unstaged changes
+                    [ -z "$CHANGED_FILES" ] && CHANGED_FILES=$(git -C "$PROJECT_DIR" diff --cached --name-only 2>/dev/null)
                     [ -z "$CHANGED_FILES" ] && CHANGED_FILES=$(git -C "$PROJECT_DIR" diff --name-only HEAD 2>/dev/null)
                     if [ -n "$CHANGED_FILES" ]; then
                         FILE_COUNT=$(echo "$CHANGED_FILES" | wc -l | tr -d ' ')
@@ -163,16 +166,25 @@ case "$STEP" in
                     CHANGED_SUMMARY="Git not available"
                 fi
 
-                # 2. Guard blocks during task
+                # 2. Guard blocks during this task (filter by spec timestamp, not date)
                 GUARD_SUMMARY="N/A"
                 AUDIT_LOG="$MEMORY_DIR/guard-audit.log"
                 if [ -f "$AUDIT_LOG" ] && [ -n "$SPEC_TS" ]; then
-                    SPEC_DATE=$(date -r "$SPEC_TS" +%Y-%m-%d 2>/dev/null || date -d "@$SPEC_TS" +%Y-%m-%d 2>/dev/null || echo "")
-                    if [ -n "$SPEC_DATE" ]; then
-                        BLOCKS=$(grep "^${SPEC_DATE}" "$AUDIT_LOG" 2>/dev/null | wc -l | tr -d ' ')
+                    SPEC_TIME=$(date -r "$SPEC_TS" +"%Y-%m-%d %H:%M" 2>/dev/null || date -d "@$SPEC_TS" +"%Y-%m-%d %H:%M" 2>/dev/null || echo "")
+                    if [ -n "$SPEC_TIME" ]; then
+                        # Only count blocks after this task's spec was created
+                        BLOCKS=0
+                        BLOCK_REASONS=""
+                        while IFS='|' read -r log_ts log_type log_agent log_reason log_cmd; do
+                            LOG_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$log_ts" +%s 2>/dev/null || date -d "$log_ts" +%s 2>/dev/null || echo 0)
+                            if [ "$LOG_EPOCH" -ge "$SPEC_TS" ] 2>/dev/null; then
+                                BLOCKS=$((BLOCKS + 1))
+                                BLOCK_REASONS="${BLOCK_REASONS}${log_reason}\n"
+                            fi
+                        done < "$AUDIT_LOG"
                         if [ "$BLOCKS" -gt 0 ]; then
-                            BLOCK_REASONS=$(grep "^${SPEC_DATE}" "$AUDIT_LOG" 2>/dev/null | cut -d'|' -f4 | sort | uniq -c | sort -rn | head -3 | awk '{print $2 " (" $1 "x)"}' | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g')
-                            GUARD_SUMMARY="${BLOCKS} blocks: ${BLOCK_REASONS}"
+                            REASON_SUMMARY=$(printf '%b' "$BLOCK_REASONS" | sort | uniq -c | sort -rn | head -3 | awk '{print $2 " (" $1 "x)"}' | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g')
+                            GUARD_SUMMARY="${BLOCKS} blocks: ${REASON_SUMMARY}"
                         fi
                     fi
                 fi
