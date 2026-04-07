@@ -206,15 +206,15 @@ done
 # ============================================================
 section "3. Settings"
 
-# --- 3a. Plugin hooks/settings.json ---
-PLUGIN_SETTINGS="$APD_PLUGIN_ROOT/hooks/settings.json"
+# --- 3a. Plugin hooks/hooks.json ---
+PLUGIN_SETTINGS="$APD_PLUGIN_ROOT/hooks/hooks.json"
 if [ ! -f "$PLUGIN_SETTINGS" ]; then
-    fail "Plugin hooks/settings.json DOES NOT EXIST"
+    fail "Plugin hooks/hooks.json DOES NOT EXIST"
 else
     if ! jq empty "$PLUGIN_SETTINGS" 2>/dev/null; then
-        fail "Plugin hooks/settings.json is NOT valid JSON"
+        fail "Plugin hooks/hooks.json is NOT valid JSON"
     else
-        pass "Plugin hooks/settings.json valid JSON"
+        pass "Plugin hooks/hooks.json valid JSON"
 
         # SessionStart hook
         if jq -e '.hooks.SessionStart[0].hooks[0].command' "$PLUGIN_SETTINGS" &>/dev/null; then

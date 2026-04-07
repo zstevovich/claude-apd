@@ -15,7 +15,7 @@ From zero to your first pipeline commit in 5 minutes.
 ## Step 1 — Install the plugin
 
 ```console
-~/Projects/my-project $ npx skills add zstevovich/claude-apd
+~/Projects/my-project $ /plugin install claude-apd
 ```
 
 ## Step 2 — Initialise

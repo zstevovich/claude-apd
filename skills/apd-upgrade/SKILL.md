@@ -12,7 +12,7 @@ Migrates a project from an older APD version to the latest. Supports:
 
 ## Prerequisite
 
-APD plugin must be installed: `npx skills add zstevovich/claude-apd`
+APD plugin must be installed: `/plugin install claude-apd`
 
 ## Procedure
 

@@ -7,7 +7,7 @@
 ### Breaking changes
 
 - APD no longer works by copying `.claude/` into projects
-- Install via `npx skills add zstevovich/claude-apd`, then run `/apd-init`
+- Install via `/plugin install claude-apd`, then run `/apd-init`
 - Scripts live in the plugin (`${CLAUDE_PLUGIN_ROOT}/scripts/`), not in the project
 - Only `verify-all.sh` remains in the project (stack-specific build commands)
 - Agent hooks use `${CLAUDE_PLUGIN_ROOT}` instead of `{{PROJECT_PATH}}`
@@ -17,7 +17,7 @@
 ```
 Plugin (installed once):     Project (generated per-project):
   scripts/ (15 scripts)        .claude/agents/*.md
-  hooks/settings.json          .claude/rules/principles.md
+  hooks/hooks.json          .claude/rules/principles.md
   rules/workflow.md            .claude/scripts/verify-all.sh
   skills/ (4 skills)           .claude/memory/
   agents/TEMPLATE.md           .claude/.apd-config
@@ -33,7 +33,7 @@ Plugin (installed once):     Project (generated per-project):
 - **`.apd-version`** — tracks installed APD version for upgrade detection
 - **Per-stack verify-all templates** — `templates/verify-all/` with ready-made snippets for .NET, Node.js, Java, Python, Go, PHP
 - **Per-language principles templates** — `templates/principles/` for English and Serbian
-- **Plugin hooks** — `hooks/settings.json` with `${CLAUDE_PLUGIN_ROOT}` paths, conditional `if` fields, PostCompact, PermissionDenied
+- **Plugin hooks** — `hooks/hooks.json` with `${CLAUDE_PLUGIN_ROOT}` paths, conditional `if` fields, PostCompact, PermissionDenied
 
 ### Migration from v2.x
 

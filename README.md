@@ -157,7 +157,7 @@ Version is checked automatically on session start and by `verify-apd.sh`.
 ### 1. Install the plugin
 
 ```bash
-npx skills add zstevovich/claude-apd
+/plugin install claude-apd
 ```
 
 This installs APD as a Claude Code plugin. All scripts, hooks, rules, and skills are available immediately via `${CLAUDE_PLUGIN_ROOT}`.
@@ -453,7 +453,7 @@ Proposed → Accepted → [Superseded (new ADR) | Withdrawn]
 The `/apd-init` skill automatically creates agents based on your project structure. To create agents manually, use the template from the plugin:
 
 ```bash
-cp ${CLAUDE_PLUGIN_ROOT}/agents/TEMPLATE.md .claude/agents/backend-builder.md
+cp ${CLAUDE_PLUGIN_ROOT}/templates/agent-template.md .claude/agents/backend-builder.md
 ```
 
 Replace:
@@ -826,7 +826,7 @@ Other settings:
 
 APD v3.0 is a **plugin** — most files live in the plugin directory (`${CLAUDE_PLUGIN_ROOT}`), not in your project. Your project contains only the customised files.
 
-### Plugin (installed via `npx skills add`)
+### Plugin (installed via `/plugin install`)
 
 ```
 ${CLAUDE_PLUGIN_ROOT}/
@@ -848,9 +848,9 @@ ${CLAUDE_PLUGIN_ROOT}/
 │   ├── verify-contracts.sh           # Cross-layer type verification
 │   ├── verify-all.sh                 # Template for build/test
 │   └── test-hooks.sh                 # Quick static check
-├── hooks/settings.json               # Plugin hook configuration
+├── hooks/hooks.json               # Plugin hook configuration
 ├── rules/workflow.md                 # APD workflow (universal)
-├── agents/TEMPLATE.md                # Agent template
+├── templates/agent-template.md       # Agent template (not in agents/ to avoid auto-discovery)
 ├── skills/
 │   ├── apd-init/SKILL.md             # Interactive setup
 │   ├── apd-upgrade/SKILL.md          # Migration from v2.x

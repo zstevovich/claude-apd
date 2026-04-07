@@ -93,7 +93,7 @@ For each agent generate `.claude/agents/{name}.md`:
 - guard-scope.sh and guard-bash-scope.sh with exact SCOPE_PATHS
 - Body: role, stack, workflow, FORBIDDEN
 
-Use the format from `${CLAUDE_PLUGIN_ROOT}/agents/TEMPLATE.md` but GENERATE — do not copy.
+Use the format from `${CLAUDE_PLUGIN_ROOT}/templates/agent-template.md` but GENERATE — do not copy.
 
 #### 4.3 verify-all.sh
 
@@ -105,9 +105,14 @@ Generate `.claude/scripts/verify-all.sh` with:
 - Error reporting footer
 - `chmod +x`
 
-#### 4.4 principles.md
+#### 4.4 Rules
 
-Read `${CLAUDE_PLUGIN_ROOT}/templates/principles/{language}.md`.
+**workflow.md** — Copy from the plugin (rules are NOT auto-loaded from plugins):
+```bash
+cp "${CLAUDE_PLUGIN_ROOT}/rules/workflow.md" .claude/rules/workflow.md
+```
+
+**principles.md** — Read `${CLAUDE_PLUGIN_ROOT}/templates/principles/{language}.md`.
 Adapt for the stack — add architectural pattern and port range.
 Place in `.claude/rules/principles.md`.
 
