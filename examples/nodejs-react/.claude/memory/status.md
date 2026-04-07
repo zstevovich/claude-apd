@@ -1,6 +1,6 @@
-# Status projekta
+# Project Status
 
-## Trenutna faza: MVP Development
+## Current Phase: MVP Development
 
-**Fokus:** User authentication + task CRUD endpoints
-**Blokirano:** Ništa.
+**Focus:** User authentication + task CRUD endpoints
+**Blocked:** Nothing.

@@ -1,11 +1,11 @@
 #!/bin/bash
-# APD Secrets Guard — sprečava pristup osetljivim fajlovima
-# Prilagodi BLOCKED_PATTERNS za svoj projekat
+# APD Secrets Guard — prevents access to sensitive files
+# Customize BLOCKED_PATTERNS for your project
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
 if ! command -v jq &>/dev/null; then
-  echo "GREŠKA: jq nije instaliran." >&2
+  echo "ERROR: jq is not installed." >&2
   exit 2
 fi
 
@@ -13,26 +13,26 @@ INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 
-# ===== PRILAGODI ZA SVOJ PROJEKAT =====
+# ===== CUSTOMIZE FOR YOUR PROJECT =====
 BLOCKED_PATTERNS=(
-  # Environment fajlovi
+  # Environment files
   '.env.production'
   '.env.staging'
   '.env.prod'
-  # Ključevi i sertifikati
+  # Keys and certificates
   '.pem'
   '.key'
   '.pfx'
   'id_rsa'
   'id_ed25519'
   'id_ecdsa'
-  # Credential fajlovi
+  # Credential files
   'credentials.json'
   'service-account'
   '.sa.json'
   # Docker registry
   '.docker/config.json'
-  # .NET specifično (ukloni ako nije .NET)
+  # .NET specific (remove if not .NET)
   'appsettings.Production.json'
   'appsettings.Staging.json'
   'user-secrets'
@@ -40,10 +40,10 @@ BLOCKED_PATTERNS=(
 # =======================================
 
 if [ -n "$FILE_PATH" ]; then
-  REL_PATH="${FILE_PATH#$PROJECT_DIR/}"
+  REL_PATH="${FILE_PATH#"$PROJECT_DIR"/}"
   for pattern in "${BLOCKED_PATTERNS[@]}"; do
     if [[ "$REL_PATH" == *"$pattern"* ]]; then
-      echo "BLOKIRANO: Pristup osetljivom fajlu: $REL_PATH" >&2
+      echo "BLOCKED: Access to sensitive file: $REL_PATH" >&2
       exit 2
     fi
   done
@@ -52,7 +52,7 @@ fi
 if [ -n "$COMMAND" ]; then
   for pattern in "${BLOCKED_PATTERNS[@]}"; do
     if [[ "$COMMAND" == *"$pattern"* ]]; then
-      echo "BLOKIRANO: Komanda pristupa osetljivom fajlu: $pattern" >&2
+      echo "BLOCKED: Command accesses sensitive file: $pattern" >&2
       exit 2
     fi
   done

@@ -1,6 +1,6 @@
 #!/bin/bash
-# APD Scope Guard — blokira Write/Edit operacije van dozvoljenog scope-a
-# Korišćenje: bash guard-scope.sh <dozvoljena_putanja_1> <dozvoljena_putanja_2> ...
+# APD Scope Guard — blocks Write/Edit operations outside the allowed scope
+# Usage: bash guard-scope.sh <allowed_path_1> <allowed_path_2> ...
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
@@ -11,7 +11,7 @@ if [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
 fi
 
 if ! command -v jq &>/dev/null; then
-  echo "GREŠKA: jq nije instaliran." >&2
+  echo "ERROR: jq is not installed." >&2
   exit 2
 fi
 
@@ -21,11 +21,11 @@ FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
-REL_PATH="${FILE_PATH#$PROJECT_DIR/}"
+REL_PATH="${FILE_PATH#"$PROJECT_DIR"/}"
 
 if [[ "$REL_PATH" == /* ]]; then
-  echo "BLOKIRANO: Fajl $FILE_PATH je van projektnog direktorijuma." >&2
-  echo "Dozvoljene putanje: ${ALLOWED_PATHS[*]}" >&2
+  echo "BLOCKED: File $FILE_PATH is outside the project directory." >&2
+  echo "Allowed paths: ${ALLOWED_PATHS[*]}" >&2
   exit 2
 fi
 
@@ -36,6 +36,6 @@ for allowed in "${ALLOWED_PATHS[@]}"; do
   fi
 done
 
-echo "BLOKIRANO: Fajl $REL_PATH je van dozvoljenog scope-a." >&2
-echo "Dozvoljene putanje: ${ALLOWED_PATHS[*]}" >&2
+echo "BLOCKED: File $REL_PATH is outside the allowed scope." >&2
+echo "Allowed paths: ${ALLOWED_PATHS[*]}" >&2
 exit 2

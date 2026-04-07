@@ -2,16 +2,16 @@
 
 > Task management platform with real-time collaboration, team boards, and automated workflows.
 
-## Kritična pravila
+## Critical Rules
 
-- **Jezik:** English
-- **Autor:** Alex Morgan — BEZ AI potpisa/watermarks
-- **Stil:** Profesionalan, konkretan, human style
+- **Language:** English
+- **Author:** Alex Morgan — NO AI signatures/watermarks
+- **Style:** Professional, concise, human style
 
 ## Stack
 
-| Layer | Tehnologija |
-|-------|-------------|
+| Layer | Technology |
+|-------|------------|
 | Backend | Node.js 20 + Express 5 + TypeScript |
 | Database | PostgreSQL 16 + Prisma ORM |
 | Frontend | React 19 + Vite + TypeScript + TailwindCSS |
@@ -19,7 +19,7 @@
 | Design | https://www.figma.com/design/xK9mR2p/TaskFlow |
 | Board | https://miro.com/app/board/uXjVNq8/TaskFlow-Architecture |
 
-## Portovi (lokalni razvoj)
+## Ports (local development)
 
 | Service | Port |
 |---------|------|
@@ -28,7 +28,7 @@
 | Cache | 6380 |
 | Frontend | 5173 |
 
-## Arhitektura
+## Architecture
 
 ```
 taskflow/
@@ -60,76 +60,76 @@ taskflow/
 
 ## APD — Agent Pipeline Development
 
-### Pipeline — TEHNIČKI ZAŠTIĆEN
+### Pipeline — TECHNICALLY ENFORCED
 
 Spec → Builder → Reviewer → Verifier → Commit
 
-- **Hook-ovi BLOKIRAJU commit** ako pipeline koraci nisu završeni
-- Svaki korak: `bash .claude/scripts/pipeline-advance.sh {korak}`
-- Hotfix: `pipeline-advance.sh skip "razlog"` — samo za urgentne situacije
+- **Hooks BLOCK commits** if pipeline steps are not completed
+- Each step: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh {step}`
+- Hotfix: `pipeline-advance.sh skip "reason"` — only for urgent situations
 
-### Guardrail-i
+### Guardrails
 
-- `guard-git.sh` — git zaštita (commit/push samo orkestrator, bez force push, bez mass staging)
-- `guard-scope.sh` — file scope po agentu (Write/Edit)
+- `guard-git.sh` — git protection (commit/push orchestrator only, no force push, no mass staging)
+- `guard-scope.sh` — file scope per agent (Write/Edit)
 - `guard-bash-scope.sh` — bash write scope
-- `guard-secrets.sh` — osetljivi fajlovi
-- `guard-lockfile.sh` — lock fajlovi
-- `verify-all.sh` — build + test pre commit-a
-- `pipeline-advance.sh` + `pipeline-gate.sh` — pipeline flag sistem
-- `rotate-session-log.sh` — automatska arhivacija session log-a
+- `guard-secrets.sh` — sensitive files
+- `guard-lockfile.sh` — lock files
+- `verify-all.sh` — build + test before commit
+- `pipeline-advance.sh` + `pipeline-gate.sh` — pipeline flag system
+- `rotate-session-log.sh` — automatic session log archival
 
-### Agenti
+### Agents
 
-| Agent | Domen | Scope |
-|-------|-------|-------|
-| backend-builder | API, servisi, repozitorijumi | server/ |
-| frontend-builder | React komponente, stranice, hookovi | client/ |
-| testing | Unit + integration testovi | server/tests/ client/tests/ |
+| Agent | Domain | Scope |
+|-------|--------|-------|
+| backend-builder | API, services, repositories | server/ |
+| frontend-builder | React components, pages, hooks | client/ |
+| testing | Unit + integration tests | server/tests/ client/tests/ |
 | devops | Docker, CI/CD | docker/ .github/ |
 
 ### Human gate
 
-API promene, migracije, auth logika, deploy → korisnik MORA odobriti pre akcije.
+API changes, migrations, auth logic, deploy → user MUST approve before action.
 
 ### Session memory
 
-Posle SVAKOG taska → append u .claude/memory/session-log.md
+After EVERY task → append to .claude/memory/session-log.md
 
-## Memorija
+## Memory
 
 @.claude/memory/MEMORY.md
 @.claude/memory/status.md
 @.claude/memory/session-log.md
 
-## Pravila
+## Rules
 
-- `.claude/rules/workflow.md` — APD pipeline pravila
-- `.claude/rules/principles.md` — jezik, kod, git konvencije
+- `workflow.md` — APD pipeline rules (from plugin, automatically loaded)
+- `.claude/rules/principles.md` — language, code, git conventions
 
-## Figma dizajn
+## Figma design
 
-- **Figma fajl:** https://www.figma.com/design/xK9mR2p/TaskFlow
-- Koristi `figma:figma-implement-design` skill za implementaciju iz Figma-e
-- Pre implementacije UI komponente — uvek proveri da li postoji Figma dizajn
-- Builder agent koji radi frontend MORA koristiti `get_design_context` za dizajn kontekst
-- Dizajn tokeni i boje iz Figma-e su izvor istine — ne izmišljaj vrednosti
+- **Figma file:** https://www.figma.com/design/xK9mR2p/TaskFlow
+- Use `figma:figma-implement-design` skill for implementation from Figma
+- Before implementing a UI component — always check if a Figma design exists
+- Builder agent working on frontend MUST use `get_design_context` for design context
+- Design tokens and colors from Figma are the source of truth — do not invent values
 
 ## Miro board
 
 - **Miro board:** https://miro.com/app/board/uXjVNq8/TaskFlow-Architecture
-- Miro MCP čita board sadržaj — sticky notes, frames, dijagrame, dokumente
-- Pre kreiranja spec kartice — proveri da li postoji relevantan sadržaj na Miro boardu
-- Orkestrator može čitati taskove, flow dijagrame i arhitekturu direktno sa boarda
-- Za vizualizaciju arhitekture ili procesa — kreiraj dijagram na Miro boardu
-- Instalacija: `claude mcp add --transport http miro https://mcp.miro.com`
+- Miro MCP reads board content — sticky notes, frames, diagrams, documents
+- Before creating a spec card — check if relevant content exists on the Miro board
+- Orchestrator can read tasks, flow diagrams, and architecture directly from the board
+- For architecture or process visualization — create a diagram on the Miro board
+- Installation: `claude mcp add --transport http miro https://mcp.miro.com`
 
 ## Anti-patterns
 
 ```
-❌ AI potpisi u kodu/dokumentaciji → ✅ Human style
-❌ Commit bez pipeline-a           → ✅ Spec → Builder → Reviewer → Verifier
-❌ Agent piše van svog scope-a     → ✅ guard-scope.sh blokira
-❌ git add . / git add -A          → ✅ Eksplicitno staging po fajlu
-❌ --no-verify                     → ✅ Hook-ovi moraju proći
+❌ AI signatures in code/documentation → ✅ Human style
+❌ Commit without pipeline             → ✅ Spec → Builder → Reviewer → Verifier
+❌ Agent writes outside its scope      → ✅ guard-scope.sh blocks it
+❌ git add . / git add -A              → ✅ Explicit staging per file
+❌ --no-verify                         → ✅ Hooks must pass
 ```

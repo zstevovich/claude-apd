@@ -1,7 +1,7 @@
 # Pipeline Skip Log
 
-> Svaki `pipeline-advance.sh skip` se automatski loguje ovde.
-> Služi za analizu: koji tipovi taskova zaobilaze pipeline i zašto.
+> Every `pipeline-advance.sh skip` is automatically logged here.
+> Used for analysis: which task types bypass the pipeline and why.
 
-| Datum | Razlog | Kategorija |
-|-------|--------|------------|
+| Date | Reason | Category |
+|------|--------|----------|

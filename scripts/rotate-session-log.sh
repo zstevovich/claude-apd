@@ -1,6 +1,6 @@
 #!/bin/bash
-# APD Session Log Rotation — arhivira starije session entry-je
-# Čuva poslednjih MAX_ENTRIES, starije premešta u session-log-archive.md
+# APD Session Log Rotation — archives older session entries
+# Keeps the last MAX_ENTRIES, moves older ones to session-log-archive.md
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 LOG_FILE="$MEMORY_DIR/session-log.md"
@@ -21,7 +21,7 @@ fi
 
 TO_ARCHIVE=$((ENTRY_COUNT - MAX_ENTRIES))
 
-echo "Session log rotacija: $ENTRY_COUNT entry-ja, arhiviranje $TO_ARCHIVE starijih..." >&2
+echo "Session log rotation: $ENTRY_COUNT entries, archiving $TO_ARCHIVE older ones..." >&2
 
 FIRST_ENTRY_LINE=$(grep -n '^## \[' "$LOG_FILE" | head -1 | cut -d: -f1)
 HEADER=""
@@ -41,35 +41,36 @@ KEEP_CONTENT=$(sed -n "${KEEP_FROM_LINE},\$p" "$LOG_FILE")
 
 if [ ! -f "$ARCHIVE_FILE" ]; then
     cat > "$ARCHIVE_FILE" << 'EOF'
-# Session Log — Arhiva
+# Session Log — Archive
 
-> Arhivirani session log entry-ji. Rotacija automatska.
+> Archived session log entries. Rotation is automatic.
 
 ---
 
 EOF
 fi
 
-# Generiši meta-summary za arhivirane entry-je
+# Generate meta-summary for archived entries
 ARCHIVE_TASKS=$(echo "$ARCHIVE_CONTENT" | grep '^## \[' | wc -l | tr -d ' ')
-ARCHIVE_PROBLEMS=$(echo "$ARCHIVE_CONTENT" | grep -i '^\*\*Problemi:\*\*' | grep -cv 'Bez problema' 2>/dev/null || echo 0)
+ARCHIVE_PROBLEMS=$(echo "$ARCHIVE_CONTENT" | grep -i '^\*\*Problems:\*\*' | grep -cv 'No problems' 2>/dev/null || echo 0)
 ARCHIVE_GUARDS=$(echo "$ARCHIVE_CONTENT" | grep -i '^\*\*Guardrail' | grep -cv 'N/A' 2>/dev/null || echo 0)
-ARCHIVE_RULES=$(echo "$ARCHIVE_CONTENT" | grep -i '^\*\*Novo pravilo:\*\*' | grep -cv 'Nema' 2>/dev/null || echo 0)
+ARCHIVE_RULES=$(echo "$ARCHIVE_CONTENT" | grep -i '^\*\*New rule:\*\*' | grep -cv 'None' 2>/dev/null || echo 0)
 ARCHIVE_DATE_FIRST=$(echo "$ARCHIVE_CONTENT" | grep -oE '^\#\# \[[0-9]{4}-[0-9]{2}-[0-9]{2}\]' | head -1 | tr -d '[]#' | tr -d ' ')
 ARCHIVE_DATE_LAST=$(echo "$ARCHIVE_CONTENT" | grep -oE '^\#\# \[[0-9]{4}-[0-9]{2}-[0-9]{2}\]' | tail -1 | tr -d '[]#' | tr -d ' ')
 
 META_SUMMARY="---
-> **Rotacija $(date +%Y-%m-%d):** $ARCHIVE_TASKS taskova arhivirano ($ARCHIVE_DATE_FIRST → $ARCHIVE_DATE_LAST). Problemi: $ARCHIVE_PROBLEMS. Guard blokade: $ARCHIVE_GUARDS. Nova pravila: $ARCHIVE_RULES.
+> **Rotation $(date +%Y-%m-%d):** $ARCHIVE_TASKS tasks archived ($ARCHIVE_DATE_FIRST -> $ARCHIVE_DATE_LAST). Problems: $ARCHIVE_PROBLEMS. Guard blocks: $ARCHIVE_GUARDS. New rules: $ARCHIVE_RULES.
 ---"
 
 echo "$META_SUMMARY" >> "$ARCHIVE_FILE"
 echo "" >> "$ARCHIVE_FILE"
 echo "$ARCHIVE_CONTENT" >> "$ARCHIVE_FILE"
 
+TMPFILE="$LOG_FILE.tmp"
 if [ -n "$HEADER" ]; then
-    printf '%s\n%s\n' "$HEADER" "$KEEP_CONTENT" > "$LOG_FILE"
+    printf '%s\n%s\n' "$HEADER" "$KEEP_CONTENT" > "$TMPFILE" && mv "$TMPFILE" "$LOG_FILE"
 else
-    echo "$KEEP_CONTENT" > "$LOG_FILE"
+    echo "$KEEP_CONTENT" > "$TMPFILE" && mv "$TMPFILE" "$LOG_FILE"
 fi
 
-echo "Rotirano: $TO_ARCHIVE entry-ja arhivirano, $MAX_ENTRIES zadržano." >&2
+echo "Rotated: $TO_ARCHIVE entries archived, $MAX_ENTRIES kept." >&2

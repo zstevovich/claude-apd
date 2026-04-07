@@ -1,24 +1,24 @@
-# ADR-{{NNN}}: {{Naslov odluke}}
+# ADR-{{NNN}}: {{Decision title}}
 
-**Status:** Predlog | Usvojeno | Zamenjeno
-**Datum:** {{YYYY-MM-DD}}
+**Status:** Proposed | Accepted | Superseded
+**Date:** {{YYYY-MM-DD}}
 
-## Kontekst
+## Context
 
-{{Zašto je ova odluka potrebna? Koji problem rešavamo?}}
+{{Why is this decision needed? What problem are we solving?}}
 
-## Odluka
+## Decision
 
-{{Šta smo odlučili i zašto baš to?}}
+{{What did we decide and why?}}
 
-## Posledice
+## Consequences
 
-**Pozitivne:**
+**Positive:**
 - {{Benefit 1}}
 
-**Negativne:**
+**Negative:**
 - {{Tradeoff 1}}
 
-## Alternativa koja je razmatrana
+## Alternatives considered
 
-{{Šta smo razmatrali i zašto smo odbacili?}}
+{{What did we consider and why did we reject it?}}

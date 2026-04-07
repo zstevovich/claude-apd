@@ -1,5 +1,5 @@
 #!/bin/bash
-# APD Session Start — učitava kontekst projekta na početku sesije
+# APD Session Start — loads project context at the beginning of a session
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 cd "$PROJECT_DIR" || exit 0
@@ -19,7 +19,7 @@ fi
 if command -v claude &>/dev/null; then
     CC_VERSION=$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
     if [ -n "$CC_VERSION" ]; then
-        # Uporedi verzije: pretvori u numeričku vrednost (major*10000 + minor*100 + patch)
+        # Compare versions: convert to numeric value (major*10000 + minor*100 + patch)
         ver_to_num() {
             echo "$1" | awk -F. '{ printf "%d%02d%02d", $1, $2, $3 }'
         }
@@ -29,18 +29,18 @@ if command -v claude &>/dev/null; then
 
         if [ "$CC_NUM" -lt "$FUNC_NUM" ] 2>/dev/null; then
             echo "╔═══════════════════════════════════════════════════════╗"
-            echo "║  ⛔ APD: Claude Code $CC_VERSION je PRESTARA                ║"
-            echo "║  Minimum za APD: v$APD_FUNCTIONAL_VERSION (agenti + pipeline)       ║"
-            echo "║  Ažuriraj: npm install -g @anthropic-ai/claude-code  ║"
+            echo "║  ⛔ APD: Claude Code $CC_VERSION is TOO OLD                 ║"
+            echo "║  Minimum for APD: v$APD_FUNCTIONAL_VERSION (agents + pipeline)         ║"
+            echo "║  Update: npm install -g @anthropic-ai/claude-code    ║"
             echo "╚═══════════════════════════════════════════════════════╝"
             echo ""
         elif [ "$CC_NUM" -lt "$MIN_NUM" ] 2>/dev/null; then
             echo "╔═══════════════════════════════════════════════════════╗"
-            echo "║  ⚠ APD: Claude Code $CC_VERSION — nedostaju feature-i      ║"
-            echo "║  Preporučeno: v$APD_MIN_VERSION+ za pun APD feature set     ║"
-            echo "║  Nedostaje: conditional hooks, PostCompact,         ║"
-            echo "║    PermissionDenied, effort frontmatter             ║"
-            echo "║  Ažuriraj: npm install -g @anthropic-ai/claude-code ║"
+            echo "║  ⚠ APD: Claude Code $CC_VERSION — missing features         ║"
+            echo "║  Recommended: v$APD_MIN_VERSION+ for full APD feature set   ║"
+            echo "║  Missing: conditional hooks, PostCompact,            ║"
+            echo "║    PermissionDenied, effort frontmatter              ║"
+            echo "║  Update: npm install -g @anthropic-ai/claude-code    ║"
             echo "╚═══════════════════════════════════════════════════════╝"
             echo ""
         fi
@@ -48,63 +48,63 @@ if command -v claude &>/dev/null; then
 fi
 # =========================
 
-# ===== SELF-HEALING — detektuj i popravi probleme =====
+# ===== SELF-HEALING — detect and fix problems =====
 HEALED=0
 BLOCKED=0
 
-heal()  { echo "  ✓ HEALED: $1"; ((HEALED++)); }
-block() { echo "  ✗ BLOCKED: $1"; ((BLOCKED++)); }
+heal()  { echo "  ✓ HEALED: $1"; HEALED=$((HEALED + 1)); }
+block() { echo "  ✗ BLOCKED: $1"; BLOCKED=$((BLOCKED + 1)); }
 
-# 1. jq — bez njega guard-ovi ne rade (ne može se auto-popraviti)
+# 1. jq — guards don't work without it (cannot be auto-fixed)
 if ! command -v jq &>/dev/null; then
-    block "jq NIJE instaliran — guard skripte neće raditi!"
-    echo "    → Instaliraj: brew install jq (macOS) / apt install jq (Linux)"
+    block "jq is NOT installed — guard scripts will not work!"
+    echo "    -> Install: brew install jq (macOS) / apt install jq (Linux)"
 fi
 
-# 2. Skripte — ako postoje ali nisu executable, popravi automatski
-for script in guard-git.sh guard-scope.sh guard-bash-scope.sh guard-secrets.sh guard-lockfile.sh pipeline-advance.sh pipeline-gate.sh verify-all.sh session-start.sh rotate-session-log.sh verify-apd.sh verify-contracts.sh; do
+# 2. Scripts — if they exist but are not executable, fix automatically
+for script in guard-git.sh guard-scope.sh guard-bash-scope.sh guard-secrets.sh guard-lockfile.sh guard-permission-denied.sh pipeline-advance.sh pipeline-gate.sh pipeline-post-commit.sh verify-all.sh session-start.sh rotate-session-log.sh verify-apd.sh verify-contracts.sh; do
     SCRIPT_PATH="$SCRIPT_DIR/$script"
     if [ -f "$SCRIPT_PATH" ] && [ ! -x "$SCRIPT_PATH" ]; then
         chmod +x "$SCRIPT_PATH" 2>/dev/null
         if [ -x "$SCRIPT_PATH" ]; then
-            heal "$script nije bio executable — popravljeno (chmod +x)"
+            heal "$script was not executable — fixed (chmod +x)"
         else
-            block "$script nije executable i ne može se popraviti (dozvole?)"
+            block "$script is not executable and cannot be fixed (permissions?)"
         fi
     elif [ ! -f "$SCRIPT_PATH" ]; then
-        # Samo kritične skripte su blocker
+        # Only critical scripts are blockers
         case "$script" in
             guard-git.sh|pipeline-advance.sh|pipeline-gate.sh)
-                block "$script NEDOSTAJE — pipeline neće raditi"
+                block "$script is MISSING — pipeline will not work"
                 ;;
         esac
     fi
 done
 
-# 3. settings.json — detektuj merge conflict markere
+# 3. settings.json — detect merge conflict markers
 SETTINGS_FILE="$CLAUDE_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
     if grep -qE '^(<<<<<<<|=======|>>>>>>>)' "$SETTINGS_FILE" 2>/dev/null; then
         CONFLICT_LINE=$(grep -nE '^(<<<<<<<|=======|>>>>>>>)' "$SETTINGS_FILE" | head -1 | cut -d: -f1)
-        block "settings.json ima merge conflict (linija $CONFLICT_LINE) — reši ručno"
+        block "settings.json has a merge conflict (line $CONFLICT_LINE) — resolve manually"
     elif ! jq empty "$SETTINGS_FILE" 2>/dev/null; then
-        block "settings.json NIJE validan JSON — proveri sintaksu"
+        block "settings.json is NOT valid JSON — check syntax"
     fi
 fi
 
-# 4. Stale pipeline — flags stariji od 24h
+# 4. Stale pipeline — flags older than 24h
 if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
     OLDEST_FLAG=$(ls -t "$PIPELINE_DIR"/*.done 2>/dev/null | tail -1)
     if [ -n "$OLDEST_FLAG" ]; then
-        MTIME=$(stat -f %m "$OLDEST_FLAG" 2>/dev/null || stat -c %Y "$OLDEST_FLAG" 2>/dev/null || echo "")
+        MTIME=$(stat -f %m "$OLDEST_FLAG" 2>/dev/null || stat -c %Y "$OLDEST_FLAG" 2>/dev/null || echo "0")
         if [ -n "$MTIME" ] && [ "$MTIME" -gt 0 ] 2>/dev/null; then
             FLAG_AGE=$(( $(date +%s) - MTIME ))
         else
             FLAG_AGE=0
         fi
         if [ "$FLAG_AGE" -gt 86400 ]; then
-            # Prikupi kontekst pre reset-a
-            STALE_TASK="[nepoznat]"
+            # Collect context before reset
+            STALE_TASK="[unknown]"
             STALE_STEP="spec"
             if [ -f "$PIPELINE_DIR/spec.done" ]; then
                 STALE_TASK=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done" 2>/dev/null)
@@ -117,18 +117,18 @@ if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
             done
 
             STALE_HOURS=$((FLAG_AGE / 3600))
-            heal "Stale pipeline detektovan (${STALE_HOURS}h star)"
-            echo "    → Task: $STALE_TASK (poslednji korak: $STALE_STEP)"
-            echo "    → Automatski resetujem..."
+            heal "Stale pipeline detected (${STALE_HOURS}h old)"
+            echo "    -> Task: $STALE_TASK (last step: $STALE_STEP)"
+            echo "    -> Auto-resetting..."
             bash "$SCRIPT_DIR/pipeline-advance.sh" reset >/dev/null 2>&1
-            echo "    → Pipeline resetovan. Spreman za novi task."
+            echo "    -> Pipeline reset. Ready for new task."
         fi
     fi
 fi
 
-# 5. Nedovršen pipeline — prikaži gde je stao i šta je sledeće
+# 5. Incomplete pipeline — show where it stopped and what's next
 if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
-    # Pipeline postoji ali nije stale — prikaži kontekst
+    # Pipeline exists but is not stale — show context
     INCOMPLETE=false
     NEXT_STEP=""
     for step in spec builder reviewer verifier; do
@@ -140,37 +140,37 @@ if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
     done
 
     if [ "$INCOMPLETE" = true ] && [ -n "$NEXT_STEP" ]; then
-        CURRENT_TASK="[nepoznat]"
+        CURRENT_TASK="[unknown]"
         if [ -f "$PIPELINE_DIR/spec.done" ]; then
             CURRENT_TASK=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done" 2>/dev/null)
         fi
-        echo "  → Pipeline u toku: $CURRENT_TASK — sledeći korak: $NEXT_STEP"
+        echo "  -> Pipeline in progress: $CURRENT_TASK — next step: $NEXT_STEP"
     fi
 fi
 
-# Prikaži summary
+# Show summary
 if [ "$HEALED" -gt 0 ] || [ "$BLOCKED" -gt 0 ]; then
     echo ""
     if [ "$BLOCKED" -gt 0 ]; then
         echo "╔═══════════════════════════════════════════════════╗"
-        printf "║  ⚠ APD: %d popravljeno, %d zahteva pažnju           ║\n" "$HEALED" "$BLOCKED"
-        echo "║  Pokreni: bash .claude/scripts/verify-apd.sh      ║"
+        printf "║  ⚠ APD: %d fixed, %d require attention                ║\n" "$HEALED" "$BLOCKED"
+        echo "║  Run: bash .claude/scripts/verify-apd.sh          ║"
         echo "╚═══════════════════════════════════════════════════╝"
     else
         echo "╔═══════════════════════════════════════════════════╗"
-        printf "║  ✓ APD: %d problem(a) automatski popravljeno        ║\n" "$HEALED"
+        printf "║  ✓ APD: %d problem(s) automatically fixed           ║\n" "$HEALED"
         echo "╚═══════════════════════════════════════════════════╝"
     fi
     echo ""
 fi
 # ========================================
 
-# Rotiraj session log (čuva poslednjih 10 entry-ja)
+# Rotate session log (keeps last 10 entries)
 if [ -x "$SCRIPT_DIR/rotate-session-log.sh" ]; then
     bash "$SCRIPT_DIR/rotate-session-log.sh" 10 2>/dev/null
 fi
 
-# ===== DINAMIČKO IME PROJEKTA =====
+# ===== DYNAMIC PROJECT NAME =====
 APD_CONFIG="$CLAUDE_DIR/.apd-config"
 PROJ_NAME=""
 if [ -f "$APD_CONFIG" ]; then
@@ -186,8 +186,8 @@ echo ""
 
 # Status
 if [ -f "$MEMORY_DIR/status.md" ]; then
-  echo "--- Trenutni status ---"
-  head -30 "$MEMORY_DIR/status.md"
+  echo "--- Current status ---"
+  head -50 "$MEMORY_DIR/status.md"
   echo ""
 fi
 
@@ -207,12 +207,12 @@ if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null; then
         fi
     done
 else
-    echo "  [idle] Nema aktivnog pipeline-a"
+    echo "  [idle] No active pipeline"
 fi
 echo ""
 
-# Poslednja sesija
+# Last session
 if [ -f "$MEMORY_DIR/session-log.md" ]; then
-  echo "--- Poslednja sesija ---"
+  echo "--- Last session ---"
   tail -20 "$MEMORY_DIR/session-log.md"
 fi

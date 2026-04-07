@@ -1,5 +1,5 @@
 #!/bin/bash
-# APD Lockfile Guard — sprečava modifikaciju lock fajlova
+# APD Lockfile Guard — prevents modification of lock files
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
@@ -18,8 +18,8 @@ BASENAME=$(basename "$FILE_PATH")
 
 case "$BASENAME" in
   package-lock.json|pnpm-lock.yaml|yarn.lock|packages.lock.json|composer.lock|Gemfile.lock|poetry.lock|Cargo.lock|go.sum)
-    echo "BLOKIRANO: Lock fajl '$BASENAME' ne sme biti menjan direktno." >&2
-    echo "Koristi package manager za ažuriranje." >&2
+    echo "BLOCKED: Lock file '$BASENAME' must not be modified directly." >&2
+    echo "Use the package manager to update." >&2
     exit 2
     ;;
 esac

@@ -1,145 +1,145 @@
 # Agent Pipeline Development (APD) — Workflow
 
-## HARD GATE — TEHNIČKI ZAŠTIĆENO
+## HARD GATE — TECHNICALLY ENFORCED
 
-**Svaka implementacija MORA proći sve korake: Spec → Builder → Reviewer → Verifier → tek onda commit.**
+**Every implementation MUST go through all steps: Spec → Builder → Reviewer → Verifier → only then commit.**
 
-Ovo nije samo dokumentovano pravilo — **hook-ovi tehnički blokiraju commit** ako koraci nisu završeni.
+This is not just a documented rule — **hooks technically block commits** if steps are not completed.
 
-### Mehanizam: Pipeline Flag System
+### Mechanism: Pipeline Flag System
 
 ```
 .claude/.pipeline/
-├── spec.done        # Orkestrator kreira posle odobrenog spec-a
-├── builder.done     # Orkestrator kreira posle Builder-a
-├── reviewer.done    # Orkestrator kreira posle Review-a
-└── verifier.done    # Orkestrator kreira posle Verifier-a
+├── spec.done        # Orchestrator creates after approved spec
+├── builder.done     # Orchestrator creates after Builder
+├── reviewer.done    # Orchestrator creates after Review
+└── verifier.done    # Orchestrator creates after Verifier
 ```
 
-- `guard-git.sh` → poziva `pipeline-gate.sh` → proverava da SVA 4 fajla postoje
-- Ako bilo koji fali → **commit je BLOKIRAN**
-- Posle commita → `pipeline-advance.sh reset` automatski briše flag-ove
+- `guard-git.sh` → calls `pipeline-gate.sh` → checks that ALL 4 files exist
+- If any is missing → **commit is BLOCKED**
+- After commit → `pipeline-advance.sh reset` automatically deletes flags
 
-### Komande
+### Commands
 
 ```bash
-bash .claude/scripts/pipeline-advance.sh spec "Naziv taska"
-bash .claude/scripts/pipeline-advance.sh builder
-bash .claude/scripts/pipeline-advance.sh reviewer
-bash .claude/scripts/pipeline-advance.sh verifier
-bash .claude/scripts/pipeline-advance.sh status
-bash .claude/scripts/pipeline-advance.sh reset
-bash .claude/scripts/pipeline-advance.sh rollback           # Vrati jedan korak nazad
-bash .claude/scripts/pipeline-advance.sh stats
-bash .claude/scripts/pipeline-advance.sh skip "Razlog"  # Samo za hitne hotfix-ove
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh spec "Task name"
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh builder
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh reviewer
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh verifier
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh status
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh reset
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh rollback           # Roll back one step
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh stats
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh skip "Reason"  # Only for urgent hotfixes
 ```
 
 ### Hard rules
-- NIKADA ne preskakati Reviewer korak
-- NIKADA ne grupisati više faza bez review-a između svake
-- Brzina NIJE izgovor za preskakanje koraka
-- Ovo pravilo je APSOLUTNO i neprekršivo
+- NEVER skip the Reviewer step
+- NEVER batch multiple phases without a review between each
+- Speed is NOT an excuse for skipping steps
+- This rule is ABSOLUTE and inviolable
 
-## 1. Spec kartica pre koda
+## 1. Spec card before code
 
-Pre SVAKOG taska kreirati mini-spec:
+Before EVERY task, create a mini-spec:
 
 ```
-## [Naziv taska]
-**Cilj:** Jedna rečenica.
+## [Task name]
+**Goal:** One sentence.
 **Effort:** max | high
-**Van scope-a:** Šta NE radimo.
-**Acceptance kriterijumi:** Lista uslova za "gotovo".
-**Pogođeni moduli:** Fajlovi/slojevi koji se menjaju.
-**Rizici:** Šta može poći po zlu.
-**Rollback:** Kako vratiti ako pukne.
-**Human gate:** Da li zahteva odobrenje (API promene, migracije, auth, deploy).
+**Out of scope:** What we are NOT doing.
+**Acceptance criteria:** List of conditions for "done".
+**Affected modules:** Files/layers being changed.
+**Risks:** What can go wrong.
+**Rollback:** How to revert if it breaks.
+**Human gate:** Whether approval is required (API changes, migrations, auth, deploy).
 ```
 
-Spec se deli sa korisnikom PRE implementacije.
+The spec is shared with the user BEFORE implementation.
 
-## 2. Tri role agenata
+## 2. Three agent roles
 
 ### Builder
-- Implementira kod prema spec-u
-- Custom agenti u `.claude/agents/`
-- Max 3-4 edit operacije po dispatch-u
-- Jasno vlasništvo nad fajlovima
+- Implements code according to the spec
+- Custom agents in `.claude/agents/`
+- Max 3-4 edit operations per dispatch
+- Clear file ownership
 
 ### Reviewer
-- Samo nalazi rizike, bagove, propuste
-- NE predlaže stilske promene van scope-a
-- Pokreće se AUTOMATSKI posle svakog Builder-a
+- Only finds risks, bugs, omissions
+- Does NOT suggest style changes outside scope
+- Runs AUTOMATICALLY after every Builder
 
 ### Verifier
 - Build + test + contract check
-- Pokreće se POSLE Reviewer-a, PRE commit-a
+- Runs AFTER Reviewer, BEFORE commit
 
-### Orkestrator
-- Kreira spec karticu
-- Dispatchuje Builder-e (paralelno gde je moguće)
-- Pokreće Reviewer-a i Verifier-a
-- Jedini commituje i push-uje
-- Jedini komunicira sa korisnikom
+### Orchestrator
+- Creates the spec card
+- Dispatches Builders (in parallel where possible)
+- Runs Reviewer and Verifier
+- Only one who commits and pushes
+- Only one who communicates with the user
 
-## 3. Mikro-zadaci
+## 3. Micro-tasks
 
-- Svaki task: jedna funkcionalna promena
-- Max 3-4 edit operacije po agentu
-- Jedan agent = jasno vlasništvo nad fajlovima
-- Ako task zahteva >5 fajlova, razbiti na 2+ agenta
+- Each task: one functional change
+- Max 3-4 edit operations per agent
+- One agent = clear file ownership
+- If a task requires >5 files, split into 2+ agents
 
-## 4. Verifikacija pre "gotovo"
+## 4. Verification before "done"
 
-Pre SVAKOG commit-a:
-- [ ] Build prolazi (0 errors)
-- [ ] Testovi prolaze (0 failures)
-- [ ] Frontend type check prolazi (ako ima frontend promene)
-- [ ] Cross-layer contract check (ako task uključuje >1 sloj)
-- [ ] Review nalaze primenjene
+Before EVERY commit:
+- [ ] Build passes (0 errors)
+- [ ] Tests pass (0 failures)
+- [ ] Frontend type check passes (if there are frontend changes)
+- [ ] Cross-layer contract check (if task involves >1 layer)
+- [ ] Review findings applied
 
-Pre SVAKOG push-a na staging/production:
-- [ ] Sve gore
-- [ ] Korisnik eksplicitno odobrio push
+Before EVERY push to staging/production:
+- [ ] All of the above
+- [ ] User explicitly approved the push
 
 ## 5. Human gate
 
-Korisnik MORA odobriti pre:
-- API promene (novi endpointi, promena potpisa)
-- Migracije baze
-- Auth/role logika
-- Deploy na staging/produkciju
+User MUST approve before:
+- API changes (new endpoints, signature changes)
+- Database migrations
+- Auth/role logic
+- Deploy to staging/production
 
 ## 6. Session memory update
 
-Posle SVAKOG završenog taska, append u `.claude/memory/session-log.md`:
+After EVERY completed task, append to `.claude/memory/session-log.md`:
 
 ```markdown
-## [YYYY-MM-DD] [Naziv taska]
-**Status:** Završen | Delimičan | Blokiran
-**Šta je urađeno:** [1-2 rečenice]
-**Problemi:** [Šta je pošlo po zlu, ili "Bez problema"]
-**Guardrail koji je pomogao:** [Koji mehanizam je uhvatio problem, ili "N/A"]
-**Novo pravilo:** [Šta dodajemo u workflow, ili "Nema"]
+## [YYYY-MM-DD] [Task name]
+**Status:** Completed | Partial | Blocked
+**What was done:** [1-2 sentences]
+**Issues:** [What went wrong, or "No issues"]
+**Guardrail that helped:** [Which mechanism caught a problem, or "N/A"]
+**New rule:** [What we are adding to the workflow, or "None"]
 ```
 
-- **Rotacija:** `rotate-session-log.sh` automatski arhivira starije od 10 entry-ja
+- **Rotation:** `rotate-session-log.sh` automatically archives entries older than 10
 
-## 7. Cross-layer verifikacija
+## 7. Cross-layer verification
 
-Kad task uključuje backend + frontend/mobile:
-1. Backend DTO/response model je **izvor istine**
-2. Za svako polje mapirati tip na frontend ekvivalent
-3. Nullable polja moraju biti nullable na svim slojevima
-4. NIKADA ne kreirati frontend tip iz specifikacije — uvek čitaj backend DTO
+When a task involves backend + frontend/mobile:
+1. Backend DTO/response model is the **source of truth**
+2. For each field, map the type to the frontend equivalent
+3. Nullable fields must be nullable on all layers
+4. NEVER create frontend types from the specification — always read the backend DTO
 
 ## 8. Reasoning effort
 
-| Effort | Kada | Primeri |
-|--------|------|---------|
-| **max** | Odluke koje je skupo ispraviti | Planiranje, arhitektura, review, spec, security |
-| **high** | Implementacija po jasnom spec-u | Builder kodiranje, testovi, refactoring |
+| Effort | When | Examples |
+|--------|------|----------|
+| **max** | Decisions that are expensive to reverse | Planning, architecture, review, spec, security |
+| **high** | Implementation with a clear spec | Builder coding, tests, refactoring |
 
-- Orkestrator uvek radi na **max**
-- Builder agenti na **high**
-- Reviewer i Verifier na **max**
+- Orchestrator always runs at **max**
+- Builder agents at **high**
+- Reviewer and Verifier at **max**

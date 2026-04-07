@@ -1,12 +1,12 @@
 #!/bin/bash
-# APD Pipeline Post-Commit — resetuje pipeline POSLE uspešnog commita
-# Registrovan kao PostToolUse hook za Bash tool
+# APD Pipeline Post-Commit — resets pipeline AFTER a successful commit
+# Registered as PostToolUse hook for Bash tool
 #
-# Zašto PostToolUse a ne PreToolUse:
-#   PreToolUse se izvršava PRE commita — ako commit padne (merge conflict,
-#   disk full, pre-commit hook), pipeline je već resetovan i sledeći commit
-#   prolazi bez pipeline-a. PostToolUse se izvršava tek POSLE uspešnog
-#   izvršavanja tool-a — ako commit padne, hook se ne triggeruje.
+# Why PostToolUse and not PreToolUse:
+#   PreToolUse executes BEFORE the commit — if the commit fails (merge conflict,
+#   disk full, pre-commit hook), the pipeline is already reset and the next commit
+#   passes without the pipeline. PostToolUse executes only AFTER the tool runs
+#   successfully — if the commit fails, the hook is not triggered.
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
@@ -21,12 +21,12 @@ if [ -z "$COMMAND" ]; then
   exit 0
 fi
 
-# Samo reaguj na uspešne APD commit-e
+# Only react to successful APD commits
 if echo "$COMMAND" | grep -qE "^APD_ORCHESTRATOR_COMMIT=1 " && echo "$COMMAND" | grep -qiE "git commit"; then
-  # Proveri da li pipeline postoji (možda je već resetovan)
+  # Check if pipeline exists (it may already be reset)
   if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
     bash "$SCRIPT_DIR/pipeline-advance.sh" reset >/dev/null 2>&1
-    echo "Pipeline resetovan posle uspešnog commita." >&2
+    echo "Pipeline reset after successful commit." >&2
   fi
 fi
 

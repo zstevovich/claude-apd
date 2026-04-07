@@ -1,6 +1,6 @@
-# Status projekta
+# Project Status
 
-## Trenutna faza: {{INITIAL_PHASE}}
+## Current phase: {{INITIAL_PHASE}}
 
-**Fokus:** {{INITIAL_FOCUS}}
-**Blokirano:** Ništa.
+**Focus:** {{INITIAL_FOCUS}}
+**Blocked:** Nothing.

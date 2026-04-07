@@ -1,13 +1,15 @@
 #!/bin/bash
-# APD Verify All — pokreće verifikaciju za sve promenjene komponente
-# ===== PRILAGODI BUILD KOMANDE ZA SVOJ STACK =====
+# APD Verify All — runs verification for all changed components
+# This script lives IN THE PROJECT (.claude/scripts/verify-all.sh), not in the plugin.
+# Paths are relative to the project (../../ = PROJECT_DIR).
+# ===== CUSTOMIZE BUILD COMMANDS FOR YOUR STACK =====
 
 PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_DIR" || exit 0
 
-# ===== CACHE — preskoči ako je Verifier korak već prošao nedavno =====
-# pipeline-advance.sh verifier piše timestamp u verified.timestamp
-# Ako je svež (<120s) i nema novih promena → preskoči rebuild
+# ===== CACHE — skip if Verifier step already passed recently =====
+# pipeline-advance.sh verifier writes timestamp to verified.timestamp
+# If fresh (<120s) and no new changes -> skip rebuild
 VERIFIED_TS_FILE="$PROJECT_DIR/.claude/.pipeline/verified.timestamp"
 if [ -f "$VERIFIED_TS_FILE" ]; then
     VERIFIED_AT=$(cat "$VERIFIED_TS_FILE" 2>/dev/null | tr -d '[:space:]')
@@ -15,7 +17,7 @@ if [ -f "$VERIFIED_TS_FILE" ]; then
     if [ -n "$VERIFIED_AT" ] && [ "$VERIFIED_AT" -gt 0 ] 2>/dev/null; then
         AGE=$((NOW - VERIFIED_AT))
         if [ "$AGE" -lt 120 ]; then
-            echo "Verifikacija preskočena — Verifier prošao pre ${AGE}s (cache <120s)" >&2
+            echo "Verification skipped — Verifier passed ${AGE}s ago (cache <120s)" >&2
             exit 0
         fi
     fi
@@ -31,36 +33,36 @@ else
     CHANGED_FILES=$(git diff --cached --name-only 2>/dev/null)
 fi
 
-# ===== BACKEND VERIFIKACIJA =====
-# Prilagodi putanju i build komandu za svoj stack:
+# ===== BACKEND VERIFICATION =====
+# Customize path and build command for your stack:
 #   .NET:    dotnet build *.sln -v q --nologo && dotnet test *.sln -v q --nologo --no-build
 #   PHP:     php bin/console lint:container && php vendor/bin/phpunit
 #   Node:    npm run build && npm test
 #   Python:  python -m pytest
 #   Go:      go build ./... && go test ./...
 #
-# Primer (.NET):
+# Example (.NET):
 # if echo "$CHANGED_FILES" | grep -qE '^src/|^tests/'; then
-#     echo "→ Backend promene detektovane..."
+#     echo "-> Backend changes detected..."
 #     if [ ! -f "$PROJECT_DIR/src/MyProject.sln" ]; then
-#         ERRORS+=("Backend: .sln NE POSTOJI")
+#         ERRORS+=("Backend: .sln DOES NOT EXIST")
 #     else
 #         if ! dotnet build src/MyProject.sln -v q --nologo 2>&1; then
 #             ERRORS+=("Backend build FAILED")
 #         fi
 #         if ! dotnet test src/MyProject.sln -v q --nologo --no-build 2>&1; then
-#             ERRORS+=("Backend testovi FAILED")
+#             ERRORS+=("Backend tests FAILED")
 #         fi
 #     fi
 # fi
 # ================================
 
-# ===== FRONTEND VERIFIKACIJA =====
-# Primer (React/Vite):
+# ===== FRONTEND VERIFICATION =====
+# Example (React/Vite):
 # if echo "$CHANGED_FILES" | grep -qE '^apps/frontend/'; then
-#     echo "→ Frontend promene detektovane..."
+#     echo "-> Frontend changes detected..."
 #     if [ ! -f "$PROJECT_DIR/apps/frontend/package.json" ]; then
-#         ERRORS+=("Frontend: package.json NE POSTOJI")
+#         ERRORS+=("Frontend: package.json DOES NOT EXIST")
 #     else
 #         if ! (cd "$PROJECT_DIR/apps/frontend" && npm run build 2>&1); then
 #             ERRORS+=("Frontend build FAILED")
@@ -69,37 +71,37 @@ fi
 # fi
 # =================================
 
-# ===== CROSS-LAYER CONTRACT VERIFIKACIJA =====
-# Pokreni verify-contracts.sh ako postoji i ako su promene u oba sloja
+# ===== CROSS-LAYER CONTRACT VERIFICATION =====
+# Run verify-contracts.sh if it exists and if changes are in both layers
 # SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # HAS_BACKEND=$(echo "$CHANGED_FILES" | grep -qE '^src/' && echo "true" || echo "false")
 # HAS_FRONTEND=$(echo "$CHANGED_FILES" | grep -qE '^apps/' && echo "true" || echo "false")
 # if [ "$HAS_BACKEND" = "true" ] && [ "$HAS_FRONTEND" = "true" ]; then
 #     if [ -x "$SCRIPT_DIR/verify-contracts.sh" ]; then
-#         echo "→ Cross-layer contract check..."
+#         echo "-> Cross-layer contract check..."
 #         if ! bash "$SCRIPT_DIR/verify-contracts.sh" --changed 2>&1; then
-#             ERRORS+=("Cross-layer contract verifikacija FAILED")
+#             ERRORS+=("Cross-layer contract verification FAILED")
 #         fi
 #     fi
 # fi
 # ==============================================
 
-# Upozorenje: ako ništa nije konfigurisano, verify-all je beskorisan
-# Ukloni ovaj blok kad prilagodiš gornje sekcije za svoj stack
+# Warning: if nothing is configured, verify-all is useless
+# Remove this block when you customize the sections above for your stack
 if [ ${#ERRORS[@]} -eq 0 ] && [ -n "$CHANGED_FILES" ]; then
-    echo "UPOZORENJE: verify-all.sh nije prilagođen — nijedna verifikacija nije pokrenuta." >&2
-    echo "Otkomentiraj backend/frontend sekcije za svoj stack." >&2
+    echo "WARNING: verify-all.sh is not customized — no verification was run." >&2
+    echo "Uncomment the backend/frontend sections for your stack." >&2
 fi
 
-# Rezultat
+# Result
 if [ ${#ERRORS[@]} -gt 0 ]; then
     echo ""
-    echo "VERIFIKACIJA NIJE PROŠLA:"
+    echo "VERIFICATION FAILED:"
     for err in "${ERRORS[@]}"; do
         echo "  - $err"
     done
     exit 1
 fi
 
-echo "Verifikacija prošla"
+echo "Verification passed"
 exit 0

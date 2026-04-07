@@ -1,131 +1,131 @@
 ---
 name: apd-init
-description: Inicijalizuj APD okruženje — generiše CLAUDE.md, agente, pravila, memory i verify-all.sh. Skripte žive u plugin-u.
+description: Initialize APD environment — generates CLAUDE.md, agents, rules, memory and verify-all.sh. Scripts live in the plugin.
 effort: max
 ---
 
 # APD Init — Generator
 
-Generiše kompletno APD okruženje za projekat. Skripte žive u plugin-u (`${CLAUDE_PLUGIN_ROOT}/scripts/`), ovaj skill kreira samo projektno-specifične fajlove.
+Generates a complete APD environment for a project. Scripts live in the plugin (`${CLAUDE_PLUGIN_ROOT}/scripts/`), this skill creates only project-specific files.
 
-## Šta se generiše (u projektu)
+## What gets generated (in the project)
 
-| Fajl | Sadržaj |
+| File | Content |
 |------|---------|
-| `CLAUDE.md` | Projektne instrukcije — generisan iz odgovora korisnika |
-| `.claude/agents/*.md` | Agenti sa scope-ovima i `${CLAUDE_PLUGIN_ROOT}` hook putanjama |
-| `.claude/rules/principles.md` | Pravila za stack i jezik korisnika |
-| `.claude/scripts/verify-all.sh` | Jedina skripta u projektu — build/test komande za stack |
-| `.claude/memory/MEMORY.md` | Indeks projektne memorije |
-| `.claude/memory/status.md` | Trenutni status |
-| `.claude/memory/session-log.md` | Session log (prazan) |
-| `.claude/memory/pipeline-skip-log.md` | Skip log (prazan) |
-| `.claude/settings.json` | Minimalni hooks (Notification) + env + attribution |
+| `CLAUDE.md` | Project instructions — generated from user responses |
+| `.claude/agents/*.md` | Agents with scopes and `${CLAUDE_PLUGIN_ROOT}` hook paths |
+| `.claude/rules/principles.md` | Rules for the user's stack and language |
+| `.claude/scripts/verify-all.sh` | The only script in the project — build/test commands for the stack |
+| `.claude/memory/MEMORY.md` | Project memory index |
+| `.claude/memory/status.md` | Current status |
+| `.claude/memory/session-log.md` | Session log (empty) |
+| `.claude/memory/pipeline-skip-log.md` | Skip log (empty) |
+| `.claude/settings.json` | Minimal hooks (Notification) + env + attribution |
 | `.claude/.apd-config` | PROJECT_NAME, APD_VERSION, STACK |
-| `.claude/.apd-version` | Verzija APD plugin-a |
+| `.claude/.apd-version` | APD plugin version |
 
-## Šta NE generiše (živi u plugin-u)
+## What does NOT get generated (lives in the plugin)
 
-Guard skripte, pipeline skripte, workflow.md, skills — sve je u plugin-u i koristi se preko `${CLAUDE_PLUGIN_ROOT}`.
+Guard scripts, pipeline scripts, workflow.md, skills — all live in the plugin and are used via `${CLAUDE_PLUGIN_ROOT}`.
 
-## Koraci
+## Steps
 
-### 1. Detektuj postojeće okruženje
+### 1. Detect existing environment
 
-Proveri da li `.claude/` ili `CLAUDE.md` već postoji:
-- **Ako NE postoji** → čist init (ovaj flow)
-- **Ako POSTOJI** → ponudi migraciju:
-  1. Backup u `.claude-backup-{datum}/`
-  2. Analiziraj postojeće fajlove i izvuci korisne podatke (ime, stack, agenti, pravila)
-  3. Generiši APD okruženje sa izvučenim podacima pre-popunjenim
-  4. Prikaži šta je migrirano, šta je sačuvano
+Check whether `.claude/` or `CLAUDE.md` already exists:
+- **If NOT present** → clean init (this flow)
+- **If PRESENT** → offer migration:
+  1. Backup to `.claude-backup-{date}/`
+  2. Analyze existing files and extract useful data (name, stack, agents, rules)
+  3. Generate APD environment with extracted data pre-populated
+  4. Show what was migrated and what was preserved
 
-### 2. Prikupi informacije od korisnika
+### 2. Gather information from the user
 
-- Ime projekta
-- Opis projekta (jedna rečenica)
-- Stack (backend, frontend, mobile, baza, cache)
-- Portovi (API, baza, cache, frontend)
-- Autor (ime za git)
-- Jezik dokumentacije (srpski/engleski)
-- Figma URL (opciono)
-- Miro board URL (opciono)
-- GitHub Projects URL (opciono)
+- Project name
+- Project description (one sentence)
+- Stack (backend, frontend, mobile, database, cache)
+- Ports (API, database, cache, frontend)
+- Author (name for git)
+- Documentation language (Serbian/English)
+- Figma URL (optional)
+- Miro board URL (optional)
+- GitHub Projects URL (optional)
 
-### 3. Auto-detect agenata iz strukture projekta
+### 3. Auto-detect agents from project structure
 
-Pročitaj strukturu sa `ls -d */` i predloži agente:
+Read the structure with `ls -d */` and suggest agents:
 
-| Detektovan direktorijum | Predloženi agent | Scope |
-|------------------------|-----------------|-------|
-| `src/` ili `server/` ili `backend/` ili `api/` | backend-builder | detektovan dir |
-| `client/` ili `frontend/` ili `web/` ili `apps/frontend/` | frontend-builder | detektovan dir |
-| `mobile/` ili `apps/mobile/` | mobile-builder | detektovan dir |
-| `tests/` ili `__tests__/` ili `test/` ili `src/test/` | testing | detektovan dir |
-| `docker/` ili `.github/` ili `deploy/` ili `infra/` | devops | detektovani dirovi |
-| `src/Commands/` + `src/Queries/` | CQRS agenti | po odgovornosti |
+| Detected directory | Suggested agent | Scope |
+|-------------------|----------------|-------|
+| `src/` or `server/` or `backend/` or `api/` | backend-builder | detected dir |
+| `client/` or `frontend/` or `web/` or `apps/frontend/` | frontend-builder | detected dir |
+| `mobile/` or `apps/mobile/` | mobile-builder | detected dir |
+| `tests/` or `__tests__/` or `test/` or `src/test/` | testing | detected dir |
+| `docker/` or `.github/` or `deploy/` or `infra/` | devops | detected dirs |
+| `src/Commands/` + `src/Queries/` | CQRS agents | by responsibility |
 
-Prikaži predlog — korisnik odobri ili koriguje.
+Show the suggestion — user approves or adjusts.
 
-### 4. Generiši fajlove
+### 4. Generate files
 
 #### 4.1 CLAUDE.md
 
-Generiši sa sekcijama (SVE popunjeno, NEMA placeholder-a):
-- `# {Ime}` + `> {Opis}`
-- `## Kritična pravila` — jezik, autor, stil
-- `## Stack` — tabela sa slojevima (backend, database, frontend, mobile, design, board, tracking)
-- `## Portovi` — tabela
-- `## Arhitektura` — `ls` output
-- `## APD` — pipeline, guardrail-i, agenti tabela, human gate, session memory
-- `## Memorija` — `@.claude/memory/` reference
-- `## Pravila` — reference na rules
-- `## Figma dizajn` — samo ako postoji
-- `## Miro board` — samo ako postoji
-- `## GitHub Projects` — samo ako postoji
+Generate with sections (ALL populated, NO placeholders):
+- `# {Name}` + `> {Description}`
+- `## Critical rules` — language, author, style
+- `## Stack` — table with layers (backend, database, frontend, mobile, design, board, tracking)
+- `## Ports` — table
+- `## Architecture` — `ls` output
+- `## APD` — pipeline, guardrails, agents table, human gate, session memory
+- `## Memory` — `@.claude/memory/` references
+- `## Rules` — references to rules
+- `## Figma design` — only if present
+- `## Miro board` — only if present
+- `## GitHub Projects` — only if present
 - `## Anti-patterns`
 
-#### 4.2 Agenti
+#### 4.2 Agents
 
-Za svakog agenta generiši `.claude/agents/{ime}.md`:
+For each agent generate `.claude/agents/{name}.md`:
 - Frontmatter: name, description, tools, model (sonnet), effort (high), permissionMode, memory
-- Hooks sa `${CLAUDE_PLUGIN_ROOT}/scripts/` putanjama
-- guard-scope.sh i guard-bash-scope.sh sa tačnim SCOPE_PATHS
-- Body: uloga, stack, workflow, ZABRANJENO
+- Hooks with `${CLAUDE_PLUGIN_ROOT}/scripts/` paths
+- guard-scope.sh and guard-bash-scope.sh with exact SCOPE_PATHS
+- Body: role, stack, workflow, FORBIDDEN
 
-Koristi format iz `${CLAUDE_PLUGIN_ROOT}/agents/TEMPLATE.md` ali GENERIŠI — ne kopiraj.
+Use the format from `${CLAUDE_PLUGIN_ROOT}/agents/TEMPLATE.md` but GENERATE — do not copy.
 
 #### 4.3 verify-all.sh
 
-Pročitaj snippet iz `${CLAUDE_PLUGIN_ROOT}/templates/verify-all/{stack}.sh`.
-Generiši `.claude/scripts/verify-all.sh` sa:
-- Shebang + header komentar
-- Verifier cache check blok
-- Stack-specifični build/test snippet
+Read the snippet from `${CLAUDE_PLUGIN_ROOT}/templates/verify-all/{stack}.sh`.
+Generate `.claude/scripts/verify-all.sh` with:
+- Shebang + header comment
+- Verifier cache check block
+- Stack-specific build/test snippet
 - Error reporting footer
 - `chmod +x`
 
 #### 4.4 principles.md
 
-Pročitaj `${CLAUDE_PLUGIN_ROOT}/templates/principles/{jezik}.md`.
-Prilagodi za stack — dodaj arhitekturni pattern i port range.
-Postavi u `.claude/rules/principles.md`.
+Read `${CLAUDE_PLUGIN_ROOT}/templates/principles/{language}.md`.
+Adapt for the stack — add architectural pattern and port range.
+Place in `.claude/rules/principles.md`.
 
-#### 4.5 Memory fajlovi
+#### 4.5 Memory files
 
-Generiši u `.claude/memory/`:
-- `MEMORY.md` — ime, agenti, stack, port range
-- `status.md` — početna faza
-- `session-log.md` — prazan sa header-om
-- `pipeline-skip-log.md` — prazan sa header-om i tabelom
+Generate in `.claude/memory/`:
+- `MEMORY.md` — name, agents, stack, port range
+- `status.md` — initial phase
+- `session-log.md` — empty with header
+- `pipeline-skip-log.md` — empty with header and table
 
-#### 4.6 Konfiguracija
+#### 4.6 Configuration
 
-`.claude/settings.json` — Notification hook sa imenom projekta + env + attribution
+`.claude/settings.json` — Project hooks (if needed alongside plugin hooks)
 
 `.claude/.apd-config`:
 ```
-PROJECT_NAME={ime}
+PROJECT_NAME={name}
 APD_VERSION=3.0.0
 STACK={stack}
 ```
@@ -134,47 +134,47 @@ STACK={stack}
 
 #### 4.7 Gitignore
 
-Dodaj entry-je iz `${CLAUDE_PLUGIN_ROOT}/templates/gitignore-entries.txt` ako fale.
+Add entries from `${CLAUDE_PLUGIN_ROOT}/templates/gitignore-entries.txt` if missing.
 
-### 5. Verifikuj
+### 5. Verify
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/verify-apd.sh
 ```
 
-## Primer
+## Example
 
 ```
-Korisnik: /apd-init
-Claude: Kako se zove projekat?
-Korisnik: MyCRM
+User: /apd-init
+Claude: What is the project name?
+User: MyCRM
 Claude: Stack?
-Korisnik: Node.js + Express, React + Vite, PostgreSQL
-Claude: Portovi?
-Korisnik: 3000 API, 5433 PG, 6380 Redis, 5173 Frontend
+User: Node.js + Express, React + Vite, PostgreSQL
+Claude: Ports?
+User: 3000 API, 5433 PG, 6380 Redis, 5173 Frontend
 Claude: Figma?
-Korisnik: https://www.figma.com/design/abc123
+User: https://www.figma.com/design/abc123
 Claude: Miro?
-Korisnik: Ne
-Claude: Čitam strukturu...
+User: No
+Claude: Reading structure...
 
-  Predloženi agenti:
+  Suggested agents:
   | Agent             | Scope          |
   | backend-builder   | server/        |
   | frontend-builder  | client/        |
   | testing           | tests/         |
   | devops            | docker/ .github/ |
 
-  Odobri ili koriguj:
-Korisnik: Ok
+  Approve or adjust:
+User: Ok
 
 Claude:
-  ✓ CLAUDE.md generisan
-  ✓ 4 agenta kreirana
-  ✓ verify-all.sh konfigurisan za Node.js
-  ✓ principles.md generisan
-  ✓ Memory inicijalizovan
-  ✓ .apd-config kreiran
+  ✓ CLAUDE.md generated
+  ✓ 4 agents created
+  ✓ verify-all.sh configured for Node.js
+  ✓ principles.md generated
+  ✓ Memory initialized
+  ✓ .apd-config created
 
   verify-apd.sh: 52 PASS, 0 FAIL
 ```

@@ -1,6 +1,6 @@
 #!/bin/bash
-# APD Permission Denied Logger — loguje kada auto mode odbije akciju
-# Registrovan kao PermissionDenied hook u settings.json
+# APD Permission Denied Logger — logs when auto mode denies an action
+# Registered as PermissionDenied hook in settings.json
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 

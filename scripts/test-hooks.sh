@@ -1,6 +1,6 @@
 #!/bin/bash
-# APD Test Hooks — verifikuje da su hook-ovi i skripte ispravno konfigurisani
-# Pokreni posle /apd-init ili ručnog setup-a
+# APD Test Hooks — verifies that hooks and scripts are correctly configured
+# Run after /apd-init or manual setup
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
@@ -8,73 +8,84 @@ PASS=0
 FAIL=0
 WARN=0
 
-pass() { echo "  [PASS] $1"; ((PASS++)); }
-fail() { echo "  [FAIL] $1"; ((FAIL++)); }
-warn() { echo "  [WARN] $1"; ((WARN++)); }
+pass() { echo "  [PASS] $1"; PASS=$((PASS + 1)); }
+fail() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
+warn() { echo "  [WARN] $1"; WARN=$((WARN + 1)); }
 
-echo "=== APD Hook Verifikacija ==="
+echo "=== APD Hook Verification ==="
 echo ""
 
-# --- 1. Zavisnosti ---
-echo "--- Zavisnosti ---"
+# --- 1. Dependencies ---
+echo "--- Dependencies ---"
 
 if command -v jq &>/dev/null; then
-    pass "jq je instaliran ($(jq --version 2>&1))"
+    pass "jq is installed ($(jq --version 2>&1))"
 else
-    fail "jq NIJE instaliran — guard-git, guard-scope, guard-secrets neće raditi"
+    fail "jq is NOT installed — guard-git, guard-scope, guard-secrets will not work"
 fi
 
 if command -v git &>/dev/null; then
-    pass "git je instaliran"
+    pass "git is installed"
 else
-    fail "git NIJE instaliran"
+    fail "git is NOT installed"
 fi
 
-# --- 2. Direktorijumi ---
+# --- 2. Directories ---
 echo ""
-echo "--- Struktura ---"
+echo "--- Structure ---"
 
 if [ -d "$CLAUDE_DIR" ]; then
-    pass ".claude/ direktorijum postoji"
+    pass ".claude/ directory exists"
 else
-    fail ".claude/ direktorijum NE POSTOJI"
+    fail ".claude/ directory DOES NOT EXIST"
 fi
 
 for dir in scripts rules memory agents; do
     if [ -d "$CLAUDE_DIR/$dir" ]; then
-        pass ".claude/$dir/ postoji"
+        pass ".claude/$dir/ exists"
     else
-        fail ".claude/$dir/ NE POSTOJI"
+        fail ".claude/$dir/ DOES NOT EXIST"
     fi
 done
 
-# --- 3. Skripte ---
+# --- 3. Scripts ---
 echo ""
-echo "--- Skripte ---"
+echo "--- Scripts ---"
 
-REQUIRED_SCRIPTS=(
+PLUGIN_SCRIPTS=(
     guard-git.sh
     guard-scope.sh
     guard-bash-scope.sh
     guard-secrets.sh
     guard-lockfile.sh
+    guard-permission-denied.sh
     pipeline-advance.sh
     pipeline-gate.sh
+    pipeline-post-commit.sh
     rotate-session-log.sh
     session-start.sh
-    verify-all.sh
 )
 
-for script in "${REQUIRED_SCRIPTS[@]}"; do
-    SCRIPT_PATH="$CLAUDE_DIR/scripts/$script"
+for script in "${PLUGIN_SCRIPTS[@]}"; do
+    SCRIPT_PATH="$SCRIPT_DIR/$script"
     if [ ! -f "$SCRIPT_PATH" ]; then
-        fail "$script NE POSTOJI"
+        fail "$script DOES NOT EXIST (plugin: $SCRIPT_DIR)"
     elif [ ! -x "$SCRIPT_PATH" ]; then
-        warn "$script postoji ali NIJE executable (chmod +x)"
+        warn "$script exists but is NOT executable (chmod +x)"
     else
         pass "$script OK"
     fi
 done
+
+# Project script — verify-all.sh lives in the project
+PROJECT_VERIFY="$CLAUDE_DIR/scripts/verify-all.sh"
+if [ ! -f "$PROJECT_VERIFY" ]; then
+    warn "verify-all.sh DOES NOT EXIST in the project (.claude/scripts/) — create with /apd-init"
+elif [ ! -x "$PROJECT_VERIFY" ]; then
+    warn "verify-all.sh exists but is NOT executable (chmod +x)"
+else
+    pass "verify-all.sh OK (project)"
+fi
 
 # --- 4. Settings.json ---
 echo ""
@@ -82,40 +93,40 @@ echo "--- Settings ---"
 
 SETTINGS="$CLAUDE_DIR/settings.json"
 if [ ! -f "$SETTINGS" ]; then
-    fail "settings.json NE POSTOJI"
+    fail "settings.json DOES NOT EXIST"
 else
     if ! jq empty "$SETTINGS" 2>/dev/null; then
-        fail "settings.json NIJE validan JSON"
+        fail "settings.json is NOT valid JSON"
     else
-        pass "settings.json je validan JSON"
+        pass "settings.json is valid JSON"
 
-        # Proveri da li postoje hook-ovi
+        # Check if hooks exist
         HOOK_COUNT=$(jq '[.hooks.PreToolUse[]?.hooks[]? // empty] | length' "$SETTINGS" 2>/dev/null || echo 0)
         if [ "$HOOK_COUNT" -gt 0 ]; then
-            pass "PreToolUse hook-ovi konfigurisani ($HOOK_COUNT)"
+            pass "PreToolUse hooks configured ($HOOK_COUNT)"
         else
-            warn "Nema PreToolUse hook-ova u settings.json"
+            warn "No PreToolUse hooks in settings.json"
         fi
 
         SESSION_HOOK=$(jq '.hooks.SessionStart // empty' "$SETTINGS" 2>/dev/null)
         if [ -n "$SESSION_HOOK" ] && [ "$SESSION_HOOK" != "null" ]; then
-            pass "SessionStart hook konfigurisan"
+            pass "SessionStart hook configured"
         else
-            warn "SessionStart hook nije konfigurisan"
+            warn "SessionStart hook is not configured"
         fi
 
         POST_HOOK=$(jq '.hooks.PostToolUse // empty' "$SETTINGS" 2>/dev/null)
         if [ -n "$POST_HOOK" ] && [ "$POST_HOOK" != "null" ]; then
-            pass "PostToolUse hook konfigurisan"
+            pass "PostToolUse hook configured"
         else
-            warn "PostToolUse hook nije konfigurisan — pipeline neće resetovati posle commita"
+            warn "PostToolUse hook is not configured — pipeline will not reset after commit"
         fi
     fi
 fi
 
-# --- 5. Placeholder provera ---
+# --- 5. Placeholder check ---
 echo ""
-echo "--- Placeholder-i ---"
+echo "--- Placeholders ---"
 
 PLACEHOLDER_FILES=(
     "$PROJECT_DIR/CLAUDE.md"
@@ -129,47 +140,47 @@ HAS_PLACEHOLDERS=false
 for file in "${PLACEHOLDER_FILES[@]}"; do
     if [ -f "$file" ] && grep -q '{{[A-Z_]*}}' "$file" 2>/dev/null; then
         BASENAME=$(basename "$file")
-        warn "$BASENAME sadrži nezamenjene placeholder-e ({{...}})"
+        warn "$BASENAME contains unreplaced placeholders ({{...}})"
         HAS_PLACEHOLDERS=true
     fi
 done
 
 if [ "$HAS_PLACEHOLDERS" = false ]; then
-    pass "Svi placeholder-i su zamenjeni"
+    pass "All placeholders are replaced"
 fi
 
-# --- 6. Agenti ---
+# --- 6. Agents ---
 echo ""
-echo "--- Agenti ---"
+echo "--- Agents ---"
 
 AGENT_COUNT=$(find "$CLAUDE_DIR/agents" -name "*.md" ! -name "TEMPLATE.md" 2>/dev/null | wc -l | tr -d ' ')
 if [ "$AGENT_COUNT" -gt 0 ]; then
-    pass "$AGENT_COUNT agent(a) definisan(o)"
+    pass "$AGENT_COUNT agent(s) defined"
     for agent_file in "$CLAUDE_DIR/agents"/*.md; do
         [ "$(basename "$agent_file")" = "TEMPLATE.md" ] && continue
         AGENT_NAME=$(basename "$agent_file" .md)
         if grep -q '{{' "$agent_file" 2>/dev/null; then
-            warn "Agent $AGENT_NAME ima nezamenjene placeholder-e"
+            warn "Agent $AGENT_NAME has unreplaced placeholders"
         else
             pass "Agent $AGENT_NAME OK"
         fi
     done
 else
-    warn "Nema definisanih agenata (samo TEMPLATE.md)"
+    warn "No agents defined (only TEMPLATE.md)"
 fi
 
 # --- 7. Pipeline test ---
 echo ""
 echo "--- Pipeline ---"
 
-PIPELINE_OUTPUT=$(bash "$CLAUDE_DIR/scripts/pipeline-advance.sh" status 2>&1)
+PIPELINE_OUTPUT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" status 2>&1)
 if [ $? -eq 0 ]; then
-    pass "pipeline-advance.sh status radi"
+    pass "pipeline-advance.sh status works"
 else
-    fail "pipeline-advance.sh status GREŠKA: $PIPELINE_OUTPUT"
+    fail "pipeline-advance.sh status ERROR: $PIPELINE_OUTPUT"
 fi
 
-# --- Rezultat ---
+# --- Result ---
 echo ""
 echo "=============================="
 echo "  PASS: $PASS | FAIL: $FAIL | WARN: $WARN"
@@ -177,13 +188,13 @@ echo "=============================="
 
 if [ "$FAIL" -gt 0 ]; then
     echo ""
-    echo "Popravi FAIL stavke pre korišćenja APD pipeline-a."
+    echo "Fix FAIL items before using the APD pipeline."
     exit 1
 fi
 
 if [ "$WARN" -gt 0 ]; then
     echo ""
-    echo "WARN stavke su preporuke — pipeline će raditi ali možda ne optimalno."
+    echo "WARN items are recommendations — pipeline will work but may not be optimal."
 fi
 
 exit 0

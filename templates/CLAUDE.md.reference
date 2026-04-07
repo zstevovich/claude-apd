@@ -2,25 +2,25 @@
 
 > {{PROJECT_DESCRIPTION}}
 
-## Kritična pravila
+## Critical rules
 
-- **Jezik:** {{LANGUAGE}}
-- **Autor:** {{AUTHOR_NAME}} — BEZ AI potpisa/watermarks
-- **Stil:** Profesionalan, konkretan, human style
+- **Language:** {{LANGUAGE}}
+- **Author:** {{AUTHOR_NAME}} — NO AI signatures/watermarks
+- **Style:** Professional, concrete, human style
 
 ## Stack
 
-| Layer | Tehnologija |
-|-------|-------------|
+| Layer | Technology |
+|-------|------------|
 | Backend | {{BACKEND_STACK}} |
 | Database | {{DATABASE}} |
 | Frontend | {{FRONTEND_STACK}} |
-| Mobile | {{MOBILE_STACK}} (ako postoji) |
-| Design | {{FIGMA_URL}} (ako postoji) |
-| Board | {{MIRO_BOARD_URL}} (ako postoji) |
-| Tracking | {{GITHUB_PROJECT_URL}} (ako postoji) |
+| Mobile | {{MOBILE_STACK}} (if applicable) |
+| Design | {{FIGMA_URL}} (if applicable) |
+| Board | {{MIRO_BOARD_URL}} (if applicable) |
+| Tracking | {{GITHUB_PROJECT_URL}} (if applicable) |
 
-## Portovi (lokalni razvoj)
+## Ports (local development)
 
 | Service | Port |
 |---------|------|
@@ -29,7 +29,7 @@
 | Cache | {{CACHE_PORT}} |
 | Frontend | {{FRONTEND_PORT}} |
 
-## Arhitektura
+## Architecture
 
 ```
 {{PROJECT_STRUCTURE}}
@@ -37,91 +37,91 @@
 
 ## APD — Agent Pipeline Development
 
-### Pipeline — TEHNIČKI ZAŠTIĆEN
+### Pipeline — TECHNICALLY ENFORCED
 
 Spec → Builder → Reviewer → Verifier → Commit
 
-- **Hook-ovi BLOKIRAJU commit** ako pipeline koraci nisu završeni
-- Svaki korak: `bash .claude/scripts/pipeline-advance.sh {korak}`
-- Hotfix: `pipeline-advance.sh skip "razlog"` — samo za urgentne situacije
+- **Hooks BLOCK commits** if pipeline steps are not completed
+- Each step: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh {step}`
+- Hotfix: `pipeline-advance.sh skip "reason"` — only for urgent situations
 
-### Guardrail-i
+### Guardrails
 
-- `guard-git.sh` — git zaštita (commit/push samo orkestrator, bez force push, bez mass staging)
-- `guard-scope.sh` — file scope po agentu (Write/Edit)
+- `guard-git.sh` — git protection (commit/push only by orchestrator, no force push, no mass staging)
+- `guard-scope.sh` — file scope per agent (Write/Edit)
 - `guard-bash-scope.sh` — bash write scope
-- `guard-secrets.sh` — osetljivi fajlovi
-- `guard-lockfile.sh` — lock fajlovi
-- `verify-all.sh` — build + test pre commit-a
-- `pipeline-advance.sh` + `pipeline-gate.sh` — pipeline flag sistem
-- `rotate-session-log.sh` — automatska arhivacija session log-a
+- `guard-secrets.sh` — sensitive files
+- `guard-lockfile.sh` — lock files
+- `verify-all.sh` — build + test before commit
+- `pipeline-advance.sh` + `pipeline-gate.sh` — pipeline flag system
+- `rotate-session-log.sh` — automatic session log archival
 
-### Agenti
+### Agents
 
-| Agent | Domen | Scope |
-|-------|-------|-------|
+| Agent | Domain | Scope |
+|-------|--------|-------|
 {{AGENT_TABLE}}
 
 ### Human gate
 
-API promene, migracije, auth logika, deploy → korisnik MORA odobriti pre akcije.
+API changes, migrations, auth logic, deploy → user MUST approve before action.
 
 ### Session memory
 
-Posle SVAKOG taska → append u .claude/memory/session-log.md
+After EVERY task → append to .claude/memory/session-log.md
 
-## Memorija
+## Memory
 
 @.claude/memory/MEMORY.md
 @.claude/memory/status.md
 @.claude/memory/session-log.md
 
-## Pravila
+## Rules
 
-- `.claude/rules/workflow.md` — APD pipeline pravila
-- `.claude/rules/principles.md` — jezik, kod, git konvencije
+- `workflow.md` — APD pipeline rules (from plugin, automatically loaded)
+- `.claude/rules/principles.md` — language, code, git conventions
 
-## Figma dizajn
+## Figma design
 
-<!-- Obriši ovu sekciju ako projekat nema Figma dizajn -->
+<!-- Delete this section if the project has no Figma design -->
 
-- **Figma fajl:** {{FIGMA_URL}}
-- Koristi `figma:figma-implement-design` skill za implementaciju iz Figma-e
-- Pre implementacije UI komponente — uvek proveri da li postoji Figma dizajn
-- Builder agent koji radi frontend MORA koristiti `get_design_context` za dizajn kontekst
-- Dizajn tokeni i boje iz Figma-e su izvor istine — ne izmišljaj vrednosti
+- **Figma file:** {{FIGMA_URL}}
+- Use `figma:figma-implement-design` skill for implementation from Figma
+- Before implementing a UI component — always check if a Figma design exists
+- Builder agent working on frontend MUST use `get_design_context` for design context
+- Design tokens and colors from Figma are the source of truth — do not make up values
 
 ## Miro board
 
-<!-- Obriši ovu sekciju ako projekat nema Miro board -->
+<!-- Delete this section if the project has no Miro board -->
 
 - **Miro board:** {{MIRO_BOARD_URL}}
-- Miro MCP čita board sadržaj — sticky notes, frames, dijagrame, dokumente
-- Pre kreiranja spec kartice — proveri da li postoji relevantan sadržaj na Miro boardu
-- Orkestrator može čitati taskove, flow dijagrame i arhitekturu direktno sa boarda
-- Za vizualizaciju arhitekture ili procesa — kreiraj dijagram na Miro boardu
-- Instalacija: `claude mcp add --transport http miro https://mcp.miro.com`
-- Channels (push notifikacije): `claude --channels miro` za real-time board promene u sesiji
-- Dashboard: `/miro-dashboard` skill za vizuelizaciju pipeline statusa na boardu
+- Miro MCP reads board content — sticky notes, frames, diagrams, documents
+- Before creating a spec card — check if relevant content exists on the Miro board
+- Orchestrator can read tasks, flow diagrams, and architecture directly from the board
+- For architecture or process visualization — create a diagram on the Miro board
+- Installation: `claude mcp add --transport http miro https://mcp.miro.com`
+- Channels (push notifications): `claude --channels miro` for real-time board changes in session
+- Dashboard: `/miro-dashboard` skill for pipeline status visualization on the board
 
 ## GitHub Projects
 
-<!-- Obriši ovu sekciju ako projekat ne koristi GitHub Projects -->
+<!-- Delete this section if the project does not use GitHub Projects -->
 
-- **Projekat:** {{GITHUB_PROJECT_URL}}
-- Svaki APD task = GitHub issue sa spec karticom u opisu
-- Pipeline faze se mapiraju na kolone: Spec → In Progress → Review → Testing → Done
-- Orkestrator kreira issue na početku spec-a i pomera ga kroz kolone
-- Issue se automatski zatvara i linkuje sa commitom na kraju pipeline-a
-- `/github-projects` skill za automatsko upravljanje karticama
-- GitHub MCP server mora biti konfigurisan u `.mcp.json`
+- **Project:** {{GITHUB_PROJECT_URL}}
+- Each APD task = GitHub issue with spec card in the description
+- Pipeline phases map to columns: Spec → In Progress → Review → Testing → Done
+- Orchestrator creates an issue at the start of spec and moves it through columns
+- Issue is automatically closed and linked with the commit at the end of the pipeline
+- `/github-projects` skill for automatic card management
+- GitHub MCP server must be configured in `.mcp.json`
 
 ## Anti-patterns
 
 ```
-❌ AI potpisi u kodu/dokumentaciji → ✅ Human style
-❌ Commit bez pipeline-a           → ✅ Spec → Builder → Reviewer → Verifier
-❌ Agent piše van svog scope-a     → ✅ guard-scope.sh blokira
-❌ git add . / git add -A          → ✅ Eksplicitno staging po fajlu
-❌ --no-verify                     → ✅ Hook-ovi moraju proći
+❌ AI signatures in code/documentation → ✅ Human style
+❌ Commit without pipeline             → ✅ Spec → Builder → Reviewer → Verifier
+❌ Agent writes outside its scope      → ✅ guard-scope.sh blocks
+❌ git add . / git add -A              → ✅ Explicit per-file staging
+❌ --no-verify                         → ✅ Hooks must pass
 ```

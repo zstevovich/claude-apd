@@ -1,11 +1,11 @@
 #!/bin/bash
-# APD Bash Scope Guard — blokira Bash komande koje pišu van dozvoljenog scope-a
-# Komplementira guard-scope.sh koji štiti Write/Edit operacije
+# APD Bash Scope Guard — blocks Bash commands that write outside the allowed scope
+# Complements guard-scope.sh which protects Write/Edit operations
 #
-# Detektuje:
-#   1. Shell write operacije: redirect (>), tee, sed -i, cp, mv, dd, install
-#   2. Runtime write operacije: node -e, python -c, ruby -e, php -r, perl -e
-#      sa write funkcijama (writeFileSync, open().write, file_put_contents...)
+# Detects:
+#   1. Shell write operations: redirect (>), tee, sed -i, cp, mv, dd, install
+#   2. Runtime write operations: node -e, python -c, ruby -e, php -r, perl -e
+#      with write functions (writeFileSync, open().write, file_put_contents...)
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
@@ -16,7 +16,7 @@ if [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
 fi
 
 if ! command -v jq &>/dev/null; then
-  echo "GREŠKA: jq nije instaliran." >&2
+  echo "ERROR: jq is not installed." >&2
   exit 2
 fi
 
@@ -27,7 +27,7 @@ if [ -z "$COMMAND" ]; then
   exit 0
 fi
 
-# --- 1. Shell write operacije ---
+# --- 1. Shell write operations ---
 SHELL_WRITE_PATTERNS=('>>' '>' 'tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ')
 
 HAS_WRITE_OP=false
@@ -41,10 +41,10 @@ for pattern in "${SHELL_WRITE_PATTERNS[@]}"; do
   fi
 done
 
-# --- 2. Runtime write operacije ---
+# --- 2. Runtime write operations ---
 if [ "$HAS_WRITE_OP" = false ]; then
 
-  # Node.js: node -e / node --eval sa write operacijama
+  # Node.js: node -e / node --eval with write operations
   if echo "$COMMAND" | grep -qE '(^|[;&|] *)node\s+(-e|--eval|--print)\s'; then
     if echo "$COMMAND" | grep -qiE 'writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|mkdirSync|copyFile'; then
       HAS_WRITE_OP=true
@@ -52,7 +52,7 @@ if [ "$HAS_WRITE_OP" = false ]; then
     fi
   fi
 
-  # Python: python -c / python3 -c sa write operacijama
+  # Python: python -c / python3 -c with write operations
   if echo "$COMMAND" | grep -qE '(^|[;&|] *)python[3]?\s+(-c)\s'; then
     if echo "$COMMAND" | grep -qiE "open\s*\(|\.write\s*\(|Path\s*\(|shutil\.|os\.rename|os\.replace|pathlib"; then
       HAS_WRITE_OP=true
@@ -60,7 +60,7 @@ if [ "$HAS_WRITE_OP" = false ]; then
     fi
   fi
 
-  # Ruby: ruby -e sa write operacijama
+  # Ruby: ruby -e with write operations
   if echo "$COMMAND" | grep -qE '(^|[;&|] *)ruby\s+(-e)\s'; then
     if echo "$COMMAND" | grep -qiE 'File\.(write|open|rename)|FileUtils\.(cp|mv|mkdir)'; then
       HAS_WRITE_OP=true
@@ -68,7 +68,7 @@ if [ "$HAS_WRITE_OP" = false ]; then
     fi
   fi
 
-  # PHP: php -r sa write operacijama
+  # PHP: php -r with write operations
   if echo "$COMMAND" | grep -qE '(^|[;&|] *)php\s+(-r)\s'; then
     if echo "$COMMAND" | grep -qiE 'file_put_contents|fwrite|fopen|rename|copy|mkdir'; then
       HAS_WRITE_OP=true
@@ -76,7 +76,7 @@ if [ "$HAS_WRITE_OP" = false ]; then
     fi
   fi
 
-  # Perl: perl -e sa write operacijama
+  # Perl: perl -e with write operations
   if echo "$COMMAND" | grep -qE '(^|[;&|] *)perl\s+(-e)\s'; then
     if echo "$COMMAND" | grep -qiE 'open\s*\(|print\s+\$|File::Copy|rename'; then
       HAS_WRITE_OP=true
@@ -89,20 +89,20 @@ if [ "$HAS_WRITE_OP" = false ]; then
   exit 0
 fi
 
-# --- Proveri da li putanje u komandi spadaju u dozvoljeni scope ---
-PATHS_IN_CMD=$(echo "$COMMAND" | grep -oE '([~/.]?[a-zA-Z0-9_./-]{2,})' 2>/dev/null || true)
+# --- Check if paths in the command fall within the allowed scope ---
+PATHS_IN_CMD=$(echo "$COMMAND" | grep -oE '([~/./]?[a-zA-Z0-9_./-]{2,})' 2>/dev/null || true)
 
 for allowed in "${ALLOWED_PATHS[@]}"; do
   allowed="${allowed%/}/"
-  if echo "$PATHS_IN_CMD" | grep -q "$allowed" 2>/dev/null; then
+  if echo "$PATHS_IN_CMD" | grep -qF "$allowed" 2>/dev/null; then
     exit 0
   fi
 done
 
 if [ "$WRITE_TYPE" = "shell" ]; then
-  echo "BLOKIRANO: Bash komanda piše van dozvoljenog scope-a." >&2
+  echo "BLOCKED: Bash command writes outside the allowed scope." >&2
 else
-  echo "BLOKIRANO: Runtime write ($WRITE_TYPE) detektovan van dozvoljenog scope-a." >&2
+  echo "BLOCKED: Runtime write ($WRITE_TYPE) detected outside the allowed scope." >&2
 fi
-echo "Dozvoljene putanje: ${ALLOWED_PATHS[*]}" >&2
+echo "Allowed paths: ${ALLOWED_PATHS[*]}" >&2
 exit 2

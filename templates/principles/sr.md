@@ -1,20 +1,20 @@
-# Principi
+# Principles
 
-## Jezik
-- Dokumentacija i komunikacija: srpski, latinica
-- Stručni termini ostaju na engleskom: endpoint, middleware, handler, cache
-- Ton: profesionalan i konkretan, ne sme zvučati AI-generisano
+## Language
+- Documentation and communication: Serbian, Latin script
+- Technical terms remain in English: endpoint, middleware, handler, cache
+- Tone: professional and concrete, must not sound AI-generated
 
-## Kod
-- Minimalni komentari — samo gde logika nije očigledna
-- Aplikacija podržava višejezičnost (i18n) od početka
+## Code
+- Minimal comments — only where logic is not obvious
+- Application supports internationalisation (i18n) from the start
 
 ## Git
-- Nema AI potpisa u commitima — nikakav Co-Authored-By
-- Grane: develop → staging → main, feature/* po potrebi
-- .claude/ direktorijum ne sme na git
-- Commit poruke: kratke, na engleskom, imperative mood
+- No AI signatures in commits — no Co-Authored-By
+- Branches: develop → staging → main, feature/* as needed
+- .claude/ directory must not go to git
+- Commit messages: short, in English, imperative mood
 
-## Docker (lokalni razvoj)
-- Samo infrastruktura (baza, cache, monitoring)
-- Aplikacije iz debug moda (IDE)
+## Docker (local development)
+- Infrastructure only (database, cache, monitoring)
+- Applications from debug mode (IDE)

@@ -12,13 +12,10 @@ From zero to your first pipeline commit in 5 minutes.
 
 ---
 
-## Step 1 — Copy the template
+## Step 1 — Install the plugin
 
 ```console
-~/Projects $ cp -r apd-template/.claude/ my-project/.claude/
-~/Projects $ cp apd-template/CLAUDE.md my-project/
-~/Projects $ cp apd-template/.mcp.json.example my-project/.mcp.json
-~/Projects $ cp -r apd-template/docs/ my-project/docs/
+~/Projects/my-project $ npx skills add zstevovich/claude-apd
 ```
 
 ## Step 2 — Initialise
@@ -47,23 +44,10 @@ It will then:
 ## Step 3 — Verify the setup
 
 ```console
-~/Projects/my-project $ bash .claude/scripts/verify-apd.sh
+~/Projects/my-project $ bash ${CLAUDE_PLUGIN_ROOT}/scripts/verify-apd.sh
 ```
 
-> **Expected result:**
->
-> | Check | Result |
-> |-------|--------|
-> | Project | YourProject |
-> | Agents | 4 (backend-builder, frontend-builder, testing, devops) |
-> | Scripts | 10/10 |
-> | Guards | git, scope, bash-scope, lockfile, secrets |
-> | Pipeline | functional (E2E + rollback) |
-> | verify-all.sh | active (2 checks) |
-> | Memory files | 4/4 |
-> | Gitignore | local.json, .pipeline/ |
-> | Attribution | empty (OK) |
-> | **Result** | **PASS: 51 · FAIL: 0 · WARN: 0** |
+> **Expected result:** All checks pass across 10 categories (prerequisites, structure, hooks, placeholders, CLAUDE.md, agents, guards, pipeline E2E, verify-all.sh, gitignore). The verification runs 50+ checks — the exact number depends on your agent count.
 
 If you see any FAIL items, follow the instructions in the output to fix them.
 
@@ -74,8 +58,8 @@ If you see any FAIL items, follow the instructions in the output to fix them.
 ### 4.1 Create a spec
 
 ```console
-~/Projects/my-project $ bash .claude/scripts/pipeline-advance.sh spec "Add user login endpoint"
-Pipeline započet: Add user login endpoint [2026-04-06 10:00:00]
+~/Projects/my-project $ bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh spec "Add user login endpoint"
+Pipeline started: Add user login endpoint [2026-04-06 10:00:00]
   [DONE] spec   2026-04-06 10:00:00
   [----] builder
   [----] reviewer
@@ -116,8 +100,8 @@ The builder agent will:
 When done:
 
 ```console
-~/Projects/my-project $ bash .claude/scripts/pipeline-advance.sh builder
-Pipeline: builder završen. [2026-04-06 10:04:12] (spec→builder: 4m 12s)
+~/Projects/my-project $ bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh builder
+Pipeline: builder completed. [2026-04-06 10:04:12] (spec→builder: 4m 12s)
   [DONE] spec
   [DONE] builder   2026-04-06 10:04:12
   [----] reviewer ← NEXT
@@ -135,16 +119,16 @@ The reviewer looks for bugs, edge cases, and security issues. It does not sugges
 If the reviewer finds issues, the builder fixes them. Then:
 
 ```console
-~/Projects/my-project $ bash .claude/scripts/pipeline-advance.sh reviewer
-Pipeline: reviewer završen. [2026-04-06 10:07:45] (builder→reviewer: 3m 33s)
+~/Projects/my-project $ bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh reviewer
+Pipeline: reviewer completed. [2026-04-06 10:07:45] (builder→reviewer: 3m 33s)
 ```
 
 ### 4.4 Run the verifier
 
 ```console
-~/Projects/my-project $ bash .claude/scripts/pipeline-advance.sh verifier
-Pipeline: verifier završen. COMMIT DOZVOLJEN. [2026-04-06 10:09:20]
-  (reviewer→verifier: 1m 35s | ukupno: 9m 20s)
+~/Projects/my-project $ bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh verifier
+Pipeline: verifier completed. COMMIT ALLOWED. [2026-04-06 10:09:20]
+  (reviewer→verifier: 1m 35s | total: 9m 20s)
 ```
 
 ### 4.5 Commit
@@ -152,10 +136,10 @@ Pipeline: verifier završen. COMMIT DOZVOLJEN. [2026-04-06 10:09:20]
 ```console
 ~/Projects/my-project $ git add src/Auth/LoginHandler.cs tests/Auth/LoginTests.cs
 ~/Projects/my-project $ APD_ORCHESTRATOR_COMMIT=1 git commit -m "feat: add user login endpoint"
-Pipeline + Verifikacija prošli — commit dozvoljen.
+Pipeline + Verification passed — commit allowed.
 [main abc1234] feat: add user login endpoint
  2 files changed, 85 insertions(+)
-Pipeline resetovan posle uspešnog commita.
+Pipeline reset after successful commit.
 ```
 
 The commit will:
@@ -173,7 +157,7 @@ You are now ready for the next task.
 
 ```console
 ~/Projects/my-project $ APD_ORCHESTRATOR_COMMIT=1 git commit -m "feat: something"
-⛔ BLOKIRANO: Pipeline koraci nisu završeni!
+⛔ BLOCKED: Pipeline steps not completed!
 
   Pipeline: Spec → Builder → Reviewer → Verifier → Commit
 

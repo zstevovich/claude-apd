@@ -1,8 +1,8 @@
-# Agent Pipeline Development (APD) Framework
+# Agent Pipeline Development (APD) Framework v3.0
 
-Disciplined AI-assisted software development through specialised agents, enforced pipelines, and mechanical guardrails.
+Disciplined AI-assisted software development through specialised agents, enforced pipelines, and mechanical guardrails. Distributed as a Claude Code plugin.
 
-[**▶ Interactive Demo**](https://zstevovich.github.io/claude-apd/demo/) | [**Getting Started**](GETTING-STARTED.md) | 🇷🇸 [Srpska verzija](README.sr.md)
+[**▶ Interactive Demo**](https://zstevovich.github.io/claude-apd/demo/) | [**Getting Started**](GETTING-STARTED.md)
 
 ![APD Demo](docs/demo/apd-demo.gif)
 
@@ -154,53 +154,36 @@ Each step is **technically enforced** — hooks block the commit if steps have n
 
 Version is checked automatically on session start and by `verify-apd.sh`.
 
-### 1. Copy the template into your project
+### 1. Install the plugin
 
 ```bash
-cp -r apd-template/.claude/ /path/to/my-project/.claude/
-cp apd-template/CLAUDE.md /path/to/my-project/
-cp apd-template/.mcp.json.example /path/to/my-project/.mcp.json
-cp -r apd-template/docs/ /path/to/my-project/docs/
+npx skills add zstevovich/claude-apd
 ```
+
+This installs APD as a Claude Code plugin. All scripts, hooks, rules, and skills are available immediately via `${CLAUDE_PLUGIN_ROOT}`.
 
 ### 2. Run APD Init
 
-In Claude Code within your project:
+Open Claude Code in your project directory and run:
 ```
 /apd-init
 ```
 
-The skill will guide you through configuration — project name, stack, paths, agents.
-
-### 3. Or customise manually
-
-Replace `{{PLACEHOLDER}}` values in:
+The skill will guide you through configuration — project name, stack, paths, agents. It generates:
 - `CLAUDE.md` — project instructions
-- `.claude/settings.json` — script paths
-- `.claude/scripts/session-start.sh` — project name
-- `.claude/scripts/verify-all.sh` — build commands
-- `.claude/scripts/guard-secrets.sh` — sensitive files
-- `.claude/memory/MEMORY.md` — index
-- `.claude/agents/TEMPLATE.md` → copy for each agent
+- `.claude/agents/` — agent definitions with scope guards
+- `.claude/rules/principles.md` — code conventions
+- `.claude/scripts/verify-all.sh` — build/test commands (the only script in your project)
+- `.claude/memory/` — memory files
+- `.claude/.apd-config` — project configuration
 
-### 4. Make scripts executable
-
-```bash
-chmod +x .claude/scripts/*.sh
-```
-
-### 5. Verify
+### 3. Verify
 
 ```bash
-# Full functional verification (guard tests, pipeline end-to-end, structure)
-bash .claude/scripts/verify-apd.sh
-
-# Expected result:
-# ╔══════════════════════════════════════╗
-# ║  PASS: 49  │ FAIL: 0   │ WARN: 0       ║
-# ╚══════════════════════════════════════╝
-# APD JE POTPUNO KONFIGURISAN. Spreman za rad.
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/verify-apd.sh
 ```
+
+The verification runs 50+ checks across 10 categories (prerequisites, structure, hooks, guards, pipeline E2E, and more).
 
 `verify-apd.sh` tests 10 categories:
 
@@ -219,7 +202,7 @@ bash .claude/scripts/verify-apd.sh
 
 For a quick static check (without functional tests):
 ```bash
-bash .claude/scripts/test-hooks.sh
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/test-hooks.sh
 ```
 
 ## Four roles
@@ -294,7 +277,9 @@ Format: the orchestrator presents a diff summary → the user says "ok" → only
 
 APD uses mechanical guardrails (hook scripts) that block violations even when an agent "forgets" the rules.
 
-### Scripts (13)
+### Scripts (17)
+
+All scripts live in the plugin (`${CLAUDE_PLUGIN_ROOT}/scripts/`) except `verify-all.sh` which lives in your project (`.claude/scripts/`).
 
 | Script | Function |
 |--------|----------|
@@ -303,14 +288,18 @@ APD uses mechanical guardrails (hook scripts) that block violations even when an
 | `guard-bash-scope.sh` | Blocks bash and runtime writes outside scope (shell redirects, node/python/ruby/php/perl) |
 | `guard-secrets.sh` | Blocks access to sensitive files |
 | `guard-lockfile.sh` | Blocks modification of lock files |
-| `test-hooks.sh` | Quick static check (files, JSON, placeholders) |
-| `verify-apd.sh` | Full functional verification (50 checks: guards, pipeline E2E, agents, summary) |
-| `verify-contracts.sh` | Cross-layer type verification (TypeScript + C# parser, nullable awareness) |
+| `guard-permission-denied.sh` | Handles permission denied events gracefully |
 | `pipeline-advance.sh` | Pipeline flag system with timestamps, rollback, metrics, and skip log |
 | `pipeline-gate.sh` | Blocks commit without all 4 pipeline steps |
+| `pipeline-post-commit.sh` | Auto-resets pipeline after successful commit |
 | `rotate-session-log.sh` | Automatically archives old session log entries |
 | `session-start.sh` | Loads project context at session start with self-healing (auto-fixes broken state) |
-| `verify-all.sh` | Build + test before commit |
+| `gh-sync.sh` | Synchronises pipeline steps with GitHub Projects issues |
+| `test-hooks.sh` | Quick static check (files, JSON, placeholders) |
+| `verify-apd.sh` | Full functional verification (50+ checks: guards, pipeline E2E, agents, summary) |
+| `verify-contracts.sh` | Cross-layer type verification (TypeScript + C# parser, nullable awareness) |
+| `verify-all.sh` | Build + test before commit (lives in project, not plugin) |
+| `lib/resolve-project.sh` | Shared library — resolves PROJECT_DIR and APD_PLUGIN_ROOT |
 
 ### guard-git.sh — Git operations
 
@@ -340,7 +329,7 @@ hooks:
     - matcher: "Write|Edit"
       hooks:
         - type: command
-          command: "bash /path/.claude/scripts/guard-scope.sh src/ tests/"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-scope.sh src/ tests/"
 ```
 
 An agent that attempts to edit a file outside `src/` or `tests/` receives:
@@ -381,19 +370,19 @@ SessionStart hook that loads:
 
 ```bash
 # 1. Spec
-bash .claude/scripts/pipeline-advance.sh spec "Implementiraj user login"
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh spec "Implement user login"
 
 # 2. Builder implements
 # ... agent works ...
-bash .claude/scripts/pipeline-advance.sh builder
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh builder
 
 # 3. Reviewer reviews
 # ... code review ...
-bash .claude/scripts/pipeline-advance.sh reviewer
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh reviewer
 
 # 4. Verifier (build + test)
 # ... dotnet build && dotnet test ...
-bash .claude/scripts/pipeline-advance.sh verifier
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh verifier
 
 # 5. Commit (allowed only now)
 APD_ORCHESTRATOR_COMMIT=1 git commit -m "feat: user login"
@@ -404,21 +393,21 @@ APD_ORCHESTRATOR_COMMIT=1 git commit -m "feat: user login"
 ### Pipeline commands
 
 ```bash
-bash .claude/scripts/pipeline-advance.sh spec "Task name"
-bash .claude/scripts/pipeline-advance.sh builder
-bash .claude/scripts/pipeline-advance.sh reviewer
-bash .claude/scripts/pipeline-advance.sh verifier
-bash .claude/scripts/pipeline-advance.sh status
-bash .claude/scripts/pipeline-advance.sh reset
-bash .claude/scripts/pipeline-advance.sh rollback           # Revert one step back
-bash .claude/scripts/pipeline-advance.sh stats
-bash .claude/scripts/pipeline-advance.sh skip "Reason"      # Only for urgent hotfixes
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh spec "Task name"
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh builder
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh reviewer
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh verifier
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh status
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh reset
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh rollback           # Revert one step back
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh stats
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh skip "Reason"      # Only for urgent hotfixes
 ```
 
 ### Skip analysis
 
 ```bash
-bash .claude/scripts/pipeline-advance.sh stats
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh stats
 # Pipeline statistics:
 #   Total skips: 4
 #   Last 5:
@@ -461,17 +450,16 @@ Proposed → Accepted → [Superseded (new ADR) | Withdrawn]
 
 ## Creating agents
 
-For each layer of the project, create an agent from `TEMPLATE.md`:
+The `/apd-init` skill automatically creates agents based on your project structure. To create agents manually, use the template from the plugin:
 
 ```bash
-cp .claude/agents/TEMPLATE.md .claude/agents/backend-builder.md
+cp ${CLAUDE_PLUGIN_ROOT}/agents/TEMPLATE.md .claude/agents/backend-builder.md
 ```
 
 Replace:
 - `{{agent-name}}` → `backend-builder`
 - `{{SCOPE_PATHS}}` → `src/ tests/`
-- `{{PROJECT_PATH}}` → absolute path
-- `{{model}}` → `sonnet` (Builder) or `opus` (Reviewer/Guardian)
+- `{{model}}` → `sonnet` (Builder) or `opus` (Reviewer/Verifier)
 
 **Important:** If you do not replace `{{SCOPE_PATHS}}`, guard-scope.sh will block ALL Write/Edit operations for that agent.
 
@@ -823,7 +811,9 @@ Defines automatic behaviour of the Claude Code session:
 | `SessionStart` | `session-start.sh` | Loads project context (status, pipeline, last session) |
 | `PreToolUse (Bash)` | `guard-git.sh` | Blocks unauthorised git operations |
 | `PreToolUse (Write\|Edit)` | `guard-lockfile.sh` | Blocks modification of lock files |
-| `Notification` | — | Desktop notification when Claude needs attention |
+| `PostToolUse (Bash)` | `pipeline-post-commit.sh` | Auto-resets pipeline after successful commit |
+| `PostCompact` | `session-start.sh` | Re-injects context after context compression |
+| `PermissionDenied` | `guard-permission-denied.sh` | Handles permission denied events |
 
 Other settings:
 
@@ -834,40 +824,61 @@ Other settings:
 
 ## Structure
 
-```
-.claude/
-├── agents/
-│   └── TEMPLATE.md                  # Template for a new agent
-├── rules/
-│   ├── workflow.md                  # APD workflow definition (UNIVERSAL)
-│   └── principles.md               # Project rules (CUSTOMISE)
-├── skills/
-│   └── apd-init/SKILL.md           # Interactive setup skill
-├── scripts/
-│   ├── guard-git.sh                 # Git guardrail (UNIVERSAL)
-│   ├── guard-scope.sh               # File scope guardrail (UNIVERSAL)
-│   ├── guard-bash-scope.sh          # Bash write scope guardrail (UNIVERSAL)
-│   ├── guard-secrets.sh             # Secrets guardrail (CUSTOMISE)
-│   ├── guard-lockfile.sh            # Lock file guardrail (UNIVERSAL)
-│   ├── pipeline-advance.sh          # Pipeline flag system
-│   ├── pipeline-gate.sh             # Pipeline commit gate
-│   ├── test-hooks.sh                # Hook verification
-│   ├── verify-all.sh                # Build + test verification (CUSTOMISE)
-│   ├── session-start.sh             # Loads context at session start
-│   └── rotate-session-log.sh        # Log rotation
-├── memory/
-│   ├── MEMORY.md                    # Memory index
-│   ├── session-log.md               # Append-only log of completed tasks
-│   ├── status.md                    # Current project status
-│   └── pipeline-skip-log.md         # Skip metrics
-└── settings.json                    # Hook configuration
+APD v3.0 is a **plugin** — most files live in the plugin directory (`${CLAUDE_PLUGIN_ROOT}`), not in your project. Your project contains only the customised files.
 
-CLAUDE.md                            # Project instructions (CUSTOMISE)
-.mcp.json.example                    # MCP servers (context7, postgres, docker, github)
-docs/
-└── adr/                             # Architecture Decision Records
-    ├── TEMPLATE.md                  # ADR template
-    └── README.md                    # Index of all ADRs
+### Plugin (installed via `npx skills add`)
+
+```
+${CLAUDE_PLUGIN_ROOT}/
+├── scripts/
+│   ├── lib/resolve-project.sh        # Shared path resolution library
+│   ├── guard-git.sh                  # Git guardrail
+│   ├── guard-scope.sh                # File scope guardrail
+│   ├── guard-bash-scope.sh           # Bash write scope guardrail
+│   ├── guard-secrets.sh              # Secrets guardrail
+│   ├── guard-lockfile.sh             # Lock file guardrail
+│   ├── guard-permission-denied.sh    # Permission denied handler
+│   ├── pipeline-advance.sh           # Pipeline flag system
+│   ├── pipeline-gate.sh              # Pipeline commit gate
+│   ├── pipeline-post-commit.sh       # Post-commit pipeline reset
+│   ├── rotate-session-log.sh         # Log rotation
+│   ├── session-start.sh              # Context loader + self-healing
+│   ├── gh-sync.sh                    # GitHub Projects sync
+│   ├── verify-apd.sh                 # Full verification (50+ checks)
+│   ├── verify-contracts.sh           # Cross-layer type verification
+│   ├── verify-all.sh                 # Template for build/test
+│   └── test-hooks.sh                 # Quick static check
+├── hooks/settings.json               # Plugin hook configuration
+├── rules/workflow.md                 # APD workflow (universal)
+├── agents/TEMPLATE.md                # Agent template
+├── skills/
+│   ├── apd-init/SKILL.md             # Interactive setup
+│   ├── apd-upgrade/SKILL.md          # Migration from v2.x
+│   ├── github-projects/SKILL.md      # GitHub Projects integration
+│   └── miro-dashboard/SKILL.md       # Miro dashboard
+└── templates/                        # Templates for /apd-init
+```
+
+### Your project (generated by `/apd-init`)
+
+```
+my-project/
+├── CLAUDE.md                         # Project instructions (CUSTOMISE)
+├── .claude/
+│   ├── agents/
+│   │   ├── backend-builder.md        # Agent per domain (CUSTOMISE)
+│   │   └── frontend-builder.md
+│   ├── rules/
+│   │   └── principles.md             # Code conventions (CUSTOMISE)
+│   ├── scripts/
+│   │   └── verify-all.sh             # Build + test commands (CUSTOMISE)
+│   ├── memory/
+│   │   ├── MEMORY.md                 # Memory index
+│   │   ├── session-log.md            # Task log (auto-populated)
+│   │   ├── status.md                 # Current status
+│   │   └── pipeline-skip-log.md      # Skip metrics
+│   └── .apd-config                   # Project APD configuration
+└── docs/adr/                         # Architecture Decision Records
 ```
 
 ## What to customise
@@ -875,11 +886,9 @@ docs/
 | File | What | Priority |
 |------|------|----------|
 | `CLAUDE.md` | Stack, conventions, project structure, name | **Required** |
-| `verify-all.sh` | Build and test commands for your stack | **Required** |
-| `principles.md` | Language, error handling, architecture pattern | **Required** |
-| `guard-secrets.sh` | Sensitive files for your stack | Recommended |
-| `agents/TEMPLATE.md` | Create concrete agents for your domains | Recommended |
-| `settings.json` | Automatically configured by `/apd-init` | Automatic |
+| `.claude/scripts/verify-all.sh` | Build and test commands for your stack | **Required** |
+| `.claude/rules/principles.md` | Language, error handling, architecture pattern | **Required** |
+| `.claude/agents/*.md` | Create concrete agents for your domains | Recommended |
 | `docs/adr/TEMPLATE.md` | Adjust ADR format if needed | Optional |
 
 ### CLAUDE.md — what to fill in

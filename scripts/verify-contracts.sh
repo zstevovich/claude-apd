@@ -1,20 +1,20 @@
 #!/bin/bash
-# APD Contract Verifier — proverava da tipovi na granicama slojeva odgovaraju
+# APD Contract Verifier — checks that types at layer boundaries match
 #
-# Korišćenje:
-#   verify-contracts.sh <backend_putanja> <frontend_putanja>
-#   verify-contracts.sh --changed          # samo promenjeni fajlovi (za pre-commit)
+# Usage:
+#   verify-contracts.sh <backend_path> <frontend_path>
+#   verify-contracts.sh --changed          # only changed files (for pre-commit)
 #   verify-contracts.sh --help
 #
-# Podržava: TypeScript (interface/type) i C# (class/record DTO)
-# Ograničenja: Regex-based, ne full parser. Pokriva ~80% slučajeva.
-#              Složeni generici i deep nested tipovi zahtevaju ručnu proveru.
+# Supports: TypeScript (interface/type) and C# (class/record DTO)
+# Limitations: Regex-based, not a full parser. Covers ~80% of cases.
+#              Complex generics and deep nested types require manual review.
 
-set -uo pipefail
+set -euo pipefail
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
-# Boje (samo ako terminal podržava)
+# Colors (only if terminal supports them)
 if [ -t 1 ]; then
     GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; NC='\033[0m'; BOLD='\033[1m'
 else
@@ -22,25 +22,29 @@ else
 fi
 
 RESULTS_FILE=$(mktemp)
+BACKEND_TYPES_FILE=""
+FRONTEND_TYPES_FILE=""
+cleanup() { rm -f "$RESULTS_FILE" "$BACKEND_TYPES_FILE" "$FRONTEND_TYPES_FILE"; }
+trap cleanup EXIT INT TERM
 
 usage() {
     echo "APD Contract Verifier"
     echo ""
-    echo "Korišćenje:"
+    echo "Usage:"
     echo "  verify-contracts.sh <backend_dir> <frontend_dir>"
     echo "  verify-contracts.sh --changed"
     echo "  verify-contracts.sh --help"
     echo ""
-    echo "Primeri:"
+    echo "Examples:"
     echo "  verify-contracts.sh server/src/types/ client/src/types/"
     echo "  verify-contracts.sh src/Dtos/ apps/frontend/src/types/"
-    echo "  verify-contracts.sh --changed  # koristi git diff za detekciju"
+    echo "  verify-contracts.sh --changed  # uses git diff for detection"
     exit 0
 }
 
 # ============================================================
-# TypeScript parser — izvlači polja iz interface/type
-# Kompatibilan sa macOS (BSD) i Linux (GNU) awk
+# TypeScript parser — extracts fields from interface/type
+# Compatible with macOS (BSD) and Linux (GNU) awk
 # ============================================================
 extract_ts_types() {
     local dir="$1"
@@ -97,7 +101,7 @@ extract_ts_types() {
 }
 
 # ============================================================
-# C# parser — izvlači public property-je iz klasa
+# C# parser — extracts public properties from classes
 # ============================================================
 extract_cs_types() {
     local dir="$1"
@@ -153,7 +157,7 @@ extract_cs_types() {
 }
 
 # ============================================================
-# Detektuj jezik na osnovu fajlova u direktorijumu
+# Detect language based on files in directory
 # ============================================================
 detect_language() {
     local dir="$1"
@@ -167,38 +171,38 @@ detect_language() {
 }
 
 # ============================================================
-# Uporedi tipove
+# Compare types
 # ============================================================
 compare_types() {
     local backend_file="$1"
     local frontend_file="$2"
 
     if [ ! -s "$backend_file" ]; then
-        echo -e "${YELLOW}Nema detektovanih tipova na backend strani.${NC}"
+        echo -e "${YELLOW}No types detected on the backend side.${NC}"
         return
     fi
 
     if [ ! -s "$frontend_file" ]; then
-        echo -e "${YELLOW}Nema detektovanih tipova na frontend strani.${NC}"
+        echo -e "${YELLOW}No types detected on the frontend side.${NC}"
         return
     fi
 
     local b_count=$(cut -d'|' -f1 "$backend_file" | sort -u | wc -l | tr -d ' ')
     local f_count=$(cut -d'|' -f1 "$frontend_file" | sort -u | wc -l | tr -d ' ')
 
-    echo -e "${BOLD}Detektovano: $b_count backend tipova, $f_count frontend tipova${NC}"
+    echo -e "${BOLD}Detected: $b_count backend types, $f_count frontend types${NC}"
     echo ""
 
-    # Za svaki backend tip, traži odgovarajući frontend tip
+    # For each backend type, find the corresponding frontend type
     local type_list_file=$(mktemp)
     cut -d'|' -f1 "$backend_file" | sort -u > "$type_list_file"
 
     while read -r type_name <&4; do
         local type_name_fe="$type_name"
 
-        # Traži isti tip na frontend strani
+        # Look for the same type on the frontend side
         if ! grep -q "^${type_name}|" "$frontend_file" 2>/dev/null; then
-            # Probaj bez Response/Dto/DTO sufiksa
+            # Try without Response/Dto/DTO suffix
             ALT_NAME=$(echo "$type_name" | sed -E 's/(Response|Dto|DTO|Model|Vm|ViewModel)$//')
             if [ "$ALT_NAME" != "$type_name" ] && grep -q "^${ALT_NAME}|" "$frontend_file" 2>/dev/null; then
                 type_name_fe="$ALT_NAME"
@@ -209,7 +213,7 @@ compare_types() {
 
         echo -e "${BOLD}── $type_name ↔ $type_name_fe ──${NC}"
 
-        # Izvuci backend polja u temp fajl
+        # Extract backend fields to temp file
         local b_tmp=$(mktemp)
         grep "^${type_name}|" "$backend_file" | sort -t'|' -k2 > "$b_tmp"
 
@@ -217,14 +221,14 @@ compare_types() {
             FE_LINE=$(grep "^${type_name_fe}|${b_field}|" "$frontend_file" | head -1)
 
             if [ -z "$FE_LINE" ]; then
-                echo -e "  ${RED}✗ MISSING${NC}  $b_field ($b_type$b_nullable) — postoji na backendu, fali na frontendu"
+                echo -e "  ${RED}✗ MISSING${NC}  $b_field ($b_type$b_nullable) — exists on backend, missing on frontend"
                 echo "MISSING" >> "$RESULTS_FILE"
             else
                 FE_TYPE=$(echo "$FE_LINE" | cut -d'|' -f3)
                 FE_NULLABLE=$(echo "$FE_LINE" | cut -d'|' -f4)
 
                 if [ "$b_nullable" = "?" ] && [ "$FE_NULLABLE" != "?" ]; then
-                    echo -e "  ${YELLOW}! NULL${NC}    $b_field — backend je nullable ($b_type?), frontend NIJE ($FE_TYPE)"
+                    echo -e "  ${YELLOW}! NULL${NC}    $b_field — backend is nullable ($b_type?), frontend is NOT ($FE_TYPE)"
                     echo "MISMATCH" >> "$RESULTS_FILE"
                 else
                     echo -e "  ${GREEN}✓ MATCH${NC}   $b_field ($b_type$b_nullable ↔ $FE_TYPE$FE_NULLABLE)"
@@ -247,12 +251,12 @@ if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
 fi
 
 if [ "${1:-}" = "--changed" ]; then
-    echo "APD Contract Verifier — promenjeni fajlovi"
+    echo "APD Contract Verifier — changed files"
     echo ""
 
     CHANGED=$(git -C "$PROJECT_DIR" diff --cached --name-only 2>/dev/null || git -C "$PROJECT_DIR" diff --name-only HEAD 2>/dev/null || echo "")
     if [ -z "$CHANGED" ]; then
-        echo "Nema promenjenih fajlova."
+        echo "No changed files."
         exit 0
     fi
 
@@ -260,17 +264,17 @@ if [ "${1:-}" = "--changed" ]; then
     HAS_FRONTEND=$(echo "$CHANGED" | grep -qE '(client/|frontend/|web/|apps/).*(types|model|interface)' && echo "true" || echo "false")
 
     if [ "$HAS_BACKEND" = "false" ] && [ "$HAS_FRONTEND" = "false" ]; then
-        echo "Promene ne utiču na tipove na granicama slojeva."
+        echo "Changes do not affect types at layer boundaries."
         exit 0
     fi
 
-    echo -e "${YELLOW}Detektovane promene u tip fajlovima — pokrenite punu verifikaciju:${NC}"
+    echo -e "${YELLOW}Changes detected in type files — run full verification:${NC}"
     echo "  bash .claude/scripts/verify-contracts.sh <backend_types_dir> <frontend_types_dir>"
     exit 0
 fi
 
 if [ $# -lt 2 ]; then
-    echo "GREŠKA: Potrebne su dve putanje (backend tipovi, frontend tipovi)." >&2
+    echo "ERROR: Two paths are required (backend types, frontend types)." >&2
     echo "" >&2
     usage
 fi
@@ -279,12 +283,12 @@ BACKEND_DIR="$PROJECT_DIR/$1"
 FRONTEND_DIR="$PROJECT_DIR/$2"
 
 if [ ! -d "$BACKEND_DIR" ]; then
-    echo "GREŠKA: Backend direktorijum ne postoji: $1" >&2
+    echo "ERROR: Backend directory does not exist: $1" >&2
     exit 1
 fi
 
 if [ ! -d "$FRONTEND_DIR" ]; then
-    echo "GREŠKA: Frontend direktorijum ne postoji: $2" >&2
+    echo "ERROR: Frontend directory does not exist: $2" >&2
     exit 1
 fi
 
@@ -299,13 +303,13 @@ echo "Backend:  $1 ($BACKEND_LANG)"
 echo "Frontend: $2 ($FRONTEND_LANG)"
 echo ""
 
-# Izvuci tipove
+# Extract types
 if [ "$BACKEND_LANG" = "typescript" ]; then
     BACKEND_TYPES_FILE=$(extract_ts_types "$BACKEND_DIR")
 elif [ "$BACKEND_LANG" = "csharp" ]; then
     BACKEND_TYPES_FILE=$(extract_cs_types "$BACKEND_DIR")
 else
-    echo "GREŠKA: Neprepoznat backend jezik u $1. Podržani: TypeScript, C#" >&2
+    echo "ERROR: Unrecognized backend language in $1. Supported: TypeScript, C#" >&2
     exit 1
 fi
 
@@ -314,30 +318,30 @@ if [ "$FRONTEND_LANG" = "typescript" ]; then
 elif [ "$FRONTEND_LANG" = "csharp" ]; then
     FRONTEND_TYPES_FILE=$(extract_cs_types "$FRONTEND_DIR")
 else
-    echo "GREŠKA: Neprepoznat frontend jezik u $2. Podržani: TypeScript, C#" >&2
+    echo "ERROR: Unrecognized frontend language in $2. Supported: TypeScript, C#" >&2
     exit 1
 fi
 
-# Uporedi
+# Compare
 compare_types "$BACKEND_TYPES_FILE" "$FRONTEND_TYPES_FILE"
 
-# Čišćenje
+# Cleanup
 rm -f "$BACKEND_TYPES_FILE" "$FRONTEND_TYPES_FILE"
 
-# Izračunaj rezultate iz fajla
+# Calculate results from file
 MATCHES=$(grep -c "^MATCH$" "$RESULTS_FILE" 2>/dev/null || echo 0)
 MISMATCHES=$(grep -c "^MISMATCH$" "$RESULTS_FILE" 2>/dev/null || echo 0)
 MISSING=$(grep -c "^MISSING$" "$RESULTS_FILE" 2>/dev/null || echo 0)
 rm -f "$RESULTS_FILE"
 
-# Rezultat
+# Result
 echo "╔══════════════════════════════════════════╗"
 printf "║  MATCH: %-4s MISMATCH: %-4s MISSING: %-4s║\n" "$MATCHES" "$MISMATCHES" "$MISSING"
 echo "╚══════════════════════════════════════════╝"
 
 if [ "$MISMATCHES" -gt 0 ] || [ "$MISSING" -gt 0 ]; then
     echo ""
-    echo "Popravi mismatch/missing polja pre commit-a."
+    echo "Fix mismatch/missing fields before committing."
     exit 1
 fi
 

@@ -1,31 +1,23 @@
 # Session Log
 
-> Hronološki pregled sesija rada na projektu.
+> Chronological overview of project work sessions.
 
 ---
 
-<!-- PRIMER (obriši posle prvog pravog entry-ja):
+<!-- EXAMPLE (delete after the first real entry):
 
-## [2026-04-01] Implementacija user login-a
-**Status:** Završen
-**Šta je urađeno:** Backend auth endpoint sa JWT + frontend login forma sa validacijom.
-**Problemi:** guard-scope blokirao frontend agenta koji je pokušao da piše u backend/ — ispravljeno preusmeravanjem na backend agenta.
-**Guardrail koji je pomogao:** guard-scope.sh — sprečio cross-scope pisanje.
-**Novo pravilo:** Nema.
+## [2026-04-01] Implement user login
+**Status:** Completed
+**What was done:** Backend auth endpoint with JWT + frontend login form with validation.
+**Issues:** guard-scope blocked the frontend agent that tried to write to backend/ — fixed by redirecting to the backend agent.
+**Guardrail that helped:** guard-scope.sh — prevented cross-scope writing.
+**New rule:** None.
 
 ## [2026-04-02] Hotfix: broken migration
-**Status:** Završen
-**Šta je urađeno:** Popravljena migracija koja je padala na staging-u zbog nullable kolone.
-**Problemi:** Pipeline preskočen (hotfix). Razlog logovan u pipeline-skip-log.md.
-**Guardrail koji je pomogao:** N/A (skip)
-**Novo pravilo:** Migracije uvek testirati na kopiji staging baze pre deploy-a.
+**Status:** Completed
+**What was done:** Fixed migration that was failing on staging due to a nullable column.
+**Issues:** Pipeline skipped (hotfix). Reason logged in pipeline-skip-log.md.
+**Guardrail that helped:** N/A (skip)
+**New rule:** Always test migrations on a staging database copy before deploy.
 
-KRAJ PRIMERA -->
-
-## [2026-04-07] Plugin test
-**Status:** Delimičan (verifier nije završen)
-**Šta je urađeno:** 1 fajlova promenjeno (.claude)
-**Problemi:** Guard blokade detektovane (vidi Guardrail)
-**Guardrail koji je pomogao:** 7 blokada: commit-no-prefix (2x), pipeline-incomplete (1x), mass-staging (1x)
-**Novo pravilo:** [popuni ili "Nema"]
-**Pipeline trajanje:**
+END OF EXAMPLE -->

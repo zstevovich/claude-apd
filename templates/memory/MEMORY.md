@@ -1,27 +1,27 @@
-# {{PROJECT_NAME}} — Memorija projekta
+# {{PROJECT_NAME}} — Project Memory
 
-## Uloga
+## Role
 
-Orkestrator. Delegiram agentima, ne implementiram direktno osim trivijalnog.
+Orchestrator. I delegate to agents, I do not implement directly except for trivial tasks.
 
-## Okruženje
+## Environment
 
-- **Skripte:** guard-git, guard-scope, guard-bash-scope, guard-secrets, guard-lockfile, pipeline-advance, pipeline-gate, rotate-session-log, session-start, verify-all
-- **Agenti:** {{AGENT_LIST}}
+- **Scripts:** guard-git, guard-scope, guard-bash-scope, guard-secrets, guard-lockfile, pipeline-advance, pipeline-gate, rotate-session-log, session-start, verify-all
+- **Agents:** {{AGENT_LIST}}
 - **Rules:** workflow, principles
-- **Pipeline:** Spec → Builder → Reviewer → Verifier → Commit (tehnički zaštićen)
+- **Pipeline:** Spec → Builder → Reviewer → Verifier → Commit (technically enforced)
 
-## Brza referenca
+## Quick reference
 
-| Stavka | Vrednost |
-|--------|---------|
+| Item | Value |
+|------|-------|
 | Stack | {{STACK}} |
-| Grane | develop → staging → main |
+| Branches | develop → staging → main |
 | Port range | {{PORT_RANGE}} |
 
-## Memory fajlovi (po temama)
+## Memory files (by topic)
 
 ### Status
-- [status.md](status.md) — aktuelna faza i fokus
-- [session-log.md](session-log.md) — hronološki pregled sesija
-- [pipeline-skip-log.md](pipeline-skip-log.md) — skip log za analizu
+- [status.md](status.md) — current phase and focus
+- [session-log.md](session-log.md) — chronological session overview
+- [pipeline-skip-log.md](pipeline-skip-log.md) — skip log for analysis

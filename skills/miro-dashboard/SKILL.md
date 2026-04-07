@@ -1,134 +1,134 @@
 ---
 name: miro-dashboard
-description: Vizualizuj APD pipeline status i metrike na Miro boardu — ažurira board sa trenutnim stanjem pipeline-a, završenim taskovima i metrikama
+description: Visualize APD pipeline status and metrics on a Miro board — updates the board with current pipeline state, completed tasks and metrics
 effort: high
 ---
 
 # Miro Pipeline Dashboard
 
-Kreira ili ažurira pipeline dashboard na Miro boardu sa:
-- Trenutni pipeline status (koji korak je aktivan)
-- Poslednji završeni taskovi sa trajanjima
-- Pipeline metrike (proseci, skip rate)
+Creates or updates a pipeline dashboard on the Miro board with:
+- Current pipeline status (which step is active)
+- Recently completed tasks with durations
+- Pipeline metrics (averages, skip rate)
 
-## Preduslov
+## Prerequisite
 
-- Miro MCP konfigurisan: `claude mcp add --transport http miro https://mcp.miro.com`
-- Autentifikacija: `/mcp auth`
-- Board URL definisan u CLAUDE.md (`{{MIRO_BOARD_URL}}`)
+- Miro MCP configured: `claude mcp add --transport http miro https://mcp.miro.com`
+- Authentication: `/mcp auth`
+- Board URL defined in CLAUDE.md (`{{MIRO_BOARD_URL}}`)
 
-## Kada koristiti
+## When to use
 
-- Na početku sesije — prikaz stanja pipeline-a na boardu
-- Posle završenog taska — ažuriraj board sa novim rezultatom
-- Na zahtev korisnika — "ažuriraj Miro dashboard"
-- Periodično — za pregled performansi tima
+- At the start of a session — display pipeline state on the board
+- After completing a task — update the board with the new result
+- On user request — "update Miro dashboard"
+- Periodically — for reviewing team performance
 
-## Procedura
+## Procedure
 
-### 1. Prikupi podatke
+### 1. Gather data
 
-Pokreni sledeće komande i sačuvaj output:
+Run the following commands and save the output:
 
 ```bash
 # Pipeline status
-bash .claude/scripts/pipeline-advance.sh status
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh status
 
-# Metrike (ako postoje)
-bash .claude/scripts/pipeline-advance.sh metrics
+# Metrics (if available)
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh metrics
 
-# Skip statistika
-bash .claude/scripts/pipeline-advance.sh stats
+# Skip statistics
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh stats
 ```
 
-### 2. Kreiraj dashboard tabelu na boardu
+### 2. Create dashboard table on the board
 
-Koristi Miro MCP `create_table` da kreiraš tabelu sa sledećim sadržajem:
+Use Miro MCP `create_table` to create a table with the following content:
 
-**Tabela 1: Pipeline Status**
+**Table 1: Pipeline Status**
 
-| Korak | Status | Vreme |
-|-------|--------|-------|
+| Step | Status | Time |
+|------|--------|------|
 | Spec | ✅ / ⏳ / — | timestamp |
 | Builder | ✅ / ⏳ / — | timestamp |
 | Reviewer | ✅ / ⏳ / — | timestamp |
 | Verifier | ✅ / ⏳ / — | timestamp |
 
-- ✅ = završen (zeleni sticky note)
-- ⏳ = u toku (žuti sticky note)
-- — = nije započet (sivi sticky note)
+- ✅ = completed (green sticky note)
+- ⏳ = in progress (yellow sticky note)
+- — = not started (gray sticky note)
 
-### 3. Kreiraj metrike sekciju
+### 3. Create metrics section
 
-Koristi Miro MCP `create_document` za markdown dokument:
+Use Miro MCP `create_document` for a markdown document:
 
 ```markdown
-# APD Pipeline Metrike
+# APD Pipeline Metrics
 
-**Ukupno taskova:** {broj}
-**Prosečno trajanje:** {vreme}
-**Najbrži task:** {vreme}
-**Najsporiji task:** {vreme}
-**Skip rate:** {procenat}
+**Total tasks:** {count}
+**Average duration:** {time}
+**Fastest task:** {time}
+**Slowest task:** {time}
+**Skip rate:** {percentage}
 
-## Prosek po koraku
-- spec→builder: {vreme}
-- builder→reviewer: {vreme}
-- reviewer→verifier: {vreme}
+## Average per step
+- spec→builder: {time}
+- builder→reviewer: {time}
+- reviewer→verifier: {time}
 ```
 
-### 4. Kreiraj poslednje taskove
+### 4. Create recent tasks
 
-Koristi Miro MCP `create_table` za tabelu poslednjih 5 taskova:
+Use Miro MCP `create_table` for a table of the last 5 tasks:
 
-| Task | Trajanje | Status |
+| Task | Duration | Status |
 |------|----------|--------|
-| {naziv} | {vreme} | ✅ / ⚠️ skip / … partial |
+| {name} | {time} | ✅ / ⚠️ skip / … partial |
 
-### 5. Organizuj na boardu
+### 5. Organize on the board
 
-Pozicioniraj elemente u frame pod nazivom **"APD Pipeline Dashboard"**:
-- Pipeline Status tabela — gore levo
-- Metrike dokument — gore desno
-- Poslednji taskovi — dole
+Position elements in a frame named **"APD Pipeline Dashboard"**:
+- Pipeline Status table — top left
+- Metrics document — top right
+- Recent tasks — bottom
 
-### 6. Ažuriranje postojećeg dashboarda
+### 6. Updating an existing dashboard
 
-Ako frame "APD Pipeline Dashboard" već postoji na boardu:
-1. Obriši postojeće elemente u frame-u
-2. Kreiraj nove sa ažuriranim podacima
-3. NE kreiraj novi frame — koristi postojeći
+If the frame "APD Pipeline Dashboard" already exists on the board:
+1. Delete existing elements in the frame
+2. Create new ones with updated data
+3. Do NOT create a new frame — use the existing one
 
-## Primer korišćenja
+## Usage example
 
 ```
-Korisnik: Ažuriraj Miro dashboard
-Claude: Čitam pipeline status i metrike...
+User: Update Miro dashboard
+Claude: Reading pipeline status and metrics...
 
   Pipeline: CreateOrder task
     [DONE] spec
     [DONE] builder
-    [----] reviewer ← sledeći
+    [----] reviewer ← next
     [----] verifier
 
-  Metrike: 12 taskova, prosek 8m 30s, skip rate 4%
+  Metrics: 12 tasks, average 8m 30s, skip rate 4%
 
-  Ažuriram Miro board...
-  ✓ Pipeline Status tabela ažurirana
-  ✓ Metrike dokument ažuriran
-  ✓ Poslednji taskovi tabela ažurirana
+  Updating Miro board...
+  ✓ Pipeline Status table updated
+  ✓ Metrics document updated
+  ✓ Recent tasks table updated
 
-Dashboard ažuriran: https://miro.com/app/board/...
+Dashboard updated: https://miro.com/app/board/...
 ```
 
-## Automatsko ažuriranje
+## Automatic updating
 
-Orkestrator može pozvati ovaj skill automatski na dva načina:
+The orchestrator can call this skill automatically in two ways:
 
-1. **Na kraju pipeline-a** — posle `pipeline-advance.sh verifier`, pre commita
-2. **Na session start** — ako Miro board postoji u konfiguraciji
+1. **At the end of the pipeline** — after `pipeline-advance.sh verifier`, before commit
+2. **On session start** — if a Miro board exists in the configuration
 
-Za automatsko ažuriranje pri svakom koraku, dodaj u workflow orkestratora:
+For automatic updating at each step, add to the orchestrator workflow:
 ```
-Posle svakog pipeline-advance.sh koraka → pozovi /miro-dashboard
+After each pipeline-advance.sh step → call /miro-dashboard
 ```

@@ -1,15 +1,15 @@
 # Architecture Decision Records (ADR)
 
-Evidencija ključnih tehničkih odluka za projekat.
+Record of key technical decisions for the project.
 
 ## Format
 
-Svaka odluka prati šablon: kontekst → odluka → posledice.
-Status: **Usvojeno**, **Zamenjeno**, **Odbačeno**.
+Each decision follows the template: context → decision → consequences.
+Status: **Accepted**, **Superseded**, **Withdrawn**.
 
-## Odluke
+## Decisions
 
-| # | Odluka | Status |
-| - | ------ | :----: |
+| # | Decision | Status |
+| - | -------- | :----: |
 
 Template: [TEMPLATE.md](./TEMPLATE.md)

@@ -1,59 +1,59 @@
 ---
 name: {{agent-name}}
-description: {{Kratak opis — domen i odgovornost}}
+description: {{Short description — domain and responsibility}}
 tools: Read, Write, Edit, Glob, Grep, Bash
-model: {{model}}  # sonnet za Builder-e, opus za Guardian/Reviewer
-effort: {{effort}}  # high za Builder-e, max za Reviewer/Verifier
+model: {{model}}  # sonnet for Builders, opus for Reviewer/Verifier
+effort: {{effort}}  # high for Builders, max for Reviewer/Verifier
 permissionMode: bypassPermissions
 memory: project
 skills:
   - {{skill-name-if-needed}}
-# {{SCOPE_PATHS}} — putanje koje agent sme menjati, razdvojene razmakom
-# Primer: src/ tests/
+# {{SCOPE_PATHS}} — paths this agent is allowed to modify, separated by spaces
+# Example: src/ tests/
 hooks:
   PreToolUse:
     - matcher: "Read"
       hooks:
         - type: command
-          command: bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-secrets.sh"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-secrets.sh"
           timeout: 5
     - matcher: "Write|Edit"
       hooks:
         - type: command
-          command: bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-scope.sh {{SCOPE_PATHS}}"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-scope.sh {{SCOPE_PATHS}}"
           timeout: 5
         - type: command
-          command: bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-secrets.sh"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-secrets.sh"
           timeout: 5
     - matcher: "Bash"
       if: "Bash(git *) | Bash(APD_ORCHESTRATOR_COMMIT=1 git *)"
       hooks:
         - type: command
-          command: bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-git.sh"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-git.sh"
           timeout: 5
     - matcher: "Bash"
       hooks:
         - type: command
-          command: bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-bash-scope.sh {{SCOPE_PATHS}}"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-bash-scope.sh {{SCOPE_PATHS}}"
           timeout: 5
         - type: command
-          command: bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-secrets.sh"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-secrets.sh"
           timeout: 5
 ---
 
-Ti si {{uloga}} za {{PROJECT_NAME}}.
+You are {{role}} for {{PROJECT_NAME}}.
 
 ## Stack
-- {{Tehnologije koje ovaj agent koristi}}
+- {{Technologies this agent uses}}
 
 ## Workflow
-1. Pročitaj spec karticu i razumej zahteve
-2. Učitaj relevantne skill-ove ako postoje
-3. Implementiraj promene
-4. Poštuj max 3-4 edit operacije po dispatch-u
-5. Ne preklapaj sa drugim agentima
+1. Read the spec card and understand the requirements
+2. Load relevant skills if they exist
+3. Implement changes
+4. Respect the max 3-4 edit operations per dispatch limit
+5. Do not overlap with other agents
 
-## ZABRANJENO
-- **NIKADA ne commituj izmene** — git add, git commit, git push su ZABRANJENI. Orkestrator kontroliše commitove korišćenjem `APD_ORCHESTRATOR_COMMIT=1` prefiksa.
-- **NIKADA ne kreiraj tipove iz specifikacije** — uvek čitaj backend kod
-- **NIKADA ne dodavaj AI potpise** — stil je human
+## FORBIDDEN
+- **NEVER commit changes** — git add, git commit, git push are FORBIDDEN. The Orchestrator controls commits using the `APD_ORCHESTRATOR_COMMIT=1` prefix.
+- **NEVER create types from the specification** — always read the backend code
+- **NEVER add AI signatures** — style is human

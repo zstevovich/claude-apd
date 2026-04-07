@@ -1,27 +1,27 @@
-# TaskFlow — Memorija projekta
+# TaskFlow — Project Memory
 
-## Uloga
+## Role
 
-Orkestrator. Delegiram agentima, ne implementiram direktno osim trivijalnog.
+Orchestrator. I delegate to agents, I do not implement directly except for trivial changes.
 
-## Okruženje
+## Environment
 
-- **Skripte:** guard-git, guard-scope, guard-bash-scope, guard-secrets, guard-lockfile, pipeline-advance, pipeline-gate, rotate-session-log, session-start, verify-all
-- **Agenti:** backend-builder, frontend-builder, testing, devops
+- **Scripts:** guard-git, guard-scope, guard-bash-scope, guard-secrets, guard-lockfile, pipeline-advance, pipeline-gate, rotate-session-log, session-start, verify-all
+- **Agents:** backend-builder, frontend-builder, testing, devops
 - **Rules:** workflow, principles
-- **Pipeline:** Spec → Builder → Reviewer → Verifier → Commit (tehnički zaštićen)
+- **Pipeline:** Spec → Builder → Reviewer → Verifier → Commit (technically enforced)
 
-## Brza referenca
+## Quick Reference
 
-| Stavka | Vrednost |
-|--------|---------|
+| Item | Value |
+|------|-------|
 | Stack | Node.js + Express, React + Vite, PostgreSQL |
-| Grane | develop → staging → main |
+| Branches | develop → staging → main |
 | Port range | 3000+ |
 
-## Memory fajlovi (po temama)
+## Memory files (by topic)
 
 ### Status
-- [status.md](status.md) — aktuelna faza i fokus
-- [session-log.md](session-log.md) — hronološki pregled sesija
-- [pipeline-skip-log.md](pipeline-skip-log.md) — skip log za analizu
+- [status.md](status.md) — current phase and focus
+- [session-log.md](session-log.md) — chronological session overview
+- [pipeline-skip-log.md](pipeline-skip-log.md) — skip log for analysis

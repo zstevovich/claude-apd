@@ -113,7 +113,7 @@ Patch release: 2 HIGH and 4 MEDIUM fixes from code review.
 
 ### Bug fixes
 
-- **HIGH: Session-log gate bypassed** — v2.4 gate checked for `[popuni]` but v2.5 auto-generated entries wrote `[popuni ili "Nema"]` which didn't match. Gate was non-functional against auto-summaries. Fixed: pattern now matches `[popuni` (any variant)
+- **HIGH: Session-log gate bypassed** — v2.4 gate checked for `[fill in]` but v2.5 auto-generated entries wrote `[fill in or "None"]` which didn't match. Gate was non-functional against auto-summaries. Fixed: pattern now matches `[fill in` (any variant)
 - **HIGH: Spurious pipeline reset** — empty `stat` output in self-healing evaluated as `now - 0`, producing a massive age that triggered stale pipeline reset. Fixed: validates output before arithmetic
 - **MEDIUM: PostToolUse hook not verified** — `verify-apd.sh` (51 checks now) and `test-hooks.sh` now check that `pipeline-post-commit.sh` is registered
 - **MEDIUM: E2E test blocked by gate** — `verify-apd.sh` pipeline test now backs up and cleans session-log before `spec` step
@@ -127,13 +127,13 @@ Dream Consolidation: auto-generated session-log summaries from pipeline context.
 
 ### New features
 
-- **Auto-summary on pipeline reset** — `pipeline-advance.sh reset` now generates populated session-log entries from pipeline context instead of `[popuni]` skeletons. Collects: changed files from `git diff`, guard blocks from `guard-audit.log`, bottleneck detection from step timestamps. Only **Novo pravilo** remains as `[popuni]` (requires human judgement)
+- **Auto-summary on pipeline reset** — `pipeline-advance.sh reset` now generates populated session-log entries from pipeline context instead of `[fill in]` skeletons. Collects: changed files from `git diff`, guard blocks from `guard-audit.log`, bottleneck detection from step timestamps. Only **New rule** remains as `[fill in]` (requires human judgement)
 - **Meta-summary on session-log rotation** — `rotate-session-log.sh` now generates a one-line consolidation when archiving entries: total tasks, date range, problem count, guard block count, new rules count
 - **Fixed rotation regex** — `rotate-session-log.sh` now correctly matches `## [date]` format (was missing the brackets)
 
 ### Context
 
-Production analysis (MojOff, 19 tasks) showed 12 of 14 auto-generated entries had unfilled `[popuni]` placeholders. v2.4 added a gate that blocks new tasks until entries are filled. v2.5 eliminates most placeholders by auto-generating content from data already available in the pipeline.
+Production analysis (MojOff, 19 tasks) showed 12 of 14 auto-generated entries had unfilled `[fill in]` placeholders. v2.4 added a gate that blocks new tasks until entries are filled. v2.5 eliminates most placeholders by auto-generating content from data already available in the pipeline.
 
 ### Closes
 
@@ -147,19 +147,19 @@ Session-log enforcement based on real-world production findings.
 
 ### New features
 
-- **Session-log gate** — `pipeline-advance.sh spec` now blocks new tasks if the previous session-log entry contains unfilled `[popuni]` placeholders. Shows which entry needs completion and lists the required fields. Forces the orchestrator to document what was done before starting new work
+- **Session-log gate** — `pipeline-advance.sh spec` now blocks new tasks if the previous session-log entry contains unfilled `[fill in]` placeholders. Shows which entry needs completion and lists the required fields. Forces the orchestrator to document what was done before starting new work
 
 ### Context
 
-Production analysis of MojOff (19 pipeline tasks, 77 PASS verify-apd) revealed that 12 of 14 auto-generated session-log entries had unfilled `[popuni]` placeholders. The auto-append on pipeline reset creates skeleton entries, but without enforcement the orchestrator skips filling them in. This was the only soft rule in APD without mechanical enforcement — now it is enforced at the pipeline level.
+Production analysis of MojOff (19 pipeline tasks, 77 PASS verify-apd) revealed that 12 of 14 auto-generated session-log entries had unfilled `[fill in]` placeholders. The auto-append on pipeline reset creates skeleton entries, but without enforcement the orchestrator skips filling them in. This was the only soft rule in APD without mechanical enforcement — now it is enforced at the pipeline level.
 
 ### Edge cases verified
 
-- Template session-log with HTML-commented examples: passes (no `[popuni]` in examples)
+- Template session-log with HTML-commented examples: passes (no `[fill in]` in examples)
 - Empty session-log: passes
 - Missing session-log file: passes
 - Properly filled entry: passes
-- Entry with `[popuni]`: blocks with clear error message
+- Entry with `[fill in]`: blocks with clear error message
 
 ---
 
