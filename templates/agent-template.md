@@ -2,12 +2,11 @@
 name: {{agent-name}}
 description: {{Short description — domain and responsibility}}
 tools: Read, Write, Edit, Glob, Grep, Bash
-model: {{model}}  # sonnet for Builders, opus for Reviewer/Verifier
-effort: {{effort}}  # high for Builders, max for Reviewer/Verifier
+model: sonnet
+effort: high
+maxTurns: 20
 permissionMode: bypassPermissions
 memory: project
-skills:
-  - {{skill-name-if-needed}}
 # {{SCOPE_PATHS}} — paths this agent is allowed to modify, separated by spaces
 # Example: src/ tests/
 hooks:

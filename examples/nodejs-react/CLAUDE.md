@@ -99,6 +99,7 @@ Spec → Builder → Reviewer → Verifier → Commit
 | frontend-builder | React components, pages, hooks | client/ | sonnet | high |
 | testing | Unit + integration tests | server/tests/ client/tests/ | sonnet | high |
 | devops | Docker, CI/CD | docker/ .github/ | sonnet | high |
+| **code-reviewer** | **Finds bugs, risks, security issues** | **reads all** | **opus** | **max** |
 
 **For every task, dispatch the appropriate agent(s) above. Do not implement yourself.**
 

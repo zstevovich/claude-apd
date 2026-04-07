@@ -4,6 +4,7 @@ description: Builder agent for the backend layer — API endpoints, services, re
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
 effort: high
+maxTurns: 20
 permissionMode: bypassPermissions
 memory: project
 hooks:

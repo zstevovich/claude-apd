@@ -87,13 +87,20 @@ Generate with sections (ALL populated, NO placeholders):
 
 #### 4.2 Agents
 
-For each agent generate `.claude/agents/{name}.md`:
-- Frontmatter: name, description, tools, model (sonnet), effort (high), permissionMode, memory
+**Builder agents** — one per domain, from `${CLAUDE_PLUGIN_ROOT}/templates/agent-template.md`:
+- Frontmatter: name, description, tools (Read/Write/Edit/Glob/Grep/Bash), **model: sonnet**, **effort: high**, maxTurns: 20, permissionMode: bypassPermissions
 - Hooks with `${CLAUDE_PLUGIN_ROOT}/scripts/` paths
 - guard-scope.sh and guard-bash-scope.sh with exact SCOPE_PATHS
 - Body: role, stack, workflow, FORBIDDEN
 
-Use the format from `${CLAUDE_PLUGIN_ROOT}/templates/agent-template.md` but GENERATE — do not copy.
+**Reviewer agent** — ALWAYS generated, from `${CLAUDE_PLUGIN_ROOT}/templates/reviewer-template.md`:
+- Frontmatter: name: code-reviewer, tools (Read/Glob/Grep/Bash — **NO Write/Edit**), **model: opus**, **effort: max**, maxTurns: 15, **permissionMode: plan** (read-only)
+- NO guard-scope (reviewer reads everything, writes nothing)
+- Body: review checklist, output format, verdict
+
+The reviewer is **mandatory** — every project gets one. It uses opus/max because finding bugs requires deeper reasoning than writing code.
+
+GENERATE agents from the templates — do not copy literally.
 
 #### 4.3 verify-all.sh
 

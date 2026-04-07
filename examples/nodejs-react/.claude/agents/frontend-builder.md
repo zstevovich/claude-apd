@@ -4,6 +4,7 @@ description: Builder agent for the frontend layer — React components, pages, h
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
 effort: high
+maxTurns: 20
 permissionMode: bypassPermissions
 memory: project
 hooks:
