@@ -42,12 +42,15 @@ Check whether `.claude/` or `CLAUDE.md` already exists:
 
 ### 2. Gather information from the user
 
-- Project name
+Some values come pre-filled from plugin userConfig (set at `plugin enable` time):
+- **Project name** — read from `$CLAUDE_PLUGIN_OPTION_PROJECT_NAME` (confirm with user)
+- **Stack** — read from `$CLAUDE_PLUGIN_OPTION_STACK` (confirm with user)
+- **Author** — read from `$CLAUDE_PLUGIN_OPTION_AUTHOR_NAME` (confirm with user)
+
+Ask only for values NOT provided by userConfig:
 - Project description (one sentence)
-- Stack (backend, frontend, mobile, database, cache)
 - Ports (API, database, cache, frontend)
-- Author (name for git)
-- Documentation language (Serbian/English)
+- Documentation language (English/Serbian)
 - Figma URL (optional)
 - Miro board URL (optional)
 - GitHub Projects URL (optional)

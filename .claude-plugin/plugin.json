@@ -7,5 +7,19 @@
   },
   "homepage": "https://github.com/zstevovich/claude-apd",
   "repository": "https://github.com/zstevovich/claude-apd",
-  "license": "MIT"
+  "license": "MIT",
+  "userConfig": {
+    "project_name": {
+      "description": "Project name (e.g., MyCRM, TaskFlow)",
+      "sensitive": false
+    },
+    "stack": {
+      "description": "Tech stack: nodejs, php, python, dotnet, go, java",
+      "sensitive": false
+    },
+    "author_name": {
+      "description": "Author name for git commits",
+      "sensitive": false
+    }
+  }
 }

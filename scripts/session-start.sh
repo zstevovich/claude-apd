@@ -171,9 +171,10 @@ if [ -x "$SCRIPT_DIR/rotate-session-log.sh" ]; then
 fi
 
 # ===== DYNAMIC PROJECT NAME =====
+# Priority: userConfig env var > .apd-config > CLAUDE.md heading > directory name
+PROJ_NAME="${CLAUDE_PLUGIN_OPTION_PROJECT_NAME:-}"
 APD_CONFIG="$CLAUDE_DIR/.apd-config"
-PROJ_NAME=""
-if [ -f "$APD_CONFIG" ]; then
+if [ -z "$PROJ_NAME" ] && [ -f "$APD_CONFIG" ]; then
     PROJ_NAME=$(grep '^PROJECT_NAME=' "$APD_CONFIG" 2>/dev/null | cut -d= -f2-)
 fi
 if [ -z "$PROJ_NAME" ] && [ -f "$PROJECT_DIR/CLAUDE.md" ]; then

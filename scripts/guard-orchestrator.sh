@@ -3,7 +3,8 @@
 # Agents have agent_id in stdin JSON; orchestrator does not.
 # If no agent_id → this is the orchestrator → block code file writes.
 #
-# Code file extensions are configured below. Add/remove as needed.
+# Uses CLAUDE_PLUGIN_OPTION_STACK (from userConfig) to determine which
+# file extensions are code files for the project's stack.
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
@@ -21,24 +22,45 @@ if [ -n "$AGENT_ID" ]; then
 fi
 
 # No agent_id = orchestrator session
-# Allow writing to APD/config files, block code files
 if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
 
 REL_PATH="${FILE_PATH#"$PROJECT_DIR"/}"
 
-# Always allow: APD infrastructure files
+# Always allow: APD infrastructure, config, documentation
 case "$REL_PATH" in
-  .claude/*|CLAUDE.md|.gitignore|*.md|docs/*|.apd-*|.env*)
+  .claude/*|CLAUDE.md|.gitignore|*.md|docs/*|.apd-*|.env*|*.json|*.yaml|*.yml|*.toml|*.xml|*.lock)
     exit 0
     ;;
 esac
 
-# Block: code files — orchestrator must dispatch an agent
-CODE_EXTENSIONS="php|js|ts|tsx|jsx|py|rb|go|rs|java|cs|cpp|c|h|swift|kt|scala|sh|sql|vue|svelte"
+# Determine code extensions based on stack (from userConfig or .apd-config)
+STACK="${CLAUDE_PLUGIN_OPTION_STACK:-}"
+[ -z "$STACK" ] && STACK=$(grep '^STACK=' "$CLAUDE_DIR/.apd-config" 2>/dev/null | cut -d= -f2-)
 
-if echo "$REL_PATH" | grep -qE "\.(${CODE_EXTENSIONS})$"; then
+case "${STACK:-}" in
+  php)
+    CODE_EXT="php" ;;
+  nodejs|node)
+    CODE_EXT="js|ts|tsx|jsx|mjs|cjs" ;;
+  python)
+    CODE_EXT="py" ;;
+  dotnet)
+    CODE_EXT="cs|fs" ;;
+  go)
+    CODE_EXT="go" ;;
+  java)
+    CODE_EXT="java|kt|scala" ;;
+  *)
+    # Fallback: all common code extensions
+    CODE_EXT="php|js|ts|tsx|jsx|py|rb|go|rs|java|cs|cpp|c|h|swift|kt|scala|vue|svelte" ;;
+esac
+
+# Also always block: shell scripts, SQL, HTML templates with code
+CODE_EXT="${CODE_EXT}|sh|sql"
+
+if echo "$REL_PATH" | grep -qE "\.(${CODE_EXT})$"; then
   echo "BLOCKED: Orchestrator cannot write code files directly." >&2
   echo "  File: $REL_PATH" >&2
   echo "  Dispatch the appropriate Builder agent instead." >&2
