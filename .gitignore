@@ -1,10 +1,6 @@
-# Claude Code
-.claude/settings.local.json
-.claude/.pipeline/
-.claude/memory/guard-audit.log
-.claude/memory/pipeline-metrics.log
-# Otkomentiraj ako ne želiš CLAUDE.md u repo-u:
-# CLAUDE.md
+# Claude Code — lokalni razvoj (ne ide u git)
+CLAUDE.md
+.claude/
 
 # OS
 .DS_Store

@@ -1,5 +1,52 @@
 # Changelog
 
+## v3.0.0 — 2026-04-07
+
+**Major release: APD is now an installable Claude Code plugin.**
+
+### Breaking changes
+
+- APD no longer works by copying `.claude/` into projects
+- Install via `npx skills add zstevovich/claude-apd`, then run `/apd-init`
+- Scripts live in the plugin (`${CLAUDE_PLUGIN_ROOT}/scripts/`), not in the project
+- Only `verify-all.sh` remains in the project (stack-specific build commands)
+- Agent hooks use `${CLAUDE_PLUGIN_ROOT}` instead of `{{PROJECT_PATH}}`
+
+### New architecture
+
+```
+Plugin (installed once):     Project (generated per-project):
+  scripts/ (15 scripts)        .claude/agents/*.md
+  hooks/settings.json          .claude/rules/principles.md
+  rules/workflow.md            .claude/scripts/verify-all.sh
+  skills/ (4 skills)           .claude/memory/
+  agents/TEMPLATE.md           .claude/.apd-config
+  templates/                   .claude/.apd-version
+  .claude-plugin/plugin.json   CLAUDE.md
+```
+
+### New features
+
+- **`resolve-project.sh`** — shared library sourced by all scripts. Resolves `PROJECT_DIR` (user's project) and `APD_PLUGIN_ROOT` (plugin install) automatically
+- **`/apd-upgrade` skill** — migrates v2.x copy-paste installations to v3.x plugin architecture (backup, extract config, remove old scripts, update agent hooks)
+- **`.apd-config`** — project configuration file (`PROJECT_NAME`, `APD_VERSION`, `STACK`) read by session-start.sh for dynamic project name
+- **`.apd-version`** — tracks installed APD version for upgrade detection
+- **Per-stack verify-all templates** — `templates/verify-all/` with ready-made snippets for .NET, Node.js, Java, Python, Go, PHP
+- **Per-language principles templates** — `templates/principles/` for English and Serbian
+- **Plugin hooks** — `hooks/settings.json` with `${CLAUDE_PLUGIN_ROOT}` paths, conditional `if` fields, PostCompact, PermissionDenied
+
+### Migration from v2.x
+
+Run `/apd-upgrade` after installing the plugin. It will:
+1. Backup your `.claude/` directory
+2. Extract configuration from existing files
+3. Remove scripts (now in plugin)
+4. Update agent hook paths
+5. Create `.apd-config` and `.apd-version`
+6. Verify with `verify-apd.sh`
+
+---
+
 ## v2.8 — 2026-04-07
 
 Adopts Claude Code v2.1.85–v2.1.89 platform features. Reduces hook overhead, adds context resilience and audit coverage.
