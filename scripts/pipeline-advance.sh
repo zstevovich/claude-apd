@@ -222,6 +222,12 @@ case "$STEP" in
                     PIPELINE_STATUS="Partial (verifier not completed)"
                 fi
 
+                # 5. New rule — auto-fill "None" for skip/init tasks, leave [fill in] for real tasks
+                NEW_RULE='[fill in or "None"]'
+                if echo "$TASK_NAME" | grep -qE '^(HOTFIX|INIT):'; then
+                    NEW_RULE="None"
+                fi
+
                 # --- Generate entry ---
                 cat >> "$SESSION_LOG" << EOF
 
@@ -230,7 +236,7 @@ case "$STEP" in
 **What was done:** $CHANGED_SUMMARY
 **Problems:** $PROBLEMS
 **Guardrail that helped:** $GUARD_SUMMARY
-**New rule:** [fill in or "None"]
+**New rule:** $NEW_RULE
 **Pipeline duration:**$TOTAL
 EOF
                 echo "Session log updated (auto-summary): $TASK_NAME" >&2
@@ -424,6 +430,20 @@ EOF
         echo "╚══════════════════════════════════════════╝"
         ;;
 
+    init)
+        if [ -z "$ARG" ]; then
+            echo "ERROR: Description for init is required." >&2
+            exit 1
+        fi
+        echo "${NOW}|${NOW_HUMAN}|INIT: ${ARG}" > "$PIPELINE_DIR/spec.done"
+        echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/builder.done"
+        echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
+        echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
+
+        echo "Pipeline INIT: $ARG [$NOW_HUMAN]"
+        echo "  Initial setup — no pipeline review required."
+        ;;
+
     skip)
         if [ -z "$ARG" ]; then
             echo "ERROR: Reason for skip is required." >&2
@@ -435,9 +455,9 @@ EOF
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
         # Note: skip does not write verified.timestamp — verify-all.sh cache is not used for skip tasks
 
-        # Append to skip log (create if it doesn't exist)
+        # Append to skip log
         SKIP_LOG="$MEMORY_DIR/pipeline-skip-log.md"
-        echo "| ${NOW_HUMAN} | ${ARG} | — |" >> "$SKIP_LOG"
+        echo "| ${NOW_HUMAN} | ${ARG} | hotfix |" >> "$SKIP_LOG"
 
         echo "Pipeline SKIPPED: $ARG [$NOW_HUMAN]"
         echo "  This is logged. Use only for urgent production fixes."
@@ -449,7 +469,8 @@ EOF
         echo "  pipeline-advance.sh builder|reviewer|verifier" >&2
         echo "  pipeline-advance.sh reset|status|stats|metrics" >&2
         echo "  pipeline-advance.sh rollback" >&2
-        echo "  pipeline-advance.sh skip \"Reason\"" >&2
+        echo "  pipeline-advance.sh init \"Description\"     # Initial setup (no review)" >&2
+        echo "  pipeline-advance.sh skip \"Reason\"           # Urgent hotfix (logged)" >&2
         exit 1
         ;;
 esac
