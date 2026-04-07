@@ -126,7 +126,30 @@ Generate in `.claude/memory/`:
 
 #### 4.6 Configuration
 
-`.claude/settings.json` — Project hooks (if needed alongside plugin hooks)
+`.claude/settings.json` — Must include env, attribution, and notification:
+```json
+{
+  "env": {
+    "APD_PROJECT_NAME": "{name}"
+  },
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '[{name}] Claude needs attention'"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
 
 `.claude/.apd-config`:
 ```
