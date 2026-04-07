@@ -16,6 +16,56 @@ ARG="$2"
 NOW=$(date +%s)
 NOW_HUMAN=$(date +"%Y-%m-%d %H:%M:%S")
 
+# --- Visual helpers ---
+show_pipeline() {
+    # Usage: show_pipeline [active_step]
+    # Renders a visual pipeline progress bar
+    local active="$1"
+    local steps=("spec" "builder" "reviewer" "verifier")
+    local line=""
+    local detail=""
+
+    for i in "${!steps[@]}"; do
+        local s="${steps[$i]}"
+        local icon="--"
+        local label="$s"
+
+        if [ -f "$PIPELINE_DIR/$s.done" ]; then
+            icon="done"
+        fi
+
+        if [ "$s" = "$active" ]; then
+            icon="next"
+        fi
+
+        if [ "$i" -gt 0 ]; then
+            line="${line}---"
+        fi
+
+        if [ "$icon" = "done" ] || [ "$icon" = "next" ]; then
+            line="${line}[${label}]"
+        else
+            line="${line} ${label} "
+        fi
+    done
+
+    echo ""
+    echo "  $line --> commit"
+    echo ""
+
+    # Detail lines
+    for s in "${steps[@]}"; do
+        if [ -f "$PIPELINE_DIR/$s.done" ]; then
+            local ts=$(cut -d'|' -f2 "$PIPELINE_DIR/$s.done")
+            printf "    %-12s %s\n" "$s" "$ts"
+        elif [ "$s" = "$active" ]; then
+            printf "    %-12s %s\n" "$s" "<-- current"
+        else
+            printf "    %-12s %s\n" "$s" "..."
+        fi
+    done
+}
+
 format_duration() {
     local seconds=$1
     if [ "$seconds" -lt 60 ]; then
@@ -62,11 +112,8 @@ case "$STEP" in
 
         rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp"
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
-        echo "Pipeline started: $ARG [$NOW_HUMAN]"
-        echo "  [DONE] spec   $NOW_HUMAN"
-        echo "  [----] builder"
-        echo "  [----] reviewer"
-        echo "  [----] verifier"
+        echo "Pipeline started: $ARG"
+        show_pipeline "builder"
         ;;
 
     builder)
@@ -77,11 +124,8 @@ case "$STEP" in
         SPEC_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/spec.done")
         ELAPSED=$(format_duration $((NOW - SPEC_TS)))
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/builder.done"
-        echo "Pipeline: builder completed. [$NOW_HUMAN] (spec->builder: $ELAPSED)"
-        echo "  [DONE] spec"
-        echo "  [DONE] builder   $NOW_HUMAN"
-        echo "  [----] reviewer <- NEXT"
-        echo "  [----] verifier"
+        echo "Builder completed (+$ELAPSED)"
+        show_pipeline "reviewer"
         ;;
 
     reviewer)
@@ -92,11 +136,8 @@ case "$STEP" in
         BUILDER_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/builder.done")
         ELAPSED=$(format_duration $((NOW - BUILDER_TS)))
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
-        echo "Pipeline: reviewer completed. [$NOW_HUMAN] (builder->reviewer: $ELAPSED)"
-        echo "  [DONE] spec"
-        echo "  [DONE] builder"
-        echo "  [DONE] reviewer  $NOW_HUMAN"
-        echo "  [----] verifier <- NEXT"
+        echo "Reviewer completed (+$ELAPSED)"
+        show_pipeline "verifier"
         ;;
 
     verifier)
@@ -111,14 +152,12 @@ case "$STEP" in
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
         # Cache timestamp — verify-all.sh skips rebuild if fresh (<120s)
         echo "$NOW" > "$PIPELINE_DIR/verified.timestamp"
-        echo "Pipeline: verifier completed. COMMIT ALLOWED. [$NOW_HUMAN]"
-        echo "  (reviewer->verifier: $ELAPSED | total: $TOTAL)"
-        echo "  [DONE] spec"
-        echo "  [DONE] builder"
-        echo "  [DONE] reviewer"
-        echo "  [DONE] verifier  $NOW_HUMAN"
         echo ""
-        echo "You can commit with: APD_ORCHESTRATOR_COMMIT=1 git commit ..."
+        echo "  ========================================="
+        echo "    COMMIT ALLOWED  (total: $TOTAL)"
+        echo "  ========================================="
+        show_pipeline ""
+        echo "  Ready: APD_ORCHESTRATOR_COMMIT=1 git commit ..."
         ;;
 
     reset)
@@ -256,17 +295,7 @@ EOF
                 [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp"
                 echo "Rollback: $step removed."
                 ROLLED_BACK=true
-
-                # Show new status
-                echo ""
-                for s in spec builder reviewer verifier; do
-                    if [ -f "$PIPELINE_DIR/$s.done" ]; then
-                        echo "  [DONE] $s"
-                    else
-                        echo "  [----] $s <- NEXT"
-                        break
-                    fi
-                done
+                show_pipeline "$step"
                 break
             fi
         done
@@ -279,18 +308,30 @@ EOF
     status)
         TASK="[no active task]"
         SPEC_TIME=""
+        NEXT_STEP=""
         if [ -f "$PIPELINE_DIR/spec.done" ]; then
             TASK=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done")
             SPEC_TIME=$(cut -d'|' -f2 "$PIPELINE_DIR/spec.done")
             SPEC_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/spec.done")
         fi
-        echo "Pipeline status: $TASK"
+
+        # Find next step
+        for s in spec builder reviewer verifier; do
+            if [ ! -f "$PIPELINE_DIR/$s.done" ]; then
+                NEXT_STEP="$s"
+                break
+            fi
+        done
+
+        echo "Task: $TASK"
         if [ -n "$SPEC_TIME" ]; then
             TOTAL_ELAPSED=$(format_duration $(($(date +%s) - SPEC_TS)))
-            echo "  Started: $SPEC_TIME ($TOTAL_ELAPSED ago)"
+            echo "Started: $SPEC_TIME ($TOTAL_ELAPSED ago)"
         fi
-        echo ""
 
+        show_pipeline "$NEXT_STEP"
+
+        # Detailed timing
         PREV_TS="${SPEC_TS:-}"
         for step in spec builder reviewer verifier; do
             if [ -f "$PIPELINE_DIR/$step.done" ]; then
@@ -440,8 +481,11 @@ EOF
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
 
-        echo "Pipeline INIT: $ARG [$NOW_HUMAN]"
+        echo ""
+        echo "  --------- INIT: $ARG ---------"
         echo "  Initial setup — no pipeline review required."
+        echo "  All steps marked complete. Ready to commit."
+        echo ""
         ;;
 
     skip)
@@ -459,8 +503,10 @@ EOF
         SKIP_LOG="$MEMORY_DIR/pipeline-skip-log.md"
         echo "| ${NOW_HUMAN} | ${ARG} | hotfix |" >> "$SKIP_LOG"
 
-        echo "Pipeline SKIPPED: $ARG [$NOW_HUMAN]"
+        echo ""
+        echo "  !!!! PIPELINE SKIPPED: $ARG !!!!"
         echo "  This is logged. Use only for urgent production fixes."
+        echo ""
         ;;
 
     *)
