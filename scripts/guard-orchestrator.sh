@@ -1,0 +1,58 @@
+#!/bin/bash
+# APD Orchestrator Guard — prevents the orchestrator from writing code files directly
+# Agents have agent_id in stdin JSON; orchestrator does not.
+# If no agent_id → this is the orchestrator → block code file writes.
+#
+# Code file extensions are configured below. Add/remove as needed.
+
+source "$(dirname "$0")/lib/resolve-project.sh"
+
+if ! command -v jq &>/dev/null; then
+  exit 0
+fi
+
+INPUT=$(cat)
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null)
+
+# If this is an agent (has agent_id), allow — agents have their own guard-scope
+if [ -n "$AGENT_ID" ]; then
+  exit 0
+fi
+
+# No agent_id = orchestrator session
+# Allow writing to APD/config files, block code files
+if [ -z "$FILE_PATH" ]; then
+  exit 0
+fi
+
+REL_PATH="${FILE_PATH#"$PROJECT_DIR"/}"
+
+# Always allow: APD infrastructure files
+case "$REL_PATH" in
+  .claude/*|CLAUDE.md|.gitignore|*.md|docs/*|.apd-*|.env*)
+    exit 0
+    ;;
+esac
+
+# Block: code files — orchestrator must dispatch an agent
+CODE_EXTENSIONS="php|js|ts|tsx|jsx|py|rb|go|rs|java|cs|cpp|c|h|swift|kt|scala|sh|sql|vue|svelte"
+
+if echo "$REL_PATH" | grep -qE "\.(${CODE_EXTENSIONS})$"; then
+  echo "BLOCKED: Orchestrator cannot write code files directly." >&2
+  echo "  File: $REL_PATH" >&2
+  echo "  Dispatch the appropriate Builder agent instead." >&2
+  echo "" >&2
+  echo "  Available agents:" >&2
+  if [ -d "$CLAUDE_DIR/agents" ]; then
+    for agent_file in "$CLAUDE_DIR/agents"/*.md; do
+      [ -f "$agent_file" ] || continue
+      AGENT_NAME=$(basename "$agent_file" .md)
+      echo "    - $AGENT_NAME" >&2
+    done
+  fi
+  exit 2
+fi
+
+# Allow everything else (config files, data files, etc.)
+exit 0
