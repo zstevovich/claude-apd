@@ -170,10 +170,12 @@ This installs APD as a Claude Code plugin. All scripts, hooks, and skills are av
 
 ### 2. Run APD Init
 
-Open Claude Code in your project directory and run:
+Open a new Claude Code session in your project directory and run:
 ```
 /apd-init
 ```
+
+> **Note:** If the skill is not available, restart the Claude Code session after plugin installation.
 
 The skill will guide you through configuration — project name, stack, paths, agents. It generates:
 - `CLAUDE.md` — project instructions

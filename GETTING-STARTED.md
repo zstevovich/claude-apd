@@ -22,12 +22,14 @@ From zero to your first pipeline commit in 5 minutes.
 
 ## Step 2 — Initialise
 
-Open Claude Code in your project directory and run:
+Open a new Claude Code session in your project directory and run:
 
 ```console
 ~/Projects/my-project $ claude
 > /apd-init
 ```
+
+> **Note:** Start a new session after installing the plugin — skills register on session start.
 
 The skill will ask for:
 - Project name and path
