@@ -7,7 +7,7 @@
 ### Breaking changes
 
 - APD no longer works by copying `.claude/` into projects
-- Install via `/plugin install claude-apd`, then run `/apd-init`
+- Install via `/plugin marketplace add zstevovich/claude-apd` + `/plugin install claude-apd@zstevovich-plugins`, then run `/apd-init`
 - Scripts live in the plugin (`${CLAUDE_PLUGIN_ROOT}/scripts/`), not in the project
 - Only `verify-all.sh` remains in the project (stack-specific build commands)
 - Agent hooks use `${CLAUDE_PLUGIN_ROOT}` instead of `{{PROJECT_PATH}}`

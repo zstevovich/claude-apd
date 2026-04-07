@@ -1,0 +1,22 @@
+{
+  "name": "zstevovich-plugins",
+  "owner": {
+    "name": "Zoran Stevovic"
+  },
+  "plugins": [
+    {
+      "name": "claude-apd",
+      "source": {
+        "source": "github",
+        "repo": "zstevovich/claude-apd"
+      },
+      "description": "Agent Pipeline Development — enforced multi-agent pipelines with mechanical guardrails",
+      "version": "3.0.0",
+      "author": {
+        "name": "Zoran Stevovic"
+      },
+      "repository": "https://github.com/zstevovich/claude-apd",
+      "license": "MIT"
+    }
+  ]
+}

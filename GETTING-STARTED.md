@@ -15,7 +15,9 @@ From zero to your first pipeline commit in 5 minutes.
 ## Step 1 — Install the plugin
 
 ```console
-~/Projects/my-project $ /plugin install claude-apd
+~/Projects/my-project $ claude
+> /plugin marketplace add zstevovich/claude-apd
+> /plugin install claude-apd@zstevovich-plugins
 ```
 
 ## Step 2 — Initialise

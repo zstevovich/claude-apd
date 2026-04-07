@@ -156,11 +156,17 @@ Version is checked automatically on session start and by `verify-apd.sh`.
 
 ### 1. Install the plugin
 
+In Claude Code, run these two commands:
+
 ```bash
-/plugin install claude-apd
+# Add the marketplace (one time)
+/plugin marketplace add zstevovich/claude-apd
+
+# Install the plugin
+/plugin install claude-apd@zstevovich-plugins
 ```
 
-This installs APD as a Claude Code plugin. All scripts, hooks, rules, and skills are available immediately via `${CLAUDE_PLUGIN_ROOT}`.
+This installs APD as a Claude Code plugin. All scripts, hooks, and skills are available immediately via `${CLAUDE_PLUGIN_ROOT}`.
 
 ### 2. Run APD Init
 
