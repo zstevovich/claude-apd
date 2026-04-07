@@ -7,6 +7,5 @@
   },
   "homepage": "https://github.com/zstevovich/claude-apd",
   "repository": "https://github.com/zstevovich/claude-apd",
-  "license": "MIT",
-  "skills": "./skills/"
+  "license": "MIT"
 }
