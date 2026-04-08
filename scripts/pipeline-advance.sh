@@ -124,6 +124,10 @@ case "$STEP" in
             fi
         fi
 
+        # Archive agent log before clearing (permanent audit trail)
+        if [ -f "$PIPELINE_DIR/.agents" ]; then
+            cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
+        fi
         rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents"
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
         apd_header "APD Pipeline"
@@ -361,12 +365,21 @@ case "$STEP" in
                     NEW_RULE="None"
                 fi
 
+                # 6. Agents dispatched during this task
+                AGENTS_SUMMARY="none"
+                AGENTS_LOG="$PIPELINE_DIR/.agents"
+                if [ -f "$AGENTS_LOG" ]; then
+                    AGENT_LIST=$(grep '|stop|' "$AGENTS_LOG" | cut -d'|' -f3 | sort -u | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g')
+                    [ -n "$AGENT_LIST" ] && AGENTS_SUMMARY="$AGENT_LIST"
+                fi
+
                 # --- Generate entry ---
                 cat >> "$SESSION_LOG" << EOF
 
 ## [$(date +%Y-%m-%d)] $TASK_NAME
 **Status:** $PIPELINE_STATUS
 **What was done:** $CHANGED_SUMMARY
+**Agents:** $AGENTS_SUMMARY
 **Problems:** $PROBLEMS
 **Guardrail that helped:** $GUARD_SUMMARY
 **New rule:** $NEW_RULE
@@ -374,6 +387,10 @@ case "$STEP" in
 EOF
                 echo "Session log updated (auto-summary): $TASK_NAME" >&2
             fi
+        fi
+        # Archive agent log before clearing
+        if [ -f "$PIPELINE_DIR/.agents" ]; then
+            cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
         rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents"
         echo "Pipeline reset. Ready for new task."
