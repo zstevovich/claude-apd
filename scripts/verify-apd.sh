@@ -7,10 +7,8 @@
 #   verify-apd.sh  -> functional tests (guards block, pipeline works end-to-end)
 
 source "$(dirname "$0")/lib/resolve-project.sh"
+source "$(dirname "$0")/lib/style.sh"
 
-PASS=0
-FAIL=0
-WARN=0
 SECTION=""
 
 # Summary data — collected during checks
@@ -26,14 +24,9 @@ SUM_MEMORY=0
 SUM_GITIGNORE=""
 SUM_ATTRIBUTION=""
 
-pass() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
-fail() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
-warn() { echo "  ! $1"; WARN=$((WARN + 1)); }
-section() { echo ""; echo "[$1]"; SECTION="$1"; }
+section() { SECTION="$1"; echo ""; printf "  %s──%s %s %s──%s\n" "$D" "$R" "$1" "$D" "$R"; }
 
-echo "╔══════════════════════════════════════╗"
-echo "║   APD — Complete Verification        ║"
-echo "╚══════════════════════════════════════╝"
+apd_header "Verification"
 
 # ============================================================
 # 1. PREREQUISITES — static check
@@ -810,24 +803,20 @@ if [ ${#AGENT_DISPLAY} -gt 40 ]; then
     AGENT_DISPLAY="${AGENT_DISPLAY:0:37}..."
 fi
 
+section "Summary"
+printf "    %-15s %s\n" "Project"        "$SUM_PROJECT"
+printf "    %-15s %s\n" "Agents"         "$SUM_AGENTS ($AGENT_DISPLAY)"
+printf "    %-15s %s\n" "Scripts"        "$SUM_SCRIPTS_OK/$SUM_SCRIPTS_TOTAL"
+printf "    %-15s %s\n" "Guards"         "$SUM_GUARDS"
+printf "    %-15s %s\n" "Pipeline"       "$SUM_PIPELINE"
+printf "    %-15s %s\n" "verify-all.sh"  "$SUM_VERIFY_ALL"
+printf "    %-15s %s\n" "Memory files"   "$SUM_MEMORY/4"
+printf "    %-15s %s\n" "Gitignore"      "$SUM_GITIGNORE"
+printf "    %-15s %s\n" "Attribution"    "$SUM_ATTRIBUTION"
 echo ""
-echo "╔══════════════════════════════════════════════════════╗"
-echo "║              APD — Setup Summary                     ║"
-echo "╠══════════════════════════════════════════════════════╣"
-printf "║  %-15s │ %-36s ║\n" "Project"        "$SUM_PROJECT"
-printf "║  %-15s │ %-36s ║\n" "Agents"         "$SUM_AGENTS ($AGENT_DISPLAY)"
-printf "║  %-15s │ %-36s ║\n" "Scripts"        "$SUM_SCRIPTS_OK/$SUM_SCRIPTS_TOTAL"
-printf "║  %-15s │ %-36s ║\n" "Guards"         "$SUM_GUARDS"
-printf "║  %-15s │ %-36s ║\n" "Pipeline"       "$SUM_PIPELINE"
-printf "║  %-15s │ %-36s ║\n" "verify-all.sh"  "$SUM_VERIFY_ALL"
-printf "║  %-15s │ %-36s ║\n" "Memory files"   "$SUM_MEMORY/4"
-printf "║  %-15s │ %-36s ║\n" "Gitignore"      "$SUM_GITIGNORE"
-printf "║  %-15s │ %-36s ║\n" "Attribution"    "$SUM_ATTRIBUTION"
-echo "╠══════════════════════════════════════════════════════╣"
-printf "║  PASS: %-3s │ FAIL: %-3s │ WARN: %-3s               ║\n" "$PASS" "$FAIL" "$WARN"
-echo "╚══════════════════════════════════════════════════════╝"
+echo "  ${B}PASS:${R} $PASS_COUNT  ${B}FAIL:${R} $FAIL_COUNT  ${B}WARN:${R} $WARN_COUNT"
 
-if [ "$FAIL" -gt 0 ]; then
+if [ "$FAIL_COUNT" -gt 0 ]; then
     echo ""
     echo "APD IS NOT READY — fix FAIL items."
     echo ""
@@ -836,12 +825,12 @@ if [ "$FAIL" -gt 0 ]; then
     exit 1
 fi
 
-if [ "$WARN" -gt 0 ]; then
+if [ "$WARN_COUNT" -gt 0 ]; then
     echo ""
     echo "APD IS FUNCTIONAL — WARN items are recommendations for improvement."
 fi
 
-if [ "$FAIL" -eq 0 ] && [ "$WARN" -eq 0 ]; then
+if [ "$FAIL_COUNT" -eq 0 ] && [ "$WARN_COUNT" -eq 0 ]; then
     echo ""
     echo "APD IS FULLY CONFIGURED. Ready to go."
 fi
