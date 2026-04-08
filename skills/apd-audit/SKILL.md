@@ -1,183 +1,158 @@
 ---
 name: apd-audit
-description: Use when changes have been made to the APD framework itself and you need to verify quality, consistency, and correctness before release. Qualitative audit beyond what verify-apd.sh checks mechanically.
+description: Use when you need to verify APD is correctly configured in the current project. Qualitative audit of agents, hooks, CLAUDE.md, pipeline, and guardrails — goes deeper than verify-apd.sh.
 effort: max
 allowed-tools: Read Glob Grep Bash
 ---
 
-# APD Framework Audit
+# APD Project Audit
 
 ## The Iron Law
 
 ```
-NO RELEASE WITHOUT A CLEAN AUDIT FIRST
+NO TASK WITHOUT A HEALTHY PIPELINE FIRST
 ```
 
-If the audit finds issues, fix them before bumping version or pushing.
+If the audit finds issues, fix them before starting work. A broken pipeline produces broken results.
 
 ## When to Use
 
-- After significant changes to scripts, skills, hooks, or templates
-- Before version bump or release tag
-- After refactoring (renames, moves, deletions)
-- When something "feels off" but verify-apd.sh passes
+- First session after `/apd-setup` — confirm everything is correct
+- After manually editing agents, CLAUDE.md, or settings.json
+- When pipeline behaves unexpectedly
+- When verify-apd.sh passes but something "feels off"
+- Before handing the project to another developer
 
-## What This Skill Checks (verify-apd.sh Does NOT)
-
-verify-apd.sh checks a PROJECT's APD installation mechanically. This skill checks the FRAMEWORK itself qualitatively:
+## What This Checks (verify-apd.sh Does NOT)
 
 | verify-apd.sh | /apd-audit |
 |---|---|
-| Files exist? | Content consistent? |
-| JSON valid? | `if` patterns correct? |
-| Pipeline works? | Versions aligned? |
-| Agents have model? | Stale references? |
+| Files exist? | Content correct and complete? |
+| JSON valid? | Hook `if` patterns correct? |
+| Agents have model? | Agents have correct model/effort/color/maxTurns? |
+| Pipeline runs? | Pipeline output matches expected format? |
 | Mechanical ✓/✗ | Qualitative review |
 
 ## Process
 
-Dispatch **parallel audit agents** for each category, then consolidate findings.
-
-### Category 1: Version Consistency
-
-Check that ALL version references match the current version in `plugin.json`:
+### 1. Run verify-apd.sh first
 
 ```bash
-# Get current version
-CURRENT=$(grep '"version"' .claude-plugin/plugin.json | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-
-# Check all locations
-grep -rn "$CURRENT" .claude-plugin/plugin.json       # must match
-grep -rn "$CURRENT" .claude-plugin/marketplace.json   # must match
-grep -rn "$CURRENT" scripts/apd-init.sh               # 3 occurrences
-grep -rn "$CURRENT" skills/apd-setup/SKILL.md          # 2 occurrences
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/verify-apd.sh
 ```
 
-Also check README.md heading and CLAUDE.md Versioning section (these are often stale).
+If FAIL → fix those first. This skill builds on top of verify-apd.sh, not replaces it.
 
-### Category 2: Stale References
+### 2. Agent Quality
 
-Grep the entire codebase for references to things that no longer exist:
+For each agent in `.claude/agents/*.md`:
+
+**Frontmatter check:**
+- `model:` — builders must be `sonnet`, reviewer must be `opus`
+- `effort:` — builders must be `high`, reviewer must be `max`
+- `color:` — should be set (purple/blue/green/cyan for builders, orange for reviewer)
+- `maxTurns:` — should be set (20 for builders, 15 for reviewer)
+- `permissionMode:` — builders `bypassPermissions`, reviewer `plan`
+- `memory: project` — should be set
+
+**Hook check:**
+- `if:` field must be inside hook objects, NOT at matcher level
+- No env var prefixes in `if` patterns (e.g., `Bash(git *)` not `Bash(APD_ORCHESTRATOR_COMMIT=1 git *)`)
+- Guard scripts use `${CLAUDE_PLUGIN_ROOT}/scripts/` paths
+- Builders have: guard-scope, guard-bash-scope, guard-secrets, guard-git
+- Reviewer has: guard-secrets, guard-git (NO guard-scope — read-only)
+
+**Body check:**
+- Has FORBIDDEN section with commit prohibition
+- Has workflow section
+- Scope paths match guard-scope arguments
+
+### 3. CLAUDE.md Quality
+
+Check that CLAUDE.md has all required sections:
+- `## Stack` — technology table
+- `## APD` — orchestrator role description
+- `### Pipeline` — enforced pipeline reference
+- `### Guardrails` — guard script list
+- `### Mandatory skills` — brainstorm/tdd/debug/finish table
+- `### Human gate` — approval requirements
+- `### Session memory` — session-log reference
+- `## Anti-patterns` — common mistakes
+- `## Memory` — `@.claude/memory/` references
+
+Check that CLAUDE.md does NOT contain:
+- `{{PLACEHOLDER}}` unreplaced values
+- References to old skill names (`/apd-init`, `/github-projects`, `/miro-dashboard`)
+- `superpowers:subagent-driven-development` references (should use APD pipeline)
+
+### 4. Settings Quality
+
+Read `.claude/settings.json` and verify:
+- `enabledPlugins.superpowers@claude-plugins-official: false`
+- `attribution.commit: ""` (empty — no AI signatures)
+- `attribution.pr: ""` (empty)
+- `permissions.allow` includes `.claude/memory/**` (Write and Edit)
+- Notification hook configured
+
+### 5. Workflow Rules
+
+Read `.claude/rules/workflow.md` and verify:
+- Uses `${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh` (not `apd-pipeline`)
+- Has step 9 (finish)
+- Has mandatory skills section (brainstorm, tdd, debug, finish)
+- Model discipline table present (orchestrator opus, builder sonnet, reviewer opus)
+
+### 6. Pipeline Health
 
 ```bash
-# Removed skills
-grep -rn '/apd-upgrade' --include='*.md' --include='*.sh' --include='*.json' | grep -v CHANGELOG
-grep -rn '/apd-init' --include='*.md' --include='*.sh' --include='*.json' | grep -v CHANGELOG | grep -v 'apd-init\.sh'
-
-# Non-existent scripts
-grep -rn 'apd-pipeline' --include='*.md' --include='*.sh' | grep -v 'apd-pipeline.*label'
-
-# Removed markers
-grep -rn 'MARK_NEXT\|◆' scripts/ --include='*.sh'
-
-# Old counter variables
-grep -rn '\$PASS[^_]' scripts/ --include='*.sh' | grep -v PASS_COUNT
-
-# Box drawing in scripts (should be removed)
-grep -rn '╭\|╮\|╰\|╯\|╔\|╗\|╚\|╝' scripts/ --include='*.sh'
-
-# "coming soon" for shipped features
-grep -rn 'coming soon' README.md
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh status
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/apd-init.sh --version
 ```
 
-### Category 3: Hook Correctness
+- Pipeline responds without errors
+- Version matches expected
 
-```bash
-# Validate hooks.json
-python3 -c "import json; json.load(open('hooks/hooks.json'))"
+### 7. Memory Files
 
-# Check if field is inside hook objects (not matcher groups)
-# The `if` must be a sibling of `type` and `command`, not of `matcher`
-```
-
-Read `hooks/hooks.json` and verify:
-- Every `if` field is inside the `hooks[]` array objects, NOT at the matcher-group level
-- No `if` patterns contain env var prefixes (`APD_ORCHESTRATOR_COMMIT=1`)
-- All referenced scripts exist in `scripts/`
-
-Check agent templates (`templates/agent-template.md`, `templates/reviewer-template.md`):
-- Same `if` placement rule applies in YAML hooks
-
-### Category 4: Script Quality
-
-```bash
-# Inline color definitions (should only be in style.sh)
-grep -rn "033\[38;5\|033\[32m\|033\[33m\|033\[31m" scripts/ --include='*.sh' | grep -v 'lib/style.sh'
-
-# `local` keyword outside functions
-# Check each script — local is only valid inside function bodies
-
-# Scripts that should source style.sh but don't
-# (scripts with visual output: pipeline-advance, pipeline-gate, session-start, apd-init, verify-apd, verify-contracts, test-hooks, track-agent)
-```
-
-### Category 5: Skill Quality
-
-For each skill in `skills/*/SKILL.md`:
-- Description starts with "Use when" (CSO format)
-- Has frontmatter fields: name, description, effort
-- No references to non-existent scripts or skills
-- Script paths use `${CLAUDE_PLUGIN_ROOT}/scripts/` (not relative paths)
-
-### Category 6: Documentation Accuracy
-
-- README.md version matches plugin.json
-- README skills directory listing matches actual `skills/` contents
-- GETTING-STARTED.md references `/apd-setup` (not `/apd-init`)
-- CHANGELOG has entries for current version
-- No "coming soon" for shipped features
-
-### Category 7: Template Integrity
-
-- `templates/CLAUDE.md.reference` — references `/apd-setup`, has mandatory skills table
-- `templates/agent-template.md` — has `color` field, `if` inside hook objects
-- `templates/reviewer-template.md` — has `color: orange`, `if` inside hook objects
-- `templates/principles/en.md` and `sr.md` — correct gitignore policy
-- `rules/workflow.md` — uses `pipeline-advance.sh`, has step 9 (finish), has mandatory skills section
-
-## Execution
-
-1. **Run all category checks** — dispatch parallel agents or run inline
-2. **Consolidate findings** — group by severity (Critical / Important / Minor)
-3. **Present to user** — table with file:line references
-4. **Fix all Critical and Important** issues before proceeding
-5. **Re-run affected categories** after fixes to verify
+Check `.claude/memory/`:
+- `MEMORY.md` — not empty, has project context
+- `status.md` — has current phase
+- `session-log.md` — exists (may be empty for new projects)
+- No `[fill in]` placeholders in the last session-log entry (blocks new tasks)
 
 ## Output Format
 
 ```
-APD Framework Audit — v{version}
+APD Project Audit — {project name}
 
-CRITICAL (must fix):
+CRITICAL:
   1. [file:line] Description
 
-IMPORTANT (should fix):
-  1. [file:line] Description
-
-MINOR (nice to have):
+IMPORTANT:
   1. [file:line] Description
 
 CLEAN:
-  ✓ Version consistency
-  ✓ Hook correctness
-  ✓ Script quality
-  ...
+  ✓ Agents (X builder + 1 reviewer)
+  ✓ CLAUDE.md sections complete
+  ✓ Settings configured
+  ✓ Workflow rules current
+  ✓ Pipeline healthy
+  ✓ Memory files present
 
-Result: X issues found (Y critical, Z important)
+Result: X issues (Y critical, Z important)
 ```
 
 ## Common Rationalizations
 
 | Excuse | Reality |
 |--------|---------|
-| "verify-apd.sh passes so it's fine" | verify-apd.sh checks PROJECT setup, not FRAMEWORK quality |
-| "It's just a version mismatch" | Version mismatches confuse users and break upgrade detection |
-| "The stale reference doesn't hurt" | Stale references mislead agents and waste debugging time |
-| "I'll fix the docs later" | Docs are the first thing users read. Wrong docs = wrong setup |
-| "Only one file is affected" | One file affects every project that uses the template |
+| "verify-apd.sh passes so it's fine" | verify-apd.sh checks structure, not content quality |
+| "Agents work, no need to audit" | Wrong model or missing maxTurns wastes time and money |
+| "CLAUDE.md looks ok" | Missing sections mean orchestrator skips important rules |
+| "I'll fix it when it breaks" | Broken pipeline produces broken code silently |
 
 ## Integration
 
-- **Called by:** Developer after framework changes, before version bump
-- **Pairs with:** `verify-apd.sh` (mechanical project audit)
-- **Leads to:** Fix → re-audit → version bump → release tag
+- **Called by:** Developer at start of session or after configuration changes
+- **Pairs with:** `verify-apd.sh` (mechanical checks) + `/apd-setup` (fixes issues)
+- **Leads to:** Fix issues → re-audit → start working
