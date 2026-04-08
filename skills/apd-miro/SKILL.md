@@ -1,5 +1,5 @@
 ---
-name: miro-dashboard
+name: apd-miro
 description: Use when the project has a Miro board configured and you need to update the pipeline dashboard. Visualizes current status, completed tasks, and metrics.
 effort: high
 ---
@@ -130,5 +130,5 @@ The orchestrator can call this skill automatically in two ways:
 
 For automatic updating at each step, add to the orchestrator workflow:
 ```
-After each pipeline-advance.sh step → call /miro-dashboard
+After each pipeline-advance.sh step → call /apd-miro
 ```

@@ -733,11 +733,11 @@ npx skills add miroapp/miro-ai
 | **Architecture** | System diagram on the board — a living document that gets updated |
 | **Review** | Visualisation of the realised architecture after implementation |
 | **Planning** | Task board with sticky notes → orchestrator parses into pipeline tasks |
-| **Dashboard** | `/miro-dashboard` skill pushes pipeline status, metrics, and recent tasks to the board |
+| **Dashboard** | `/apd-miro` skill pushes pipeline status, metrics, and recent tasks to the board |
 
 ### Miro pipeline dashboard
 
-The `/miro-dashboard` skill creates or updates a visual dashboard on the Miro board:
+The `/apd-miro` skill creates or updates a visual dashboard on the Miro board:
 - **Pipeline status** — current step highlighted (spec/builder/reviewer/verifier)
 - **Metrics** — average duration, fastest/slowest task, skip rate
 - **Recent tasks** — last 5 tasks with durations and status
@@ -810,7 +810,7 @@ GitHub Projects tracks card movement history, providing:
 
 These complement `pipeline-advance.sh metrics` — GitHub gives the board-level view, the pipeline gives per-step timing.
 
-The `/github-projects` skill automates the full flow. Invoke it or let the orchestrator manage cards automatically.
+The `/apd-github` skill automates the full flow. Invoke it or let the orchestrator manage cards automatically.
 
 ### Miro vs GitHub Projects
 
@@ -895,8 +895,9 @@ ${CLAUDE_PLUGIN_ROOT}/
 │   ├── apd-debug/SKILL.md            # Systematic debugging
 │   ├── apd-finish/SKILL.md           # Post-commit push/PR decision
 │   ├── apd-setup/SKILL.md            # Project setup and maintenance
-│   ├── github-projects/SKILL.md      # GitHub Projects integration
-│   └── miro-dashboard/SKILL.md       # Miro dashboard
+│   ├── apd-audit/SKILL.md             # Framework quality audit
+│   ├── apd-github/SKILL.md           # GitHub Projects integration
+│   └── apd-miro/SKILL.md             # Miro dashboard
 └── templates/                        # Templates for /apd-setup
 ```
 

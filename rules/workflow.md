@@ -240,5 +240,5 @@ These skills are NOT optional. They MUST be used at the specified points in the 
 
 | Skill | When |
 |-------|------|
-| `/github-projects` | If the project uses GitHub Projects for task tracking |
-| `/miro-dashboard` | If the project uses a Miro board for visualization |
+| `/apd-github` | If the project uses GitHub Projects for task tracking |
+| `/apd-miro` | If the project uses a Miro board for visualization |

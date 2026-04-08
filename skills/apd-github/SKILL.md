@@ -1,5 +1,5 @@
 ---
-name: github-projects
+name: apd-github
 description: Use when the project has GitHub Projects configured and you need to sync pipeline tasks with the board. Creates issues for specs, moves cards through columns, closes on completion.
 effort: high
 ---

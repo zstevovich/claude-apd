@@ -141,7 +141,7 @@ After EVERY task → append to .claude/memory/session-log.md
 - For architecture or process visualization — create a diagram on the Miro board
 - Installation: `claude mcp add --transport http miro https://mcp.miro.com`
 - Channels (push notifications): `claude --channels miro` for real-time board changes in session
-- Dashboard: `/miro-dashboard` skill for pipeline status visualization on the board
+- Dashboard: `/apd-miro` skill for pipeline status visualization on the board
 
 ## GitHub Projects
 
@@ -152,7 +152,7 @@ After EVERY task → append to .claude/memory/session-log.md
 - Pipeline phases map to columns: Spec → In Progress → Review → Testing → Done
 - Orchestrator creates an issue at the start of spec and moves it through columns
 - Issue is automatically closed and linked with the commit at the end of the pipeline
-- `/github-projects` skill for automatic card management
+- `/apd-github` skill for automatic card management
 - GitHub MCP server must be configured in `.mcp.json`
 
 ## Anti-patterns
