@@ -24,12 +24,27 @@
 7. RUN VERIFIER — build + test
    → pipeline-advance.sh verifier
    ↓
-8. COMMIT — only after all steps complete
+8. ONE COMMIT for the entire feature
    → APD_ORCHESTRATOR_COMMIT=1 git commit
    → Pipeline auto-resets, session log auto-populated
 ```
 
 **Every step is mechanically enforced. You cannot skip ahead.**
+
+### ONE FEATURE = ONE COMMIT
+
+Do NOT commit after each micro-task. Accumulate all changes and commit
+once at the end, after the verifier passes. The git history should read
+like a feature log, not a step-by-step diary.
+
+```
+WRONG:                              RIGHT:
+  abc123 Add migration                abc123 feat: add delete button for posts
+  def456 Add validator
+  ghi789 Add route
+  jkl012 Add template
+  mno345 Add JS
+```
 
 ---
 

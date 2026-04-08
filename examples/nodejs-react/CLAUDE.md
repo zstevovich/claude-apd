@@ -74,6 +74,7 @@ taskflow/
 
 **NEVER implement code directly. ALWAYS dispatch the appropriate agent.**
 **NEVER proceed past step 2 without user approval.**
+**ONE FEATURE = ONE COMMIT. Do not commit after each micro-task.**
 
 ### Pipeline — TECHNICALLY ENFORCED
 
