@@ -1,16 +1,16 @@
 ---
-name: apd-init
-description: Use when setting up APD in a new project or when /apd-init is invoked. Generates CLAUDE.md, agents, rules, memory, verify-all.sh. Run this on first use or after plugin install.
+name: apd-setup
+description: Use when setting up APD in a new project or maintaining an existing one. Generates CLAUDE.md, agents, rules, memory, verify-all.sh. Also runs gap analysis and fixes missing pieces on existing projects.
 disable-model-invocation: true
 effort: max
 ---
 
-# APD Init
+# APD Setup
 
 **Step 1 — MANDATORY: Run the init script. Do this FIRST before anything else.**
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/apd-init.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/apd-setup.sh"
 ```
 
 Do NOT skip this. Do NOT do your own analysis. Run the script and read its output.
@@ -226,7 +226,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/scripts/verify-apd.sh
 ## Example
 
 ```
-User: /apd-init
+User: /apd-setup
 Claude: What is the project name?
 User: MyCRM
 Claude: Stack?

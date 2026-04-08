@@ -92,12 +92,12 @@ Mechanical enforcement release. Agents must actually run before pipeline advance
 ### Superpowers blocking (v3.1.1–v3.1.2)
 
 - **APD dormant mode** — hooks exit early in non-initialized projects (no `.apd-config`)
-- **Superpowers disabled** — `/apd-init` writes `"superpowers@claude-plugins-official": false` to project `settings.json`
+- **Superpowers disabled** — `/apd-setup` writes `"superpowers@claude-plugins-official": false` to project `settings.json`
 - **apd-init.sh** — mechanical init/update script with gap analysis for existing projects
 
 ### Pipeline automation (v3.1.3–v3.1.6)
 
-- **Shell injection for /apd-init** — skill auto-executes bash script via `!command` pattern
+- **Shell injection for /apd-setup** — skill auto-executes bash script via `!command` pattern
 - **Stronger wording** — MANDATORY run script first, no agent self-analysis
 - **session-start.sh runs apd-init.sh --quick** — automatic gap check on every session start
 - **Pipeline shortcut** — `session-start.sh` creates `.claude/scripts/apd-pipeline` symlink
@@ -128,13 +128,13 @@ APD v1.0 started as a folder you copied into your project. v2.0 grew into a fram
 |---------|-----|---------------|
 | v1.0 | Template | Copy `.claude/` into project, replace placeholders manually |
 | v2.0–2.8 | Framework | 17 scripts, 4 skills, 20 patterns, but still copy-paste |
-| **v3.0** | **Ecosystem** | **Install once via marketplace, `/apd-init` generates everything** |
+| **v3.0** | **Ecosystem** | **Install once via marketplace, `/apd-setup` generates everything** |
 
 ### Breaking changes
 
 - APD no longer works by copying `.claude/` into projects
 - Install via marketplace: `/plugin marketplace add zstevovich/claude-apd` + `/plugin install claude-apd@zstevovich-plugins`
-- Start new session, then run `/apd-init`
+- Start new session, then run `/apd-setup`
 - Scripts live in the plugin (`${CLAUDE_PLUGIN_ROOT}/scripts/`), not in the project
 - Only `verify-all.sh` remains in the project (stack-specific build commands)
 - Agent hooks use `${CLAUDE_PLUGIN_ROOT}` instead of hardcoded paths
@@ -166,7 +166,7 @@ Plugin (installed once):           Project (generated per-project):
   [spec]---[builder]---[reviewer]--- verifier  --> commit
   ```
 - **Improved auto-summary** — session-log entries now capture committed files (via `git diff HEAD~1`) instead of working tree. Guard block count filtered by task timestamp (excludes E2E test blocks)
-- **Complete settings.json** — `/apd-init` generates attribution (empty, no AI signatures) and Notification hook
+- **Complete settings.json** — `/apd-setup` generates attribution (empty, no AI signatures) and Notification hook
 - **`.apd-config`** — project configuration file (`PROJECT_NAME`, `APD_VERSION`, `STACK`) read by session-start.sh for dynamic project name
 - **`.apd-version`** — tracks installed APD version for upgrade detection
 - **Per-stack verify-all templates** — `templates/verify-all/` with ready-made snippets for .NET, Node.js, Java, Python, Go, PHP
@@ -201,13 +201,13 @@ Verified against real Claude Code v2.1.94 plugin system:
 - `hooks/hooks.json` auto-discovered (NOT declared in plugin.json — causes duplicate error)
 - `skills/` auto-discovered (NOT declared in plugin.json)
 - Agent template moved from `agents/` to `templates/` (avoid auto-discovery as invocable agent)
-- Rules NOT auto-loaded from plugins — `/apd-init` copies `workflow.md` to project
+- Rules NOT auto-loaded from plugins — `/apd-setup` copies `workflow.md` to project
 - Marketplace file enables self-hosted distribution
 
 ### Real-world validation
 
 Tested end-to-end on a PHP + PostgreSQL + Vanilla JS project:
-- `/apd-init` generated 80 PASS, 0 FAIL setup
+- `/apd-setup` generated 80 PASS, 0 FAIL setup
 - Guard system blocked 16 violations (mass-staging, force-push, pipeline-incomplete, verify-failed)
 - Pipeline gate correctly blocked commits without completed steps
 - verify-all.sh ran PHPUnit and blocked on test failures
@@ -231,7 +231,7 @@ Run `/apd-upgrade` after installing the plugin. It will:
 /plugin install claude-apd@zstevovich-plugins
 
 # Start new session, then:
-/apd-init
+/apd-setup
 ```
 
 ---
@@ -245,7 +245,7 @@ Adopts Claude Code v2.1.85–v2.1.89 platform features. Reduces hook overhead, a
 - **Conditional `if` hooks** (v2.1.85+) — guard-git fires only on `Bash(git *)`, guard-lockfile only on lock file writes, pipeline-post-commit only on `APD_ORCHESTRATOR_COMMIT=1 git commit*`. Eliminates unnecessary process spawning for every `ls`, `cat`, or non-git Bash command
 - **PostCompact hook** (v2.1.76+) — re-runs `session-start.sh` after context compaction to reinject project status, pipeline state, and last session. Prevents context loss in long sessions
 - **PermissionDenied hook** (v2.1.89+) — `guard-permission-denied.sh` logs denied actions with tool name and agent ID (read from stdin JSON via jq) to `guard-audit.log`. Catches what guard scripts do not cover
-- **`effort` frontmatter** (v2.1.80+) — `/apd-init` runs at `effort: max`, `/miro-dashboard` and `/github-projects` at `effort: high`
+- **`effort` frontmatter** (v2.1.80+) — `/apd-setup` runs at `effort: max`, `/miro-dashboard` and `/github-projects` at `effort: high`
 - **Version check** — `session-start.sh` warns on startup if Claude Code is below v2.1.89 (recommended) or v2.1.32 (minimum functional). `verify-apd.sh` includes version as a PASS/WARN/FAIL check (54 checks total)
 
 ### Review fixes
@@ -386,7 +386,7 @@ Adds GitHub Projects integration for pipeline task tracking.
 
 - **`/github-projects` skill** — maps APD pipeline phases to GitHub Projects v2 board columns (Spec → In Progress → Review → Testing → Done). Creates issues with spec cards, moves cards through columns, closes on commit
 - **GitHub Projects section in CLAUDE.md** — configurable `{{GITHUB_PROJECT_URL}}` placeholder with pipeline tracking rules
-- **`/apd-init` updated** — asks for GitHub Projects URL during setup
+- **`/apd-setup` updated** — asks for GitHub Projects URL during setup
 - **README.md** — full GitHub Projects integration docs with column mapping, labels, metrics, and Miro vs GitHub comparison table
 
 ---
@@ -405,7 +405,7 @@ Adopts Claude Code v2.1.72+ features for improved agent control and observabilit
 
 - `.claude/agents/TEMPLATE.md` — added `effort: {{effort}}` frontmatter field
 - `.claude/scripts/guard-git.sh` — agent metadata extraction + `log_block()` on all 10 exit points
-- `.claude/skills/apd-init/SKILL.md` — effort and channels guidance
+- `.claude/skills/apd-setup/SKILL.md` — effort and channels guidance
 - `CLAUDE.md` — Miro channels and dashboard references
 - `README.md` — channels documentation in Miro integration section
 - `examples/nodejs-react/` — both agents updated with `effort: high`
@@ -434,7 +434,7 @@ Major release: from template to full-stack agentic development framework.
 - Figma integration — configurable design source with MCP and skill references
 - Miro integration — board as source of truth for specs, architecture, planning
 - `/miro-dashboard` skill — pushes pipeline status and metrics to Miro board
-- Auto-detect agent scope in `/apd-init` — reads project structure and proposes agents
+- Auto-detect agent scope in `/apd-setup` — reads project structure and proposes agents
 
 **Documentation**
 - English README (international English) + Serbian README.sr.md with cross-links
@@ -465,7 +465,7 @@ None. Fully backwards-compatible with v1.x configurations.
 
 ## v1.3 — 2026-03-25
 
-- Interactive `/apd-init` skill for project configuration
+- Interactive `/apd-setup` skill for project configuration
 - ADR framework with templates
 - Guard-lockfile for lock file protection
 - Pipeline flag system (spec → builder → reviewer → verifier)

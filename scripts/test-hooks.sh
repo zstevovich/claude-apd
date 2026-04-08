@@ -1,6 +1,6 @@
 #!/bin/bash
 # APD Test Hooks — verifies that hooks and scripts are correctly configured
-# Run after /apd-init or manual setup
+# Run after /apd-setup or manual setup
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
@@ -71,7 +71,7 @@ done
 # Project script — verify-all.sh lives in the project
 PROJECT_VERIFY="$CLAUDE_DIR/scripts/verify-all.sh"
 if [ ! -f "$PROJECT_VERIFY" ]; then
-    warn "verify-all.sh DOES NOT EXIST in the project (.claude/scripts/) — create with /apd-init"
+    warn "verify-all.sh DOES NOT EXIST in the project (.claude/scripts/) — create with /apd-setup"
 elif [ ! -x "$PROJECT_VERIFY" ]; then
     warn "verify-all.sh exists but is NOT executable (chmod +x)"
 else

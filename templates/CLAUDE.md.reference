@@ -117,7 +117,7 @@ After EVERY task → append to .claude/memory/session-log.md
 
 ## Rules
 
-- `.claude/rules/workflow.md` — APD pipeline rules (copied from plugin during /apd-init)
+- `.claude/rules/workflow.md` — APD pipeline rules (copied from plugin during /apd-setup)
 - `.claude/rules/principles.md` — language, code, git conventions
 
 ## Figma design

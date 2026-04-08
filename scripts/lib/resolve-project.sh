@@ -50,7 +50,7 @@ PIPELINE_DIR="$CLAUDE_DIR/.pipeline"
 SCRIPT_DIR="$APD_PLUGIN_ROOT/scripts"
 
 # --- Activation check ---
-# APD is dormant unless .apd-config exists (created by /apd-init)
+# APD is dormant unless .apd-config exists (created by /apd-setup)
 # Scripts source this file and check APD_ACTIVE before doing work
 if [ -f "$CLAUDE_DIR/.apd-config" ]; then
     APD_ACTIVE=true

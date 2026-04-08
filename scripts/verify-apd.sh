@@ -1,6 +1,6 @@
 #!/bin/bash
 # APD Verify — complete functional verification of APD installation
-# Run after /apd-init or manual setup to confirm everything works
+# Run after /apd-setup or manual setup to confirm everything works
 #
 # Difference from test-hooks.sh:
 #   test-hooks.sh  -> static check (files, JSON, placeholders)
@@ -51,7 +51,7 @@ if [ -f "$APD_CONFIG" ]; then
         fail ".apd-config exists but has no PROJECT_NAME"
     fi
 else
-    warn ".apd-config DOES NOT EXIST — created during /apd-init"
+    warn ".apd-config DOES NOT EXIST — created during /apd-setup"
 fi
 
 # .apd-version
@@ -141,7 +141,7 @@ if [ -f "$PROJECT_DIR/CLAUDE.md" ]; then
         [ -z "$SUM_PROJECT" ] && SUM_PROJECT="(unknown)"
     fi
 else
-    fail "CLAUDE.md DOES NOT EXIST — created during /apd-init"
+    fail "CLAUDE.md DOES NOT EXIST — created during /apd-setup"
     [ -z "$SUM_PROJECT" ] && SUM_PROJECT="(no CLAUDE.md)"
 fi
 
@@ -312,7 +312,7 @@ fi
 if [ -f "$CLAUDE_DIR/.apd-config" ]; then
     pass ".apd-config exists"
 else
-    fail ".apd-config DOES NOT EXIST — created during /apd-init"
+    fail ".apd-config DOES NOT EXIST — created during /apd-setup"
 fi
 
 if [ -f "$APD_PLUGIN_ROOT/.apd-version" ]; then
@@ -820,7 +820,7 @@ if [ "$FAIL_COUNT" -gt 0 ]; then
     echo "APD IS NOT READY — fix FAIL items."
     echo ""
     echo "Common cause: placeholders are not replaced."
-    echo "Run /apd-init or manually replace {{...}} values."
+    echo "Run /apd-setup or manually replace {{...}} values."
     exit 1
 fi
 
