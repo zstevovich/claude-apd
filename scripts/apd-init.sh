@@ -74,13 +74,13 @@ if [ "$MODE" = "new" ]; then
     # .apd-config
     cat > "$CLAUDE_DIR/.apd-config" << EOF
 PROJECT_NAME=$PROJECT_NAME
-APD_VERSION=3.3.0
+APD_VERSION=3.3.1
 STACK=$STACK
 EOF
     fix "Created .apd-config"
 
     # .apd-version
-    echo "3.3.0" > "$CLAUDE_DIR/.apd-version"
+    echo "3.3.1" > "$CLAUDE_DIR/.apd-version"
     fix "Created .apd-version"
 
     # Copy workflow.md
@@ -365,7 +365,7 @@ maxTurns: 20' "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
 
     # --- .apd-version ---
     CURRENT_VER=$(cat "$CLAUDE_DIR/.apd-version" 2>/dev/null | tr -d '[:space:]')
-    PLUGIN_VER="3.3.0"
+    PLUGIN_VER="3.3.1"
     if [ "$CURRENT_VER" = "$PLUGIN_VER" ]; then
         ok ".apd-version ($CURRENT_VER)"
     else
