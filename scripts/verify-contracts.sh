@@ -330,9 +330,8 @@ MISSING=$(grep -c "^MISSING$" "$RESULTS_FILE" 2>/dev/null || echo 0)
 rm -f "$RESULTS_FILE"
 
 # Result
-echo "╔══════════════════════════════════════════╗"
-printf "║  MATCH: %-4s MISMATCH: %-4s MISSING: %-4s║\n" "$MATCHES" "$MISMATCHES" "$MISSING"
-echo "╚══════════════════════════════════════════╝"
+section "Results"
+printf "    MATCH: %-4s  MISMATCH: %-4s  MISSING: %-4s\n" "$MATCHES" "$MISMATCHES" "$MISSING"
 
 if [ "$MISMATCHES" -gt 0 ] || [ "$MISSING" -gt 0 ]; then
     echo ""
