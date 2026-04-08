@@ -3,6 +3,8 @@
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
+MARK_DONE="●" MARK_TODO="○"
+
 mkdir -p "$PIPELINE_DIR"
 
 MISSING=()
@@ -15,23 +17,23 @@ done
 
 if [ ${#MISSING[@]} -gt 0 ]; then
     echo "" >&2
-    echo "  BLOCKED: Pipeline incomplete" >&2
+    echo "  ╭──────────────────────────────────────╮" >&2
+    echo "  │  BLOCKED: Pipeline incomplete         │" >&2
+    echo "  ╰──────────────────────────────────────╯" >&2
     echo "" >&2
 
     for step in spec builder reviewer verifier; do
         if [ -f "$PIPELINE_DIR/$step.done" ]; then
-            printf "    [OK] %s\n" "$step" >&2
+            printf "    ${MARK_DONE} %s\n" "$step" >&2
         else
-            printf "    [  ] %s  <-- missing\n" "$step" >&2
+            printf "    ${MARK_TODO} %s  ← missing\n" "$step" >&2
         fi
     done
 
     echo "" >&2
-    echo "  Advance: pipeline-advance.sh <step>" >&2
-    echo "  Init:    pipeline-advance.sh init \"reason\"" >&2
-    echo "  Skip:    pipeline-advance.sh skip \"reason\"" >&2
+    echo "  Use: pipeline-advance.sh <step>" >&2
     exit 2
 fi
 
-echo "Pipeline gate: all steps complete — commit allowed." >&2
+echo "  ${MARK_DONE} Pipeline gate: all steps complete" >&2
 exit 0

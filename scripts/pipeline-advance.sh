@@ -17,51 +17,57 @@ NOW=$(date +%s)
 NOW_HUMAN=$(date +"%Y-%m-%d %H:%M:%S")
 
 # --- Visual helpers ---
+# Box-drawing characters for consistent APD branding
+BOX_TL="╭" BOX_TR="╮" BOX_BL="╰" BOX_BR="╯" BOX_H="─" BOX_V="│"
+MARK_DONE="●" MARK_NEXT="◆" MARK_TODO="○"
+
+apd_header() {
+    local title="$1"
+    local width=50
+    local pad=$(( (width - ${#title} - 2) / 2 ))
+    echo ""
+    printf "  %s%s %s %s%s\n" "$BOX_TL" "$(printf '%*s' $pad '' | tr ' ' "$BOX_H")" "$title" "$(printf '%*s' $pad '' | tr ' ' "$BOX_H")" "$BOX_TR"
+}
+
+apd_footer() {
+    echo "  $(printf '%s' "$BOX_BL")$(printf '%*s' 50 '' | tr ' ' "$BOX_H")$(printf '%s' "$BOX_BR")"
+    echo ""
+}
+
 show_pipeline() {
     # Usage: show_pipeline [active_step]
-    # Renders a visual pipeline progress bar
     local active="$1"
     local steps=("spec" "builder" "reviewer" "verifier")
-    local line=""
-    local detail=""
 
+    echo ""
+    # Progress bar
+    local bar="  "
     for i in "${!steps[@]}"; do
         local s="${steps[$i]}"
-        local icon="--"
-        local label="$s"
-
         if [ -f "$PIPELINE_DIR/$s.done" ]; then
-            icon="done"
-        fi
-
-        if [ "$s" = "$active" ]; then
-            icon="next"
-        fi
-
-        if [ "$i" -gt 0 ]; then
-            line="${line}---"
-        fi
-
-        if [ "$icon" = "done" ] || [ "$icon" = "next" ]; then
-            line="${line}[${label}]"
+            bar="${bar} ${MARK_DONE} ${s}"
+        elif [ "$s" = "$active" ]; then
+            bar="${bar} ${MARK_NEXT} ${s}"
         else
-            line="${line} ${label} "
+            bar="${bar} ${MARK_TODO} ${s}"
+        fi
+        if [ "$i" -lt 3 ]; then
+            bar="${bar}  →"
         fi
     done
-
+    bar="${bar}  → commit"
+    echo "$bar"
     echo ""
-    echo "  $line --> commit"
-    echo ""
 
-    # Detail lines
+    # Detail lines with timestamps
     for s in "${steps[@]}"; do
         if [ -f "$PIPELINE_DIR/$s.done" ]; then
             local ts=$(cut -d'|' -f2 "$PIPELINE_DIR/$s.done")
-            printf "    %-12s %s\n" "$s" "$ts"
+            printf "    ${MARK_DONE} %-12s %s\n" "$s" "$ts"
         elif [ "$s" = "$active" ]; then
-            printf "    %-12s %s\n" "$s" "<-- current"
+            printf "    ${MARK_NEXT} %-12s %s\n" "$s" "← next"
         else
-            printf "    %-12s %s\n" "$s" "..."
+            printf "    ${MARK_TODO} %-12s %s\n" "$s" ""
         fi
     done
 }
@@ -112,8 +118,11 @@ case "$STEP" in
 
         rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents"
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
-        echo "Pipeline started: $ARG"
+        apd_header "APD Pipeline"
+        echo "  ${BOX_V}  Task: $ARG"
+        echo "  ${BOX_V}"
         show_pipeline "builder"
+        apd_footer
         ;;
 
     builder)
@@ -168,8 +177,9 @@ case "$STEP" in
 
         ELAPSED=$(format_duration $((NOW - SPEC_TS)))
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/builder.done"
-        echo "Builder completed (+$ELAPSED)"
+        apd_header "Builder Complete (+$ELAPSED)"
         show_pipeline "reviewer"
+        apd_footer
         ;;
 
     reviewer)
@@ -213,8 +223,9 @@ case "$STEP" in
         BUILDER_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/builder.done")
         ELAPSED=$(format_duration $((NOW - BUILDER_TS)))
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
-        echo "Reviewer completed (+$ELAPSED)"
+        apd_header "Reviewer Complete (+$ELAPSED)"
         show_pipeline "verifier"
+        apd_footer
         ;;
 
     verifier)
@@ -229,12 +240,10 @@ case "$STEP" in
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
         # Cache timestamp — verify-all.sh skips rebuild if fresh (<120s)
         echo "$NOW" > "$PIPELINE_DIR/verified.timestamp"
-        echo ""
-        echo "  ========================================="
-        echo "    COMMIT ALLOWED  (total: $TOTAL)"
-        echo "  ========================================="
+        apd_header "COMMIT ALLOWED (total: $TOTAL)"
         show_pipeline ""
-        echo "  Ready: APD_ORCHESTRATOR_COMMIT=1 git commit ..."
+        echo "  ${BOX_V}  Ready: APD_ORCHESTRATOR_COMMIT=1 git commit ..."
+        apd_footer
         ;;
 
     reset)
@@ -370,9 +379,10 @@ EOF
                 rm -f "$PIPELINE_DIR/$step.done"
                 # If verifier rolled back, also remove cache timestamp
                 [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp"
-                echo "Rollback: $step removed."
-                ROLLED_BACK=true
+                apd_header "Rollback: $step"
                 show_pipeline "$step"
+                apd_footer
+                ROLLED_BACK=true
                 break
             fi
         done
@@ -400,33 +410,30 @@ EOF
             fi
         done
 
-        echo "Task: $TASK"
+        apd_header "Pipeline Status"
+        echo "  ${BOX_V}  Task: $TASK"
         if [ -n "$SPEC_TIME" ]; then
             TOTAL_ELAPSED=$(format_duration $(($(date +%s) - SPEC_TS)))
-            echo "Started: $SPEC_TIME ($TOTAL_ELAPSED ago)"
+            echo "  ${BOX_V}  Started: $SPEC_TIME ($TOTAL_ELAPSED ago)"
         fi
-
+        echo "  ${BOX_V}"
         show_pipeline "$NEXT_STEP"
+        apd_footer
 
-        # Detailed timing
+        # Detailed timing below the box
         PREV_TS="${SPEC_TS:-}"
         for step in spec builder reviewer verifier; do
             if [ -f "$PIPELINE_DIR/$step.done" ]; then
-                STEP_TIME=$(cut -d'|' -f2 "$PIPELINE_DIR/$step.done")
                 STEP_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/$step.done")
                 if [ "$step" != "spec" ] && [ -n "$PREV_TS" ]; then
                     DELTA=$(format_duration $((STEP_TS - PREV_TS)))
-                    echo "  [DONE] $step   $STEP_TIME  (+$DELTA)"
-                else
-                    echo "  [DONE] $step   $STEP_TIME"
+                    printf "    %s %-12s +%s\n" "$MARK_DONE" "$step" "$DELTA"
                 fi
                 PREV_TS="$STEP_TS"
             else
                 if [ -n "$PREV_TS" ]; then
                     WAITING=$(format_duration $(($(date +%s) - PREV_TS)))
-                    echo "  [----] $step   (waiting $WAITING)"
-                else
-                    echo "  [----] $step"
+                    printf "    %s %-12s waiting %s\n" "$MARK_TODO" "$step" "$WAITING"
                 fi
                 PREV_TS=""
             fi
@@ -572,11 +579,10 @@ EOF
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
 
-        echo ""
-        echo "  --------- INIT: $ARG ---------"
-        echo "  Initial setup — no pipeline review required."
-        echo "  All steps marked complete. Ready to commit."
-        echo ""
+        apd_header "Initial Setup"
+        echo "  ${BOX_V}  $ARG"
+        echo "  ${BOX_V}  All steps marked complete. Ready to commit."
+        apd_footer
         ;;
 
     *)

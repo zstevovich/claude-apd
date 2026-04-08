@@ -181,39 +181,35 @@ if [ -z "$PROJ_NAME" ] && [ -f "$PROJECT_DIR/CLAUDE.md" ]; then
     PROJ_NAME=$(head -5 "$PROJECT_DIR/CLAUDE.md" | grep '^# ' | head -1 | sed 's/^# //')
 fi
 PROJ_NAME="${PROJ_NAME:-$(basename "$PROJECT_DIR")}"
-echo "=== $PROJ_NAME ==="
-# ==================================
+MARK_DONE="●" MARK_TODO="○"
+
+echo ""
+echo "  ╭──────────────────────────────────────────────╮"
+printf "  │  APD %-40s │\n" "$PROJ_NAME"
+echo "  ╰──────────────────────────────────────────────╯"
 echo ""
 
-# Status
-if [ -f "$MEMORY_DIR/status.md" ]; then
-  echo "--- Current status ---"
-  head -50 "$MEMORY_DIR/status.md"
-  echo ""
-fi
-
 # Pipeline
-echo "--- Pipeline ---"
 if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null; then
     TASK="[idle]"
     if [ -f "$PIPELINE_DIR/spec.done" ]; then
         TASK=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done" 2>/dev/null)
     fi
-    echo "Task: $TASK"
+    echo "  Pipeline: $TASK"
     for step in spec builder reviewer verifier; do
         if [ -f "$PIPELINE_DIR/$step.done" ]; then
-            echo "  [DONE] $step"
+            printf "    ${MARK_DONE} %s\n" "$step"
         else
-            echo "  [----] $step"
+            printf "    ${MARK_TODO} %s\n" "$step"
         fi
     done
 else
-    echo "  [idle] No active pipeline"
+    echo "  Pipeline: idle"
 fi
 echo ""
 
 # Last session
 if [ -f "$MEMORY_DIR/session-log.md" ]; then
-  echo "--- Last session ---"
+  echo "  Last session:"
   tail -20 "$MEMORY_DIR/session-log.md"
 fi
