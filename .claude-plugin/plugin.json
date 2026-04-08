@@ -1,7 +1,7 @@
 {
   "name": "claude-apd",
   "description": "Agent Pipeline Development — enforced multi-agent pipelines with mechanical guardrails",
-  "version": "3.1.8",
+  "version": "3.1.9",
   "author": {
     "name": "Zoran Stevovic"
   },
