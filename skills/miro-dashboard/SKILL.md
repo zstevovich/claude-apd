@@ -1,6 +1,6 @@
 ---
 name: miro-dashboard
-description: Visualize APD pipeline status and metrics on a Miro board — updates the board with current pipeline state, completed tasks and metrics
+description: Use when the project has a Miro board configured and you need to update the pipeline dashboard. Visualizes current status, completed tasks, and metrics.
 effort: high
 ---
 

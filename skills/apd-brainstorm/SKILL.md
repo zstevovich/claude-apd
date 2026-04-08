@@ -1,68 +1,75 @@
 ---
 name: apd-brainstorm
-description: Explore requirements and design before the APD spec phase. Collaborative dialogue to turn vague ideas into concrete specs.
+description: Use when the user's task is vague, broad, or has multiple possible approaches — before writing the APD spec card. Triggers on unclear scope, ambiguous requirements, or "improve X" style requests.
 effort: max
 ---
 
 # APD Brainstorm
 
-Turn a vague idea into a concrete spec through collaborative dialogue.
+## The Iron Law
 
-## When to Use
+```
+NO SPEC WITHOUT SHARED UNDERSTANDING FIRST
+```
 
-- User says "I want to add X" but details are unclear
-- Feature has multiple possible approaches
-- Scope needs to be defined before writing a spec
-- User wants to think through trade-offs
+If you cannot explain the design in one sentence — you are not ready for a spec.
 
 ## Process
 
-### 1. Understand Context
+```dot
+digraph brainstorm {
+    "Receive vague task" -> "Read project context";
+    "Read project context" -> "Ask ONE question";
+    "Ask ONE question" -> "User answers";
+    "User answers" -> "Enough clarity?" [shape=diamond];
+    "Enough clarity?" -> "Ask ONE question" [label="no"];
+    "Enough clarity?" -> "Present 2-3 approaches";
+    "Present 2-3 approaches" -> "User picks";
+    "User picks" -> "Present design summary";
+    "Present design summary" -> "User approves?" [shape=diamond];
+    "User approves?" -> "Revise" [label="no"];
+    "Revise" -> "Present design summary";
+    "User approves?" -> "pipeline-advance.sh spec" [label="yes"];
+}
+```
 
-Read the project:
-- CLAUDE.md for stack and architecture
-- Recent session-log for what was done before
+### 1. Read Context
+
+- CLAUDE.md — stack, architecture
+- Recent session-log — what was done before
 - Existing code related to the idea
 
 ### 2. Ask One Question at a Time
 
-**Do NOT dump a list of 10 questions.** Ask one, wait for answer, ask next.
+**Do NOT dump a list of questions.** Ask one, wait, ask next.
 
-Good:
-```
-What problem does this solve for the user?
-```
+Good: `What problem does this solve for the user?`
 
 Bad:
 ```
-Here are my questions:
 1. What problem does this solve?
 2. Who is the target user?
 3. What's the priority?
-4. Should it be real-time?
-5. What about mobile?
 ...
 ```
 
 ### 3. Explore Trade-offs
 
-Present options concisely when there are choices:
+When there are choices, present 2-3 options concisely:
 
 ```
 Two approaches:
 A) Server-rendered — simpler, faster initial load, no JS complexity
 B) AJAX — smoother UX, no page reload, more JS code
 
-Which fits better for this project?
+Which fits better?
 ```
 
 ### 4. Converge on Design
 
-When enough is clear, present the design:
+When enough is clear:
 
 ```
-Here's what I understand:
-
 Goal: [one sentence]
 Scope: [what's included]
 Out of scope: [what's not]
@@ -74,13 +81,25 @@ Ready to write the spec card?
 
 ### 5. Hand Off to Spec
 
-Once user approves the design → write the spec card and enter the APD pipeline:
+Once user approves → write spec card and enter pipeline:
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh spec "Feature name"
 ```
 
-**HARD GATE:** Do NOT write code during brainstorming. This skill produces a DESIGN, not an implementation. Code comes from Builder agents after the spec is approved.
+<HARD-GATE>
+Do NOT write code during brainstorming. This skill produces a DESIGN, not an implementation. Code comes from Builder agents after the spec is approved.
+</HARD-GATE>
+
+## Red Flags — STOP
+
+| Thought | Reality |
+|---------|---------|
+| "This is simple enough, skip brainstorm" | Simple tasks have hidden complexity. 5 minutes of questions saves 30 minutes of rework. |
+| "I already know what they want" | You know what YOU would build. Ask what THEY want. |
+| "Let me just start coding and iterate" | Iteration without direction is waste. Design first. |
+| "The user seems impatient" | Users are more impatient when you build the wrong thing. |
+| "I'll figure it out during implementation" | Builder agents follow specs. Vague specs produce vague code. |
 
 ## Rules
 
@@ -89,3 +108,9 @@ bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh spec "Feature name"
 - Present trade-offs, don't decide for the user
 - No code during brainstorming
 - End with a clear design that feeds into the spec
+
+## Integration
+
+- **Called by:** Orchestrator, when task is vague or complex (workflow.md step 1)
+- **Leads to:** `pipeline-advance.sh spec` (the only valid exit)
+- **Never leads to:** code, agents, implementation

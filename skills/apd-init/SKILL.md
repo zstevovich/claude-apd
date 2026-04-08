@@ -1,6 +1,7 @@
 ---
 name: apd-init
-description: Initialize APD environment — generates CLAUDE.md, agents, rules, memory and verify-all.sh. Scripts live in the plugin.
+description: Use when setting up APD in a new project or when /apd-init is invoked. Generates CLAUDE.md, agents, rules, memory, verify-all.sh. Run this on first use or after plugin install.
+disable-model-invocation: true
 effort: max
 ---
 

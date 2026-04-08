@@ -1,6 +1,6 @@
 ---
 name: github-projects
-description: Manage APD pipeline tasks through GitHub Projects — create issues for specs, move cards through columns, close on completion
+description: Use when the project has GitHub Projects configured and you need to sync pipeline tasks with the board. Creates issues for specs, moves cards through columns, closes on completion.
 effort: high
 ---
 

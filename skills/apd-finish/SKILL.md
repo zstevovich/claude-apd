@@ -1,21 +1,42 @@
 ---
 name: apd-finish
-description: Complete a development branch after APD pipeline. Verify tests, present merge/PR/keep/discard options, clean up.
+description: Use after a successful APD pipeline commit to decide next steps — push, create PR, keep local, or discard. MANDATORY after every pipeline commit.
 effort: high
 ---
 
-# APD Finish Branch
+# APD Finish
 
-Use after the APD pipeline is complete (all steps passed, committed).
+## The Iron Law
+
+```
+NO PUSH WITHOUT USER DECISION FIRST
+```
+
+The pipeline produced a commit. Now the user decides what happens with it. Never auto-push, never assume.
 
 ## Process
+
+```dot
+digraph finish {
+    VERIFY [label="1. Verify\ntests pass"];
+    OPTIONS [label="2. Present options"];
+    PUSH [label="Push to remote"];
+    PR [label="Push + Create PR"];
+    KEEP [label="Keep local"];
+    DISCARD [label="Discard (confirm)"];
+
+    VERIFY -> OPTIONS;
+    OPTIONS -> PUSH [label="1"];
+    OPTIONS -> PR [label="2"];
+    OPTIONS -> KEEP [label="3"];
+    OPTIONS -> DISCARD [label="4"];
+}
+```
 
 ### Step 1: Verify
 
 ```bash
-# Confirm pipeline completed and commit exists
 git log --oneline -1
-# Run tests one more time
 bash "$(git rev-parse --show-toplevel)/.claude/scripts/verify-all.sh"
 ```
 
@@ -64,21 +85,19 @@ Report branch name and status. Done.
 
 #### Option 4: Discard
 **Require typed confirmation:** "Type 'discard' to confirm."
-
 ```bash
 git checkout main
 git branch -D <branch>
 ```
 
-## Within APD Pipeline
+## Red Flags — STOP
 
-This skill runs AFTER the pipeline completes:
-
-```
-spec → builder → reviewer → verifier → commit → /apd-finish
-```
-
-The orchestrator invokes this skill to decide what happens with the committed work. The pipeline is already done — this is about integration.
+| Thought | Reality |
+|---------|---------|
+| "User probably wants me to push" | Never assume. Ask. |
+| "I'll push and create PR in one go" | User might want to review locally first. |
+| "Skip verification, we just ran tests" | Verify again. Something might have changed. |
+| "Force push to fix the branch" | Never force push. guard-git blocks it anyway. |
 
 ## Rules
 
@@ -86,3 +105,9 @@ The orchestrator invokes this skill to decide what happens with the committed wo
 - **Never force-push** (guard-git.sh blocks this anyway)
 - **Always verify tests** before presenting options
 - **PR body must include APD pipeline summary** — proves the work was reviewed
+
+## Integration
+
+- **Called by:** Orchestrator after successful commit (workflow.md step 9)
+- **Follows:** Pipeline complete → commit → `/apd-finish`
+- **Terminal state:** User decision made (push/PR/keep/discard)
