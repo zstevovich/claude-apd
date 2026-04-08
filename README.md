@@ -154,28 +154,30 @@ Each step is **technically enforced** — hooks block the commit if steps have n
 
 Version is checked automatically on session start and by `verify-apd.sh`.
 
-### 1. Install the plugin
-
-In Claude Code, run these two commands:
+### 1. Add the marketplace (one time)
 
 ```bash
-# Add the marketplace (one time)
 /plugin marketplace add zstevovich/claude-apd
+```
 
-# Install the plugin
+### 2. Install the plugin for your project
+
+Open Claude Code **in your project directory** and install at **project scope**:
+
+```bash
 /plugin install claude-apd@zstevovich-plugins
 ```
 
-This installs APD as a Claude Code plugin. All scripts, hooks, and skills are available immediately via `${CLAUDE_PLUGIN_ROOT}`.
+When prompted, select **"Install for all collaborators on this repository (project scope)"**. This writes to `.claude/settings.json` — committed to git, shared with the team. Plugin hooks only fire in this project.
 
-### 2. Run APD Init
+### 3. Run APD Init
 
-Open a new Claude Code session in your project directory and run:
+Start a new Claude Code session, then run:
 ```
 /apd-init
 ```
 
-> **Note:** If the skill is not available, restart the Claude Code session after plugin installation.
+> **Note:** Start a new session after installing the plugin — skills register on session start.
 
 The skill will guide you through configuration — project name, stack, paths, agents. It generates:
 - `CLAUDE.md` — project instructions

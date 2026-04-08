@@ -12,24 +12,33 @@ From zero to your first pipeline commit in 5 minutes.
 
 ---
 
-## Step 1 — Install the plugin
+## Step 1 — Add the marketplace (one time)
+
+```console
+> /plugin marketplace add zstevovich/claude-apd
+```
+
+## Step 2 — Install for your project
+
+Open Claude Code **in your project directory** and install at project scope:
 
 ```console
 ~/Projects/my-project $ claude
-> /plugin marketplace add zstevovich/claude-apd
 > /plugin install claude-apd@zstevovich-plugins
 ```
 
-## Step 2 — Initialise
+Select **"Install for all collaborators on this repository (project scope)"**. This ensures hooks only fire in this project and teammates get the plugin automatically.
 
-Open a new Claude Code session in your project directory and run:
+## Step 3 — Initialise
+
+Start a new session, then run:
 
 ```console
 ~/Projects/my-project $ claude
 > /apd-init
 ```
 
-> **Note:** Start a new session after installing the plugin — skills register on session start.
+> **Note:** Start a new session after installing — skills register on session start.
 
 The skill will ask for:
 - Project name and path
