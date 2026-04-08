@@ -10,6 +10,13 @@
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
+# --version flag: show APD version and exit
+if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
+    VER=$(grep '"version"' "$APD_PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    echo "APD v${VER:-unknown} (plugin: $APD_PLUGIN_ROOT)"
+    exit 0
+fi
+
 # --quick flag: skip verification (used by session-start.sh)
 QUICK=false
 [ "${1:-}" = "--quick" ] && QUICK=true
