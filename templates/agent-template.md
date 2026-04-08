@@ -4,6 +4,7 @@ description: {{Short description — domain and responsibility}}
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
 effort: high
+color: {{AGENT_COLOR}}
 maxTurns: 20
 permissionMode: bypassPermissions
 memory: project

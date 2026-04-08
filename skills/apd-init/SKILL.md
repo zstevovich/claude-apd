@@ -130,12 +130,13 @@ Generate with sections (ALL populated, NO placeholders):
 
 **Builder agents** — one per domain, from `${CLAUDE_PLUGIN_ROOT}/templates/agent-template.md`:
 - Frontmatter: name, description, tools (Read/Write/Edit/Glob/Grep/Bash), **model: sonnet**, **effort: high**, maxTurns: 20, permissionMode: bypassPermissions
+- **color:** assign per role — backend: `purple`, frontend: `blue`, testing: `green`, other: `cyan`
 - Hooks with `${CLAUDE_PLUGIN_ROOT}/scripts/` paths
 - guard-scope.sh and guard-bash-scope.sh with exact SCOPE_PATHS
 - Body: role, stack, workflow, FORBIDDEN
 
 **Reviewer agent** — ALWAYS generated, from `${CLAUDE_PLUGIN_ROOT}/templates/reviewer-template.md`:
-- Frontmatter: name: code-reviewer, tools (Read/Glob/Grep/Bash — **NO Write/Edit**), **model: opus**, **effort: max**, maxTurns: 15, **permissionMode: plan** (read-only)
+- Frontmatter: name: code-reviewer, tools (Read/Glob/Grep/Bash — **NO Write/Edit**), **model: opus**, **effort: max**, maxTurns: 15, **permissionMode: plan** (read-only), **color: orange**
 - NO guard-scope (reviewer reads everything, writes nothing)
 - Body: review checklist, output format, verdict
 
