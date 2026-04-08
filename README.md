@@ -891,7 +891,6 @@ ${CLAUDE_PLUGIN_ROOT}/
 ├── templates/agent-template.md       # Agent template (not in agents/ to avoid auto-discovery)
 ├── skills/
 │   ├── apd-init/SKILL.md             # Interactive setup
-│   ├── apd-upgrade/SKILL.md          # Migration from v2.x
 │   ├── github-projects/SKILL.md      # GitHub Projects integration
 │   └── miro-dashboard/SKILL.md       # Miro dashboard
 └── templates/                        # Templates for /apd-init
