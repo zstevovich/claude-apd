@@ -19,9 +19,9 @@
 # --- Colors (TTY-aware) ---
 # Enable colors when: TTY detected, or Claude Code plugin hook, or terminal supports color
 if [ -t 2 ] || [ -t 1 ] || [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || [[ "${TERM:-}" == *color* ]]; then
-    V=$'\033[38;5;135m'   # violet (brand)
+    V=$'\033[38;5;177m'   # light violet (brand)
     BLU=$'\033[38;5;75m'  # light blue
-    ORG=$'\033[38;5;214m' # light orange
+    ORG=$'\033[38;5;208m' # sharp orange
     GRN=$'\033[38;5;114m' # light green
     B=$'\033[1m'          # bold
     G=$'\033[32m'         # green (standard — for pass/fix)
@@ -64,9 +64,9 @@ apd_header() {
     local duration="${2:-}"
     echo ""
     if [ -n "$duration" ]; then
-        printf "  %sAPD%s %s %s%s%s  %s%s%s\n" "$V" "$R" "$MARK_DONE" "$B" "$title" "$R" "$D" "$duration" "$R"
+        printf "  %sAPD%s %s %s%s%s%s  %s%s%s\n" "$V" "$R" "$MARK_DONE" "$V" "$B" "$title" "$R" "$D" "$duration" "$R"
     else
-        printf "  %sAPD%s %s %s%s%s\n" "$V" "$R" "$MARK_DONE" "$B" "$title" "$R"
+        printf "  %sAPD%s %s %s%s%s%s\n" "$V" "$R" "$MARK_DONE" "$V" "$B" "$title" "$R"
     fi
 }
 
