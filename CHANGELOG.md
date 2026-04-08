@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.3.2 — 2026-04-08
+
+Framework polish and naming consistency.
+
+- **`/apd-audit` skill** — qualitative framework audit (version consistency, stale refs, hook correctness, script quality, docs accuracy)
+- **Skill prefix convention** — all skills renamed to `apd-*` prefix (`github-projects` → `apd-github`, `miro-dashboard` → `apd-miro`) to avoid name conflicts with project skills
+- **`apd-init.sh --version`** — reads version dynamically from plugin.json
+- **verify-apd.sh** — skip guard-scope check for read-only agents (0 WARN for properly configured projects)
+- **MCP recommendations** — `/apd-setup` recommends MCP servers based on stack (context7, postgres, github, docker, miro)
+- **Correct MCP packages** — `@modelcontextprotocol/server-postgres` and `server-github` (not `@anthropic-ai`)
+
+---
+
+## v3.2.7 — 2026-04-08
+
+Visual identity, skill quality, pipeline fixes. See [GitHub Release](https://github.com/zstevovich/claude-apd/releases/tag/v3.2.7).
+
+---
+
 ## v3.2.6 — 2026-04-08
 
 Skill quality overhaul and `/apd-init` → `/apd-setup` rename.
