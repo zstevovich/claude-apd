@@ -3,7 +3,6 @@ name: apd-audit
 description: Use when changes have been made to the APD framework itself and you need to verify quality, consistency, and correctness before release. Qualitative audit beyond what verify-apd.sh checks mechanically.
 effort: max
 allowed-tools: Read Glob Grep Bash
-disable-model-invocation: true
 ---
 
 # APD Framework Audit
