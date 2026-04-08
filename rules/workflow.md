@@ -254,8 +254,9 @@ When a task involves backend + frontend/mobile:
 | Orchestrator | opus | max | (main session — always opus max) |
 | Builder | sonnet | high | `dispatch backend-builder` (model: sonnet, effort: high in frontmatter) |
 | Reviewer | opus | max | `dispatch code-reviewer` (model: opus, effort: max in frontmatter) |
+| Adversarial Reviewer | sonnet | max | `dispatch adversarial-reviewer` (model: sonnet, effort: max in frontmatter) |
 
-- **Never use sonnet for review** — it misses subtle bugs
+- **Never use sonnet for review** — it misses subtle bugs (exception: adversarial reviewer uses sonnet intentionally for perspective diversity)
 - **Never use opus for building** — it's slower and not needed for spec-driven work
 - **Never use effort: low or medium** — APD only uses high and max
 

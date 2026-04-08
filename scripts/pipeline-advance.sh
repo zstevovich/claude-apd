@@ -68,7 +68,7 @@ case "$STEP" in
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/spec-card.md"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary"
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
         apd_spec_header "$ARG"
         show_pipeline "builder"
@@ -227,9 +227,8 @@ case "$STEP" in
             # Read adversarial stats for metrics
             ADV_T=0; ADV_A=0; ADV_D=0
             if [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
-                ADV_T=$(cat "$PIPELINE_DIR/.adversarial-summary" | cut -d: -f2 2>/dev/null || echo 0)
-                ADV_A=$(cat "$PIPELINE_DIR/.adversarial-summary" | cut -d: -f3 2>/dev/null || echo 0)
-                ADV_D=$(cat "$PIPELINE_DIR/.adversarial-summary" | cut -d: -f4 2>/dev/null || echo 0)
+                IFS=: read -r _prefix ADV_T ADV_A ADV_D < "$PIPELINE_DIR/.adversarial-summary" 2>/dev/null || true
+                ADV_T=${ADV_T:-0}; ADV_A=${ADV_A:-0}; ADV_D=${ADV_D:-0}
             fi
             echo "${NOW}|${TASK_NAME}|${SPEC_TS_V}|${BUILDER_TS_V}|${REVIEWER_TS_V}|${VERIFIER_TS_V}|${STATUS}|${ADV_T}|${ADV_A}|${ADV_D}" >> "$METRICS_LOG"
 
@@ -378,7 +377,7 @@ EOF
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/spec-card.md"
         echo "Pipeline reset. Ready for new task."
         ;;
 
@@ -491,7 +490,7 @@ EOF
         REVIEWER_TO_VERIFIER=0
         VALID_COUNT=0
 
-        while IFS='|' read -r _ts task_name spec_ts builder_ts reviewer_ts verifier_ts status; do
+        while IFS='|' read -r _ts task_name spec_ts builder_ts reviewer_ts verifier_ts status _adv_t _adv_a _adv_d; do
             # Clean trailing whitespace
             verifier_ts=$(echo "$verifier_ts" | tr -d '[:space:]')
             spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
@@ -570,7 +569,7 @@ EOF
         fi
 
         section "Last 5"
-        tail -5 "$METRICS_LOG" | while IFS='|' read -r _ts task_name spec_ts _b _r verifier_ts status; do
+        tail -5 "$METRICS_LOG" | while IFS='|' read -r _ts task_name spec_ts _b _r verifier_ts status _adv_t _adv_a _adv_d; do
             verifier_ts=$(echo "$verifier_ts" | tr -d '[:space:]')
             spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
             status=$(echo "$status" | tr -d '[:space:]')
