@@ -217,6 +217,80 @@ STACK={stack}
 
 Add entries from `${CLAUDE_PLUGIN_ROOT}/templates/gitignore-entries.txt` if missing.
 
+#### 4.8 MCP Configuration
+
+Based on the project's stack and integrations, recommend and generate `.mcp.json`.
+
+**Always recommend:**
+
+| MCP Server | Command | Why |
+|---|---|---|
+| context7 | `npx -y @upstash/context7-mcp@latest` | Library documentation lookup — works for any stack |
+
+**Recommend based on stack:**
+
+| If stack includes | MCP Server | Command |
+|---|---|---|
+| PostgreSQL | postgres | `npx -y @anthropic-ai/mcp-server-postgres "postgresql://user:pass@localhost:{port}/{db}"` |
+| MySQL / MariaDB | mysql | `npx -y @anthropic-ai/mcp-server-mysql --host localhost --port {port} --user {user} --database {db}` |
+| SQLite | sqlite | `npx -y @anthropic-ai/mcp-server-sqlite {path/to/db.sqlite}` |
+| Docker | docker | `docker ai mcp-server` |
+
+**Recommend based on integrations:**
+
+| If configured | MCP Server | Command |
+|---|---|---|
+| GitHub Projects URL | github | `npx -y @anthropic-ai/mcp-server-github` (envCommand: `gh auth token`) |
+| Miro board URL | miro | HTTP transport: `https://mcp.miro.com` |
+
+**Procedure:**
+
+1. Present recommendations as a checklist based on detected stack:
+```
+Recommended MCP servers for your stack (Node.js + PostgreSQL):
+  ✓ context7 — library docs (always recommended)
+  ✓ postgres — direct database access
+  ✓ github — issues, PRs (GitHub Projects detected)
+  ○ docker — skip (no Docker detected)
+  ○ miro — skip (no Miro board)
+
+Include all recommended? (yes / adjust)
+```
+
+2. For database MCP servers, ask for connection details:
+   - Host (default: localhost)
+   - Port (from project Ports table)
+   - User (default: postgres / root)
+   - Database name (from project name, lowercase)
+   - **Do NOT ask for password** — leave empty, user fills in later
+
+3. Generate `.mcp.json` in project root:
+```json
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"]
+    },
+    "postgres": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anthropic-ai/mcp-server-postgres",
+        "postgresql://postgres@localhost:5433/mycrm"
+      ]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@anthropic-ai/mcp-server-github"],
+      "envCommand": "bash -c 'echo GITHUB_PERSONAL_ACCESS_TOKEN=$(gh auth token)'"
+    }
+  }
+}
+```
+
+4. Add `.mcp.json` to `.gitignore` if not already there (may contain credentials).
+
 ### 5. Verify
 
 ```bash
@@ -250,12 +324,22 @@ Claude: Reading structure...
 User: Ok
 
 Claude:
+  Recommended MCP servers for Node.js + PostgreSQL:
+    ✓ context7 — library docs
+    ✓ postgres — database access (localhost:5433/mycrm)
+    ✓ github — issues, PRs
+    ○ docker — skip
+    ○ miro — skip
+User: Ok
+
+Claude:
   ✓ CLAUDE.md generated
   ✓ 4 agents created
   ✓ verify-all.sh configured for Node.js
   ✓ principles.md generated
   ✓ Memory initialized
   ✓ .apd-config created
+  ✓ .mcp.json generated (3 servers)
 
   verify-apd.sh: 52 PASS, 0 FAIL
 ```
