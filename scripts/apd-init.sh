@@ -10,6 +10,10 @@
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
+# --quick flag: skip verification (used by session-start.sh)
+QUICK=false
+[ "${1:-}" = "--quick" ] && QUICK=true
+
 # --- Visual helpers ---
 V=$'\033[38;5;135m' B=$'\033[1m' G=$'\033[32m' Y=$'\033[33m' R=$'\033[0m'
 ok()   { echo "  ${V}■${R} $1"; }
@@ -326,7 +330,10 @@ else
 fi
 echo ""
 
-# Run verify-apd.sh
+# Run verify-apd.sh (skip in quick mode)
+if [ "$QUICK" = true ]; then
+    exit 0
+fi
 echo "  Running verification..."
 echo ""
 bash "$SCRIPT_DIR/verify-apd.sh"

@@ -5,6 +5,11 @@ source "$(dirname "$0")/lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 cd "$PROJECT_DIR" || exit 0
 
+# --- Auto gap-analysis on every session start (quick mode, no verify) ---
+if [ -x "$SCRIPT_DIR/apd-init.sh" ]; then
+    bash "$SCRIPT_DIR/apd-init.sh" --quick 2>&1
+fi
+
 # ===== VERSION CHECK =====
 APD_MIN_VERSION="2.1.89"
 APD_FUNCTIONAL_VERSION="2.1.32"
