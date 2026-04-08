@@ -376,11 +376,15 @@ for agent_file in "$CLAUDE_DIR/agents"/*.md; do
         fail "Agent $AGENT_NAME — model is NOT defined"
     fi
 
-    # guard-scope hook — references ${CLAUDE_PLUGIN_ROOT}
-    if grep -q 'guard-scope.sh' "$agent_file" 2>/dev/null; then
-        pass "Agent $AGENT_NAME — guard-scope.sh registered"
+    # guard-scope hook — only needed for agents with Write/Edit tools
+    if grep -q 'Write\|Edit' "$agent_file" 2>/dev/null && head -50 "$agent_file" | grep -q 'tools:.*Write\|tools:.*Edit'; then
+        if grep -q 'guard-scope.sh' "$agent_file" 2>/dev/null; then
+            pass "Agent $AGENT_NAME — guard-scope.sh registered"
+        else
+            warn "Agent $AGENT_NAME — guard-scope.sh is NOT registered (agent has Write/Edit but no scope protection)"
+        fi
     else
-        warn "Agent $AGENT_NAME — guard-scope.sh is NOT registered (agent has no file scope protection)"
+        pass "Agent $AGENT_NAME — guard-scope.sh not needed (read-only agent)"
     fi
 
     # guard-git hook — references ${CLAUDE_PLUGIN_ROOT}
