@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.4.0 — 2026-04-09
+
+Spec traceability — mechanical verification that every acceptance criterion has test coverage.
+
+- **`verify-trace.sh`** — new verification script. Parses `.pipeline/spec-card.md` for R1-RN acceptance criteria, scans test files for `@trace R*` markers, blocks commit if any criterion lacks test coverage. Stack-aware test file detection (nodejs, python, php, dotnet, go, java). Colored output via style.sh.
+- **Spec persistence** — orchestrator writes spec card to `.pipeline/spec-card.md` before advancing pipeline. Ephemeral lifecycle: born on spec step, verified before commit, deleted on reset.
+- **Pipeline integration** — `pipeline-advance.sh` validates spec-card.md has R* criteria on spec step, runs verify-trace.sh as verifier gate, caches trace summary for session-log, cleans up on rollback.
+- **Session-log enhancement** — auto-generated session-log entries now include `**Spec coverage:**` field (e.g., "3/3 (all covered)").
+- **Builder template** — updated workflow: read spec-card.md, add `@trace R*` markers in test files.
+- **Reviewer template** — new check: verify `@trace R*` markers cover all acceptance criteria, flag missing as Critical.
+- **workflow.md** — R* format for acceptance criteria, spec persistence rule, new section 3b (spec traceability).
+
+---
+
 ## v3.3.2 — 2026-04-08
 
 Framework polish and naming consistency.
