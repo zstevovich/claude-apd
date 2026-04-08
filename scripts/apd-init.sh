@@ -258,7 +258,14 @@ maxTurns: 20' "$agent_file" 2>/dev/null
 
     # --- workflow.md ---
     if [ -f "$CLAUDE_DIR/rules/workflow.md" ]; then
-        ok "workflow.md"
+        # Check for outdated ${CLAUDE_PLUGIN_ROOT} references
+        if grep -q 'CLAUDE_PLUGIN_ROOT' "$CLAUDE_DIR/rules/workflow.md" 2>/dev/null; then
+            cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$CLAUDE_DIR/rules/workflow.md"
+            fix "workflow.md: updated (removed stale CLAUDE_PLUGIN_ROOT references)"
+            FIXES=$((FIXES + 1))
+        else
+            ok "workflow.md"
+        fi
     else
         if [ -f "$APD_PLUGIN_ROOT/rules/workflow.md" ]; then
             mkdir -p "$CLAUDE_DIR/rules"
