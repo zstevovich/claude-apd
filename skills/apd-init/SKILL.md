@@ -6,18 +6,17 @@ effort: max
 
 # APD Init
 
-Init script output:
+**Step 1 — MANDATORY: Run the init script. Do this FIRST before anything else.**
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/apd-init.sh 2>&1`
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/apd-init.sh"
+```
 
-The script above ran automatically. Review its output:
-- If it says "Everything up to date" → nothing to do
-- If it applied fixes → they are already done
-- If it says "CLAUDE.md and agents must be generated" → proceed below
+Do NOT skip this. Do NOT do your own analysis. Run the script and read its output.
 
-## Your job: generate ONLY what the script cannot
+**Step 2 — Only if the script says CLAUDE.md or agents are missing:**
 
-The script handles infrastructure (settings, rules, memory, config). You handle project-specific files that require analysis:
+Generate project-specific files that the script cannot create (they require analysis):
 
 ## What gets generated (in the project)
 
