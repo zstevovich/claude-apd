@@ -32,7 +32,7 @@ graph TB
     subgraph PO ["⚙️ PIPELINE & ORCHESTRATION"]
         direction TB
         PO1["<b>6. Spec-Driven Pipeline</b><br/>Spec → Builder → Reviewer<br/>→ Verifier → Commit"]
-        PO2["<b>7. Four Roles</b><br/>Orchestrator · Builder<br/>Reviewer · Verifier"]
+        PO2["<b>7. Five Roles</b><br/>Orchestrator · Builder<br/>Reviewer · Adversarial · Verifier"]
         PO3["<b>8. Pipeline Enforcement</b><br/>.done flags + gate check<br/>all 4 required for commit"]
         PO4["<b>9. Rollback & Recovery</b><br/>step-back · stale detection<br/>session-log gate"]
         PO5["<b>10. Metrics Dashboard</b><br/>per-step timing · skip rate<br/>bottleneck detection"]
@@ -215,7 +215,7 @@ For a quick static check (without functional tests):
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/test-hooks.sh
 ```
 
-## Four roles
+## Five roles
 
 ### Orchestrator (Claude Code — main session)
 Central coordinator that manages the entire pipeline:
@@ -239,6 +239,15 @@ Finds bugs, risks, and gaps in the Builder's work:
 - Triggered automatically after each Builder
 - Looks for: regressions, edge cases, security holes, cross-layer mismatches
 - Does **not** suggest style changes or refactoring outside scope
+
+### Adversarial Reviewer (subagent, optional)
+Context-free code review that catches issues regular reviewers miss:
+- Reviews with zero knowledge of the task or spec — judges code on its own merit
+- Sees only git diff and touched files, not the spec or session context
+- Uses a different model (sonnet) for perspective diversity
+- Runs AFTER regular Reviewer, BEFORE Verifier
+- Findings are advisory — orchestrator decides what to act on
+- Hit rate tracked per task (accepted vs dismissed findings)
 
 ### Verifier (script)
 Automatic verification before commit:

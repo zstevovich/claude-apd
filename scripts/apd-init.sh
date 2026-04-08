@@ -10,10 +10,13 @@
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
+# Read version from plugin.json (single source of truth)
+APD_VER=$(grep '"version"' "$APD_PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+APD_VER="${APD_VER:-0.0.0}"
+
 # --version flag: show APD version and exit
 if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
-    VER=$(grep '"version"' "$APD_PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-    echo "APD v${VER:-unknown} (plugin: $APD_PLUGIN_ROOT)"
+    echo "APD v${APD_VER} (plugin: $APD_PLUGIN_ROOT)"
     exit 0
 fi
 
@@ -74,13 +77,13 @@ if [ "$MODE" = "new" ]; then
     # .apd-config
     cat > "$CLAUDE_DIR/.apd-config" << EOF
 PROJECT_NAME=$PROJECT_NAME
-APD_VERSION=3.3.3
+APD_VERSION=$APD_VER
 STACK=$STACK
 EOF
     fix "Created .apd-config"
 
     # .apd-version
-    echo "3.3.3" > "$CLAUDE_DIR/.apd-version"
+    echo "$APD_VER" > "$CLAUDE_DIR/.apd-version"
     fix "Created .apd-version"
 
     # Copy workflow.md
@@ -365,7 +368,7 @@ maxTurns: 20' "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
 
     # --- .apd-version ---
     CURRENT_VER=$(cat "$CLAUDE_DIR/.apd-version" 2>/dev/null | tr -d '[:space:]')
-    PLUGIN_VER="3.3.3"
+    PLUGIN_VER="$APD_VER"
     if [ "$CURRENT_VER" = "$PLUGIN_VER" ]; then
         ok ".apd-version ($CURRENT_VER)"
     else

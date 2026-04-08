@@ -98,8 +98,9 @@ Spec → Builder → Reviewer → Verifier → Commit → Finish
 | Orchestrator (you) | opus | max |
 | Builder agents | sonnet | high |
 | Reviewer | opus | max |
+| Adversarial Reviewer | sonnet | max |
 
-**Never use sonnet for review. Never use opus for building.**
+**Never use sonnet for review. Never use opus for building.** Exception: adversarial reviewer uses sonnet intentionally for perspective diversity.
 
 ### Human gate
 
