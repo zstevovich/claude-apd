@@ -48,11 +48,11 @@ This is the largest migration:
 2. **Create `.apd-config`:**
    ```
    PROJECT_NAME={extracted name}
-   APD_VERSION=3.2.3
+   APD_VERSION=3.2.4
    STACK={extracted stack}
    ```
 
-3. **Create `.apd-version`:** `3.2.3`
+3. **Create `.apd-version`:** `3.2.4`
 
 4. **Delete scripts from the project** (now in the plugin):
    ```bash
