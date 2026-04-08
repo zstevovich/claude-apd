@@ -10,15 +10,18 @@
   "license": "MIT",
   "userConfig": {
     "project_name": {
-      "title": "Project name (e.g., MyCRM, TaskFlow)",
+      "title": "Project name",
+      "description": "Your project name (e.g., MyCRM, TaskFlow)",
       "type": "string"
     },
     "stack": {
-      "title": "Tech stack: nodejs, php, python, dotnet, go, java",
+      "title": "Tech stack",
+      "description": "Backend stack: nodejs, php, python, dotnet, go, java",
       "type": "string"
     },
     "author_name": {
-      "title": "Author name for git commits",
+      "title": "Author name",
+      "description": "Author name for git commits (no AI signatures)",
       "type": "string"
     }
   }
