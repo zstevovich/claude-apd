@@ -6,23 +6,18 @@ effort: max
 
 # APD Init
 
-## FIRST: Run the init script
+Init script output:
 
-```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/apd-init.sh
-```
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/apd-init.sh 2>&1`
 
-This script mechanically handles:
-- **New project:** Creates .apd-config, settings.json (with superpowers disabled), workflow.md, principles.md, verify-all.sh, memory files, .gitignore
-- **Existing project:** Gap analysis — fixes missing code-reviewer, maxTurns, superpowers disable, version updates
+The script above ran automatically. Review its output:
+- If it says "Everything up to date" → nothing to do
+- If it applied fixes → they are already done
+- If it says "CLAUDE.md and agents must be generated" → proceed below
 
-After the script completes, you handle the parts that require project analysis:
-- Generate CLAUDE.md (if missing)
-- Generate agent files based on project structure (if missing)
+## Your job: generate ONLY what the script cannot
 
-## Generator guide (for CLAUDE.md and agents only)
-
-Generates project-specific files. Infrastructure files are created by the init script above.
+The script handles infrastructure (settings, rules, memory, config). You handle project-specific files that require analysis:
 
 ## What gets generated (in the project)
 
