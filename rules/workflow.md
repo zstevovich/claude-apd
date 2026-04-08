@@ -23,6 +23,13 @@
    → pipeline-advance.sh reviewer (after reviewer completes)
    → If reviewer finds critical issues → dispatch builder to fix → re-review
    ↓
+6b. DISPATCH ADVERSARIAL REVIEWER (optional, recommended)
+   → Dispatch adversarial-reviewer agent (sonnet/max, read-only, no spec context)
+   → Agent sees only git diff + touched files, finds issues blind
+   → Orchestrator evaluates findings: accept or dismiss each
+   → Write ADVERSARIAL:total:accepted:dismissed to .pipeline/.adversarial-summary
+   → If accepted findings → fix via builder → re-review
+   ↓
 7. RUN VERIFIER — build + test
    → pipeline-advance.sh verifier
    → If verifier FAILS → MANDATORY: /apd-debug before re-dispatching builder
@@ -119,7 +126,7 @@ The spec is shared with the user BEFORE implementation.
 
 The orchestrator MUST write the spec card to `.claude/.pipeline/spec-card.md` before calling `pipeline-advance.sh spec "Task name"`. This enables mechanical traceability verification.
 
-## 2. Four roles — strict model and effort enforcement
+## 2. Five roles — strict model and effort enforcement
 
 ### Orchestrator (you — main session)
 - **Model:** opus | **Effort:** max
@@ -146,6 +153,14 @@ The orchestrator MUST write the spec card to `.claude/.pipeline/spec-card.md` be
 - Runs AUTOMATICALLY after every Builder — **never skip**
 - Reports findings to orchestrator who decides action
 
+### Adversarial Reviewer (dispatched agent)
+- **Model:** sonnet | **Effort:** max
+- Context-free — sees only code changes, not the spec or task
+- Finds bugs that contextual reviewers miss by not knowing intent
+- Findings are advisory — orchestrator decides what to act on
+- Runs AFTER regular reviewer, BEFORE verifier
+- Orchestrator tracks hit rate: accepted vs dismissed findings
+
 ### Verifier (script, not agent)
 - Runs `verify-all.sh` (build + test)
 - Triggered by `pipeline-advance.sh verifier`
@@ -158,6 +173,7 @@ The orchestrator MUST write the spec card to `.claude/.pipeline/spec-card.md` be
 | Orchestrator | opus | max | Decisions, planning, coordination — expensive to reverse |
 | Builder | sonnet | high | Implementation following clear spec — fast, focused |
 | Reviewer | opus | max | Finding bugs, security issues — must be thorough |
+| Adversarial Reviewer | sonnet | max | Fresh eyes, different model = different blind spots |
 | Verifier | — | — | Script, not a model — runs build + test |
 
 ## 3. Micro-tasks

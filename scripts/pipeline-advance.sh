@@ -68,7 +68,7 @@ case "$STEP" in
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/spec-card.md"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/spec-card.md"
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
         apd_spec_header "$ARG"
         show_pipeline "builder"
@@ -224,7 +224,14 @@ case "$STEP" in
             VERIFIER_TS_V=$(cut -d'|' -f1 "$PIPELINE_DIR/verifier.done" 2>/dev/null || echo 0)
             STATUS="completed"
             if [ ! -f "$PIPELINE_DIR/verifier.done" ]; then STATUS="partial"; fi
-            echo "${NOW}|${TASK_NAME}|${SPEC_TS_V}|${BUILDER_TS_V}|${REVIEWER_TS_V}|${VERIFIER_TS_V}|${STATUS}" >> "$METRICS_LOG"
+            # Read adversarial stats for metrics
+            ADV_T=0; ADV_A=0; ADV_D=0
+            if [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
+                ADV_T=$(cat "$PIPELINE_DIR/.adversarial-summary" | cut -d: -f2 2>/dev/null || echo 0)
+                ADV_A=$(cat "$PIPELINE_DIR/.adversarial-summary" | cut -d: -f3 2>/dev/null || echo 0)
+                ADV_D=$(cat "$PIPELINE_DIR/.adversarial-summary" | cut -d: -f4 2>/dev/null || echo 0)
+            fi
+            echo "${NOW}|${TASK_NAME}|${SPEC_TS_V}|${BUILDER_TS_V}|${REVIEWER_TS_V}|${VERIFIER_TS_V}|${STATUS}|${ADV_T}|${ADV_A}|${ADV_D}" >> "$METRICS_LOG"
 
             SESSION_LOG="$MEMORY_DIR/session-log.md"
             if [ -f "$SESSION_LOG" ] && [ -n "$TASK_NAME" ]; then
@@ -337,12 +344,26 @@ case "$STEP" in
                     fi
                 fi
 
+                # 8. Adversarial review hit rate
+                ADV_REVIEW=""
+                if [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
+                    ADV_LINE=$(cat "$PIPELINE_DIR/.adversarial-summary")
+                    # Format: ADVERSARIAL:total:accepted:dismissed
+                    ADV_TOTAL=$(echo "$ADV_LINE" | cut -d: -f2)
+                    ADV_ACCEPTED=$(echo "$ADV_LINE" | cut -d: -f3)
+                    ADV_DISMISSED=$(echo "$ADV_LINE" | cut -d: -f4)
+                    if [ -n "$ADV_TOTAL" ] && [ "$ADV_TOTAL" != "0" ]; then
+                        ADV_REVIEW="${ADV_TOTAL} findings (${ADV_ACCEPTED} accepted, ${ADV_DISMISSED} dismissed)"
+                    fi
+                fi
+
                 # --- Generate entry ---
                 cat >> "$SESSION_LOG" << EOF
 
 ## [$(date +%Y-%m-%d)] $TASK_NAME
 **Status:** $PIPELINE_STATUS
 **Spec coverage:** ${TRACE_COVERAGE:-N/A}
+**Adversarial review:** ${ADV_REVIEW:-N/A}
 **What was done:** $CHANGED_SUMMARY
 **Agents:** $AGENTS_SUMMARY
 **Problems:** $PROBLEMS
@@ -357,7 +378,7 @@ EOF
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary"
         echo "Pipeline reset. Ready for new task."
         ;;
 
@@ -368,7 +389,7 @@ EOF
             if [ -f "$PIPELINE_DIR/$step.done" ]; then
                 rm -f "$PIPELINE_DIR/$step.done"
                 # If verifier rolled back, also remove cache timestamp and trace summary
-                [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.trace-summary"
+                [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary"
                 apd_header "Rollback: $step"
                 show_pipeline "$step"
                 ROLLED_BACK=true
@@ -453,8 +474,8 @@ EOF
         fi
 
         TOTAL_TASKS=$(wc -l < "$METRICS_LOG" | tr -d ' ')
-        COMPLETED=$(grep -c '|completed$' "$METRICS_LOG" 2>/dev/null || echo 0)
-        PARTIAL=$(grep -c '|partial$' "$METRICS_LOG" 2>/dev/null || echo 0)
+        COMPLETED=$(grep -c '|completed' "$METRICS_LOG" 2>/dev/null || echo 0)
+        PARTIAL=$(grep -c '|partial' "$METRICS_LOG" 2>/dev/null || echo 0)
         SKIP_LOG="$MEMORY_DIR/pipeline-skip-log.md"
         TOTAL_SKIPS=0
         if [ -f "$SKIP_LOG" ]; then
@@ -527,6 +548,26 @@ EOF
         printf "    %-22s %s\n" "spec → builder:" "$AVG_S2B"
         printf "    %-22s %s\n" "builder → reviewer:" "$AVG_B2R"
         printf "    %-22s %s\n" "reviewer → verifier:" "$AVG_R2V"
+
+        # Adversarial hit rate (cumulative)
+        ADV_TOTAL_SUM=0
+        ADV_ACCEPTED_SUM=0
+        ADV_TASKS=0
+        while IFS='|' read -r _ts _task _s _b _r _v _status adv_t adv_a adv_d; do
+            adv_t=$(echo "${adv_t:-0}" | tr -d '[:space:]')
+            adv_a=$(echo "${adv_a:-0}" | tr -d '[:space:]')
+            [ "$adv_t" -gt 0 ] 2>/dev/null && {
+                ADV_TOTAL_SUM=$((ADV_TOTAL_SUM + adv_t))
+                ADV_ACCEPTED_SUM=$((ADV_ACCEPTED_SUM + adv_a))
+                ADV_TASKS=$((ADV_TASKS + 1))
+            }
+        done < "$METRICS_LOG"
+
+        if [ "$ADV_TASKS" -gt 0 ]; then
+            ADV_RATE=$((ADV_ACCEPTED_SUM * 100 / ADV_TOTAL_SUM))
+            section "Adversarial review"
+            printf "    %-22s %s\n" "Hit rate:" "${ADV_RATE}% (${ADV_ACCEPTED_SUM}/${ADV_TOTAL_SUM} accepted across ${ADV_TASKS} tasks)"
+        fi
 
         section "Last 5"
         tail -5 "$METRICS_LOG" | while IFS='|' read -r _ts task_name spec_ts _b _r verifier_ts status; do
