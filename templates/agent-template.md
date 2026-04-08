@@ -48,8 +48,8 @@ You are {{role}} for {{PROJECT_NAME}}.
 
 ## Workflow
 1. Read the spec card and understand the requirements
-2. Load relevant skills if they exist
-3. Implement changes
+2. **MANDATORY: Use /apd-tdd skill** — write failing test first, then implement
+3. Implement changes following TDD cycle: test → code → verify
 4. Respect the max 3-4 edit operations per dispatch limit
 5. Do not overlap with other agents
 

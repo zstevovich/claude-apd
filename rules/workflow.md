@@ -4,6 +4,7 @@
 
 ```
 1. RECEIVE TASK from user
+   → If task is vague or complex → MANDATORY: /apd-brainstorm first
    ↓
 2. ANALYZE & WRITE SPEC — create spec card with goal, scope, criteria, risks
    → pipeline-advance.sh spec "Task name"
@@ -15,6 +16,7 @@
 4. WRITE IMPLEMENTATION PLAN — break into micro-tasks, assign to agents
    ↓
 5. DISPATCH BUILDER AGENT(S) — one agent per domain, max 3-4 edits each
+   → Builder agents MUST use /apd-tdd skill for implementation
    → pipeline-advance.sh builder (after agent completes)
    ↓
 6. DISPATCH REVIEWER AGENT — opus/max, read-only, finds bugs
@@ -23,10 +25,13 @@
    ↓
 7. RUN VERIFIER — build + test
    → pipeline-advance.sh verifier
+   → If verifier FAILS → MANDATORY: /apd-debug before re-dispatching builder
    ↓
 8. ONE COMMIT for the entire feature
    → APD_ORCHESTRATOR_COMMIT=1 git commit
    → Pipeline auto-resets, session log auto-populated
+   ↓
+9. FINISH — /apd-finish for push/PR/keep decision
 ```
 
 **Every step is mechanically enforced. You cannot skip ahead.**
@@ -212,3 +217,28 @@ When a task involves backend + frontend/mobile:
 - **Never use sonnet for review** — it misses subtle bugs
 - **Never use opus for building** — it's slower and not needed for spec-driven work
 - **Never use effort: low or medium** — APD only uses high and max
+
+## 9. Mandatory skills
+
+These skills are NOT optional. They MUST be used at the specified points in the pipeline.
+
+| Skill | When | Who | Trigger |
+|-------|------|-----|---------|
+| `/apd-brainstorm` | Before spec, when task is vague or complex | Orchestrator | User gives unclear/broad task |
+| `/apd-tdd` | During implementation | Builder agents | Every builder dispatch |
+| `/apd-debug` | When verifier fails or reviewer finds bugs | Orchestrator → Builder | Test failure, build failure, critical review finding |
+| `/apd-finish` | After successful commit | Orchestrator | Pipeline completes and commit succeeds |
+
+### Skill enforcement rules
+
+- **`/apd-brainstorm`** — If the user's task description is more than one sentence, involves multiple components, or has ambiguous scope → you MUST invoke `/apd-brainstorm` before writing the spec. Do NOT skip this to save time.
+- **`/apd-tdd`** — Every Builder agent MUST follow TDD: write failing test → implement → verify pass. The `/apd-tdd` skill defines the exact process. Builders that skip TDD produce untestable code.
+- **`/apd-debug`** — When the verifier fails or the reviewer reports a critical issue, do NOT re-dispatch the builder with "fix the bug". FIRST invoke `/apd-debug` to systematically identify the root cause, THEN dispatch the builder with specific fix instructions.
+- **`/apd-finish`** — After a successful commit, ALWAYS invoke `/apd-finish` to present the user with options: push, PR, keep local, or discard. Do NOT push without this step.
+
+### Optional skills
+
+| Skill | When |
+|-------|------|
+| `/github-projects` | If the project uses GitHub Projects for task tracking |
+| `/miro-dashboard` | If the project uses a Miro board for visualization |
