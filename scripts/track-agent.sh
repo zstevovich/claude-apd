@@ -31,11 +31,11 @@ ac=$(_agent_color "$AGENT_TYPE")
 case "$EVENT" in
   SubagentStart)
     echo "${NOW_HUMAN}|start|${AGENT_TYPE}|${AGENT_ID}" >> "$AGENTS_LOG"
-    printf "  %s⚙%s %s%s%s%s\n" "$ac" "$R" "$ac" "$B" "$AGENT_TYPE" "$R" >&2
+    printf "  %s☭%s %s%s%s%s\n" "$ac" "$R" "$ac" "$B" "$AGENT_TYPE" "$R" >&2
     ;;
   SubagentStop)
     echo "${NOW_HUMAN}|stop|${AGENT_TYPE}|${AGENT_ID}" >> "$AGENTS_LOG"
-    printf "  %s⚙%s %s%s%s %sdone%s\n" "$ac" "$R" "$ac" "$AGENT_TYPE" "$R" "$D" "$R" >&2
+    printf "  %s☭%s %s%s%s %sdone%s\n" "$ac" "$R" "$ac" "$AGENT_TYPE" "$R" "$D" "$R" >&2
     ;;
 esac
 
