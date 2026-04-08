@@ -623,14 +623,17 @@ fi
 # Builder WITHOUT agent dispatch — must block
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" builder 2>&1)
 EXIT_CODE=$?
-if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "no builder agent"; then
+if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "no project builder"; then
     pass "pipeline-advance: builder BLOCKS without agent dispatch"
 else
     fail "pipeline-advance builder should block without agent (exit: $EXIT_CODE)"
 fi
 
 # Simulate agent dispatch (track-agent.sh would do this via SubagentStart/Stop hooks)
-mkdir -p "$PIPELINE_DIR"
+# Create dummy agent files if they don't exist (needed for project-agent verification)
+mkdir -p "$CLAUDE_DIR/agents" "$PIPELINE_DIR"
+[ -f "$CLAUDE_DIR/agents/backend-builder.md" ] || echo "---\nname: backend-builder\n---" > "$CLAUDE_DIR/agents/backend-builder.md"
+[ -f "$CLAUDE_DIR/agents/code-reviewer.md" ] || echo "---\nname: code-reviewer\n---" > "$CLAUDE_DIR/agents/code-reviewer.md"
 AGENTS_LOG="$PIPELINE_DIR/.agents"
 echo "$(date +"%Y-%m-%d %H:%M:%S")|stop|backend-builder|test-agent-001" >> "$AGENTS_LOG"
 
@@ -654,7 +657,7 @@ fi
 # Reviewer WITHOUT agent dispatch — must block
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" reviewer 2>&1)
 EXIT_CODE=$?
-if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "no reviewer agent"; then
+if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "no project reviewer"; then
     pass "pipeline-advance: reviewer BLOCKS without agent dispatch"
 else
     fail "pipeline-advance reviewer should block without agent (exit: $EXIT_CODE)"

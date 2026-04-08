@@ -122,20 +122,37 @@ case "$STEP" in
             exit 1
         fi
 
-        # Verify that a builder agent actually ran (not orchestrator doing it directly)
+        # Verify that a PROJECT-DEFINED builder agent ran (not superpowers or orchestrator)
         AGENTS_LOG="$PIPELINE_DIR/.agents"
         SPEC_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/spec.done")
+        BUILDER_RAN=""
         if [ -f "$AGENTS_LOG" ]; then
-            # Check for any agent stop event after spec was created
-            BUILDER_RAN=$(grep '|stop|' "$AGENTS_LOG" | grep -i 'builder' | tail -1)
+            # Get all stopped agents, check each against project agents
+            while IFS='|' read -r _ts _evt agent_type _id; do
+                [ "$_evt" = "stop" ] || continue
+                # Reject external plugin agents (superpowers, etc.)
+                if echo "$agent_type" | grep -qE ':'; then
+                    continue
+                fi
+                # Accept only agents defined in .claude/agents/
+                if [ -f "$CLAUDE_DIR/agents/${agent_type}.md" ]; then
+                    BUILDER_RAN="$agent_type"
+                fi
+            done < "$AGENTS_LOG"
         fi
         if [ -z "${BUILDER_RAN:-}" ]; then
-            echo "BLOCKED: No Builder agent was dispatched!" >&2
+            echo "BLOCKED: No project Builder agent was dispatched!" >&2
             echo "" >&2
-            echo "  The orchestrator must dispatch a Builder agent to implement code." >&2
-            echo "  You cannot mark builder as complete without running an agent." >&2
+            # Check if superpowers agents were used instead
+            if [ -f "$AGENTS_LOG" ] && grep -q ':' "$AGENTS_LOG" 2>/dev/null; then
+                echo "  External plugin agents (superpowers, etc.) are not accepted." >&2
+                echo "  You must dispatch agents defined in .claude/agents/:" >&2
+            else
+                echo "  The orchestrator must dispatch a Builder agent to implement code." >&2
+                echo "  You cannot mark builder as complete without running an agent." >&2
+            fi
             echo "" >&2
-            echo "  Available agents:" >&2
+            echo "  Project agents:" >&2
             if [ -d "$CLAUDE_DIR/agents" ]; then
                 for f in "$CLAUDE_DIR/agents"/*.md; do
                     [ -f "$f" ] || continue
@@ -157,17 +174,32 @@ case "$STEP" in
             exit 1
         fi
 
-        # Verify that a reviewer agent actually ran
+        # Verify that a PROJECT-DEFINED reviewer agent ran (not superpowers)
         AGENTS_LOG="$PIPELINE_DIR/.agents"
+        REVIEWER_RAN=""
         if [ -f "$AGENTS_LOG" ]; then
-            REVIEWER_RAN=$(grep '|stop|' "$AGENTS_LOG" | grep -iE 'review' | tail -1)
+            while IFS='|' read -r _ts _evt agent_type _id; do
+                [ "$_evt" = "stop" ] || continue
+                # Reject external plugin agents
+                if echo "$agent_type" | grep -qE ':'; then
+                    continue
+                fi
+                # Accept reviewer if defined in project
+                if [ -f "$CLAUDE_DIR/agents/${agent_type}.md" ] && echo "$agent_type" | grep -qiE 'review'; then
+                    REVIEWER_RAN="$agent_type"
+                fi
+            done < "$AGENTS_LOG"
         fi
         if [ -z "${REVIEWER_RAN:-}" ]; then
-            echo "BLOCKED: No Reviewer agent was dispatched!" >&2
+            echo "BLOCKED: No project Reviewer agent was dispatched!" >&2
             echo "" >&2
-            echo "  Code review is MANDATORY. Dispatch a Reviewer agent." >&2
+            if [ -f "$AGENTS_LOG" ] && grep -q ':' "$AGENTS_LOG" 2>/dev/null; then
+                echo "  External plugin reviewers (superpowers, etc.) are not accepted." >&2
+                echo "  Use the project's code-reviewer agent (opus/max, read-only)." >&2
+            else
+                echo "  Code review is MANDATORY. Dispatch the code-reviewer agent." >&2
+            fi
             echo "  The reviewer finds bugs, risks, and security issues." >&2
-            echo "  NEVER skip this step." >&2
             exit 1
         fi
 
