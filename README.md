@@ -283,11 +283,37 @@ The user MUST approve before:
 
 Format: the orchestrator presents a diff summary → the user says "ok" → only then does the action proceed.
 
-## Guardrail system
+## Mechanical enforcement
 
-APD uses mechanical guardrails (hook scripts) that block violations even when an agent "forgets" the rules.
+APD does not rely on instructions or documentation to enforce the pipeline. Every rule is backed by a hook script that **blocks** violations with exit code 2. There is no way to bypass the pipeline from within Claude Code.
 
-### Scripts (17)
+| What is blocked | How | Script |
+|----------------|-----|--------|
+| Orchestrator writes code files | PreToolUse hook on Write/Edit | `guard-orchestrator.sh` |
+| Builder step without agent dispatch | SubagentStop tracking | `track-agent.sh` + `pipeline-advance.sh` |
+| Reviewer step without agent dispatch | Same mechanism | `track-agent.sh` + `pipeline-advance.sh` |
+| Commit without all 4 pipeline steps | PreToolUse hook on git commit | `pipeline-gate.sh` |
+| Agent writes outside its scope | Per-agent PreToolUse hook | `guard-scope.sh` |
+| Superpowers agents replacing APD roles | Agent type check in pipeline-advance | `pipeline-advance.sh` |
+| Skip command | **Removed** — does not exist | — |
+
+### Agent model enforcement
+
+Agent frontmatter fields (`model`, `effort`, `maxTurns`, `permissionMode`) are mechanically enforced by Claude Code — not advisory.
+
+| Role | Model | Effort | Permission | maxTurns |
+|------|-------|--------|------------|----------|
+| Orchestrator | opus | max | — | — |
+| Builder | sonnet | high | bypassPermissions | 20 |
+| Reviewer | opus | max | **plan (read-only)** | 15 |
+
+The reviewer **cannot modify files** — `permissionMode: plan` and no Write/Edit in tools list.
+
+## Guardrail scripts
+
+APD uses hook scripts that block violations even when an agent "forgets" the rules.
+
+### Scripts (19)
 
 All scripts live in the plugin (`${CLAUDE_PLUGIN_ROOT}/scripts/`) except `verify-all.sh` which lives in your project (`.claude/scripts/`).
 
@@ -298,15 +324,17 @@ All scripts live in the plugin (`${CLAUDE_PLUGIN_ROOT}/scripts/`) except `verify
 | `guard-bash-scope.sh` | Blocks bash and runtime writes outside scope (shell redirects, node/python/ruby/php/perl) |
 | `guard-secrets.sh` | Blocks access to sensitive files |
 | `guard-lockfile.sh` | Blocks modification of lock files |
+| `guard-orchestrator.sh` | **Blocks orchestrator from writing code files** — must dispatch a Builder agent. Uses stack from userConfig to determine code extensions |
 | `guard-permission-denied.sh` | Handles permission denied events gracefully |
-| `pipeline-advance.sh` | Pipeline flag system with timestamps, rollback, metrics, and skip log |
+| `track-agent.sh` | **Records SubagentStart/SubagentStop events** — pipeline-advance.sh verifies agents actually ran before marking steps complete |
+| `pipeline-advance.sh` | Pipeline flag system with timestamps, rollback, metrics. Rejects conflicting superpowers agents, accepts only project-defined agents |
 | `pipeline-gate.sh` | Blocks commit without all 4 pipeline steps |
 | `pipeline-post-commit.sh` | Auto-resets pipeline after successful commit |
 | `rotate-session-log.sh` | Automatically archives old session log entries |
 | `session-start.sh` | Loads project context at session start with self-healing (auto-fixes broken state) |
 | `gh-sync.sh` | Synchronises pipeline steps with GitHub Projects issues |
 | `test-hooks.sh` | Quick static check (files, JSON, placeholders) |
-| `verify-apd.sh` | Full functional verification (50+ checks: guards, pipeline E2E, agents, summary) |
+| `verify-apd.sh` | Full functional verification (80+ checks: guards, pipeline E2E, agents, summary) |
 | `verify-contracts.sh` | Cross-layer type verification (TypeScript + C# parser, nullable awareness) |
 | `verify-all.sh` | Build + test before commit (lives in project, not plugin) |
 | `lib/resolve-project.sh` | Shared library — resolves PROJECT_DIR and APD_PLUGIN_ROOT |
@@ -932,21 +960,33 @@ Create new files in `.claude/rules/`:
 - `security.md` — auth, validation, secrets
 - `logging.md` — log format, levels, what not to log
 
-## Recommended plugins
+## Plugin compatibility
 
-APD is designed to work with the [Superpowers](https://github.com/anthropics/claude-code-plugins) plugin for Claude Code:
+APD has its own pipeline, agents, and review system. Some third-party plugins **conflict** with APD roles and are mechanically blocked. Others are **compatible** and work alongside APD.
 
-| Phase | Plugin/Skill | Description |
-|-------|-------------|-------------|
-| Pre-implementation | `superpowers:brainstorming` | Explores intent, requirements, design |
-| Pre-implementation | `superpowers:writing-plans` | Creates an implementation plan from the spec |
-| Builder | `superpowers:subagent-driven-development` | Parallel agents for independent tasks |
-| Builder | `superpowers:test-driven-development` | TDD workflow |
-| Builder | `superpowers:systematic-debugging` | Systematic debugging before fixing |
-| Reviewer | `superpowers:requesting-code-review` | Review upon implementation completion |
-| Reviewer | `simplify` | Review for quality and efficiency |
-| Verifier | `superpowers:verification-before-completion` | Verification before claiming completion |
-| Post-commit | `superpowers:finishing-a-development-branch` | Merge, PR, cleanup options |
+### Blocked (conflict with APD pipeline)
+
+These superpowers skills replace APD's own agents and bypass the enforced pipeline. `pipeline-advance.sh` rejects them:
+
+| Skill | Why blocked |
+|-------|------------|
+| `superpowers:subagent-driven-development` | APD IS the subagent approach — this asks "which approach?" |
+| `superpowers:code-review` | Replaces APD's opus/max code-reviewer with Haiku |
+| `superpowers:requesting-code-review` | Bypasses APD's reviewer dispatch mechanism |
+| `superpowers:verification-before-completion` | Bypasses APD's verifier step |
+
+### Compatible (work alongside APD)
+
+These plugins add value without conflicting with APD:
+
+| Plugin | Use case |
+|--------|----------|
+| `figma:figma-implement-design` | Frontend builders use Figma context for UI implementation |
+| `context7:query-docs` | Any agent can query library documentation |
+| `superpowers:brainstorming` | Useful BEFORE the APD pipeline starts (during spec phase) |
+| `superpowers:test-driven-development` | Builders can use TDD within their scope |
+| `superpowers:systematic-debugging` | Builders can debug within their scope |
+| `superpowers:finishing-a-development-branch` | Useful AFTER the pipeline (PR/merge decisions) |
 
 ## Principles
 
