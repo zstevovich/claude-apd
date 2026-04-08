@@ -207,11 +207,11 @@ Generate in `.claude/memory/`:
 `.claude/.apd-config`:
 ```
 PROJECT_NAME={name}
-APD_VERSION=3.2.9
+APD_VERSION=3.2.10
 STACK={stack}
 ```
 
-`.claude/.apd-version`: `3.2.9`
+`.claude/.apd-version`: `3.2.10`
 
 #### 4.7 Gitignore
 
