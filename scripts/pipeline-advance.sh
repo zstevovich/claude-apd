@@ -122,19 +122,24 @@ case "$STEP" in
             exit 1
         fi
 
-        # Verify that a PROJECT-DEFINED builder agent ran (not superpowers or orchestrator)
+        # Verify that a PROJECT-DEFINED builder agent ran
+        # Superpowers agents that conflict with APD pipeline are rejected.
+        # Other plugin agents (figma, context7, etc.) are allowed alongside project agents.
         AGENTS_LOG="$PIPELINE_DIR/.agents"
         SPEC_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/spec.done")
         BUILDER_RAN=""
+        BLOCKED_AGENTS=""
+        # Superpowers skills that conflict with APD roles
+        REJECTED_PREFIXES="superpowers:subagent-driven-development|superpowers:code-review|superpowers:requesting-code-review|superpowers:verification-before-completion"
         if [ -f "$AGENTS_LOG" ]; then
-            # Get all stopped agents, check each against project agents
             while IFS='|' read -r _ts _evt agent_type _id; do
                 [ "$_evt" = "stop" ] || continue
-                # Reject external plugin agents (superpowers, etc.)
-                if echo "$agent_type" | grep -qE ':'; then
+                # Reject specific conflicting agents
+                if echo "$agent_type" | grep -qE "^(${REJECTED_PREFIXES})"; then
+                    BLOCKED_AGENTS="${BLOCKED_AGENTS}${agent_type}, "
                     continue
                 fi
-                # Accept only agents defined in .claude/agents/
+                # Accept project-defined agents
                 if [ -f "$CLAUDE_DIR/agents/${agent_type}.md" ]; then
                     BUILDER_RAN="$agent_type"
                 fi
@@ -143,13 +148,12 @@ case "$STEP" in
         if [ -z "${BUILDER_RAN:-}" ]; then
             echo "BLOCKED: No project Builder agent was dispatched!" >&2
             echo "" >&2
-            # Check if superpowers agents were used instead
-            if [ -f "$AGENTS_LOG" ] && grep -q ':' "$AGENTS_LOG" 2>/dev/null; then
-                echo "  External plugin agents (superpowers, etc.) are not accepted." >&2
-                echo "  You must dispatch agents defined in .claude/agents/:" >&2
+            if [ -n "$BLOCKED_AGENTS" ]; then
+                echo "  Rejected conflicting agents: ${BLOCKED_AGENTS%, }" >&2
+                echo "  These conflict with APD pipeline roles." >&2
+                echo "  Dispatch agents defined in .claude/agents/ instead:" >&2
             else
                 echo "  The orchestrator must dispatch a Builder agent to implement code." >&2
-                echo "  You cannot mark builder as complete without running an agent." >&2
             fi
             echo "" >&2
             echo "  Project agents:" >&2
@@ -174,14 +178,17 @@ case "$STEP" in
             exit 1
         fi
 
-        # Verify that a PROJECT-DEFINED reviewer agent ran (not superpowers)
+        # Verify that a PROJECT-DEFINED reviewer agent ran
         AGENTS_LOG="$PIPELINE_DIR/.agents"
         REVIEWER_RAN=""
+        BLOCKED_AGENTS=""
+        REJECTED_PREFIXES="superpowers:subagent-driven-development|superpowers:code-review|superpowers:requesting-code-review|superpowers:verification-before-completion"
         if [ -f "$AGENTS_LOG" ]; then
             while IFS='|' read -r _ts _evt agent_type _id; do
                 [ "$_evt" = "stop" ] || continue
-                # Reject external plugin agents
-                if echo "$agent_type" | grep -qE ':'; then
+                # Reject specific conflicting agents
+                if echo "$agent_type" | grep -qE "^(${REJECTED_PREFIXES})"; then
+                    BLOCKED_AGENTS="${BLOCKED_AGENTS}${agent_type}, "
                     continue
                 fi
                 # Accept reviewer if defined in project
@@ -193,8 +200,8 @@ case "$STEP" in
         if [ -z "${REVIEWER_RAN:-}" ]; then
             echo "BLOCKED: No project Reviewer agent was dispatched!" >&2
             echo "" >&2
-            if [ -f "$AGENTS_LOG" ] && grep -q ':' "$AGENTS_LOG" 2>/dev/null; then
-                echo "  External plugin reviewers (superpowers, etc.) are not accepted." >&2
+            if [ -n "$BLOCKED_AGENTS" ]; then
+                echo "  Rejected conflicting agents: ${BLOCKED_AGENTS%, }" >&2
                 echo "  Use the project's code-reviewer agent (opus/max, read-only)." >&2
             else
                 echo "  Code review is MANDATORY. Dispatch the code-reviewer agent." >&2
