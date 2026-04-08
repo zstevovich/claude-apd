@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git *) | Bash(APD_ORCHESTRATOR_COMMIT=1 git *)",
+            "if": "Bash(git *)",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/guard-git.sh\"",
             "timeout": 5
           }
@@ -53,7 +53,7 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(APD_ORCHESTRATOR_COMMIT=1 git commit*)",
+            "if": "Bash(git commit*)",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-post-commit.sh\"",
             "timeout": 10
           }
