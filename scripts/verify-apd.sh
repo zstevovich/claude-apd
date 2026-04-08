@@ -620,9 +620,23 @@ else
     fail "pipeline-advance spec ERROR: $RESULT"
 fi
 
-# Builder after spec (should pass because spec exists)
+# Builder WITHOUT agent dispatch — must block
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" builder 2>&1)
-if echo "$RESULT" | grep -q "builder completed"; then
+EXIT_CODE=$?
+if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "no builder agent"; then
+    pass "pipeline-advance: builder BLOCKS without agent dispatch"
+else
+    fail "pipeline-advance builder should block without agent (exit: $EXIT_CODE)"
+fi
+
+# Simulate agent dispatch (track-agent.sh would do this via SubagentStart/Stop hooks)
+mkdir -p "$PIPELINE_DIR"
+AGENTS_LOG="$PIPELINE_DIR/.agents"
+echo "$(date +"%Y-%m-%d %H:%M:%S")|stop|backend-builder|test-agent-001" >> "$AGENTS_LOG"
+
+# Builder WITH agent dispatch — should pass
+RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" builder 2>&1)
+if echo "$RESULT" | grep -q "Builder completed"; then
     pass "pipeline-advance: builder"
 else
     fail "pipeline-advance builder ERROR: $RESULT"
@@ -637,9 +651,21 @@ else
     fail "pipeline-gate DOES NOT BLOCK when steps are missing (exit: $EXIT_CODE)"
 fi
 
-# Reviewer
+# Reviewer WITHOUT agent dispatch — must block
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" reviewer 2>&1)
-if echo "$RESULT" | grep -q "reviewer completed"; then
+EXIT_CODE=$?
+if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "no reviewer agent"; then
+    pass "pipeline-advance: reviewer BLOCKS without agent dispatch"
+else
+    fail "pipeline-advance reviewer should block without agent (exit: $EXIT_CODE)"
+fi
+
+# Simulate reviewer agent dispatch
+echo "$(date +"%Y-%m-%d %H:%M:%S")|stop|code-reviewer|test-reviewer-001" >> "$AGENTS_LOG"
+
+# Reviewer WITH agent dispatch — should pass
+RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" reviewer 2>&1)
+if echo "$RESULT" | grep -q "Reviewer completed"; then
     pass "pipeline-advance: reviewer"
 else
     fail "pipeline-advance reviewer ERROR: $RESULT"
