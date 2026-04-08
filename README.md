@@ -411,8 +411,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh status
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh reset
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh rollback           # Revert one step back
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh stats
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh init "Description"  # Initial setup (no review needed)
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh skip "Reason"      # Only for urgent hotfixes
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh init "Description"  # First setup only
 ```
 
 ### Skip analysis

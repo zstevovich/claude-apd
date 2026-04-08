@@ -540,49 +540,16 @@ EOF
         echo ""
         ;;
 
-    skip)
-        if [ -z "$ARG" ]; then
-            echo "ERROR: Reason for skip is required." >&2
-            exit 1
-        fi
-
-        # Skip requires explicit user approval via environment variable
-        if [ "${APD_FORCE_SKIP:-}" != "1" ]; then
-            echo "BLOCKED: Pipeline skip requires explicit user approval." >&2
-            echo "" >&2
-            echo "  Skip is for PRODUCTION HOTFIXES ONLY." >&2
-            echo "  If this is truly urgent, the user must run:" >&2
-            echo "" >&2
-            echo "    APD_FORCE_SKIP=1 bash \${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh skip \"$ARG\"" >&2
-            echo "" >&2
-            echo "  Or use the full pipeline: spec → builder → reviewer → verifier → commit" >&2
-            exit 1
-        fi
-
-        echo "${NOW}|${NOW_HUMAN}|HOTFIX: ${ARG}" > "$PIPELINE_DIR/spec.done"
-        echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/builder.done"
-        echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
-        echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
-        # Note: skip does not write verified.timestamp — verify-all.sh cache is not used for skip tasks
-
-        # Append to skip log
-        SKIP_LOG="$MEMORY_DIR/pipeline-skip-log.md"
-        echo "| ${NOW_HUMAN} | ${ARG} | hotfix |" >> "$SKIP_LOG"
-
-        echo ""
-        echo "  !!!! PIPELINE SKIPPED: $ARG !!!!"
-        echo "  Approved by user (APD_FORCE_SKIP=1). Logged."
-        echo ""
-        ;;
-
     *)
         echo "Usage:" >&2
         echo "  pipeline-advance.sh spec \"Task name\"" >&2
         echo "  pipeline-advance.sh builder|reviewer|verifier" >&2
         echo "  pipeline-advance.sh reset|status|stats|metrics" >&2
         echo "  pipeline-advance.sh rollback" >&2
-        echo "  pipeline-advance.sh init \"Description\"     # Initial setup (no review)" >&2
-        echo "  pipeline-advance.sh skip \"Reason\"           # Urgent hotfix (logged)" >&2
+        echo "  pipeline-advance.sh init \"Description\"     # First setup only" >&2
+        echo "" >&2
+        echo "  There is no skip command. Every feature goes through the full pipeline." >&2
+        echo "  For hotfixes, use a separate terminal: git commit without APD prefix." >&2
         exit 1
         ;;
 esac

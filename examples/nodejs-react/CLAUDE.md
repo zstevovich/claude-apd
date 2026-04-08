@@ -82,7 +82,7 @@ Spec → Builder → Reviewer → Verifier → Commit
 
 - **Hooks BLOCK commits** if pipeline steps are not completed
 - Each step: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh {step}`
-- `skip` is for PRODUCTION HOTFIXES ONLY — not for convenience
+- There is NO skip command — every feature goes through the full pipeline
 - `init` is for first project setup ONLY — not for features
 
 ### Guardrails
@@ -116,7 +116,7 @@ Spec → Builder → Reviewer → Verifier → Commit
 | Builder agents | sonnet | high |
 | Reviewer | opus | max |
 
-**Never use sonnet for review. Never use opus for building. Never skip the Reviewer.**
+**Never use sonnet for review. Never use opus for building.**
 
 ### Human gate
 

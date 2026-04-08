@@ -218,8 +218,7 @@ All blocks are logged to `guard-audit.log` with agent ID and timestamp.
 | `pipeline-advance.sh status` | Show current pipeline state |
 | `pipeline-advance.sh rollback` | Undo the last step |
 | `pipeline-advance.sh metrics` | Show pipeline performance dashboard |
-| `pipeline-advance.sh init "Description"` | Initial setup (no review needed) |
-| `pipeline-advance.sh skip "Reason"` | Emergency hotfix bypass (logged) |
+| `pipeline-advance.sh init "Description"` | First setup only |
 | `verify-apd.sh` | Full setup verification (51 checks) |
 | `verify-contracts.sh be/ fe/` | Cross-layer type check |
 

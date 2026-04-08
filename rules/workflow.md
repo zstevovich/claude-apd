@@ -79,8 +79,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh status
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh reset
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh rollback           # Roll back one step
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh stats
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh init "Description"  # Initial setup (no review needed)
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh skip "Reason"      # Only for urgent hotfixes
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh init "Description"  # First setup only
 ```
 
 ### Hard rules
