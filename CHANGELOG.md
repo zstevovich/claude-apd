@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.2.1 — 2026-04-08
+
+Unified CLI visual identity. Shared style library replaces inline color definitions and box drawing across all scripts.
+
+### New
+
+- **`scripts/lib/style.sh`** — shared style library with TTY-aware colors, branded markers (■ □ ◆ ✓ ✗ !), and output helpers (apd_header, apd_blocked, pass, fail, warn, ok, fix, skip, err, section, show_pipeline, format_duration)
+- **Branded headers** — all script output uses `APD ■ Title` prefix instead of box drawing
+- **Minimal sections** — `── Name ──` dim separators replace double-line boxes (╔══╗)
+- **Consistent markers** — ✓/✗/! replace [PASS]/[FAIL]/[WARN] in test-hooks.sh
+
+### Changed
+
+- `pipeline-advance.sh` — all box headers/footers removed, uses style.sh (-82 lines)
+- `pipeline-gate.sh` — box blocked output → `APD □ BLOCKED:` format
+- `session-start.sh` — 5 boxes (version warnings, self-heal, header) → branded headers
+- `apd-init.sh` — inline colors/helpers → source style.sh
+- `verify-apd.sh` — box header/summary → sections with dim separators
+- `verify-contracts.sh` — RED/GREEN/YELLOW → style.sh aliases, boxes → sections
+- `test-hooks.sh` — [PASS]/[FAIL]/[WARN] → ✓/✗/!, === → branded header
+
+---
+
 ## v3.2.0 — 2026-04-08
 
 Comprehensive audit and fix release. 21 issues fixed across scripts, skills, hooks, templates and documentation.
