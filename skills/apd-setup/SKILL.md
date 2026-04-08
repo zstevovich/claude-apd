@@ -10,7 +10,7 @@ effort: max
 **Step 1 — MANDATORY: Run the init script. Do this FIRST before anything else.**
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/apd-setup.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/apd-init.sh"
 ```
 
 Do NOT skip this. Do NOT do your own analysis. Run the script and read its output.

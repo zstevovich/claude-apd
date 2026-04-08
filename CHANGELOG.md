@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.2.6 — 2026-04-08
+
+Skill quality overhaul and `/apd-init` → `/apd-setup` rename.
+
+- **Skill refactor** — all 7 skills rewritten with CSO descriptions ("Use when..." trigger-only), Iron Laws, rationalization tables, Red Flags, DOT process diagrams, integration sections
+- **`/apd-init` → `/apd-setup`** — renamed to reflect both init and maintenance role
+- **`/apd-upgrade` removed** — replaced by `apd-init.sh --quick` auto-update on session start
+- **Mandatory skill enforcement** — workflow.md step 9 added, brainstorm/tdd/debug/finish are mandatory at specified pipeline points
+- **`allowed-tools`** — apd-tdd and apd-debug get tool access without permission prompts
+- **`disable-model-invocation`** — apd-setup is user-only (not auto-triggered)
+
+---
+
+## v3.2.5 — 2026-04-08
+
+Mandatory skill enforcement in workflow and version bump.
+
+---
+
 ## v3.2.4 — 2026-04-08
 
 Per-step pipeline colors, agent visual identity, hook and template fixes.

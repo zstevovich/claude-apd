@@ -1,4 +1,4 @@
-# Agent Pipeline Development (APD) Framework v3.2.4
+# Agent Pipeline Development (APD) Framework v3.2.6
 
 Disciplined AI-assisted software development through specialised agents, enforced pipelines, and mechanical guardrails. Distributed as a Claude Code plugin.
 
@@ -890,6 +890,10 @@ ${CLAUDE_PLUGIN_ROOT}/
 ├── rules/workflow.md                 # APD workflow (universal)
 ├── templates/agent-template.md       # Agent template (not in agents/ to avoid auto-discovery)
 ├── skills/
+│   ├── apd-brainstorm/SKILL.md       # Requirements exploration before spec
+│   ├── apd-tdd/SKILL.md              # Test-Driven Development for builders
+│   ├── apd-debug/SKILL.md            # Systematic debugging
+│   ├── apd-finish/SKILL.md           # Post-commit push/PR decision
 │   ├── apd-setup/SKILL.md            # Project setup and maintenance
 │   ├── github-projects/SKILL.md      # GitHub Projects integration
 │   └── miro-dashboard/SKILL.md       # Miro dashboard
@@ -967,13 +971,13 @@ APD has its own pipeline, agents, review, and verification system. It replaces t
 
 All `superpowers:*` agents are mechanically rejected by `pipeline-advance.sh`. Superpowers replaces APD's enforced pipeline with its own unstructured flow — the two are incompatible.
 
-APD includes its own equivalents for useful superpowers skills:
-- Brainstorming → APD spec phase (step 2 in the flow)
-- TDD → `/apd-tdd` skill (coming soon)
-- Debugging → `/apd-debug` skill (coming soon)
+APD includes its own equivalents for superpowers skills:
+- Brainstorming → `/apd-brainstorm` skill
+- TDD → `/apd-tdd` skill (mandatory for builders)
+- Debugging → `/apd-debug` skill (mandatory on verifier failure)
 - Code review → `code-reviewer` agent (opus/max, read-only)
 - Verification → APD verifier step (build + test)
-- Finishing branch → `/apd-finish` skill (coming soon)
+- Finishing branch → `/apd-finish` skill (mandatory after commit)
 
 ### Compatible: other plugins
 

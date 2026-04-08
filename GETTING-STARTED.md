@@ -35,7 +35,7 @@ Start a new session, then run:
 
 ```console
 ~/Projects/my-project $ claude
-> /apd-init
+> /apd-setup
 ```
 
 > **Note:** Start a new session after installing — skills register on session start.
