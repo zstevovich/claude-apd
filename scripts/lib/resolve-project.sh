@@ -48,3 +48,12 @@ CLAUDE_DIR="$PROJECT_DIR/.claude"
 MEMORY_DIR="$CLAUDE_DIR/memory"
 PIPELINE_DIR="$CLAUDE_DIR/.pipeline"
 SCRIPT_DIR="$APD_PLUGIN_ROOT/scripts"
+
+# --- Activation check ---
+# APD is dormant unless .apd-config exists (created by /apd-init)
+# Scripts source this file and check APD_ACTIVE before doing work
+if [ -f "$CLAUDE_DIR/.apd-config" ]; then
+    APD_ACTIVE=true
+else
+    APD_ACTIVE=false
+fi

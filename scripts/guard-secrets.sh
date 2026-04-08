@@ -3,6 +3,7 @@
 # Customize BLOCKED_PATTERNS for your project
 
 source "$(dirname "$0")/lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
 
 if ! command -v jq &>/dev/null; then
   echo "ERROR: jq is not installed." >&2

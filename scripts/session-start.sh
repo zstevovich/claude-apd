@@ -2,6 +2,7 @@
 # APD Session Start — loads project context at the beginning of a session
 
 source "$(dirname "$0")/lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
 cd "$PROJECT_DIR" || exit 0
 
 # ===== VERSION CHECK =====

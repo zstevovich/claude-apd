@@ -2,6 +2,7 @@
 # APD Pipeline Gate — blocks commit if pipeline steps are not completed
 
 source "$(dirname "$0")/lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
 
 if [ -t 2 ] || [ -t 1 ]; then
     V=$'\033[38;5;135m'; R=$'\033[0m'

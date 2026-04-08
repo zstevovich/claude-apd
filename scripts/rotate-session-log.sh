@@ -3,6 +3,7 @@
 # Keeps the last MAX_ENTRIES, moves older ones to session-log-archive.md
 
 source "$(dirname "$0")/lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
 LOG_FILE="$MEMORY_DIR/session-log.md"
 ARCHIVE_FILE="$MEMORY_DIR/session-log-archive.md"
 

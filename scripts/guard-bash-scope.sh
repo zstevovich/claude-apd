@@ -8,6 +8,7 @@
 #      with write functions (writeFileSync, open().write, file_put_contents...)
 
 source "$(dirname "$0")/lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
 
 ALLOWED_PATHS=("$@")
 

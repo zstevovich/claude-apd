@@ -3,6 +3,7 @@
 # Usage: bash guard-scope.sh <allowed_path_1> <allowed_path_2> ...
 
 source "$(dirname "$0")/lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
 
 ALLOWED_PATHS=("$@")
 

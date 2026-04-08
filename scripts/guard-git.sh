@@ -3,6 +3,7 @@
 # Subagents must not commit, push, or perform destructive operations
 
 source "$(dirname "$0")/lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
 
 if ! command -v jq &>/dev/null; then
   echo "ERROR: jq is not installed. Required for guard-git.sh." >&2

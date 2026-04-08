@@ -7,6 +7,7 @@
 # file extensions are code files for the project's stack.
 
 source "$(dirname "$0")/lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
 
 if ! command -v jq &>/dev/null; then
   exit 0
