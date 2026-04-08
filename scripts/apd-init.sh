@@ -15,19 +15,12 @@ QUICK=false
 [ "${1:-}" = "--quick" ] && QUICK=true
 
 # --- Visual helpers ---
-V=$'\033[38;5;135m' B=$'\033[1m' G=$'\033[32m' Y=$'\033[33m' R=$'\033[0m'
-ok()   { echo "  ${V}■${R} $1"; }
-fix()  { echo "  ${G}+${R} $1"; }
-skip() { echo "  ${Y}○${R} $1 (skipped — already exists)"; }
-err()  { echo "  ${V}□${R} $1" >&2; }
+source "$(dirname "$0")/lib/style.sh"
 
 FIXES=0
 SKIPS=0
 
-echo ""
-echo "  ╭──────────────────────────────────────────────╮"
-echo "  │  APD Init                                     │"
-echo "  ╰──────────────────────────────────────────────╯"
+apd_header "Init"
 echo ""
 
 # ===========================================================
