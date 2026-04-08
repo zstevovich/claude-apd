@@ -58,7 +58,7 @@ case "$STEP" in
         fi
         rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents"
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
-        apd_header "Spec: \"$ARG\""
+        apd_spec_header "$ARG"
         show_pipeline "builder"
         ;;
 
@@ -371,13 +371,15 @@ EOF
                 STEP_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/$step.done")
                 if [ "$step" != "spec" ] && [ -n "$PREV_TS" ]; then
                     DELTA=$(format_duration $((STEP_TS - PREV_TS)))
-                    printf "    %s %-12s +%s\n" "$MARK_DONE" "$step" "$DELTA"
+                    local sc=$(_step_color "$step")
+                    printf "    %s■%s %-12s +%s\n" "$sc" "$R" "$step" "$DELTA"
                 fi
                 PREV_TS="$STEP_TS"
             else
                 if [ -n "$PREV_TS" ]; then
                     WAITING=$(format_duration $(($(date +%s) - PREV_TS)))
-                    printf "    %s %-12s waiting %s\n" "$MARK_TODO" "$step" "$WAITING"
+                    local sc=$(_step_color "$step")
+                    printf "    %s□%s %-12s waiting %s\n" "$sc" "$R" "$step" "$WAITING"
                 fi
                 PREV_TS=""
             fi

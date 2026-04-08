@@ -20,10 +20,11 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     echo "" >&2
 
     for step in spec builder reviewer verifier; do
+        local sc=$(_step_color "$step")
         if [ -f "$PIPELINE_DIR/$step.done" ]; then
-            printf "    ${MARK_DONE} %s\n" "$step" >&2
+            printf "    %s■%s %s\n" "$sc" "$R" "$step" >&2
         else
-            printf "    ${MARK_TODO} %s  ${D}← missing${R}\n" "$step" >&2
+            printf "    %s□%s %s  ${D}← missing${R}\n" "$sc" "$R" "$step" >&2
         fi
     done
 
@@ -32,5 +33,5 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     exit 2
 fi
 
-echo "  ${MARK_DONE} Pipeline gate: all steps complete" >&2
+echo "  ${V}■${R} Pipeline gate: all steps complete" >&2
 exit 0
