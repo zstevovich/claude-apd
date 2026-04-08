@@ -6,6 +6,7 @@
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
+source "$(dirname "$0")/lib/style.sh"
 
 if ! command -v jq &>/dev/null; then
   exit 0
@@ -24,12 +25,17 @@ mkdir -p "$PIPELINE_DIR"
 AGENTS_LOG="$PIPELINE_DIR/.agents"
 NOW_HUMAN=$(date +"%Y-%m-%d %H:%M:%S")
 
+# Agent display color
+ac=$(_agent_color "$AGENT_TYPE")
+
 case "$EVENT" in
   SubagentStart)
     echo "${NOW_HUMAN}|start|${AGENT_TYPE}|${AGENT_ID}" >> "$AGENTS_LOG"
+    printf "  %s▶%s %s%s%s %s%s%s\n" "$ac" "$R" "$ac" "$B" "$AGENT_TYPE" "$R" "$D" "$R" >&2
     ;;
   SubagentStop)
     echo "${NOW_HUMAN}|stop|${AGENT_TYPE}|${AGENT_ID}" >> "$AGENTS_LOG"
+    printf "  %s■%s %s%s%s %sdone%s\n" "$ac" "$R" "$ac" "$AGENT_TYPE" "$R" "$D" "$R" >&2
     ;;
 esac
 

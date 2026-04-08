@@ -40,6 +40,19 @@ C_REVIEWER="$ORG"
 C_VERIFIER="$GRN"
 C_COMMIT="$V"
 
+# --- Agent role colors ---
+# Maps agent names to colors based on their role
+_agent_color() {
+    local name="$1"
+    case "$name" in
+        *review*)  printf '%s' "$ORG" ;;   # reviewer = orange
+        *test*)    printf '%s' "$GRN" ;;   # testing = green
+        *front*)   printf '%s' "$BLU" ;;   # frontend = blue
+        *back*)    printf '%s' "$V" ;;     # backend = violet
+        *)         printf '%s' "$BLU" ;;   # default = blue
+    esac
+}
+
 # --- Markers ---
 MARK_DONE="${V}■${R}"
 MARK_TODO="${V}□${R}"

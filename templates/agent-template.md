@@ -25,7 +25,7 @@ hooks:
           command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-secrets.sh"
           timeout: 5
     - matcher: "Bash"
-      if: "Bash(git *) | Bash(APD_ORCHESTRATOR_COMMIT=1 git *)"
+      if: "Bash(git *)"
       hooks:
         - type: command
           command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-git.sh"
