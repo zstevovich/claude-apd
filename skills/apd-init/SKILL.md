@@ -4,9 +4,25 @@ description: Initialize APD environment — generates CLAUDE.md, agents, rules, 
 effort: max
 ---
 
-# APD Init — Generator
+# APD Init
 
-Generates a complete APD environment for a project. Scripts live in the plugin (`${CLAUDE_PLUGIN_ROOT}/scripts/`), this skill creates only project-specific files.
+## FIRST: Run the init script
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/apd-init.sh
+```
+
+This script mechanically handles:
+- **New project:** Creates .apd-config, settings.json (with superpowers disabled), workflow.md, principles.md, verify-all.sh, memory files, .gitignore
+- **Existing project:** Gap analysis — fixes missing code-reviewer, maxTurns, superpowers disable, version updates
+
+After the script completes, you handle the parts that require project analysis:
+- Generate CLAUDE.md (if missing)
+- Generate agent files based on project structure (if missing)
+
+## Generator guide (for CLAUDE.md and agents only)
+
+Generates project-specific files. Infrastructure files are created by the init script above.
 
 ## What gets generated (in the project)
 
