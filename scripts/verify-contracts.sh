@@ -14,12 +14,9 @@ set -euo pipefail
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
-# Colors (only if terminal supports them)
-if [ -t 1 ]; then
-    GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; NC='\033[0m'; BOLD='\033[1m'
-else
-    GREEN=''; RED=''; YELLOW=''; NC=''; BOLD=''
-fi
+source "$(dirname "$0")/lib/style.sh"
+# Map to legacy variable names used throughout this script
+GREEN="$G"; YELLOW="$Y"; NC="$R"; BOLD="$B"
 
 RESULTS_FILE=$(mktemp)
 BACKEND_TYPES_FILE=""
@@ -295,9 +292,7 @@ fi
 BACKEND_LANG=$(detect_language "$BACKEND_DIR")
 FRONTEND_LANG=$(detect_language "$FRONTEND_DIR")
 
-echo "╔══════════════════════════════════════════╗"
-echo "║       APD Contract Verifier              ║"
-echo "╚══════════════════════════════════════════╝"
+apd_header "Contract Verifier"
 echo ""
 echo "Backend:  $1 ($BACKEND_LANG)"
 echo "Frontend: $2 ($FRONTEND_LANG)"
