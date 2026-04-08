@@ -154,6 +154,12 @@ FOOTER
   "env": {
     "APD_PROJECT_NAME": "$PROJECT_NAME"
   },
+  "permissions": {
+    "allow": [
+      "Edit(.claude/memory/**)",
+      "Write(.claude/memory/**)"
+    ]
+  },
   "enabledPlugins": {
     "superpowers@claude-plugins-official": false
   },
@@ -312,6 +318,28 @@ maxTurns: 20' "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
             { print }
             ' "$CLAUDE_DIR/settings.json" > "$tmp" && mv "$tmp" "$CLAUDE_DIR/settings.json"
             fix "Added attribution (empty, no AI signatures)"
+            FIXES=$((FIXES + 1))
+        fi
+
+        # Permissions — auto-allow memory writes
+        if grep -q '"permissions"' "$CLAUDE_DIR/settings.json" 2>/dev/null; then
+            ok "permissions configured"
+        else
+            tmp=$(mktemp)
+            awk '
+            /^}$/ {
+                print "  ,\"permissions\": {"
+                print "    \"allow\": ["
+                print "      \"Edit(.claude/memory/**)\","
+                print "      \"Write(.claude/memory/**)\""
+                print "    ]"
+                print "  }"
+                print "}"
+                next
+            }
+            { print }
+            ' "$CLAUDE_DIR/settings.json" > "$tmp" && mv "$tmp" "$CLAUDE_DIR/settings.json"
+            fix "Added permissions (auto-allow memory writes)"
             FIXES=$((FIXES + 1))
         fi
     fi
