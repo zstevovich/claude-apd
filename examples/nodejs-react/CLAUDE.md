@@ -75,6 +75,7 @@ taskflow/
 **NEVER implement code directly. ALWAYS dispatch the appropriate agent.**
 **NEVER proceed past step 2 without user approval.**
 **ONE FEATURE = ONE COMMIT. Do not commit after each micro-task.**
+**Do NOT use superpowers:subagent-driven-development or ask which approach to use. APD IS the approach. Just follow the flow above.**
 
 ### Pipeline — TECHNICALLY ENFORCED
 

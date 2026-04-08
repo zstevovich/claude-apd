@@ -30,6 +30,7 @@
 ```
 
 **Every step is mechanically enforced. You cannot skip ahead.**
+**Do NOT use superpowers:subagent-driven-development or ask the user which approach to use. APD defines the approach — just follow the flow.**
 
 ### ONE FEATURE = ONE COMMIT
 
