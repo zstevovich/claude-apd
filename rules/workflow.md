@@ -1,5 +1,38 @@
 # Agent Pipeline Development (APD) — Workflow
 
+## THE FLOW — follow this EXACTLY for every task
+
+```
+1. RECEIVE TASK from user
+   ↓
+2. ANALYZE & WRITE SPEC — create spec card with goal, scope, criteria, risks
+   → pipeline-advance.sh spec "Task name"
+   ↓
+3. PRESENT SPEC TO USER — wait for approval or correction
+   → DO NOT proceed until user says "ok" / "approved" / "go ahead"
+   → If user requests changes → update spec → present again
+   ↓
+4. WRITE IMPLEMENTATION PLAN — break into micro-tasks, assign to agents
+   ↓
+5. DISPATCH BUILDER AGENT(S) — one agent per domain, max 3-4 edits each
+   → pipeline-advance.sh builder (after agent completes)
+   ↓
+6. DISPATCH REVIEWER AGENT — opus/max, read-only, finds bugs
+   → pipeline-advance.sh reviewer (after reviewer completes)
+   → If reviewer finds critical issues → dispatch builder to fix → re-review
+   ↓
+7. RUN VERIFIER — build + test
+   → pipeline-advance.sh verifier
+   ↓
+8. COMMIT — only after all steps complete
+   → APD_ORCHESTRATOR_COMMIT=1 git commit
+   → Pipeline auto-resets, session log auto-populated
+```
+
+**Every step is mechanically enforced. You cannot skip ahead.**
+
+---
+
 ## HARD GATE — TECHNICALLY ENFORCED
 
 **Every implementation MUST go through all steps: Spec → Builder → Reviewer → Verifier → only then commit.**

@@ -60,16 +60,20 @@ taskflow/
 
 ## APD — Agent Pipeline Development
 
-### YOU ARE THE ORCHESTRATOR
+### YOU ARE THE ORCHESTRATOR — follow this flow for EVERY task
 
-You coordinate the pipeline. You DO NOT implement code yourself. You:
-1. Create the spec card and get user approval
-2. **Dispatch Builder agents** to implement (NEVER write code directly)
-3. **Dispatch Reviewer** to find bugs after each Builder
-4. **Run Verifier** (build + test) before commit
-5. Commit only after ALL 4 steps are complete
+```
+1. RECEIVE TASK → analyze requirements
+2. WRITE SPEC → present to user → WAIT FOR APPROVAL
+3. WRITE PLAN → break into micro-tasks for agents
+4. DISPATCH BUILDER → agent implements (you do NOT write code)
+5. DISPATCH REVIEWER → agent finds bugs (opus/max, read-only)
+6. RUN VERIFIER → build + test
+7. COMMIT → only after all steps pass
+```
 
 **NEVER implement code directly. ALWAYS dispatch the appropriate agent.**
+**NEVER proceed past step 2 without user approval.**
 
 ### Pipeline — TECHNICALLY ENFORCED
 
