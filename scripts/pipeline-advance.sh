@@ -52,11 +52,23 @@ case "$STEP" in
             fi
         fi
 
+        # Validate spec-card.md if it exists
+        if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+            if ! grep -qE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' "$PIPELINE_DIR/spec-card.md"; then
+                echo "BLOCKED: spec-card.md exists but has no R* acceptance criteria." >&2
+                echo "" >&2
+                echo "  Expected format in spec-card.md:" >&2
+                echo "    - R1: First requirement" >&2
+                echo "    - R2: Second requirement" >&2
+                exit 1
+            fi
+        fi
+
         # Archive agent log before clearing (permanent audit trail)
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/spec-card.md"
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
         apd_spec_header "$ARG"
         show_pipeline "builder"
@@ -172,6 +184,20 @@ case "$STEP" in
         SPEC_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/spec.done")
         ELAPSED=$(format_duration $((NOW - REVIEWER_TS)))
         TOTAL=$(format_duration $((NOW - SPEC_TS)))
+        # Run spec traceability check (if spec-card.md exists)
+        if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+            TRACE_OUT=$(bash "$SCRIPT_DIR/verify-trace.sh" 2>&1 1>"$PIPELINE_DIR/.trace-summary")
+            TRACE_EXIT=$?
+            # Show the report (was on stderr, captured above)
+            [ -n "$TRACE_OUT" ] && echo "$TRACE_OUT" >&2
+            if [ "$TRACE_EXIT" -ne 0 ]; then
+                echo "" >&2
+                echo "  Fix: Add @trace R* markers in test files for uncovered criteria." >&2
+                echo "  Then re-run: pipeline-advance.sh verifier" >&2
+                exit 1
+            fi
+        fi
+
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
         # Cache timestamp — verify-all.sh skips rebuild if fresh (<120s)
         echo "$NOW" > "$PIPELINE_DIR/verified.timestamp"
@@ -295,11 +321,28 @@ case "$STEP" in
                     [ -n "$AGENT_LIST" ] && AGENTS_SUMMARY="$AGENT_LIST"
                 fi
 
+                # 7. Spec trace coverage
+                TRACE_COVERAGE=""
+                if [ -f "$PIPELINE_DIR/.trace-summary" ]; then
+                    TRACE_LINE=$(cat "$PIPELINE_DIR/.trace-summary")
+                    TRACE_COVERED=$(echo "$TRACE_LINE" | cut -d: -f2 | cut -d/ -f1)
+                    TRACE_TOTAL=$(echo "$TRACE_LINE" | cut -d: -f2 | cut -d/ -f2)
+                    TRACE_MISSING=$(echo "$TRACE_LINE" | cut -d: -f3)
+                    if [ -n "$TRACE_TOTAL" ] && [ "$TRACE_TOTAL" != "0" ]; then
+                        if [ -z "$TRACE_MISSING" ]; then
+                            TRACE_COVERAGE="${TRACE_COVERED}/${TRACE_TOTAL} (all covered)"
+                        else
+                            TRACE_COVERAGE="${TRACE_COVERED}/${TRACE_TOTAL} (missing: ${TRACE_MISSING})"
+                        fi
+                    fi
+                fi
+
                 # --- Generate entry ---
                 cat >> "$SESSION_LOG" << EOF
 
 ## [$(date +%Y-%m-%d)] $TASK_NAME
 **Status:** $PIPELINE_STATUS
+**Spec coverage:** ${TRACE_COVERAGE:-N/A}
 **What was done:** $CHANGED_SUMMARY
 **Agents:** $AGENTS_SUMMARY
 **Problems:** $PROBLEMS
@@ -314,7 +357,7 @@ EOF
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary"
         echo "Pipeline reset. Ready for new task."
         ;;
 
@@ -324,8 +367,8 @@ EOF
         for step in verifier reviewer builder spec; do
             if [ -f "$PIPELINE_DIR/$step.done" ]; then
                 rm -f "$PIPELINE_DIR/$step.done"
-                # If verifier rolled back, also remove cache timestamp
-                [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp"
+                # If verifier rolled back, also remove cache timestamp and trace summary
+                [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.trace-summary"
                 apd_header "Rollback: $step"
                 show_pipeline "$step"
                 ROLLED_BACK=true

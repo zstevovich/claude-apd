@@ -47,11 +47,12 @@ You are {{role}} for {{PROJECT_NAME}}.
 - {{Technologies this agent uses}}
 
 ## Workflow
-1. Read the spec card and understand the requirements
+1. Read `.claude/.pipeline/spec-card.md` for acceptance criteria (R1, R2, ...)
 2. **MANDATORY: Use /apd-tdd skill** — write failing test first, then implement
-3. Implement changes following TDD cycle: test → code → verify
-4. Respect the max 3-4 edit operations per dispatch limit
-5. Do not overlap with other agents
+3. Add `@trace R*` markers in test files for each acceptance criterion you implement
+4. Implement changes following TDD cycle: test → code → verify
+5. Respect the max 3-4 edit operations per dispatch limit
+6. Do not overlap with other agents
 
 ## FORBIDDEN
 - **NEVER commit changes** — git add, git commit, git push are FORBIDDEN. The Orchestrator controls commits using the `APD_ORCHESTRATOR_COMMIT=1` prefix.

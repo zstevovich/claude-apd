@@ -36,6 +36,7 @@ You find **bugs, risks, security issues, and edge cases** in code changes. You d
 3. **Edge cases** — empty input, max values, concurrent access
 4. **Cross-layer mismatches** — backend DTO vs frontend types, nullable fields
 5. **Regressions** — does the change break existing functionality?
+6. **Spec traceability** — verify `@trace R*` markers in test files cover all acceptance criteria from `.claude/.pipeline/spec-card.md`. Flag missing markers as Critical.
 
 ## What NOT to do
 

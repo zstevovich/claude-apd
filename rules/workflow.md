@@ -103,7 +103,10 @@ Before EVERY task, create a mini-spec:
 **Goal:** One sentence.
 **Effort:** max | high
 **Out of scope:** What we are NOT doing.
-**Acceptance criteria:** List of conditions for "done".
+**Acceptance criteria:**
+- R1: [first condition for "done"]
+- R2: [second condition]
+- RN: [last condition]
 **Affected modules:** Files/layers being changed.
 **Risks:** What can go wrong.
 **Rollback:** How to revert if it breaks.
@@ -111,6 +114,10 @@ Before EVERY task, create a mini-spec:
 ```
 
 The spec is shared with the user BEFORE implementation.
+
+### Spec persistence
+
+The orchestrator MUST write the spec card to `.claude/.pipeline/spec-card.md` before calling `pipeline-advance.sh spec "Task name"`. This enables mechanical traceability verification.
 
 ## 2. Four roles — strict model and effort enforcement
 
@@ -159,6 +166,24 @@ The spec is shared with the user BEFORE implementation.
 - Max 3-4 edit operations per agent
 - One agent = clear file ownership
 - If a task requires >5 files, split into 2+ agents
+
+## 3b. Spec traceability
+
+Builders MUST add `@trace R*` comments in test files for every acceptance criterion from `.claude/.pipeline/spec-card.md`.
+
+```
+// Single requirement
+// @trace R1
+
+// Multiple requirements on one line
+// @trace R2 R3
+```
+
+**Rules:**
+- Each R* from spec-card.md must appear in at least one test file
+- Use the comment syntax appropriate for the language (`//`, `#`, `--`, etc.)
+- Markers in code files (non-test) are optional and informational
+- `verify-trace.sh` runs during the verifier step and blocks commit if any R* is missing test coverage
 
 ## 4. Verification before "done"
 
