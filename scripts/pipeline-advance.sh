@@ -17,79 +17,7 @@ NOW=$(date +%s)
 NOW_HUMAN=$(date +"%Y-%m-%d %H:%M:%S")
 
 # --- Visual helpers ---
-# Box-drawing characters for consistent APD branding
-BOX_TL="╭" BOX_TR="╮" BOX_BL="╰" BOX_BR="╯" BOX_H="─" BOX_V="│"
-# Stellar violet color (256-color: 135)
-if [ -t 2 ] || [ -t 1 ]; then
-    V=$'\033[38;5;135m'  # violet
-    B=$'\033[1m'         # bold
-    R=$'\033[0m'         # reset
-else
-    V="" B="" R=""
-fi
-MARK_DONE="${V}■${R}" MARK_NEXT="${V}${B}◆${R}" MARK_TODO="${V}□${R}"
-
-apd_header() {
-    local title="$1"
-    local width=50
-    local pad=$(( (width - ${#title} - 2) / 2 ))
-    echo ""
-    printf "  %s%s %s %s%s\n" "$BOX_TL" "$(printf '%*s' $pad '' | tr ' ' "$BOX_H")" "$title" "$(printf '%*s' $pad '' | tr ' ' "$BOX_H")" "$BOX_TR"
-}
-
-apd_footer() {
-    echo "  $(printf '%s' "$BOX_BL")$(printf '%*s' 50 '' | tr ' ' "$BOX_H")$(printf '%s' "$BOX_BR")"
-    echo ""
-}
-
-show_pipeline() {
-    # Usage: show_pipeline [active_step]
-    local active="$1"
-    local steps=("spec" "builder" "reviewer" "verifier")
-
-    echo ""
-    # Progress bar
-    local bar="  "
-    for i in "${!steps[@]}"; do
-        local s="${steps[$i]}"
-        if [ -f "$PIPELINE_DIR/$s.done" ]; then
-            bar="${bar} ${MARK_DONE} ${s}"
-        elif [ "$s" = "$active" ]; then
-            bar="${bar} ${MARK_NEXT} ${s}"
-        else
-            bar="${bar} ${MARK_TODO} ${s}"
-        fi
-        if [ "$i" -lt 3 ]; then
-            bar="${bar}  →"
-        fi
-    done
-    bar="${bar}  → commit"
-    echo "$bar"
-    echo ""
-
-    # Detail lines with timestamps
-    for s in "${steps[@]}"; do
-        if [ -f "$PIPELINE_DIR/$s.done" ]; then
-            local ts=$(cut -d'|' -f2 "$PIPELINE_DIR/$s.done")
-            printf "    ${MARK_DONE} %-12s %s\n" "$s" "$ts"
-        elif [ "$s" = "$active" ]; then
-            printf "    ${MARK_NEXT} %-12s %s\n" "$s" "← next"
-        else
-            printf "    ${MARK_TODO} %-12s %s\n" "$s" ""
-        fi
-    done
-}
-
-format_duration() {
-    local seconds=$1
-    if [ "$seconds" -lt 60 ]; then
-        echo "${seconds}s"
-    elif [ "$seconds" -lt 3600 ]; then
-        echo "$((seconds / 60))m $((seconds % 60))s"
-    else
-        echo "$((seconds / 3600))h $((seconds % 3600 / 60))m"
-    fi
-}
+source "$(dirname "$0")/lib/style.sh"
 
 case "$STEP" in
     spec)
@@ -130,11 +58,8 @@ case "$STEP" in
         fi
         rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents"
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
-        apd_header "APD Pipeline"
-        echo "  ${BOX_V}  Task: $ARG"
-        echo "  ${BOX_V}"
+        apd_header "Spec: \"$ARG\""
         show_pipeline "builder"
-        apd_footer
         ;;
 
     builder)
@@ -189,9 +114,8 @@ case "$STEP" in
 
         ELAPSED=$(format_duration $((NOW - SPEC_TS)))
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/builder.done"
-        apd_header "Builder Complete (+$ELAPSED)"
+        apd_header "Builder Complete" "+$ELAPSED"
         show_pipeline "reviewer"
-        apd_footer
         ;;
 
     reviewer)
@@ -235,9 +159,8 @@ case "$STEP" in
         BUILDER_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/builder.done")
         ELAPSED=$(format_duration $((NOW - BUILDER_TS)))
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
-        apd_header "Reviewer Complete (+$ELAPSED)"
+        apd_header "Reviewer Complete" "+$ELAPSED"
         show_pipeline "verifier"
-        apd_footer
         ;;
 
     verifier)
@@ -252,10 +175,9 @@ case "$STEP" in
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
         # Cache timestamp — verify-all.sh skips rebuild if fresh (<120s)
         echo "$NOW" > "$PIPELINE_DIR/verified.timestamp"
-        apd_header "COMMIT ALLOWED (total: $TOTAL)"
+        apd_header "COMMIT ALLOWED" "total: $TOTAL"
         show_pipeline ""
-        echo "  ${BOX_V}  Ready: APD_ORCHESTRATOR_COMMIT=1 git commit ..."
-        apd_footer
+        echo "    Ready: APD_ORCHESTRATOR_COMMIT=1 git commit ..."
         ;;
 
     reset)
@@ -406,7 +328,6 @@ EOF
                 [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp"
                 apd_header "Rollback: $step"
                 show_pipeline "$step"
-                apd_footer
                 ROLLED_BACK=true
                 break
             fi
@@ -435,15 +356,13 @@ EOF
             fi
         done
 
-        apd_header "Pipeline Status"
-        echo "  ${BOX_V}  Task: $TASK"
         if [ -n "$SPEC_TIME" ]; then
             TOTAL_ELAPSED=$(format_duration $(($(date +%s) - SPEC_TS)))
-            echo "  ${BOX_V}  Started: $SPEC_TIME ($TOTAL_ELAPSED ago)"
+            apd_header "$TASK" "$TOTAL_ELAPSED"
+        else
+            apd_header "Pipeline Status"
         fi
-        echo "  ${BOX_V}"
         show_pipeline "$NEXT_STEP"
-        apd_footer
 
         # Detailed timing below the box
         PREV_TS="${SPEC_TS:-}"
@@ -550,21 +469,21 @@ EOF
             SKIP_RATE="$TOTAL_SKIPS/$((TOTAL_TASKS + TOTAL_SKIPS)) ($((TOTAL_SKIPS * 100 / (TOTAL_TASKS + TOTAL_SKIPS)))%)"
         fi
 
-        echo "╔══════════════════════════════════════════╗"
-        echo "║        APD Pipeline Metrics              ║"
-        echo "╠══════════════════════════════════════════╣"
-        printf "║  %-22s %-17s ║\n" "Total tasks:" "$TOTAL_TASKS ($COMPLETED completed, $PARTIAL partial)"
-        printf "║  %-22s %-17s ║\n" "Average duration:" "$AVG_DURATION"
-        printf "║  %-22s %-17s ║\n" "Fastest:" "$FASTEST_FMT"
-        printf "║  %-22s %-17s ║\n" "Slowest:" "$SLOWEST_FMT"
-        printf "║  %-22s %-17s ║\n" "Skip rate:" "$SKIP_RATE"
-        echo "╠──────────────────────────────────────────╣"
-        echo "║  Average per step:                       ║"
-        printf "║    %-20s %-17s ║\n" "spec->builder:" "$AVG_S2B"
-        printf "║    %-20s %-17s ║\n" "builder->reviewer:" "$AVG_B2R"
-        printf "║    %-20s %-17s ║\n" "reviewer->verifier:" "$AVG_R2V"
-        echo "╠──────────────────────────────────────────╣"
-        echo "║  Last 5:                                 ║"
+        apd_header "Pipeline Metrics"
+
+        section "Overview"
+        printf "    %-22s %s\n" "Total tasks:" "$TOTAL_TASKS ($COMPLETED completed, $PARTIAL partial)"
+        printf "    %-22s %s\n" "Average duration:" "$AVG_DURATION"
+        printf "    %-22s %s\n" "Fastest:" "$FASTEST_FMT"
+        printf "    %-22s %s\n" "Slowest:" "$SLOWEST_FMT"
+        printf "    %-22s %s\n" "Skip rate:" "$SKIP_RATE"
+
+        section "Average per step"
+        printf "    %-22s %s\n" "spec → builder:" "$AVG_S2B"
+        printf "    %-22s %s\n" "builder → reviewer:" "$AVG_B2R"
+        printf "    %-22s %s\n" "reviewer → verifier:" "$AVG_R2V"
+
+        section "Last 5"
         tail -5 "$METRICS_LOG" | while IFS='|' read -r _ts task_name spec_ts _b _r verifier_ts status; do
             verifier_ts=$(echo "$verifier_ts" | tr -d '[:space:]')
             spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
@@ -573,11 +492,11 @@ EOF
             if [ "$verifier_ts" -gt 0 ] 2>/dev/null && [ "$spec_ts" -gt 0 ] 2>/dev/null; then
                 DUR=$(format_duration $((verifier_ts - spec_ts)))
             fi
-            ICON="✓"
-            [ "$status" = "partial" ] && ICON="…"
-            printf "║    %-24s %-8s %s    ║\n" "$task_name" "$DUR" "$ICON"
+            ICON="${MARK_PASS}"
+            [ "$status" = "partial" ] && ICON="${D}…${R}"
+            printf "    %s %-24s %s\n" "$ICON" "$task_name" "$DUR"
         done
-        echo "╚══════════════════════════════════════════╝"
+        echo ""
         ;;
 
     init)
@@ -605,9 +524,8 @@ EOF
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
 
         apd_header "Initial Setup"
-        echo "  ${BOX_V}  $ARG"
-        echo "  ${BOX_V}  All steps marked complete. Ready to commit."
-        apd_footer
+        echo "    $ARG"
+        echo "    All steps marked complete. Ready to commit."
         ;;
 
     *)
