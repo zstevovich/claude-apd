@@ -33,12 +33,39 @@ Guard scripts, pipeline scripts, workflow.md, skills — all live in the plugin 
 ### 1. Detect existing environment
 
 Check whether `.claude/` or `CLAUDE.md` already exists:
-- **If NOT present** → clean init (this flow)
-- **If PRESENT** → offer migration:
-  1. Backup to `.claude-backup-{date}/`
-  2. Analyze existing files and extract useful data (name, stack, agents, rules)
-  3. Generate APD environment with extracted data pre-populated
-  4. Show what was migrated and what was preserved
+
+- **If NOT present** → clean init (full generation flow below)
+- **If PRESENT** → run **gap analysis** and offer to fill missing pieces:
+
+#### Gap analysis checklist
+
+| Check | File | If missing |
+|-------|------|------------|
+| Reviewer agent | `.claude/agents/code-reviewer.md` | Generate from `${CLAUDE_PLUGIN_ROOT}/templates/reviewer-template.md` |
+| Builder maxTurns | `.claude/agents/*.md` frontmatter | Add `maxTurns: 20` to each builder agent |
+| Reviewer model | `code-reviewer.md` frontmatter | Must be `model: opus`, `effort: max`, `permissionMode: plan` |
+| Workflow rules | `.claude/rules/workflow.md` | Copy from `${CLAUDE_PLUGIN_ROOT}/rules/workflow.md` |
+| Principles | `.claude/rules/principles.md` | Generate from template |
+| Memory files | `.claude/memory/` (4 files) | Generate missing ones |
+| .apd-config | `.claude/.apd-config` | Generate with project name, version, stack |
+| verify-all.sh | `.claude/scripts/verify-all.sh` | Generate from stack template |
+| CLAUDE.md sections | Orchestrator role, model discipline | Add missing sections |
+
+Show the analysis to the user:
+```
+APD gap analysis:
+  ✓ CLAUDE.md exists
+  ✓ 3 builder agents
+  ✗ code-reviewer.md MISSING — will generate (opus/max/read-only)
+  ✗ maxTurns missing in builder agents — will add (20)
+  ✓ workflow.md exists
+  ✓ verify-all.sh configured
+  ✓ Memory files (4/4)
+
+Fix 2 gaps? (yes/no)
+```
+
+Generate ONLY what is missing. Do NOT overwrite existing files.
 
 ### 2. Gather information from the user
 
