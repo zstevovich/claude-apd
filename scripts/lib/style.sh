@@ -14,8 +14,8 @@
 #               section, format_duration, show_pipeline
 
 # --- Colors (TTY-aware) ---
-# Force colors in Claude Code plugin context (hooks capture stdout, no TTY)
-if [ -t 2 ] || [ -t 1 ] || [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+# Enable colors when: TTY detected, or Claude Code plugin hook, or terminal supports color
+if [ -t 2 ] || [ -t 1 ] || [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || [[ "${TERM:-}" == *color* ]]; then
     V=$'\033[38;5;135m'  # violet (brand)
     B=$'\033[1m'         # bold
     G=$'\033[32m'        # green
