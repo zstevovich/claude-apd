@@ -4,19 +4,12 @@
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
-PASS=0
-FAIL=0
-WARN=0
+source "$(dirname "$0")/lib/style.sh"
 
-pass() { echo "  [PASS] $1"; PASS=$((PASS + 1)); }
-fail() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
-warn() { echo "  [WARN] $1"; WARN=$((WARN + 1)); }
-
-echo "=== APD Hook Verification ==="
-echo ""
+apd_header "Hook Verification"
 
 # --- 1. Dependencies ---
-echo "--- Dependencies ---"
+section "Dependencies"
 
 if command -v jq &>/dev/null; then
     pass "jq is installed ($(jq --version 2>&1))"
@@ -31,8 +24,7 @@ else
 fi
 
 # --- 2. Directories ---
-echo ""
-echo "--- Structure ---"
+section "Structure"
 
 if [ -d "$CLAUDE_DIR" ]; then
     pass ".claude/ directory exists"
@@ -49,8 +41,7 @@ for dir in scripts rules memory agents; do
 done
 
 # --- 3. Scripts ---
-echo ""
-echo "--- Scripts ---"
+section "Scripts"
 
 PLUGIN_SCRIPTS=(
     guard-git.sh
@@ -88,8 +79,7 @@ else
 fi
 
 # --- 4. Settings.json ---
-echo ""
-echo "--- Settings ---"
+section "Settings"
 
 SETTINGS="$CLAUDE_DIR/settings.json"
 if [ ! -f "$SETTINGS" ]; then
@@ -125,8 +115,7 @@ else
 fi
 
 # --- 5. Placeholder check ---
-echo ""
-echo "--- Placeholders ---"
+section "Placeholders"
 
 PLACEHOLDER_FILES=(
     "$PROJECT_DIR/CLAUDE.md"
@@ -150,8 +139,7 @@ if [ "$HAS_PLACEHOLDERS" = false ]; then
 fi
 
 # --- 6. Agents ---
-echo ""
-echo "--- Agents ---"
+section "Agents"
 
 AGENT_COUNT=$(find "$CLAUDE_DIR/agents" -name "*.md" ! -name "TEMPLATE.md" 2>/dev/null | wc -l | tr -d ' ')
 if [ "$AGENT_COUNT" -gt 0 ]; then
@@ -170,8 +158,7 @@ else
 fi
 
 # --- 7. Pipeline test ---
-echo ""
-echo "--- Pipeline ---"
+section "Pipeline"
 
 PIPELINE_OUTPUT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" status 2>&1)
 if [ $? -eq 0 ]; then
@@ -182,17 +169,15 @@ fi
 
 # --- Result ---
 echo ""
-echo "=============================="
-echo "  PASS: $PASS | FAIL: $FAIL | WARN: $WARN"
-echo "=============================="
+echo "  ${B}PASS:${R} $PASS_COUNT  ${B}FAIL:${R} $FAIL_COUNT  ${B}WARN:${R} $WARN_COUNT"
 
-if [ "$FAIL" -gt 0 ]; then
+if [ "$FAIL_COUNT" -gt 0 ]; then
     echo ""
     echo "Fix FAIL items before using the APD pipeline."
     exit 1
 fi
 
-if [ "$WARN" -gt 0 ]; then
+if [ "$WARN_COUNT" -gt 0 ]; then
     echo ""
     echo "WARN items are recommendations — pipeline will work but may not be optimal."
 fi
