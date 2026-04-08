@@ -172,6 +172,7 @@ _step_color() {
 #   → ■ spec → ■ builder → □ reviewer → □ verifier → commit
 show_pipeline() {
     local active="${1:-}"
+    [ -z "${PIPELINE_DIR:-}" ] && return 0
     local steps=("spec" "builder" "reviewer" "verifier")
 
     echo ""

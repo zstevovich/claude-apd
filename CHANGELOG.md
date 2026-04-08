@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.2.4 — 2026-04-08
+
+Per-step pipeline colors, agent visual identity, hook and template fixes.
+
+- Per-step colors: spec=violet, builder=blue, reviewer=orange, verifier=green, commit=violet
+- Agent `color` field in templates (purple/blue/orange/green)
+- ☭ agent dispatch icon in track-agent.sh
+- `if` field moved to hook object level in agent/reviewer templates (was at matcher-group)
+- ANSI color tuning: lighter violet (177), sharper orange (208)
+- TERM-based color detection for Claude Code Bash context
+- Auto-allow memory file writes in generated settings.json
+
+---
+
+## v3.2.3 — 2026-04-08
+
+Post-commit hook fix and color detection.
+
+- Fixed `if` patterns in hooks.json — env var prefixes not matched by Claude Code pattern matching. Simplified to `Bash(git *)` and `Bash(git commit*)`
+- Added TERM color detection (covers Claude Code Bash tool where no TTY exists)
+
+---
+
 ## v3.2.2 — 2026-04-08
 
 Fix verify-apd.sh spec assertion to match new branded header format.

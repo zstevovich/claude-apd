@@ -16,9 +16,9 @@ hooks:
           command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-secrets.sh"
           timeout: 5
     - matcher: "Bash"
-      if: "Bash(git *)"
       hooks:
         - type: command
+          if: "Bash(git *)"
           command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-git.sh"
           timeout: 5
 ---

@@ -9,7 +9,6 @@
 source "$(dirname "$0")/lib/resolve-project.sh"
 source "$(dirname "$0")/lib/style.sh"
 
-SECTION=""
 
 # Summary data — collected during checks
 SUM_PROJECT=""
@@ -24,7 +23,7 @@ SUM_MEMORY=0
 SUM_GITIGNORE=""
 SUM_ATTRIBUTION=""
 
-section() { SECTION="$1"; echo ""; printf "  %s──%s %s %s──%s\n" "$D" "$R" "$1" "$D" "$R"; }
+section() { echo ""; printf "  %s──%s %s %s──%s\n" "$D" "$R" "$1" "$D" "$R"; }
 
 apd_header "Verification"
 

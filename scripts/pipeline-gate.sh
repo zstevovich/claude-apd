@@ -33,5 +33,5 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     exit 2
 fi
 
-echo "  ${V}■${R} Pipeline gate: all steps complete" >&2
+echo "  ${MARK_DONE} Pipeline gate: all steps complete" >&2
 exit 0
