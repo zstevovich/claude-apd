@@ -14,7 +14,8 @@
 #               section, format_duration, show_pipeline
 
 # --- Colors (TTY-aware) ---
-if [ -t 2 ] || [ -t 1 ]; then
+# Force colors in Claude Code plugin context (hooks capture stdout, no TTY)
+if [ -t 2 ] || [ -t 1 ] || [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
     V=$'\033[38;5;135m'  # violet (brand)
     B=$'\033[1m'         # bold
     G=$'\033[32m'        # green
