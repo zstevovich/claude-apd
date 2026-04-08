@@ -50,6 +50,7 @@ Check whether `.claude/` or `CLAUDE.md` already exists:
 | .apd-config | `.claude/.apd-config` | Generate with project name, version, stack |
 | verify-all.sh | `.claude/scripts/verify-all.sh` | Generate from stack template |
 | CLAUDE.md sections | Orchestrator role, model discipline | Add missing sections |
+| Superpowers disabled | `.claude/settings.json` has `superpowers: false` | Add `"superpowers@claude-plugins-official": false` to enabledPlugins |
 
 Show the analysis to the user:
 ```
@@ -163,11 +164,14 @@ Generate in `.claude/memory/`:
 
 #### 4.6 Configuration
 
-`.claude/settings.json` — Must include env, attribution, and notification:
+`.claude/settings.json` — Must include env, attribution, notification, AND disable superpowers:
 ```json
 {
   "env": {
     "APD_PROJECT_NAME": "{name}"
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": false
   },
   "attribution": {
     "commit": "",
