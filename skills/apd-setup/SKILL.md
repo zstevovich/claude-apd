@@ -231,16 +231,14 @@ Based on the project's stack and integrations, recommend and generate `.mcp.json
 
 | If stack includes | MCP Server | Command |
 |---|---|---|
-| PostgreSQL | postgres | `npx -y @anthropic-ai/mcp-server-postgres "postgresql://user:pass@localhost:{port}/{db}"` |
-| MySQL / MariaDB | mysql | `npx -y @anthropic-ai/mcp-server-mysql --host localhost --port {port} --user {user} --database {db}` |
-| SQLite | sqlite | `npx -y @anthropic-ai/mcp-server-sqlite {path/to/db.sqlite}` |
+| PostgreSQL | postgres | `npx -y @modelcontextprotocol/server-postgres "postgresql://user@localhost:{port}/{db}"` |
 | Docker | docker | `docker ai mcp-server` |
 
 **Recommend based on integrations:**
 
 | If configured | MCP Server | Command |
 |---|---|---|
-| GitHub Projects URL | github | `npx -y @anthropic-ai/mcp-server-github` (envCommand: `gh auth token`) |
+| GitHub Projects URL | github | `npx -y @modelcontextprotocol/server-github` (envCommand: `gh auth token`) |
 | Miro board URL | miro | HTTP transport: `https://mcp.miro.com` |
 
 **Procedure:**
@@ -276,13 +274,13 @@ Include all recommended? (yes / adjust)
       "command": "npx",
       "args": [
         "-y",
-        "@anthropic-ai/mcp-server-postgres",
+        "@modelcontextprotocol/server-postgres",
         "postgresql://postgres@localhost:5433/mycrm"
       ]
     },
     "github": {
       "command": "npx",
-      "args": ["-y", "@anthropic-ai/mcp-server-github"],
+      "args": ["-y", "@modelcontextprotocol/server-github"],
       "envCommand": "bash -c 'echo GITHUB_PERSONAL_ACCESS_TOKEN=$(gh auth token)'"
     }
   }
