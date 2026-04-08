@@ -1,5 +1,69 @@
 # Changelog
 
+## v3.2.0 — 2026-04-08
+
+Comprehensive audit and fix release. 21 issues fixed across scripts, skills, hooks, templates and documentation.
+
+### Critical fixes
+
+- **hooks.json `if` field placement** — moved from matcher group level to individual hook objects. Conditional hooks (guard-git, guard-lockfile, pipeline-post-commit) now filter correctly instead of firing on every tool call
+- **Non-existent `apd-pipeline` command** — `rules/workflow.md` and `templates/CLAUDE.md.reference` referenced `bash .claude/scripts/apd-pipeline` which never existed. Fixed to `bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh`
+- **verify-apd.sh test assertions** — 4 E2E pipeline tests checked for strings that `pipeline-advance.sh` never emits ("Pipeline started", "Builder completed", etc). Fixed to match actual output ("APD Pipeline", "Builder Complete", etc)
+- **Portable sed** — replaced macOS-only `sed -i ''` with `sed -i.bak` + cleanup (5 occurrences in `apd-init.sh`). Replaced `\n` in sed replacement strings with `awk` for cross-platform JSON manipulation
+- **Version consistency** — hardcoded versions `3.0.0` and `3.1.2` updated to `3.2.0` across `apd-init.sh`, `apd-init/SKILL.md`, `apd-upgrade/SKILL.md`, `CLAUDE.md`, `README.md`, `MEMORY.md`
+- **principles template** — ".claude/ directory must not go to git" was wrong. Fixed to accurate gitignore policy (only `.pipeline/` and `settings.local.json` are excluded)
+- **apd-upgrade skill** — `rm -f .claude/rules/workflow.md` replaced with `cp` from plugin, since rules are not auto-loaded from plugins
+
+### Important fixes
+
+- **verify-apd.sh agent cleanup** — dummy agent files created during E2E test now use proper `printf` (not `echo` with `\n`) and are cleaned up via `restore_pipeline_state`
+- **pipeline-advance.sh init guard** — changed from counting all repo commits to counting only `.claude/`-related commits. Existing repos with 3+ commits can now init APD without `APD_FORCE_INIT=1`
+- **pipeline-advance.sh usage header** — removed non-existent `skip` command, added `init "Description"`
+- **apd-brainstorm skill** — bare `pipeline-advance.sh` call fixed to full `bash ${CLAUDE_PLUGIN_ROOT}/scripts/` path
+- **apd-finish skill** — relative `.claude/scripts/verify-all.sh` path fixed to use `git rev-parse --show-toplevel`
+- **GETTING-STARTED.md** — duplicate "Step 3" heading fixed (now Steps 3, 4, 5)
+
+---
+
+## v3.1.0–v3.1.9 — 2026-04-08
+
+Mechanical enforcement release. Agents must actually run before pipeline advances, orchestrator cannot write code, superpowers plugin blocked.
+
+### Mechanical enforcement (v3.1.0)
+
+- **Agent dispatch verification** — `pipeline-advance.sh builder/reviewer` checks `.agents` log for actual agent dispatch. No more self-reporting
+- **guard-orchestrator.sh** — blocks orchestrator from writing code files directly. Forces agent dispatch
+- **Standardized reviewer agent** — `reviewer-template.md` with opus/max enforcement
+- **Model and effort discipline** — workflow.md enforces sonnet/high for builders, opus/max for reviewers
+- **userConfig support** — `plugin.json` userConfig fields for `project_name`, `stack`, `author_name`
+
+### Superpowers blocking (v3.1.1–v3.1.2)
+
+- **APD dormant mode** — hooks exit early in non-initialized projects (no `.apd-config`)
+- **Superpowers disabled** — `/apd-init` writes `"superpowers@claude-plugins-official": false` to project `settings.json`
+- **apd-init.sh** — mechanical init/update script with gap analysis for existing projects
+
+### Pipeline automation (v3.1.3–v3.1.6)
+
+- **Shell injection for /apd-init** — skill auto-executes bash script via `!command` pattern
+- **Stronger wording** — MANDATORY run script first, no agent self-analysis
+- **session-start.sh runs apd-init.sh --quick** — automatic gap check on every session start
+- **Pipeline shortcut** — `session-start.sh` creates `.claude/scripts/apd-pipeline` symlink
+
+### Tracking and cleanup (v3.1.7–v3.1.9)
+
+- **Agent history log** — `track-agent.sh` records agent dispatches to `.agents` and archives to `agent-history.log`
+- **Session log agents field** — session-log entries include dispatched agent names
+- **workflow.md refresh** — `apd-init.sh` update mode detects and replaces stale `CLAUDE_PLUGIN_ROOT` references in project `workflow.md`
+
+### Visual identity (v3.1.0)
+
+- Stellar violet squares for pipeline indicators (■ □ ◆)
+- Enterprise-grade terminal output with consistent color scheme
+- 4 APD skills replacing superpowers equivalents: `apd-brainstorm`, `apd-tdd`, `apd-debug`, `apd-finish`
+
+---
+
 ## v3.0.0 — 2026-04-08
 
 **Major release: APD evolves from a copy-paste template into a full Claude Code plugin ecosystem.**

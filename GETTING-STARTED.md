@@ -54,7 +54,7 @@ It will then:
 - Create agent files with correct scope and hooks
 - Configure build/test commands
 
-## Step 3 — Verify the setup
+## Step 4 — Verify the setup
 
 ```console
 ~/Projects/my-project $ bash ${CLAUDE_PLUGIN_ROOT}/scripts/verify-apd.sh
@@ -66,7 +66,7 @@ If you see any FAIL items, follow the instructions in the output to fix them.
 
 ---
 
-## Step 4 — Your first pipeline task
+## Step 5 — Your first pipeline task
 
 ### 4.1 Create a spec
 

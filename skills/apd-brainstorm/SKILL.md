@@ -77,7 +77,7 @@ Ready to write the spec card?
 Once user approves the design → write the spec card and enter the APD pipeline:
 
 ```bash
-pipeline-advance.sh spec "Feature name"
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh spec "Feature name"
 ```
 
 **HARD GATE:** Do NOT write code during brainstorming. This skill produces a DESIGN, not an implementation. Code comes from Builder agents after the spec is approved.

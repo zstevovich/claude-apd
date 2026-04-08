@@ -74,13 +74,13 @@ if [ "$MODE" = "new" ]; then
     # .apd-config
     cat > "$CLAUDE_DIR/.apd-config" << EOF
 PROJECT_NAME=$PROJECT_NAME
-APD_VERSION=3.1.2
+APD_VERSION=3.2.0
 STACK=$STACK
 EOF
     fix "Created .apd-config"
 
     # .apd-version
-    echo "3.1.2" > "$CLAUDE_DIR/.apd-version"
+    echo "3.2.0" > "$CLAUDE_DIR/.apd-version"
     fix "Created .apd-version"
 
     # Copy workflow.md
@@ -229,7 +229,7 @@ if [ "$MODE" = "update" ]; then
         if grep -q 'model: opus' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null; then
             ok "code-reviewer (opus/max)"
         else
-            sed -i '' 's/model:.*/model: opus/' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null
+            sed -i.bak 's/model:.*/model: opus/' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null && rm -f "$CLAUDE_DIR/agents/code-reviewer.md.bak"
             fix "code-reviewer: fixed model to opus"
             FIXES=$((FIXES + 1))
         fi
@@ -249,8 +249,8 @@ if [ "$MODE" = "update" ]; then
         if grep -q 'maxTurns' "$agent_file" 2>/dev/null; then
             ok "$AGENT_NAME: maxTurns set"
         else
-            sed -i '' '/^effort:/a\
-maxTurns: 20' "$agent_file" 2>/dev/null
+            sed -i.bak '/^effort:/a\
+maxTurns: 20' "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
             fix "$AGENT_NAME: added maxTurns: 20"
             FIXES=$((FIXES + 1))
         fi
@@ -282,11 +282,21 @@ maxTurns: 20' "$agent_file" 2>/dev/null
         else
             # Add superpowers disable to enabledPlugins
             if grep -q '"enabledPlugins"' "$CLAUDE_DIR/settings.json" 2>/dev/null; then
-                sed -i '' '/"enabledPlugins".*{/a\
-    "superpowers@claude-plugins-official": false,' "$CLAUDE_DIR/settings.json" 2>/dev/null
+                sed -i.bak '/"enabledPlugins".*{/a\
+    "superpowers@claude-plugins-official": false,' "$CLAUDE_DIR/settings.json" 2>/dev/null && rm -f "$CLAUDE_DIR/settings.json.bak"
             else
                 # Add enabledPlugins section before closing brace
-                sed -i '' 's/^}$/  ,"enabledPlugins": {\n    "superpowers@claude-plugins-official": false\n  }\n}/' "$CLAUDE_DIR/settings.json" 2>/dev/null
+                tmp=$(mktemp)
+                awk '
+                /^}$/ {
+                    print "  ,\"enabledPlugins\": {"
+                    print "    \"superpowers@claude-plugins-official\": false"
+                    print "  }"
+                    print "}"
+                    next
+                }
+                { print }
+                ' "$CLAUDE_DIR/settings.json" > "$tmp" && mv "$tmp" "$CLAUDE_DIR/settings.json"
             fi
             fix "Disabled superpowers in settings.json"
             FIXES=$((FIXES + 1))
@@ -296,7 +306,18 @@ maxTurns: 20' "$agent_file" 2>/dev/null
         if grep -q '"attribution"' "$CLAUDE_DIR/settings.json" 2>/dev/null; then
             ok "attribution configured"
         else
-            sed -i '' 's/^}$/  ,"attribution": {\n    "commit": "",\n    "pr": ""\n  }\n}/' "$CLAUDE_DIR/settings.json" 2>/dev/null
+            tmp=$(mktemp)
+            awk '
+            /^}$/ {
+                print "  ,\"attribution\": {"
+                print "    \"commit\": \"\","
+                print "    \"pr\": \"\""
+                print "  }"
+                print "}"
+                next
+            }
+            { print }
+            ' "$CLAUDE_DIR/settings.json" > "$tmp" && mv "$tmp" "$CLAUDE_DIR/settings.json"
             fix "Added attribution (empty, no AI signatures)"
             FIXES=$((FIXES + 1))
         fi
@@ -316,7 +337,7 @@ maxTurns: 20' "$agent_file" 2>/dev/null
 
     # --- .apd-version ---
     CURRENT_VER=$(cat "$CLAUDE_DIR/.apd-version" 2>/dev/null | tr -d '[:space:]')
-    PLUGIN_VER="3.1.2"
+    PLUGIN_VER="3.2.0"
     if [ "$CURRENT_VER" = "$PLUGIN_VER" ]; then
         ok ".apd-version ($CURRENT_VER)"
     else

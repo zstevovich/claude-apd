@@ -562,6 +562,9 @@ SUM_GUARDS=$(printf '%s, ' "${GUARD_LIST[@]}" | sed 's/, $//')
 section "8. Pipeline end-to-end test"
 
 # Restore function for safe cleanup on interrupt
+CREATED_BUILDER=false
+CREATED_REVIEWER=false
+
 restore_pipeline_state() {
     if [ "$HAD_EXISTING_PIPELINE" = true ] && [ -d /tmp/apd-verify-backup ]; then
         mkdir -p "$PIPELINE_DIR"
@@ -572,6 +575,8 @@ restore_pipeline_state() {
         cp "$SESSION_LOG_BACKUP" "$CLAUDE_DIR/memory/session-log.md"
         rm -f "$SESSION_LOG_BACKUP"
     fi
+    [ "$CREATED_BUILDER" = true ] && rm -f "$CLAUDE_DIR/agents/backend-builder.md"
+    [ "$CREATED_REVIEWER" = true ] && rm -f "$CLAUDE_DIR/agents/code-reviewer.md"
 }
 trap restore_pipeline_state EXIT INT TERM
 
@@ -614,7 +619,7 @@ fi
 
 # Spec
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" spec "APD-VERIFY-TEST" 2>&1)
-if echo "$RESULT" | grep -q "Pipeline started"; then
+if echo "$RESULT" | grep -q "APD Pipeline"; then
     pass "pipeline-advance: spec"
 else
     fail "pipeline-advance spec ERROR: $RESULT"
@@ -632,14 +637,20 @@ fi
 # Simulate agent dispatch (track-agent.sh would do this via SubagentStart/Stop hooks)
 # Create dummy agent files if they don't exist (needed for project-agent verification)
 mkdir -p "$CLAUDE_DIR/agents" "$PIPELINE_DIR"
-[ -f "$CLAUDE_DIR/agents/backend-builder.md" ] || echo "---\nname: backend-builder\n---" > "$CLAUDE_DIR/agents/backend-builder.md"
-[ -f "$CLAUDE_DIR/agents/code-reviewer.md" ] || echo "---\nname: code-reviewer\n---" > "$CLAUDE_DIR/agents/code-reviewer.md"
+if [ ! -f "$CLAUDE_DIR/agents/backend-builder.md" ]; then
+    printf '%s\n' '---' 'name: backend-builder' '---' > "$CLAUDE_DIR/agents/backend-builder.md"
+    CREATED_BUILDER=true
+fi
+if [ ! -f "$CLAUDE_DIR/agents/code-reviewer.md" ]; then
+    printf '%s\n' '---' 'name: code-reviewer' '---' > "$CLAUDE_DIR/agents/code-reviewer.md"
+    CREATED_REVIEWER=true
+fi
 AGENTS_LOG="$PIPELINE_DIR/.agents"
 echo "$(date +"%Y-%m-%d %H:%M:%S")|stop|backend-builder|test-agent-001" >> "$AGENTS_LOG"
 
 # Builder WITH agent dispatch — should pass
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" builder 2>&1)
-if echo "$RESULT" | grep -q "Builder completed"; then
+if echo "$RESULT" | grep -q "Builder Complete"; then
     pass "pipeline-advance: builder"
 else
     fail "pipeline-advance builder ERROR: $RESULT"
@@ -668,7 +679,7 @@ echo "$(date +"%Y-%m-%d %H:%M:%S")|stop|code-reviewer|test-reviewer-001" >> "$AG
 
 # Reviewer WITH agent dispatch — should pass
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" reviewer 2>&1)
-if echo "$RESULT" | grep -q "Reviewer completed"; then
+if echo "$RESULT" | grep -q "Reviewer Complete"; then
     pass "pipeline-advance: reviewer"
 else
     fail "pipeline-advance reviewer ERROR: $RESULT"
@@ -693,7 +704,7 @@ fi
 
 # Rollback test
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" rollback 2>&1)
-if echo "$RESULT" | grep -q "Rollback: verifier removed"; then
+if echo "$RESULT" | grep -q "Rollback: verifier"; then
     pass "pipeline-advance: rollback (verifier -> reviewer)"
 else
     fail "pipeline-advance rollback ERROR: $RESULT"

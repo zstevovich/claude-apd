@@ -16,7 +16,7 @@ Use after the APD pipeline is complete (all steps passed, committed).
 # Confirm pipeline completed and commit exists
 git log --oneline -1
 # Run tests one more time
-bash .claude/scripts/verify-all.sh
+bash "$(git rev-parse --show-toplevel)/.claude/scripts/verify-all.sh"
 ```
 
 If tests fail → fix before proceeding.

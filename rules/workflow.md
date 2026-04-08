@@ -72,15 +72,15 @@ This is not just a documented rule — **hooks technically block commits** if st
 ### Commands
 
 ```bash
-bash .claude/scripts/apd-pipeline spec "Task name"
-bash .claude/scripts/apd-pipeline builder
-bash .claude/scripts/apd-pipeline reviewer
-bash .claude/scripts/apd-pipeline verifier
-bash .claude/scripts/apd-pipeline status
-bash .claude/scripts/apd-pipeline reset
-bash .claude/scripts/apd-pipeline rollback           # Roll back one step
-bash .claude/scripts/apd-pipeline stats
-bash .claude/scripts/apd-pipeline init "Description"  # First setup only
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh spec "Task name"
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh builder
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh reviewer
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh verifier
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh status
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh reset
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh rollback           # Roll back one step
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh stats
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh init "Description"  # First setup only
 ```
 
 ### Hard rules

@@ -5,7 +5,7 @@
 #   pipeline-advance.sh spec "Task name"
 #   pipeline-advance.sh builder|reviewer|verifier
 #   pipeline-advance.sh reset|status|stats|metrics|rollback
-#   pipeline-advance.sh skip "Reason"
+#   pipeline-advance.sh init "Description"  (first setup only)
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
@@ -587,7 +587,7 @@ EOF
         fi
 
         # Init only allowed if no previous commits with APD (first setup)
-        APD_COMMIT_COUNT=$(git -C "$PROJECT_DIR" log --oneline 2>/dev/null | wc -l | tr -d ' ')
+        APD_COMMIT_COUNT=$(git -C "$PROJECT_DIR" log --oneline --all -- .claude/ 2>/dev/null | wc -l | tr -d ' ')
         if [ "$APD_COMMIT_COUNT" -gt 2 ] && [ "${APD_FORCE_INIT:-}" != "1" ]; then
             echo "BLOCKED: Init is only for first project setup." >&2
             echo "" >&2

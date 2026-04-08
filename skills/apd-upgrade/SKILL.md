@@ -48,11 +48,11 @@ This is the largest migration:
 2. **Create `.apd-config`:**
    ```
    PROJECT_NAME={extracted name}
-   APD_VERSION=3.0.0
+   APD_VERSION=3.2.0
    STACK={extracted stack}
    ```
 
-3. **Create `.apd-version`:** `3.0.0`
+3. **Create `.apd-version`:** `3.2.0`
 
 4. **Delete scripts from the project** (now in the plugin):
    ```bash
@@ -77,7 +77,7 @@ This is the largest migration:
 7. **Delete old files:**
    ```bash
    rm -f .claude/agents/TEMPLATE.md    # Now in the plugin
-   rm -f .claude/rules/workflow.md      # Now in the plugin
+   cp "${CLAUDE_PLUGIN_ROOT}/rules/workflow.md" .claude/rules/workflow.md  # Refresh from plugin (rules are NOT auto-loaded from plugins)
    ```
 
 8. **Preserve memory files** — DO NOT TOUCH:
