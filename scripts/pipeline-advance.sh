@@ -514,6 +514,20 @@ EOF
             echo "ERROR: Description for init is required." >&2
             exit 1
         fi
+
+        # Init only allowed if no previous commits with APD (first setup)
+        APD_COMMIT_COUNT=$(git -C "$PROJECT_DIR" log --oneline 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$APD_COMMIT_COUNT" -gt 2 ] && [ "${APD_FORCE_INIT:-}" != "1" ]; then
+            echo "BLOCKED: Init is only for first project setup." >&2
+            echo "" >&2
+            echo "  This project already has $APD_COMMIT_COUNT commits." >&2
+            echo "  Use the full pipeline: spec → builder → reviewer → verifier → commit" >&2
+            echo "" >&2
+            echo "  If this is truly a re-initialization, run:" >&2
+            echo "    APD_FORCE_INIT=1 bash \${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh init \"$ARG\"" >&2
+            exit 1
+        fi
+
         echo "${NOW}|${NOW_HUMAN}|INIT: ${ARG}" > "$PIPELINE_DIR/spec.done"
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/builder.done"
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
@@ -531,6 +545,20 @@ EOF
             echo "ERROR: Reason for skip is required." >&2
             exit 1
         fi
+
+        # Skip requires explicit user approval via environment variable
+        if [ "${APD_FORCE_SKIP:-}" != "1" ]; then
+            echo "BLOCKED: Pipeline skip requires explicit user approval." >&2
+            echo "" >&2
+            echo "  Skip is for PRODUCTION HOTFIXES ONLY." >&2
+            echo "  If this is truly urgent, the user must run:" >&2
+            echo "" >&2
+            echo "    APD_FORCE_SKIP=1 bash \${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh skip \"$ARG\"" >&2
+            echo "" >&2
+            echo "  Or use the full pipeline: spec → builder → reviewer → verifier → commit" >&2
+            exit 1
+        fi
+
         echo "${NOW}|${NOW_HUMAN}|HOTFIX: ${ARG}" > "$PIPELINE_DIR/spec.done"
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/builder.done"
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
@@ -543,7 +571,7 @@ EOF
 
         echo ""
         echo "  !!!! PIPELINE SKIPPED: $ARG !!!!"
-        echo "  This is logged. Use only for urgent production fixes."
+        echo "  Approved by user (APD_FORCE_SKIP=1). Logged."
         echo ""
         ;;
 
