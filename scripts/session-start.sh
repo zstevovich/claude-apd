@@ -3,6 +3,7 @@
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
+source "$(dirname "$0")/lib/style.sh"
 cd "$PROJECT_DIR" || exit 0
 
 # --- Auto gap-analysis on every session start (quick mode, no verify) ---
@@ -34,20 +35,15 @@ if command -v claude &>/dev/null; then
         FUNC_NUM=$(ver_to_num "$APD_FUNCTIONAL_VERSION")
 
         if [ "$CC_NUM" -lt "$FUNC_NUM" ] 2>/dev/null; then
-            echo "╔═══════════════════════════════════════════════════════╗"
-            echo "║  ⛔ APD: Claude Code $CC_VERSION is TOO OLD                 ║"
-            echo "║  Minimum for APD: v$APD_FUNCTIONAL_VERSION (agents + pipeline)         ║"
-            echo "║  Update: npm install -g @anthropic-ai/claude-code    ║"
-            echo "╚═══════════════════════════════════════════════════════╝"
+            apd_blocked "Claude Code $CC_VERSION is too old"
+            echo "    Minimum for APD: v$APD_FUNCTIONAL_VERSION (agents + pipeline)"
+            echo "    Update: npm install -g @anthropic-ai/claude-code"
             echo ""
         elif [ "$CC_NUM" -lt "$MIN_NUM" ] 2>/dev/null; then
-            echo "╔═══════════════════════════════════════════════════════╗"
-            echo "║  ⚠ APD: Claude Code $CC_VERSION — missing features         ║"
-            echo "║  Recommended: v$APD_MIN_VERSION+ for full APD feature set   ║"
-            echo "║  Missing: conditional hooks, PostCompact,            ║"
-            echo "║    PermissionDenied, effort frontmatter              ║"
-            echo "║  Update: npm install -g @anthropic-ai/claude-code    ║"
-            echo "╚═══════════════════════════════════════════════════════╝"
+            apd_header "Claude Code $CC_VERSION — missing features"
+            echo "    Recommended: v$APD_MIN_VERSION+ for full APD feature set"
+            echo "    Missing: conditional hooks, PostCompact, PermissionDenied, effort frontmatter"
+            echo "    Update: npm install -g @anthropic-ai/claude-code"
             echo ""
         fi
     fi
@@ -58,8 +54,8 @@ fi
 HEALED=0
 BLOCKED=0
 
-heal()  { echo "  ✓ HEALED: $1"; HEALED=$((HEALED + 1)); }
-block() { echo "  ✗ BLOCKED: $1"; BLOCKED=$((BLOCKED + 1)); }
+heal()  { echo "  ${MARK_PASS} HEALED: $1"; HEALED=$((HEALED + 1)); }
+block() { echo "  ${MARK_FAIL} BLOCKED: $1"; BLOCKED=$((BLOCKED + 1)); }
 
 # 1. jq — guards don't work without it (cannot be auto-fixed)
 if ! command -v jq &>/dev/null; then
@@ -158,14 +154,10 @@ fi
 if [ "$HEALED" -gt 0 ] || [ "$BLOCKED" -gt 0 ]; then
     echo ""
     if [ "$BLOCKED" -gt 0 ]; then
-        echo "╔═══════════════════════════════════════════════════╗"
-        printf "║  ⚠ APD: %d fixed, %d require attention                ║\n" "$HEALED" "$BLOCKED"
-        echo "║  Run: bash .claude/scripts/verify-apd.sh          ║"
-        echo "╚═══════════════════════════════════════════════════╝"
+        apd_header "Self-heal: $HEALED fixed, $BLOCKED require attention"
+        echo "    Run: bash .claude/scripts/verify-apd.sh"
     else
-        echo "╔═══════════════════════════════════════════════════╗"
-        printf "║  ✓ APD: %d problem(s) automatically fixed           ║\n" "$HEALED"
-        echo "╚═══════════════════════════════════════════════════╝"
+        apd_header "Self-heal: $HEALED problem(s) automatically fixed"
     fi
     echo ""
 fi
@@ -187,17 +179,10 @@ if [ -z "$PROJ_NAME" ] && [ -f "$PROJECT_DIR/CLAUDE.md" ]; then
     PROJ_NAME=$(head -5 "$PROJECT_DIR/CLAUDE.md" | grep '^# ' | head -1 | sed 's/^# //')
 fi
 PROJ_NAME="${PROJ_NAME:-$(basename "$PROJECT_DIR")}"
-if [ -t 2 ] || [ -t 1 ]; then
-    V=$'\033[38;5;135m'; B=$'\033[1m'; R=$'\033[0m'
-else
-    V="" B="" R=""
-fi
-MARK_DONE="${V}■${R}" MARK_TODO="${V}□${R}"
 
-echo ""
-echo "  ╭──────────────────────────────────────────────╮"
-printf "  │  APD %-40s │\n" "$PROJ_NAME"
-echo "  ╰──────────────────────────────────────────────╯"
+APD_VER=$(cat "$CLAUDE_DIR/.apd-version" 2>/dev/null | tr -d '[:space:]')
+APD_VER="${APD_VER:-?}"
+apd_header "$PROJ_NAME" "v$APD_VER"
 echo ""
 
 # Create project-level shortcut to pipeline-advance
@@ -218,19 +203,20 @@ echo ""
 # Pipeline
 if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null; then
     TASK="[idle]"
+    NEXT_STEP=""
     if [ -f "$PIPELINE_DIR/spec.done" ]; then
         TASK=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done" 2>/dev/null)
     fi
-    echo "  Pipeline: $TASK"
-    for step in spec builder reviewer verifier; do
-        if [ -f "$PIPELINE_DIR/$step.done" ]; then
-            printf "    ${MARK_DONE} %s\n" "$step"
-        else
-            printf "    ${MARK_TODO} %s\n" "$step"
+    for s in spec builder reviewer verifier; do
+        if [ ! -f "$PIPELINE_DIR/$s.done" ]; then
+            NEXT_STEP="$s"
+            break
         fi
     done
+    echo "  ${D}Task:${R} $TASK"
+    show_pipeline "$NEXT_STEP"
 else
-    echo "  Pipeline: idle"
+    echo "  ${D}Pipeline:${R} idle"
 fi
 echo ""
 
