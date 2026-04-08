@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.2.2 — 2026-04-08
+
+Fix verify-apd.sh spec assertion to match new branded header format.
+
+---
+
 ## v3.2.1 — 2026-04-08
 
 Unified CLI visual identity. Shared style library replaces inline color definitions and box drawing across all scripts.
