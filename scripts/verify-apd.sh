@@ -612,7 +612,7 @@ fi
 
 # Spec
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" spec "APD-VERIFY-TEST" 2>&1)
-if echo "$RESULT" | grep -q "APD Pipeline"; then
+if echo "$RESULT" | grep -q "Spec:"; then
     pass "pipeline-advance: spec"
 else
     fail "pipeline-advance spec ERROR: $RESULT"
