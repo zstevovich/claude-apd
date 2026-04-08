@@ -3,7 +3,12 @@
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 
-MARK_DONE="●" MARK_TODO="○"
+if [ -t 2 ] || [ -t 1 ]; then
+    V=$'\033[38;5;135m'; R=$'\033[0m'
+else
+    V="" R=""
+fi
+MARK_DONE="${V}■${R}" MARK_TODO="${V}□${R}"
 
 mkdir -p "$PIPELINE_DIR"
 

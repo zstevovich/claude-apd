@@ -19,7 +19,15 @@ NOW_HUMAN=$(date +"%Y-%m-%d %H:%M:%S")
 # --- Visual helpers ---
 # Box-drawing characters for consistent APD branding
 BOX_TL="╭" BOX_TR="╮" BOX_BL="╰" BOX_BR="╯" BOX_H="─" BOX_V="│"
-MARK_DONE="●" MARK_NEXT="◆" MARK_TODO="○"
+# Stellar violet color (256-color: 135)
+if [ -t 2 ] || [ -t 1 ]; then
+    V=$'\033[38;5;135m'  # violet
+    B=$'\033[1m'         # bold
+    R=$'\033[0m'         # reset
+else
+    V="" B="" R=""
+fi
+MARK_DONE="${V}■${R}" MARK_NEXT="${V}${B}◆${R}" MARK_TODO="${V}□${R}"
 
 apd_header() {
     local title="$1"

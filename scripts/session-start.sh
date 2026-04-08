@@ -181,7 +181,12 @@ if [ -z "$PROJ_NAME" ] && [ -f "$PROJECT_DIR/CLAUDE.md" ]; then
     PROJ_NAME=$(head -5 "$PROJECT_DIR/CLAUDE.md" | grep '^# ' | head -1 | sed 's/^# //')
 fi
 PROJ_NAME="${PROJ_NAME:-$(basename "$PROJECT_DIR")}"
-MARK_DONE="●" MARK_TODO="○"
+if [ -t 2 ] || [ -t 1 ]; then
+    V=$'\033[38;5;135m'; B=$'\033[1m'; R=$'\033[0m'
+else
+    V="" B="" R=""
+fi
+MARK_DONE="${V}■${R}" MARK_TODO="${V}□${R}"
 
 echo ""
 echo "  ╭──────────────────────────────────────────────╮"
