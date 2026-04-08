@@ -130,7 +130,7 @@ case "$STEP" in
         BUILDER_RAN=""
         BLOCKED_AGENTS=""
         # Superpowers skills that conflict with APD roles
-        REJECTED_PREFIXES="superpowers:subagent-driven-development|superpowers:code-review|superpowers:requesting-code-review|superpowers:verification-before-completion"
+        REJECTED_PREFIXES="superpowers:"
         if [ -f "$AGENTS_LOG" ]; then
             while IFS='|' read -r _ts _evt agent_type _id; do
                 [ "$_evt" = "stop" ] || continue
@@ -182,7 +182,7 @@ case "$STEP" in
         AGENTS_LOG="$PIPELINE_DIR/.agents"
         REVIEWER_RAN=""
         BLOCKED_AGENTS=""
-        REJECTED_PREFIXES="superpowers:subagent-driven-development|superpowers:code-review|superpowers:requesting-code-review|superpowers:verification-before-completion"
+        REJECTED_PREFIXES="superpowers:"
         if [ -f "$AGENTS_LOG" ]; then
             while IFS='|' read -r _ts _evt agent_type _id; do
                 [ "$_evt" = "stop" ] || continue

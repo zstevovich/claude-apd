@@ -962,31 +962,30 @@ Create new files in `.claude/rules/`:
 
 ## Plugin compatibility
 
-APD has its own pipeline, agents, and review system. Some third-party plugins **conflict** with APD roles and are mechanically blocked. Others are **compatible** and work alongside APD.
+APD has its own pipeline, agents, review, and verification system. It replaces the need for the `superpowers` plugin entirely.
 
-### Blocked (conflict with APD pipeline)
+### Blocked: superpowers
 
-These superpowers skills replace APD's own agents and bypass the enforced pipeline. `pipeline-advance.sh` rejects them:
+All `superpowers:*` agents are mechanically rejected by `pipeline-advance.sh`. Superpowers replaces APD's enforced pipeline with its own unstructured flow — the two are incompatible.
 
-| Skill | Why blocked |
-|-------|------------|
-| `superpowers:subagent-driven-development` | APD IS the subagent approach — this asks "which approach?" |
-| `superpowers:code-review` | Replaces APD's opus/max code-reviewer with Haiku |
-| `superpowers:requesting-code-review` | Bypasses APD's reviewer dispatch mechanism |
-| `superpowers:verification-before-completion` | Bypasses APD's verifier step |
+APD includes its own equivalents for useful superpowers skills:
+- Brainstorming → APD spec phase (step 2 in the flow)
+- TDD → `/apd-tdd` skill (coming soon)
+- Debugging → `/apd-debug` skill (coming soon)
+- Code review → `code-reviewer` agent (opus/max, read-only)
+- Verification → APD verifier step (build + test)
+- Finishing branch → `/apd-finish` skill (coming soon)
 
-### Compatible (work alongside APD)
+### Compatible: other plugins
 
-These plugins add value without conflicting with APD:
+These plugins work alongside APD without conflicts:
 
 | Plugin | Use case |
 |--------|----------|
-| `figma:figma-implement-design` | Frontend builders use Figma context for UI implementation |
-| `context7:query-docs` | Any agent can query library documentation |
-| `superpowers:brainstorming` | Useful BEFORE the APD pipeline starts (during spec phase) |
-| `superpowers:test-driven-development` | Builders can use TDD within their scope |
-| `superpowers:systematic-debugging` | Builders can debug within their scope |
-| `superpowers:finishing-a-development-branch` | Useful AFTER the pipeline (PR/merge decisions) |
+| `figma:*` | Frontend builders use Figma context for UI implementation |
+| `context7:*` | Any agent can query library documentation |
+| `code-review:*` | Compatible if project code-reviewer is also dispatched |
+| `feature-dev:*` | Code exploration and architecture analysis |
 
 ## Principles
 
