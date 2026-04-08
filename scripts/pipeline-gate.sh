@@ -20,7 +20,7 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     echo "" >&2
 
     for step in spec builder reviewer verifier; do
-        local sc=$(_step_color "$step")
+        sc=$(_step_color "$step")
         if [ -f "$PIPELINE_DIR/$step.done" ]; then
             printf "    %s■%s %s\n" "$sc" "$R" "$step" >&2
         else

@@ -371,14 +371,14 @@ EOF
                 STEP_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/$step.done")
                 if [ "$step" != "spec" ] && [ -n "$PREV_TS" ]; then
                     DELTA=$(format_duration $((STEP_TS - PREV_TS)))
-                    local sc=$(_step_color "$step")
+                    sc=$(_step_color "$step")
                     printf "    %s■%s %-12s +%s\n" "$sc" "$R" "$step" "$DELTA"
                 fi
                 PREV_TS="$STEP_TS"
             else
                 if [ -n "$PREV_TS" ]; then
                     WAITING=$(format_duration $(($(date +%s) - PREV_TS)))
-                    local sc=$(_step_color "$step")
+                    sc=$(_step_color "$step")
                     printf "    %s□%s %-12s waiting %s\n" "$sc" "$R" "$step" "$WAITING"
                 fi
                 PREV_TS=""
