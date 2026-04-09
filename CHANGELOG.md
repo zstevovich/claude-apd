@@ -1,5 +1,25 @@
 # Changelog
 
+## v4.0.0 — 2026-04-10
+
+Scripts restructured — single entry point, clean architecture.
+
+- **`scripts/apd`** — single entry point for all APD commands: `apd pipeline|doctor|verify|trace|init|gh|test`. One shortcut, one interface.
+- **`scripts/core/`** — all 22 scripts moved here without `.sh` extensions. Executables have no extension, libraries (lib/) keep `.sh`.
+- **Planned agents check** — implementation-plan.md `### Agents` section lists needed agents. pipeline-advance.sh builder warns if planned agents were not dispatched.
+- **guard-bash-scope.sh in plugin hooks** — orchestrator's Bash writes to .pipeline/ now blocked (was only in agent templates before).
+- **Auto GitHub sync** — gh-sync reuses existing issues instead of creating duplicates, circular call removed.
+- **POSIX file lock** — replaced Linux-only flock with mkdir-based lock, auto-removes on exit, stale detection >5min.
+- **Pipeline doctor shortcut** — session-start creates `.claude/scripts/apd` (replaces separate apd-pipeline/apd-doctor shortcuts).
+- **track-agent.sh warnings** — red WARNING when builder dispatched without pipeline-advance.sh builder.
+
+### Breaking changes
+- All hook paths changed: `scripts/<name>.sh` → `scripts/core/<name>`
+- Existing projects must run `/apd-setup` to update agent hook paths
+- Old shortcuts (apd-pipeline, apd-doctor) auto-removed, replaced by single `apd`
+
+---
+
 ## v3.7.0 — 2026-04-10
 
 Pipeline hardening — mechanical enforcement, anti-bypass, concurrent session protection.
