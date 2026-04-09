@@ -83,8 +83,10 @@ case "$STEP" in
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/implementation-plan.md"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash"
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
+        # Freeze spec-card.md — hash for tamper detection
+        shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
         apd_spec_header "$ARG"
         show_pipeline "builder"
         # Pre-flight checklist
@@ -218,6 +220,18 @@ case "$STEP" in
         SPEC_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/spec.done")
         ELAPSED=$(format_duration $((NOW - REVIEWER_TS)))
         TOTAL=$(format_duration $((NOW - SPEC_TS)))
+        # Verify spec-card.md was not modified after spec step (frozen)
+        if [ -f "$PIPELINE_DIR/.spec-hash" ] && [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+            ORIGINAL_HASH=$(cat "$PIPELINE_DIR/.spec-hash")
+            CURRENT_HASH=$(shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1)
+            if [ "$ORIGINAL_HASH" != "$CURRENT_HASH" ]; then
+                echo "BLOCKED: spec-card.md was modified after spec step." >&2
+                echo "" >&2
+                echo "  Spec is frozen after approval. Do not add criteria mid-pipeline." >&2
+                echo "  To change scope: pipeline-advance.sh rollback → update spec → restart." >&2
+                exit 1
+            fi
+        fi
         # Run spec traceability check (if spec-card.md exists)
         if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
             TRACE_OUT=$(bash "$SCRIPT_DIR/verify-trace.sh" 2>&1 1>"$PIPELINE_DIR/.trace-summary")
@@ -417,7 +431,7 @@ EOF
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash"
         echo "Pipeline reset. Ready for new task."
         ;;
 
