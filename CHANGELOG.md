@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.6.0 — 2026-04-10
+
+Implementation plan step and enforcement gaps — orchestrator must write plan before dispatching builder, spec-card.md is now mandatory.
+
+- **Implementation plan step** — orchestrator writes `.pipeline/implementation-plan.md` (files to change + 1-2 sentences per file) before dispatching builder. Builder reads the plan instead of searching the codebase. `pipeline-advance.sh builder` hard-blocks without it.
+- **Hard block: spec-card.md** — `pipeline-advance.sh spec` now requires spec-card.md to exist with R* acceptance criteria. Previously allowed advance without it, making spec traceability a no-op.
+- **Soft warn: adversarial-summary** — `pipeline-advance.sh verifier` warns if adversarial-reviewer agent is configured but `.adversarial-summary` was not written. Does not block.
+- **workflow.md** — step 4 clarified with plan file requirement, new section 3c (implementation plan format).
+- **Builder template** — reads implementation-plan.md and spec-card.md in workflow step 1.
+- **Cleanup** — `implementation-plan.md` added to spec, reset, and builder rollback cleanup.
+
+---
+
 ## v3.5.2 — 2026-04-09
 
 - **`apd-init.sh`** — gap analysis now creates `adversarial-reviewer.md` from template when missing. Previously `/apd-setup` reported 100 PASS but didn't detect the missing agent.
