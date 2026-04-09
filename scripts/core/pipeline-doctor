@@ -1,13 +1,13 @@
 #!/bin/bash
 # APD Pipeline Doctor — comprehensive diagnostic of pipeline state and enforcement
 #
-# Usage: bash pipeline-doctor.sh [project_dir]
+# Usage: bash pipeline-doctor [project_dir]
 #
 # Shows: pipeline state, enforcement status, file integrity, guard coverage,
 #        agent registry, GitHub sync, and identifies problems with fix instructions.
 
-source "$(dirname "$0")/lib/resolve-project.sh"
-source "$(dirname "$0")/lib/style.sh"
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
 
 apd_header "Pipeline Doctor"
 
@@ -86,7 +86,7 @@ if [ -f "$PIPELINE_DIR/.spec-hash" ]; then
             fail "SPEC TAMPERED — hash mismatch!"
             echo "    ${D}Original: ${ORIGINAL_HASH:0:12}...${R}"
             echo "    ${D}Current:  ${CURRENT_HASH:0:12}...${R}"
-            echo "    ${D}Fix: pipeline-advance.sh rollback → update spec → restart${R}"
+            echo "    ${D}Fix: pipeline-advance rollback → update spec → restart${R}"
         fi
     else
         fail ".spec-hash exists but spec-card.md is missing"
@@ -167,7 +167,7 @@ fi
 section "Guard Coverage"
 
 GUARDS_OK=true
-for guard in guard-git.sh guard-orchestrator.sh guard-lockfile.sh guard-pipeline-state.sh guard-bash-scope.sh guard-scope.sh guard-secrets.sh guard-permission-denied.sh; do
+for guard in guard-git guard-orchestrator guard-lockfile guard-pipeline-state guard-bash-scope guard-scope guard-secrets guard-permission-denied; do
     if [ -f "$SCRIPT_DIR/$guard" ] && [ -x "$SCRIPT_DIR/$guard" ]; then
         pass "$guard"
     else
@@ -182,8 +182,8 @@ done
 section "Trace Coverage"
 
 if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
-    if [ -f "$SCRIPT_DIR/verify-trace.sh" ]; then
-        TRACE_RESULT=$(bash "$SCRIPT_DIR/verify-trace.sh" --summary 2>/dev/null)
+    if [ -f "$SCRIPT_DIR/verify-trace" ]; then
+        TRACE_RESULT=$(bash "$SCRIPT_DIR/verify-trace" --summary 2>/dev/null)
         if [ -n "$TRACE_RESULT" ]; then
             TRACE_COVERED=$(echo "$TRACE_RESULT" | cut -d: -f2 | cut -d/ -f1)
             TRACE_TOTAL=$(echo "$TRACE_RESULT" | cut -d: -f2 | cut -d/ -f2)
@@ -196,10 +196,10 @@ if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
                 fail "Trace coverage: $TRACE_COVERED/$TRACE_TOTAL (missing: $TRACE_MISSING)"
             fi
         else
-            echo "    ${D}verify-trace.sh produced no output${R}"
+            echo "    ${D}verify-trace produced no output${R}"
         fi
     else
-        fail "verify-trace.sh not found"
+        fail "verify-trace not found"
     fi
 else
     echo "    ${D}No spec-card.md — trace not applicable${R}"
@@ -270,7 +270,7 @@ section "Shortcut"
 if [ -f "$CLAUDE_DIR/scripts/apd-pipeline" ]; then
     pass "apd-pipeline shortcut exists"
 else
-    warn "apd-pipeline shortcut missing — run session-start.sh to create"
+    warn "apd-pipeline shortcut missing — run session-start to create"
 fi
 
 # ============================================================

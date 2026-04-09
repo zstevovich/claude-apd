@@ -2,9 +2,9 @@
 # APD Test Hooks — verifies that hooks and scripts are correctly configured
 # Run after /apd-setup or manual setup
 
-source "$(dirname "$0")/lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/resolve-project.sh"
 
-source "$(dirname "$0")/lib/style.sh"
+source "$(dirname "$0")/../lib/style.sh"
 
 apd_header "Hook Verification"
 
@@ -44,17 +44,17 @@ done
 section "Scripts"
 
 PLUGIN_SCRIPTS=(
-    guard-git.sh
-    guard-scope.sh
-    guard-bash-scope.sh
-    guard-secrets.sh
-    guard-lockfile.sh
-    guard-permission-denied.sh
-    pipeline-advance.sh
-    pipeline-gate.sh
-    pipeline-post-commit.sh
-    rotate-session-log.sh
-    session-start.sh
+    guard-git
+    guard-scope
+    guard-bash-scope
+    guard-secrets
+    guard-lockfile
+    guard-permission-denied
+    pipeline-advance
+    pipeline-gate
+    pipeline-post-commit
+    rotate-session-log
+    session-start
 )
 
 for script in "${PLUGIN_SCRIPTS[@]}"; do
@@ -121,7 +121,7 @@ PLACEHOLDER_FILES=(
     "$PROJECT_DIR/CLAUDE.md"
     "$CLAUDE_DIR/memory/MEMORY.md"
     "$CLAUDE_DIR/memory/status.md"
-    "$CLAUDE_DIR/scripts/session-start.sh"
+    "$CLAUDE_DIR/scripts/session-start"
     "$SETTINGS"
 )
 
@@ -160,11 +160,11 @@ fi
 # --- 7. Pipeline test ---
 section "Pipeline"
 
-PIPELINE_OUTPUT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" status 2>&1)
+PIPELINE_OUTPUT=$(bash "$SCRIPT_DIR/pipeline-advance" status 2>&1)
 if [ $? -eq 0 ]; then
-    pass "pipeline-advance.sh status works"
+    pass "pipeline-advance status works"
 else
-    fail "pipeline-advance.sh status ERROR: $PIPELINE_OUTPUT"
+    fail "pipeline-advance status ERROR: $PIPELINE_OUTPUT"
 fi
 
 # --- Result ---

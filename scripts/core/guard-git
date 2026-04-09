@@ -2,11 +2,11 @@
 # APD Guard — blocks unauthorized git operations
 # Subagents must not commit, push, or perform destructive operations
 
-source "$(dirname "$0")/lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
 if ! command -v jq &>/dev/null; then
-  echo "ERROR: jq is not installed. Required for guard-git.sh." >&2
+  echo "ERROR: jq is not installed. Required for guard-git." >&2
   exit 2
 fi
 
@@ -64,8 +64,8 @@ if echo "$NORMALIZED_GIT" | grep -qiE "git commit"; then
     fi
 
     # 1. Pipeline gate
-    if [ -x "$SCRIPT_DIR/pipeline-gate.sh" ]; then
-      if ! bash "$SCRIPT_DIR/pipeline-gate.sh" >&2; then
+    if [ -x "$SCRIPT_DIR/pipeline-gate" ]; then
+      if ! bash "$SCRIPT_DIR/pipeline-gate" >&2; then
         echo "" >&2
         echo "BLOCKED: Pipeline steps are not completed. Commit rejected." >&2
         log_block "pipeline-incomplete"
@@ -83,7 +83,7 @@ if echo "$NORMALIZED_GIT" | grep -qiE "git commit"; then
       fi
     fi
 
-    # Pipeline reset happens in PostToolUse hook (pipeline-post-commit.sh)
+    # Pipeline reset happens in PostToolUse hook (pipeline-post-commit)
     # — only AFTER a successful commit, not before
     echo "Pipeline + Verification passed — commit allowed." >&2
     exit 0

@@ -1,12 +1,12 @@
 #!/bin/bash
 # APD Agent Tracker — records agent start/stop events to pipeline state
 # Called by SubagentStart and SubagentStop hooks.
-# Writes to .claude/.pipeline/.agents so pipeline-advance.sh can verify
+# Writes to .claude/.pipeline/.agents so pipeline-advance can verify
 # that a real agent ran before marking a step complete.
 
-source "$(dirname "$0")/lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
-source "$(dirname "$0")/lib/style.sh"
+source "$(dirname "$0")/../lib/style.sh"
 
 if ! command -v jq &>/dev/null; then
   exit 0
@@ -32,11 +32,11 @@ case "$EVENT" in
   SubagentStart)
     echo "${NOW_HUMAN}|start|${AGENT_TYPE}|${AGENT_ID}" >> "$AGENTS_LOG"
     printf "  %s☭%s %s%s%s%s\n" "$ac" "$R" "$ac" "$B" "$AGENT_TYPE" "$R" >&2
-    # Pipeline step reminder — warn if orchestrator skipped pipeline-advance.sh
+    # Pipeline step reminder — warn if orchestrator skipped pipeline-advance
     if [ -f "$PIPELINE_DIR/spec.done" ] && [ ! -f "$PIPELINE_DIR/builder.done" ]; then
-        # Builder dispatched without pipeline-advance.sh builder
+        # Builder dispatched without pipeline-advance builder
         echo "" >&2
-        echo "  ${RED}${B}WARNING: pipeline-advance.sh builder was NOT called before dispatching agent.${R}" >&2
+        echo "  ${RED}${B}WARNING: pipeline-advance builder was NOT called before dispatching agent.${R}" >&2
         echo "  ${RED}Run: bash .claude/scripts/apd-pipeline builder${R}" >&2
         echo "  ${RED}Pipeline will BLOCK at reviewer step without builder.done${R}" >&2
         echo "" >&2

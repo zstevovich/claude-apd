@@ -2,12 +2,12 @@
 # APD Pipeline Advance — advances pipeline step with timestamps
 #
 # Usage:
-#   pipeline-advance.sh spec "Task name"
-#   pipeline-advance.sh builder|reviewer|verifier
-#   pipeline-advance.sh reset|status|stats|metrics|rollback
-#   pipeline-advance.sh init "Description"  (first setup only)
+#   pipeline-advance spec "Task name"
+#   pipeline-advance builder|reviewer|verifier
+#   pipeline-advance reset|status|stats|metrics|rollback
+#   pipeline-advance init "Description"  (first setup only)
 
-source "$(dirname "$0")/lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/resolve-project.sh"
 
 mkdir -p "$PIPELINE_DIR"
 
@@ -40,7 +40,7 @@ NOW=$(date +%s)
 NOW_HUMAN=$(date +"%Y-%m-%d %H:%M:%S")
 
 # --- Visual helpers ---
-source "$(dirname "$0")/lib/style.sh"
+source "$(dirname "$0")/../lib/style.sh"
 
 case "$STEP" in
     spec)
@@ -113,7 +113,7 @@ case "$STEP" in
         apd_spec_header "$ARG"
         show_pipeline "builder"
         # GitHub sync (best-effort — never blocks pipeline)
-        bash "$SCRIPT_DIR/gh-sync.sh" spec "$ARG" 2>/dev/null || true
+        bash "$SCRIPT_DIR/gh-sync" spec "$ARG" 2>/dev/null || true
         # Pre-flight checklist
         echo "" >&2
         echo "    ${D}Next steps:${R}" >&2
@@ -218,7 +218,7 @@ case "$STEP" in
         apd_header "Builder Complete" "+$ELAPSED"
         show_pipeline "reviewer"
         # GitHub sync (best-effort)
-        bash "$SCRIPT_DIR/gh-sync.sh" builder 2>/dev/null || true
+        bash "$SCRIPT_DIR/gh-sync" builder 2>/dev/null || true
         ;;
 
     reviewer)
@@ -268,7 +268,7 @@ case "$STEP" in
         apd_header "Reviewer Complete" "+$ELAPSED"
         show_pipeline "verifier"
         # GitHub sync (best-effort)
-        bash "$SCRIPT_DIR/gh-sync.sh" reviewer 2>/dev/null || true
+        bash "$SCRIPT_DIR/gh-sync" reviewer 2>/dev/null || true
         ;;
 
     verifier)
@@ -288,20 +288,20 @@ case "$STEP" in
                 echo "BLOCKED: spec-card.md was modified after spec step." >&2
                 echo "" >&2
                 echo "  Spec is frozen after approval. Do not add criteria mid-pipeline." >&2
-                echo "  To change scope: pipeline-advance.sh rollback → update spec → restart." >&2
+                echo "  To change scope: pipeline-advance rollback → update spec → restart." >&2
                 exit 1
             fi
         fi
         # Run spec traceability check (if spec-card.md exists)
         if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
-            TRACE_OUT=$(bash "$SCRIPT_DIR/verify-trace.sh" 2>&1 1>"$PIPELINE_DIR/.trace-summary")
+            TRACE_OUT=$(bash "$SCRIPT_DIR/verify-trace" 2>&1 1>"$PIPELINE_DIR/.trace-summary")
             TRACE_EXIT=$?
             # Show the report (was on stderr, captured above)
             [ -n "$TRACE_OUT" ] && echo "$TRACE_OUT" >&2
             if [ "$TRACE_EXIT" -ne 0 ]; then
                 echo "" >&2
                 echo "  Fix: Add @trace R* markers in test files for uncovered criteria." >&2
-                echo "  Then re-run: pipeline-advance.sh verifier" >&2
+                echo "  Then re-run: pipeline-advance verifier" >&2
                 exit 1
             fi
         fi
@@ -319,7 +319,7 @@ case "$STEP" in
         show_pipeline ""
         echo "    Ready: APD_ORCHESTRATOR_COMMIT=1 git commit ..."
         # GitHub sync (best-effort)
-        bash "$SCRIPT_DIR/gh-sync.sh" verifier 2>/dev/null || true
+        bash "$SCRIPT_DIR/gh-sync" verifier 2>/dev/null || true
         ;;
 
     reset)
@@ -494,7 +494,7 @@ EOF
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
-        bash "$SCRIPT_DIR/gh-sync.sh" done 2>/dev/null || true
+        bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
         rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash"
         echo "Pipeline reset. Ready for new task."
         ;;
@@ -718,7 +718,7 @@ EOF
             echo "  Use the full pipeline: spec → builder → reviewer → verifier → commit" >&2
             echo "" >&2
             echo "  If this is truly a re-initialization, run:" >&2
-            echo "    APD_FORCE_INIT=1 bash \${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh init \"$ARG\"" >&2
+            echo "    APD_FORCE_INIT=1 bash \${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance init \"$ARG\"" >&2
             exit 1
         fi
 
@@ -734,11 +734,11 @@ EOF
 
     *)
         echo "Usage:" >&2
-        echo "  pipeline-advance.sh spec \"Task name\"" >&2
-        echo "  pipeline-advance.sh builder|reviewer|verifier" >&2
-        echo "  pipeline-advance.sh reset|status|stats|metrics" >&2
-        echo "  pipeline-advance.sh rollback" >&2
-        echo "  pipeline-advance.sh init \"Description\"     # First setup only" >&2
+        echo "  pipeline-advance spec \"Task name\"" >&2
+        echo "  pipeline-advance builder|reviewer|verifier" >&2
+        echo "  pipeline-advance reset|status|stats|metrics" >&2
+        echo "  pipeline-advance rollback" >&2
+        echo "  pipeline-advance init \"Description\"     # First setup only" >&2
         echo "" >&2
         echo "  There is no skip command. Every feature goes through the full pipeline." >&2
         echo "  For hotfixes, use a separate terminal: git commit without APD prefix." >&2

@@ -2,16 +2,16 @@
 # APD Trace Verifier — checks @trace coverage against spec-card.md
 #
 # Usage:
-#   verify-trace.sh                  # full colored report
-#   verify-trace.sh --summary        # one-line output for session-log
+#   verify-trace                  # full colored report
+#   verify-trace --summary        # one-line output for session-log
 #
 # Exit codes:
 #   0 — all acceptance criteria covered (or no spec-card.md)
 #   1 — missing test coverage for one or more criteria
 
-source "$(dirname "$0")/lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
-source "$(dirname "$0")/lib/style.sh"
+source "$(dirname "$0")/../lib/style.sh"
 
 SPEC_CARD="$PIPELINE_DIR/spec-card.md"
 SUMMARY_MODE=false
@@ -188,7 +188,7 @@ if [ "$SUMMARY_MODE" = false ]; then
     fi
 fi
 
-# Always emit summary on stdout (machine-readable, captured by pipeline-advance.sh)
+# Always emit summary on stdout (machine-readable, captured by pipeline-advance)
 echo "TRACE:${COVERED}/${TOTAL}:${UNCOVERED_IDS}"
 
 # --- Exit code ---

@@ -47,7 +47,7 @@ fi
 CLAUDE_DIR="$PROJECT_DIR/.claude"
 MEMORY_DIR="$CLAUDE_DIR/memory"
 PIPELINE_DIR="$CLAUDE_DIR/.pipeline"
-SCRIPT_DIR="$APD_PLUGIN_ROOT/scripts"
+SCRIPT_DIR="$APD_PLUGIN_ROOT/scripts/core"
 
 # --- Activation check ---
 # APD is dormant unless .apd-config exists (created by /apd-setup)

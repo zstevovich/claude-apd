@@ -1,0 +1,72 @@
+#!/bin/bash
+# APD — single entry point for all APD commands
+#
+# Usage: apd <command> [args...]
+#
+# Commands:
+#   pipeline <step>   Pipeline advance (spec/builder/reviewer/verifier/status/reset/rollback/metrics)
+#   doctor            Pipeline diagnostics
+#   init [--quick]    Initialize or update APD in a project
+#   verify            Run full APD verification
+#   trace             Check spec traceability
+#   contracts         Check cross-layer type contracts
+#   gh <step>         GitHub sync
+#   test              Quick static hook test
+
+CORE_DIR="$(cd "$(dirname "$0")/core" && pwd)"
+
+CMD="${1:-help}"
+shift 2>/dev/null || true
+
+case "$CMD" in
+    pipeline|pl)
+        exec bash "$CORE_DIR/pipeline-advance" "$@"
+        ;;
+    doctor|dr)
+        exec bash "$CORE_DIR/pipeline-doctor" "$@"
+        ;;
+    init|setup)
+        exec bash "$CORE_DIR/apd-init" "$@"
+        ;;
+    verify)
+        exec bash "$CORE_DIR/verify-apd" "$@"
+        ;;
+    trace)
+        exec bash "$CORE_DIR/verify-trace" "$@"
+        ;;
+    contracts)
+        exec bash "$CORE_DIR/verify-contracts" "$@"
+        ;;
+    gh|github)
+        exec bash "$CORE_DIR/gh-sync" "$@"
+        ;;
+    test)
+        exec bash "$CORE_DIR/test-hooks" "$@"
+        ;;
+    help|--help|-h)
+        echo ""
+        echo "  APD — Agent Pipeline Development"
+        echo ""
+        echo "  Usage: apd <command> [args]"
+        echo ""
+        echo "  Commands:"
+        echo "    pipeline <step>   Pipeline advance (spec/builder/reviewer/verifier/status/reset)"
+        echo "    doctor            Pipeline diagnostics"
+        echo "    init [--quick]    Initialize or update APD in a project"
+        echo "    verify            Run full APD verification"
+        echo "    trace             Check spec traceability"
+        echo "    contracts         Check cross-layer type contracts"
+        echo "    gh <step>         GitHub sync"
+        echo "    test              Quick static hook test"
+        echo ""
+        ;;
+    *)
+        if [ -x "$CORE_DIR/$CMD" ]; then
+            exec bash "$CORE_DIR/$CMD" "$@"
+        else
+            echo "Unknown command: $CMD" >&2
+            echo "Run: apd help" >&2
+            exit 1
+        fi
+        ;;
+esac

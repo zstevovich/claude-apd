@@ -32,13 +32,13 @@ Run the following commands and save the output:
 
 ```bash
 # Pipeline status
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh status
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance status
 
 # Metrics (if available)
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh metrics
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance metrics
 
 # Skip statistics
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh stats
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance stats
 ```
 
 ### 2. Create dashboard table on the board

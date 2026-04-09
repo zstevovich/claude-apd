@@ -38,7 +38,7 @@ If the audit finds issues, fix them before starting work. A broken pipeline prod
 ### 1. Run verify-apd.sh first
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/verify-apd.sh
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/verify-apd
 ```
 
 If FAIL → fix those first. This skill builds on top of verify-apd.sh, not replaces it.
@@ -97,7 +97,7 @@ Read `.claude/settings.json` and verify:
 ### 5. Workflow Rules
 
 Read `.claude/rules/workflow.md` and verify:
-- Uses `${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh` (not `apd-pipeline`)
+- Uses `${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance` (not `apd-pipeline`)
 - Has step 9 (finish)
 - Has mandatory skills section (brainstorm, tdd, debug, finish)
 - Model discipline table present (orchestrator opus, builder sonnet, reviewer opus)
@@ -105,8 +105,8 @@ Read `.claude/rules/workflow.md` and verify:
 ### 6. Pipeline Health
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh status
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/apd-init.sh --version
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance status
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/apd-init --version
 ```
 
 - Pipeline responds without errors

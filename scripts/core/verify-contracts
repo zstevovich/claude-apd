@@ -2,9 +2,9 @@
 # APD Contract Verifier — checks that types at layer boundaries match
 #
 # Usage:
-#   verify-contracts.sh <backend_path> <frontend_path>
-#   verify-contracts.sh --changed          # only changed files (for pre-commit)
-#   verify-contracts.sh --help
+#   verify-contracts <backend_path> <frontend_path>
+#   verify-contracts --changed          # only changed files (for pre-commit)
+#   verify-contracts --help
 #
 # Supports: TypeScript (interface/type) and C# (class/record DTO)
 # Limitations: Regex-based, not a full parser. Covers ~80% of cases.
@@ -12,9 +12,9 @@
 
 set -euo pipefail
 
-source "$(dirname "$0")/lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/resolve-project.sh"
 
-source "$(dirname "$0")/lib/style.sh"
+source "$(dirname "$0")/../lib/style.sh"
 # Map to legacy variable names used throughout this script
 GREEN="$G"; YELLOW="$Y"; NC="$R"; BOLD="$B"
 
@@ -28,14 +28,14 @@ usage() {
     echo "APD Contract Verifier"
     echo ""
     echo "Usage:"
-    echo "  verify-contracts.sh <backend_dir> <frontend_dir>"
-    echo "  verify-contracts.sh --changed"
-    echo "  verify-contracts.sh --help"
+    echo "  verify-contracts <backend_dir> <frontend_dir>"
+    echo "  verify-contracts --changed"
+    echo "  verify-contracts --help"
     echo ""
     echo "Examples:"
-    echo "  verify-contracts.sh server/src/types/ client/src/types/"
-    echo "  verify-contracts.sh src/Dtos/ apps/frontend/src/types/"
-    echo "  verify-contracts.sh --changed  # uses git diff for detection"
+    echo "  verify-contracts server/src/types/ client/src/types/"
+    echo "  verify-contracts src/Dtos/ apps/frontend/src/types/"
+    echo "  verify-contracts --changed  # uses git diff for detection"
     exit 0
 }
 
@@ -266,7 +266,7 @@ if [ "${1:-}" = "--changed" ]; then
     fi
 
     echo -e "${YELLOW}Changes detected in type files — run full verification:${NC}"
-    echo "  bash .claude/scripts/verify-contracts.sh <backend_types_dir> <frontend_types_dir>"
+    echo "  bash .claude/scripts/verify-contracts <backend_types_dir> <frontend_types_dir>"
     exit 0
 fi
 

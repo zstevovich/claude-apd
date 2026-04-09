@@ -2,17 +2,17 @@
 # APD GitHub Sync — synchronizes pipeline step with GitHub Projects
 #
 # Usage:
-#   gh-sync.sh spec "Task name"         -> creates issue, adds to board, moves to Spec
-#   gh-sync.sh builder [ISSUE_NUM]      -> moves issue to In Progress
-#   gh-sync.sh reviewer [ISSUE_NUM]     -> moves issue to Review
-#   gh-sync.sh verifier [ISSUE_NUM]     -> moves issue to Testing
-#   gh-sync.sh done ISSUE_NUM COMMIT    -> closes issue, links commit
-#   gh-sync.sh skip ISSUE_NUM "Reason"  -> closes with apd-skip label
+#   gh-sync spec "Task name"         -> creates issue, adds to board, moves to Spec
+#   gh-sync builder [ISSUE_NUM]      -> moves issue to In Progress
+#   gh-sync reviewer [ISSUE_NUM]     -> moves issue to Review
+#   gh-sync verifier [ISSUE_NUM]     -> moves issue to Testing
+#   gh-sync done ISSUE_NUM COMMIT    -> closes issue, links commit
+#   gh-sync skip ISSUE_NUM "Reason"  -> closes with apd-skip label
 #
 # Requires: gh CLI authenticated, GitHub Projects v2 configured
-# Called automatically by pipeline-advance.sh at each step (best-effort, non-blocking)
+# Called automatically by pipeline-advance at each step (best-effort, non-blocking)
 
-source "$(dirname "$0")/lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/resolve-project.sh"
 
 STEP="$1"
 ARG2="$2"
@@ -87,7 +87,7 @@ _APD Pipeline Task_" \
         fi
 
         # Run pipeline step
-        bash "$SCRIPT_DIR/pipeline-advance.sh" "$STEP"
+        bash "$SCRIPT_DIR/pipeline-advance" "$STEP"
         ;;
 
     done)
@@ -138,11 +138,11 @@ _APD Pipeline Task_" \
         echo "APD GitHub Sync" >&2
         echo "" >&2
         echo "Usage:" >&2
-        echo "  gh-sync.sh spec \"Task name\"" >&2
-        echo "  gh-sync.sh builder|reviewer|verifier [ISSUE_NUM]" >&2
-        echo "  gh-sync.sh done ISSUE_NUM [COMMIT_HASH]" >&2
-        echo "  gh-sync.sh skip ISSUE_NUM \"Reason\"" >&2
-        echo "  gh-sync.sh status" >&2
+        echo "  gh-sync spec \"Task name\"" >&2
+        echo "  gh-sync builder|reviewer|verifier [ISSUE_NUM]" >&2
+        echo "  gh-sync done ISSUE_NUM [COMMIT_HASH]" >&2
+        echo "  gh-sync skip ISSUE_NUM \"Reason\"" >&2
+        echo "  gh-sync status" >&2
         exit 1
         ;;
 esac

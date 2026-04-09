@@ -84,7 +84,7 @@ Ready to write the spec card?
 Once user approves → write spec card and enter pipeline:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh spec "Feature name"
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance spec "Feature name"
 ```
 
 <HARD-GATE>

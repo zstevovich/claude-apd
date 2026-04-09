@@ -12,26 +12,26 @@ hooks:
     - matcher: "Read"
       hooks:
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-secrets.sh"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/guard-secrets"
           timeout: 5
     - matcher: "Write|Edit"
       hooks:
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-scope.sh server/"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/guard-scope server/"
           timeout: 5
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-secrets.sh"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/guard-secrets"
           timeout: 5
     - matcher: "Bash"
       hooks:
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-git.sh"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/guard-git"
           timeout: 5
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-bash-scope.sh server/"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/guard-bash-scope server/"
           timeout: 5
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/guard-secrets.sh"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/guard-secrets"
           timeout: 5
 ---
 

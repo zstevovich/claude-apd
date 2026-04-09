@@ -87,15 +87,15 @@ This is not just a documented rule — **hooks technically block commits** if st
 ### Commands
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh spec "Task name"
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh builder
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh reviewer
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh verifier
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh status
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh reset
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh rollback           # Roll back one step
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh stats
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh init "Description"  # First setup only
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance spec "Task name"
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance builder
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance reviewer
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance verifier
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance status
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance reset
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance rollback           # Roll back one step
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance stats
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance init "Description"  # First setup only
 ```
 
 ### Hard rules

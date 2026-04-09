@@ -8,7 +8,7 @@
 # Uses userConfig env vars when available:
 #   CLAUDE_PLUGIN_OPTION_PROJECT_NAME, CLAUDE_PLUGIN_OPTION_STACK, CLAUDE_PLUGIN_OPTION_AUTHOR_NAME
 
-source "$(dirname "$0")/lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/resolve-project.sh"
 
 # Read version from plugin.json (single source of truth)
 APD_VER=$(grep '"version"' "$APD_PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
@@ -20,12 +20,12 @@ if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
     exit 0
 fi
 
-# --quick flag: skip verification (used by session-start.sh)
+# --quick flag: skip verification (used by session-start)
 QUICK=false
 [ "${1:-}" = "--quick" ] && QUICK=true
 
 # --- Visual helpers ---
-source "$(dirname "$0")/lib/style.sh"
+source "$(dirname "$0")/../lib/style.sh"
 
 FIXES=0
 SKIPS=0
@@ -407,10 +407,10 @@ else
 fi
 echo ""
 
-# Run verify-apd.sh (skip in quick mode)
+# Run verify-apd (skip in quick mode)
 if [ "$QUICK" = true ]; then
     exit 0
 fi
 echo "  Running verification..."
 echo ""
-bash "$SCRIPT_DIR/verify-apd.sh"
+bash "$SCRIPT_DIR/verify-apd"

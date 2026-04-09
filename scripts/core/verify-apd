@@ -2,12 +2,12 @@
 # APD Verify — complete functional verification of APD installation
 # Run after /apd-setup or manual setup to confirm everything works
 #
-# Difference from test-hooks.sh:
-#   test-hooks.sh  -> static check (files, JSON, placeholders)
-#   verify-apd.sh  -> functional tests (guards block, pipeline works end-to-end)
+# Difference from test-hooks:
+#   test-hooks  -> static check (files, JSON, placeholders)
+#   verify-apd  -> functional tests (guards block, pipeline works end-to-end)
 
-source "$(dirname "$0")/lib/resolve-project.sh"
-source "$(dirname "$0")/lib/style.sh"
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
 
 
 # Summary data — collected during checks
@@ -33,10 +33,10 @@ apd_header "Verification"
 section "1. Prerequisites"
 
 # Plugin installation
-if [ -d "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/guard-git.sh" ]; then
+if [ -d "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/guard-git" ]; then
     pass "APD plugin installed ($SCRIPT_DIR)"
 else
-    fail "APD plugin is NOT installed — SCRIPT_DIR=$SCRIPT_DIR does not contain guard-git.sh"
+    fail "APD plugin is NOT installed — SCRIPT_DIR=$SCRIPT_DIR does not contain guard-git"
     echo "  Aborting — plugin must be installed."
     exit 1
 fi
@@ -147,10 +147,10 @@ fi
 
 # Plugin scripts — exist and executable at $SCRIPT_DIR
 PLUGIN_SCRIPTS=(
-    guard-git.sh guard-scope.sh guard-bash-scope.sh
-    guard-secrets.sh guard-lockfile.sh guard-permission-denied.sh guard-orchestrator.sh
-    track-agent.sh pipeline-advance.sh pipeline-gate.sh pipeline-post-commit.sh
-    rotate-session-log.sh session-start.sh
+    guard-git guard-scope guard-bash-scope
+    guard-secrets guard-lockfile guard-permission-denied guard-orchestrator
+    track-agent pipeline-advance pipeline-gate pipeline-post-commit
+    rotate-session-log session-start
 )
 
 SCRIPTS_OK=true
@@ -211,10 +211,10 @@ else
         # SessionStart hook
         if jq -e '.hooks.SessionStart[0].hooks[0].command' "$PLUGIN_SETTINGS" &>/dev/null; then
             CMD=$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$PLUGIN_SETTINGS")
-            if echo "$CMD" | grep -q 'session-start.sh'; then
-                pass "Plugin: SessionStart -> session-start.sh"
+            if echo "$CMD" | grep -q 'session-start'; then
+                pass "Plugin: SessionStart -> session-start"
             else
-                warn "Plugin: SessionStart hook exists but does not call session-start.sh"
+                warn "Plugin: SessionStart hook exists but does not call session-start"
             fi
         else
             warn "Plugin: SessionStart hook is not configured"
@@ -222,16 +222,16 @@ else
 
         # PreToolUse Bash -> guard-git
         if jq -e '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[].command' "$PLUGIN_SETTINGS" 2>/dev/null | grep -q 'guard-git'; then
-            pass "Plugin: PreToolUse(Bash) -> guard-git.sh"
+            pass "Plugin: PreToolUse(Bash) -> guard-git"
         else
-            fail "Plugin: guard-git.sh is NOT registered as PreToolUse hook for Bash"
+            fail "Plugin: guard-git is NOT registered as PreToolUse hook for Bash"
         fi
 
         # PostToolUse Bash -> pipeline-post-commit
         if jq -e '.hooks.PostToolUse[] | select(.matcher == "Bash") | .hooks[].command' "$PLUGIN_SETTINGS" 2>/dev/null | grep -q 'pipeline-post-commit'; then
-            pass "Plugin: PostToolUse(Bash) -> pipeline-post-commit.sh"
+            pass "Plugin: PostToolUse(Bash) -> pipeline-post-commit"
         else
-            fail "Plugin: pipeline-post-commit.sh is NOT registered — pipeline will not reset after commit"
+            fail "Plugin: pipeline-post-commit is NOT registered — pipeline will not reset after commit"
         fi
 
         # PostCompact hook
@@ -378,27 +378,27 @@ for agent_file in "$CLAUDE_DIR/agents"/*.md; do
 
     # guard-scope hook — only needed for agents with Write/Edit tools
     if grep -q 'Write\|Edit' "$agent_file" 2>/dev/null && head -50 "$agent_file" | grep -q 'tools:.*Write\|tools:.*Edit'; then
-        if grep -q 'guard-scope.sh' "$agent_file" 2>/dev/null; then
-            pass "Agent $AGENT_NAME — guard-scope.sh registered"
+        if grep -q 'guard-scope' "$agent_file" 2>/dev/null; then
+            pass "Agent $AGENT_NAME — guard-scope registered"
         else
-            warn "Agent $AGENT_NAME — guard-scope.sh is NOT registered (agent has Write/Edit but no scope protection)"
+            warn "Agent $AGENT_NAME — guard-scope is NOT registered (agent has Write/Edit but no scope protection)"
         fi
     else
-        pass "Agent $AGENT_NAME — guard-scope.sh not needed (read-only agent)"
+        pass "Agent $AGENT_NAME — guard-scope not needed (read-only agent)"
     fi
 
     # guard-git hook — references ${CLAUDE_PLUGIN_ROOT}
-    if grep -q 'guard-git.sh' "$agent_file" 2>/dev/null; then
-        pass "Agent $AGENT_NAME — guard-git.sh registered"
+    if grep -q 'guard-git' "$agent_file" 2>/dev/null; then
+        pass "Agent $AGENT_NAME — guard-git registered"
     else
-        fail "Agent $AGENT_NAME — guard-git.sh is NOT registered (agent can commit!)"
+        fail "Agent $AGENT_NAME — guard-git is NOT registered (agent can commit!)"
     fi
 
     # guard-secrets hook
-    if grep -q 'guard-secrets.sh' "$agent_file" 2>/dev/null; then
-        pass "Agent $AGENT_NAME — guard-secrets.sh registered"
+    if grep -q 'guard-secrets' "$agent_file" 2>/dev/null; then
+        pass "Agent $AGENT_NAME — guard-secrets registered"
     else
-        warn "Agent $AGENT_NAME — guard-secrets.sh is NOT registered"
+        warn "Agent $AGENT_NAME — guard-secrets is NOT registered"
     fi
 
     # Hook paths use ${CLAUDE_PLUGIN_ROOT} (not {{PROJECT_PATH}})
@@ -437,7 +437,7 @@ section "7. Guard tests (functional)"
 GUARD_LIST=()
 
 # guard-git: blocks git commit without prefix
-RESULT=$(echo '{"tool_input":{"command":"git commit -m test"}}' | bash "$SCRIPT_DIR/guard-git.sh" 2>&1)
+RESULT=$(echo '{"tool_input":{"command":"git commit -m test"}}' | bash "$SCRIPT_DIR/guard-git" 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-git blocks: git commit without APD_ORCHESTRATOR_COMMIT=1"
@@ -447,7 +447,7 @@ else
 fi
 
 # guard-git: allows with prefix (but pipeline gate blocks — that's OK)
-RESULT=$(echo '{"tool_input":{"command":"APD_ORCHESTRATOR_COMMIT=1 git commit -m test"}}' | bash "$SCRIPT_DIR/guard-git.sh" 2>&1)
+RESULT=$(echo '{"tool_input":{"command":"APD_ORCHESTRATOR_COMMIT=1 git commit -m test"}}' | bash "$SCRIPT_DIR/guard-git" 2>&1)
 EXIT_CODE=$?
 # exit 0 = allowed, exit 2 = pipeline gate blocked (both are valid responses)
 if [ $EXIT_CODE -eq 0 ] || [ $EXIT_CODE -eq 2 ]; then
@@ -457,7 +457,7 @@ else
 fi
 
 # guard-git: blocks git add .
-RESULT=$(echo '{"tool_input":{"command":"git add ."}}' | bash "$SCRIPT_DIR/guard-git.sh" 2>&1)
+RESULT=$(echo '{"tool_input":{"command":"git add ."}}' | bash "$SCRIPT_DIR/guard-git" 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-git blocks: git add ."
@@ -466,7 +466,7 @@ else
 fi
 
 # guard-git: blocks --no-verify
-RESULT=$(echo '{"tool_input":{"command":"git commit --no-verify -m test"}}' | bash "$SCRIPT_DIR/guard-git.sh" 2>&1)
+RESULT=$(echo '{"tool_input":{"command":"git commit --no-verify -m test"}}' | bash "$SCRIPT_DIR/guard-git" 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-git blocks: --no-verify"
@@ -475,7 +475,7 @@ else
 fi
 
 # guard-git: blocks force push
-RESULT=$(echo '{"tool_input":{"command":"git push --force"}}' | bash "$SCRIPT_DIR/guard-git.sh" 2>&1)
+RESULT=$(echo '{"tool_input":{"command":"git push --force"}}' | bash "$SCRIPT_DIR/guard-git" 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-git blocks: git push --force"
@@ -484,7 +484,7 @@ else
 fi
 
 # guard-git: blocks destructive ops
-RESULT=$(echo '{"tool_input":{"command":"git reset --hard HEAD"}}' | bash "$SCRIPT_DIR/guard-git.sh" 2>&1)
+RESULT=$(echo '{"tool_input":{"command":"git reset --hard HEAD"}}' | bash "$SCRIPT_DIR/guard-git" 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-git blocks: git reset --hard"
@@ -493,7 +493,7 @@ else
 fi
 
 # guard-scope: blocks outside scope
-RESULT=$(echo "{\"tool_input\":{\"file_path\":\"$PROJECT_DIR/outside/file.ts\"}}" | bash "$SCRIPT_DIR/guard-scope.sh" src/ 2>&1)
+RESULT=$(echo "{\"tool_input\":{\"file_path\":\"$PROJECT_DIR/outside/file.ts\"}}" | bash "$SCRIPT_DIR/guard-scope" src/ 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-scope blocks: file outside allowed scope"
@@ -503,7 +503,7 @@ else
 fi
 
 # guard-scope: allows inside scope
-RESULT=$(echo "{\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/test.ts\"}}" | bash "$SCRIPT_DIR/guard-scope.sh" src/ 2>&1)
+RESULT=$(echo "{\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/test.ts\"}}" | bash "$SCRIPT_DIR/guard-scope" src/ 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 0 ]; then
     pass "guard-scope allows: file inside scope"
@@ -512,7 +512,7 @@ else
 fi
 
 # guard-bash-scope: blocks write outside scope
-RESULT=$(echo '{"tool_input":{"command":"echo test > /tmp/outside.txt"}}' | bash "$SCRIPT_DIR/guard-bash-scope.sh" src/ 2>&1)
+RESULT=$(echo '{"tool_input":{"command":"echo test > /tmp/outside.txt"}}' | bash "$SCRIPT_DIR/guard-bash-scope" src/ 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-bash-scope blocks: bash write outside scope"
@@ -522,7 +522,7 @@ else
 fi
 
 # guard-bash-scope: blocks runtime write (node -e writeFileSync)
-RESULT=$(echo '{"tool_input":{"command":"node -e \"require('"'"'fs'"'"').writeFileSync('"'"'/tmp/x.js'"'"', '"'"'data'"'"')\""}}' | bash "$SCRIPT_DIR/guard-bash-scope.sh" src/ 2>&1)
+RESULT=$(echo '{"tool_input":{"command":"node -e \"require('"'"'fs'"'"').writeFileSync('"'"'/tmp/x.js'"'"', '"'"'data'"'"')\""}}' | bash "$SCRIPT_DIR/guard-bash-scope" src/ 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-bash-scope blocks: runtime write (node)"
@@ -531,7 +531,7 @@ else
 fi
 
 # guard-lockfile: blocks lock file
-RESULT=$(echo "{\"tool_input\":{\"file_path\":\"$PROJECT_DIR/package-lock.json\"}}" | bash "$SCRIPT_DIR/guard-lockfile.sh" 2>&1)
+RESULT=$(echo "{\"tool_input\":{\"file_path\":\"$PROJECT_DIR/package-lock.json\"}}" | bash "$SCRIPT_DIR/guard-lockfile" 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-lockfile blocks: package-lock.json"
@@ -541,7 +541,7 @@ else
 fi
 
 # guard-secrets: blocks sensitive file
-RESULT=$(echo "{\"tool_input\":{\"file_path\":\"$PROJECT_DIR/.env.production\"}}" | bash "$SCRIPT_DIR/guard-secrets.sh" 2>&1)
+RESULT=$(echo "{\"tool_input\":{\"file_path\":\"$PROJECT_DIR/.env.production\"}}" | bash "$SCRIPT_DIR/guard-secrets" 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "guard-secrets blocks: .env.production"
@@ -602,10 +602,10 @@ if [ -f "$CLAUDE_DIR/memory/session-log.md" ]; then
 fi
 
 # Clean start
-bash "$SCRIPT_DIR/pipeline-advance.sh" reset >/dev/null 2>&1
+bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
 
 # pipeline-gate: must block when no steps exist
-RESULT=$(bash "$SCRIPT_DIR/pipeline-gate.sh" 2>&1)
+RESULT=$(bash "$SCRIPT_DIR/pipeline-gate" 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "pipeline-gate blocks: empty pipeline"
@@ -620,7 +620,7 @@ cat > "$PIPELINE_DIR/spec-card.md" << 'SPECEOF'
 **Acceptance criteria:**
 - R1: Verify test passes
 SPECEOF
-RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" spec "APD-VERIFY-TEST" 2>&1)
+RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" spec "APD-VERIFY-TEST" 2>&1)
 if echo "$RESULT" | grep -q "Spec:"; then
     pass "pipeline-advance: spec"
 else
@@ -629,7 +629,7 @@ fi
 
 # Builder WITHOUT agent dispatch — must block (also needs implementation-plan.md since v3.6.0)
 echo "## Plan: APD-VERIFY-TEST" > "$PIPELINE_DIR/implementation-plan.md"
-RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" builder 2>&1)
+RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" builder 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "no project builder"; then
     pass "pipeline-advance: builder BLOCKS without agent dispatch"
@@ -637,7 +637,7 @@ else
     fail "pipeline-advance builder should block without agent (exit: $EXIT_CODE)"
 fi
 
-# Simulate agent dispatch (track-agent.sh would do this via SubagentStart/Stop hooks)
+# Simulate agent dispatch (track-agent would do this via SubagentStart/Stop hooks)
 # Create dummy agent files if they don't exist (needed for project-agent verification)
 mkdir -p "$CLAUDE_DIR/agents" "$PIPELINE_DIR"
 if [ ! -f "$CLAUDE_DIR/agents/backend-builder.md" ]; then
@@ -652,7 +652,7 @@ AGENTS_LOG="$PIPELINE_DIR/.agents"
 echo "$(date +"%Y-%m-%d %H:%M:%S")|stop|backend-builder|test-agent-001" >> "$AGENTS_LOG"
 
 # Builder WITH agent dispatch — should pass
-RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" builder 2>&1)
+RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" builder 2>&1)
 if echo "$RESULT" | grep -q "Builder Complete"; then
     pass "pipeline-advance: builder"
 else
@@ -660,7 +660,7 @@ else
 fi
 
 # pipeline-gate: must block (missing reviewer + verifier)
-RESULT=$(bash "$SCRIPT_DIR/pipeline-gate.sh" 2>&1)
+RESULT=$(bash "$SCRIPT_DIR/pipeline-gate" 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "pipeline-gate blocks: missing reviewer + verifier"
@@ -669,7 +669,7 @@ else
 fi
 
 # Reviewer WITHOUT agent dispatch — must block
-RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" reviewer 2>&1)
+RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" reviewer 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "no project reviewer"; then
     pass "pipeline-advance: reviewer BLOCKS without agent dispatch"
@@ -681,7 +681,7 @@ fi
 echo "$(date +"%Y-%m-%d %H:%M:%S")|stop|code-reviewer|test-reviewer-001" >> "$AGENTS_LOG"
 
 # Reviewer WITH agent dispatch — should pass
-RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" reviewer 2>&1)
+RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" reviewer 2>&1)
 if echo "$RESULT" | grep -q "Reviewer Complete"; then
     pass "pipeline-advance: reviewer"
 else
@@ -689,7 +689,7 @@ else
 fi
 
 # Verifier
-RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" verifier 2>&1)
+RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" verifier 2>&1)
 if echo "$RESULT" | grep -q "COMMIT ALLOWED"; then
     pass "pipeline-advance: verifier -> COMMIT ALLOWED"
 else
@@ -697,7 +697,7 @@ else
 fi
 
 # pipeline-gate: must pass (all 4 steps completed)
-RESULT=$(bash "$SCRIPT_DIR/pipeline-gate.sh" 2>&1)
+RESULT=$(bash "$SCRIPT_DIR/pipeline-gate" 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 0 ]; then
     pass "pipeline-gate passes: all 4 steps completed"
@@ -706,7 +706,7 @@ else
 fi
 
 # Rollback test
-RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" rollback 2>&1)
+RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" rollback 2>&1)
 if echo "$RESULT" | grep -q "Rollback: verifier"; then
     pass "pipeline-advance: rollback (verifier -> reviewer)"
 else
@@ -714,7 +714,7 @@ else
 fi
 
 # pipeline-gate: must block after rollback
-RESULT=$(bash "$SCRIPT_DIR/pipeline-gate.sh" 2>&1)
+RESULT=$(bash "$SCRIPT_DIR/pipeline-gate" 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 2 ]; then
     pass "pipeline-gate blocks after rollback"
@@ -725,7 +725,7 @@ else
 fi
 
 # Cleanup
-bash "$SCRIPT_DIR/pipeline-advance.sh" reset >/dev/null 2>&1
+bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
 
 # Remove test entry from session-log
 if [ -f "$CLAUDE_DIR/memory/session-log.md" ]; then

@@ -8,7 +8,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_DIR" || exit 0
 
 # ===== CACHE — skip if Verifier step already passed recently =====
-# pipeline-advance.sh verifier writes timestamp to verified.timestamp
+# pipeline-advance verifier writes timestamp to verified.timestamp
 # If fresh (<120s) and no new changes -> skip rebuild
 VERIFIED_TS_FILE="$PROJECT_DIR/.claude/.pipeline/verified.timestamp"
 if [ -f "$VERIFIED_TS_FILE" ]; then
@@ -72,14 +72,14 @@ fi
 # =================================
 
 # ===== CROSS-LAYER CONTRACT VERIFICATION =====
-# Run verify-contracts.sh if it exists and if changes are in both layers
+# Run verify-contracts if it exists and if changes are in both layers
 # SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # HAS_BACKEND=$(echo "$CHANGED_FILES" | grep -qE '^src/' && echo "true" || echo "false")
 # HAS_FRONTEND=$(echo "$CHANGED_FILES" | grep -qE '^apps/' && echo "true" || echo "false")
 # if [ "$HAS_BACKEND" = "true" ] && [ "$HAS_FRONTEND" = "true" ]; then
-#     if [ -x "$SCRIPT_DIR/verify-contracts.sh" ]; then
+#     if [ -x "$SCRIPT_DIR/verify-contracts" ]; then
 #         echo "-> Cross-layer contract check..."
-#         if ! bash "$SCRIPT_DIR/verify-contracts.sh" --changed 2>&1; then
+#         if ! bash "$SCRIPT_DIR/verify-contracts" --changed 2>&1; then
 #             ERRORS+=("Cross-layer contract verification FAILED")
 #         fi
 #     fi

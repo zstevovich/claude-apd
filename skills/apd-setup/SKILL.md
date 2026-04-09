@@ -10,7 +10,7 @@ effort: max
 **Step 1 — MANDATORY: Run the init script. Do this FIRST before anything else.**
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/apd-init.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/core/apd-init"
 ```
 
 Do NOT skip this. Do NOT do your own analysis. Run the script and read its output.
@@ -292,7 +292,7 @@ Include all recommended? (yes / adjust)
 ### 5. Verify
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/verify-apd.sh
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/verify-apd
 ```
 
 ## Example

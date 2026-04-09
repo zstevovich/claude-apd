@@ -1,7 +1,7 @@
 #!/bin/bash
 # APD Lockfile Guard — prevents modification of lock files
 
-source "$(dirname "$0")/lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
 if ! command -v jq &>/dev/null; then

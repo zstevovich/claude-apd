@@ -1,13 +1,13 @@
 #!/bin/bash
 # APD Bash Scope Guard — blocks Bash commands that write outside the allowed scope
-# Complements guard-scope.sh which protects Write/Edit operations
+# Complements guard-scope which protects Write/Edit operations
 #
 # Detects:
 #   1. Shell write operations: redirect (>), tee, sed -i, cp, mv, dd, install
 #   2. Runtime write operations: node -e, python -c, ruby -e, php -r, perl -e
 #      with write functions (writeFileSync, open().write, file_put_contents...)
 
-source "$(dirname "$0")/lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
 ALLOWED_PATHS=("$@")
@@ -25,7 +25,7 @@ if [ -z "$COMMAND" ]; then
 fi
 
 # --- 0. Protected paths — ALWAYS enforced, even without ALLOWED_PATHS ---
-# .pipeline/ state files must only be modified by pipeline-advance.sh (not direct Bash writes)
+# .pipeline/ state files must only be modified by pipeline-advance (not direct Bash writes)
 PROTECTED_PATHS=(".claude/.pipeline/" ".pipeline/")
 SHELL_WRITE_CHECK=('>>' '>' 'tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ')
 
@@ -36,8 +36,8 @@ for ppath in "${PROTECTED_PATHS[@]}"; do
       if [[ "$COMMAND" == *"$wp"* ]]; then
         echo "BLOCKED: Bash write to protected pipeline state directory." >&2
         echo "" >&2
-        echo "  Do not write directly to .pipeline/ — use pipeline-advance.sh instead." >&2
-        echo "  Allowed: bash \${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh <command>" >&2
+        echo "  Do not write directly to .pipeline/ — use pipeline-advance instead." >&2
+        echo "  Allowed: bash \${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance <command>" >&2
         exit 2
       fi
     done

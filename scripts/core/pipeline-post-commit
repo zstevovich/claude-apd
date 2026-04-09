@@ -8,7 +8,7 @@
 #   passes without the pipeline. PostToolUse executes only AFTER the tool runs
 #   successfully — if the commit fails, the hook is not triggered.
 
-source "$(dirname "$0")/lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
 if ! command -v jq &>/dev/null; then
@@ -26,7 +26,7 @@ fi
 if echo "$COMMAND" | grep -qE "^APD_ORCHESTRATOR_COMMIT=1 " && echo "$COMMAND" | grep -qiE "git commit"; then
   # Check if pipeline exists (it may already be reset)
   if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
-    bash "$SCRIPT_DIR/pipeline-advance.sh" reset >/dev/null 2>&1
+    bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
     echo "Pipeline reset after successful commit." >&2
   fi
 fi
