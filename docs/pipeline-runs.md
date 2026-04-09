@@ -45,4 +45,44 @@ First adversarial reviewer run. Found CSV separator issue for Serbian locale —
 
 </td>
 </tr>
+<tr>
+<td width="50%" valign="top">
+
+### #3 — Loyalty Program Ciklus 1
+
+| | |
+|---|---|
+| **Date** | 2026-04-09 |
+| **Project** | Bambi Plazma (.NET 10) |
+| **Effort** | max |
+| **Duration** | 46m 1s |
+| **Spec coverage** | 14/14 |
+| **Agents** | 7 (backend, db, testing, backoffice, mobile, 2x reviewer) |
+| **Iterations** | Multiple review cycles |
+| **Guard blocks** | 0 |
+| **Adversarial** | 3 findings (0 accepted, 3 dismissed) |
+
+First .NET project. Superpowers reviewer blocked by pipeline — forced project agent. Scope creep detected (14 criteria from original 7). Led to spec freeze and max criteria enforcement.
+
+</td>
+<td width="50%" valign="top">
+
+### #4 — Hangfire Migration
+
+| | |
+|---|---|
+| **Date** | 2026-04-10 |
+| **Project** | Bambi Plazma (.NET 10) |
+| **Effort** | high |
+| **Duration** | 22m 8s |
+| **Spec coverage** | 6/6 |
+| **Agents** | 2 (backend-api, code-reviewer) |
+| **Iterations** | 1 review cycle |
+| **Guard blocks** | 0 |
+| **Adversarial** | N/A |
+
+First run with spec freeze (hash verification). Spec coverage 6/6 — all criteria traced. Pipeline graph visible for first time. Orchestrator hacked .agents file (guard-bash-scope gap fixed after).
+
+</td>
+</tr>
 </table>
