@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.5.2 — 2026-04-09
+
+- **`apd-init.sh`** — gap analysis now creates `adversarial-reviewer.md` from template when missing. Previously `/apd-setup` reported 100 PASS but didn't detect the missing agent.
+
+---
+
 ## v3.5.1 — 2026-04-09
 
 Audit fixes and polish.
