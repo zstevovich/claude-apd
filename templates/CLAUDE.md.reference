@@ -59,7 +59,7 @@
 Spec → Builder → Reviewer → Verifier → Commit → Finish
 
 - **Hooks BLOCK commits** if pipeline steps are not completed
-- Each step: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance {step}`
+- Each step: `bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance {step}`
 - There is NO skip command — every feature goes through the full pipeline
 - `init` is for first project setup ONLY — not for features
 
@@ -74,14 +74,15 @@ Spec → Builder → Reviewer → Verifier → Commit → Finish
 
 ### Guardrails
 
-- `guard-git.sh` — git protection (commit/push only by orchestrator, no force push, no mass staging)
-- `guard-scope.sh` — file scope per agent (Write/Edit)
-- `guard-bash-scope.sh` — bash write scope
-- `guard-secrets.sh` — sensitive files
-- `guard-lockfile.sh` — lock files
-- `verify-all.sh` — build + test before commit
-- `pipeline-advance.sh` + `pipeline-gate.sh` — pipeline flag system
-- `rotate-session-log.sh` — automatic session log archival
+- `guard-git` — git protection (commit/push only by orchestrator, no force push, no mass staging)
+- `guard-scope` — file scope per agent (Write/Edit)
+- `guard-bash-scope` — bash write scope, protects .pipeline/ state
+- `guard-secrets` — sensitive files
+- `guard-lockfile` — lock files
+- `guard-pipeline-state` — blocks direct Write/Edit to .pipeline/ state files
+- `verify-all.sh` — build + test before commit (project-level)
+- `pipeline-advance` + `pipeline-gate` — pipeline flag system
+- `rotate-session-log` — automatic session log archival
 
 ### Agents
 
@@ -161,7 +162,7 @@ After EVERY task → append to .claude/memory/session-log.md
 ```
 ❌ AI signatures in code/documentation → ✅ Human style
 ❌ Commit without pipeline             → ✅ Spec → Builder → Reviewer → Verifier
-❌ Agent writes outside its scope      → ✅ guard-scope.sh blocks
+❌ Agent writes outside its scope      → ✅ guard-scope blocks
 ❌ git add . / git add -A              → ✅ Explicit per-file staging
 ❌ --no-verify                         → ✅ Hooks must pass
 ```

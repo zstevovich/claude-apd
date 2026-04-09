@@ -82,7 +82,7 @@ taskflow/
 Spec → Builder → Reviewer → Verifier → Commit
 
 - **Hooks BLOCK commits** if pipeline steps are not completed
-- Each step: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh {step}`
+- Each step: `bash ${CLAUDE_PLUGIN_ROOT}/bin/pipeline-advance.sh {step}`
 - There is NO skip command — every feature goes through the full pipeline
 - `init` is for first project setup ONLY — not for features
 

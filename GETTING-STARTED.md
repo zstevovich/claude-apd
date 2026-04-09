@@ -57,7 +57,7 @@ It will then:
 ## Step 4 — Verify the setup
 
 ```console
-~/Projects/my-project $ bash ${CLAUDE_PLUGIN_ROOT}/scripts/verify-apd.sh
+> bash .claude/bin/apd verify
 ```
 
 > **Expected result:** All checks pass across 10 categories (prerequisites, structure, hooks, placeholders, CLAUDE.md, agents, guards, pipeline E2E, verify-all.sh, gitignore). The verification runs 50+ checks — the exact number depends on your agent count.
@@ -68,99 +68,121 @@ If you see any FAIL items, follow the instructions in the output to fix them.
 
 ## Step 5 — Your first pipeline task
 
-### 4.1 Create a spec
+### 5.1 Write the spec card
 
-```console
-~/Projects/my-project $ bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh spec "Add user login endpoint"
-Pipeline started: Add user login endpoint [2026-04-06 10:00:00]
-  [DONE] spec   2026-04-06 10:00:00
-  [----] builder
-  [----] reviewer
-  [----] verifier
+Write `.claude/.pipeline/spec-card.md` with acceptance criteria using R* format:
+
+```markdown
+## Add user login endpoint
+**Goal:** POST /api/auth/login accepting email + password, returning JWT.
+**Effort:** high
+**Out of scope:** Registration, password reset.
+**Acceptance criteria:**
+- R1: Returns 200 with JWT on valid credentials
+- R2: Returns 401 on invalid credentials
+- R3: Password compared via bcrypt
+**Affected modules:** src/Auth/
+**Risks:** None — new endpoint, no existing code affected.
+**Rollback:** Delete the handler file.
+**Human gate:** No — new endpoint, does not change existing API.
 ```
 
-Then write the spec card for the user to approve:
-
-> **Add user login endpoint**
->
-> **Goal:** POST /api/auth/login accepting email + password, returning JWT.
-> **Effort:** high
-> **Out of scope:** Registration, password reset.
-> **Acceptance criteria:**
-> - Returns 200 with JWT on valid credentials
-> - Returns 401 on invalid credentials
-> - Password compared via bcrypt
->
-> **Affected modules:** src/Auth/
-> **Risks:** None — new endpoint, no existing code affected.
-> **Rollback:** Delete the handler file.
-> **Human gate:** No — new endpoint, does not change existing API.
-
-Share with the user. Wait for approval before proceeding.
-
-### 4.2 Dispatch a builder
+Share with the user. Wait for approval before proceeding. Then advance:
 
 ```console
-> dispatch backend-builder with the approved spec
+> bash .claude/bin/apd pipeline spec "Add user login endpoint"
+
+  APD ■ Spec: "Add user login endpoint"
+  ■ spec → ■ builder → □ reviewer → □ verifier → commit
+
+    Next steps:
+    1. Write .pipeline/implementation-plan.md (files + changes + ### Agents section)
+    2. Dispatch project builders: Agent({ subagent_type: "<agent-name>", ... })
+    3. Dispatch project reviewer: Agent({ subagent_type: "code-reviewer", ... })
+       NEVER use superpowers: or feature-dev: agents — pipeline will BLOCK
+```
+
+> **Max 7 acceptance criteria per spec.** Larger features must be decomposed into smaller pipeline cycles. The spec is frozen after this step — cannot be modified mid-pipeline.
+
+### 5.2 Write the implementation plan
+
+Write `.claude/.pipeline/implementation-plan.md`:
+
+```markdown
+## Implementation Plan: Add user login endpoint
+
+### Agents
+- backend-builder
+
+### Files to create
+- `src/Auth/LoginHandler.cs` — POST endpoint, validates credentials, returns JWT
+
+### Files to modify
+- `src/Auth/AuthModule.cs` — register the new endpoint
+
+### Notes
+- Use bcrypt for password comparison (existing UserService.VerifyPassword)
+```
+
+### 5.3 Dispatch a builder
+
+```console
+> dispatch backend-builder with the approved spec and plan
 ```
 
 The builder agent will:
-- Read the spec
+- Read the implementation plan and spec card
 - Implement the code (max 3–4 edit operations)
-- Stay within its allowed scope (`guard-scope.sh` enforces this)
-- Not commit anything (`guard-git.sh` blocks it)
+- Add `@trace R1`, `@trace R2`, `@trace R3` markers in test files
+- Stay within its allowed scope (`guard-scope` enforces this)
+- Not commit anything (`guard-git` blocks it)
 
 When done:
 
 ```console
-~/Projects/my-project $ bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh builder
-Pipeline: builder completed. [2026-04-06 10:04:12] (spec→builder: 4m 12s)
-  [DONE] spec
-  [DONE] builder   2026-04-06 10:04:12
-  [----] reviewer ← NEXT
-  [----] verifier
+> bash .claude/bin/apd pipeline builder
+
+  APD ■ Builder Complete  +4m 12s
+  ■ spec → ■ builder → ■ reviewer → □ verifier → commit
 ```
 
-### 4.3 Run the reviewer
+### 5.4 Run the reviewer
 
 ```console
 > dispatch code-reviewer to review the builder's changes
 ```
 
-The reviewer looks for bugs, edge cases, and security issues. It does not suggest style changes.
-
-If the reviewer finds issues, the builder fixes them. Then:
+The reviewer looks for bugs, edge cases, and security issues. It does not suggest style changes. If the reviewer finds issues, the builder fixes them. Then:
 
 ```console
-~/Projects/my-project $ bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh reviewer
-Pipeline: reviewer completed. [2026-04-06 10:07:45] (builder→reviewer: 3m 33s)
+> bash .claude/bin/apd pipeline reviewer
+
+  APD ■ Reviewer Complete  +3m 33s
 ```
 
-### 4.4 Run the verifier
+### 5.5 Run the verifier
 
 ```console
-~/Projects/my-project $ bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh verifier
-Pipeline: verifier completed. COMMIT ALLOWED. [2026-04-06 10:09:20]
-  (reviewer→verifier: 1m 35s | total: 9m 20s)
+> bash .claude/bin/apd pipeline verifier
+
+  APD ■ COMMIT ALLOWED  total: 9m 20s
+  ■ spec → ■ builder → ■ reviewer → ■ verifier → commit
+    Ready: APD_ORCHESTRATOR_COMMIT=1 git commit ...
 ```
 
-### 4.5 Commit
+### 5.6 Commit
 
 ```console
-~/Projects/my-project $ git add src/Auth/LoginHandler.cs tests/Auth/LoginTests.cs
-~/Projects/my-project $ APD_ORCHESTRATOR_COMMIT=1 git commit -m "feat: add user login endpoint"
-Pipeline + Verification passed — commit allowed.
-[main abc1234] feat: add user login endpoint
- 2 files changed, 85 insertions(+)
-Pipeline reset after successful commit.
+> git add src/Auth/LoginHandler.cs tests/Auth/LoginTests.cs
+> APD_ORCHESTRATOR_COMMIT=1 git commit -m "feat: add user login endpoint"
 ```
 
 The commit will:
-1. Check that all 4 pipeline steps are complete (`pipeline-gate.sh`)
+1. Check that all 4 pipeline steps are complete (`pipeline-gate`)
 2. Run build + test verification (`verify-all.sh`)
-3. If everything passes — commit succeeds
-4. Pipeline resets automatically (`pipeline-post-commit.sh`)
-5. Session log entry is auto-generated with summary
+3. Check spec traceability — all R* criteria have @trace markers in tests
+4. If everything passes — commit succeeds
+5. Pipeline resets automatically, session log entry generated
 
 You are now ready for the next task.
 
@@ -168,12 +190,10 @@ You are now ready for the next task.
 
 ## What happens if you skip a step?
 
-```console
-~/Projects/my-project $ APD_ORCHESTRATOR_COMMIT=1 git commit -m "feat: something"
-⛔ BLOCKED: Pipeline steps not completed!
+```
+> APD_ORCHESTRATOR_COMMIT=1 git commit -m "feat: something"
 
-  Pipeline: Spec → Builder → Reviewer → Verifier → Commit
-
+BLOCKED: Pipeline steps not completed!
   [DONE] spec
   [DONE] builder
   [----] reviewer ← MISSING
@@ -184,26 +204,33 @@ The commit is blocked. Complete the missing steps first.
 
 ## What happens if an agent misbehaves?
 
-```console
+```
 # Agent tries to commit:
-builder-agent $ git commit -m "feat: I'll just commit directly"
-⛔ BLOCKED: Commit without APD_ORCHESTRATOR_COMMIT=1 prefix.
+BLOCKED: git commit is only allowed with APD_ORCHESTRATOR_COMMIT=1 prefix.
 
 # Agent writes outside its scope:
-builder-agent $ Write → apps/frontend/App.tsx
-⛔ BLOCKED: File apps/frontend/App.tsx is outside allowed scope.
+BLOCKED: File apps/frontend/App.tsx is outside allowed scope.
    Allowed paths: src/ tests/
 
 # Agent tries to read secrets:
-builder-agent $ Read → .env.production
-⛔ BLOCKED: Access to sensitive files not permitted.
+BLOCKED: Access to sensitive files not permitted.
 
-# Agent tries mass staging:
-builder-agent $ git add .
-⛔ BLOCKED: Mass staging not allowed. Add files explicitly.
+# Orchestrator writes directly to .pipeline/:
+BLOCKED: Bash write to protected pipeline state directory.
+   Do not write directly to .pipeline/ — use pipeline-advance instead.
 ```
 
 All blocks are logged to `guard-audit.log` with agent ID and timestamp.
+
+---
+
+## Diagnostics
+
+```console
+> bash .claude/bin/apd doctor
+```
+
+Shows: pipeline state, spec card validation, spec freeze hash, implementation plan, agent registry, guard coverage, trace coverage, adversarial review, GitHub sync, plugin version. Identifies problems with fix instructions.
 
 ---
 
@@ -211,21 +238,24 @@ All blocks are logged to `guard-audit.log` with agent ID and timestamp.
 
 | Command | What it does |
 |---------|-------------|
-| `pipeline-advance.sh spec "Task"` | Start a new task |
-| `pipeline-advance.sh builder` | Mark builder step complete |
-| `pipeline-advance.sh reviewer` | Mark reviewer step complete |
-| `pipeline-advance.sh verifier` | Mark verifier step complete |
-| `pipeline-advance.sh status` | Show current pipeline state |
-| `pipeline-advance.sh rollback` | Undo the last step |
-| `pipeline-advance.sh metrics` | Show pipeline performance dashboard |
-| `pipeline-advance.sh init "Description"` | First setup only |
-| `verify-apd.sh` | Full setup verification (51 checks) |
-| `verify-contracts.sh be/ fe/` | Cross-layer type check |
+| `apd pipeline spec "Task"` | Start a new task (requires spec-card.md) |
+| `apd pipeline builder` | Mark builder step complete (requires implementation-plan.md) |
+| `apd pipeline reviewer` | Mark reviewer step complete |
+| `apd pipeline verifier` | Mark verifier step complete |
+| `apd pipeline status` | Show current pipeline state |
+| `apd pipeline rollback` | Undo the last step |
+| `apd pipeline metrics` | Show pipeline performance dashboard |
+| `apd doctor` | Full pipeline diagnostics |
+| `apd verify` | Full setup verification (50+ checks) |
+| `apd trace` | Check spec traceability coverage |
+| `apd init` | Initialize or update APD in a project |
+
+All commands: `bash .claude/bin/apd <command>`
 
 ---
 
 ## Next steps
 
-- Read the full [README](README.md) for architecture details, CQRS patterns, and integration guides
+- Read the full [README](README.md) for architecture details and integration guides
 - Explore the [example project](examples/nodejs-react/) to see a fully configured setup
 - Try the [interactive demo](https://zstevovich.github.io/claude-apd/demo/)

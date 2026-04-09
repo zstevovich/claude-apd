@@ -102,7 +102,7 @@ git branch -D <branch>
 ## Rules
 
 - **Never push without asking the user first**
-- **Never force-push** (guard-git.sh blocks this anyway)
+- **Never force-push** (guard-git blocks this anyway)
 - **Always verify tests** before presenting options
 - **PR body must include APD pipeline summary** — proves the work was reviewed
 

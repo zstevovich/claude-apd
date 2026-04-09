@@ -37,7 +37,7 @@ for ppath in "${PROTECTED_PATHS[@]}"; do
         echo "BLOCKED: Bash write to protected pipeline state directory." >&2
         echo "" >&2
         echo "  Do not write directly to .pipeline/ — use pipeline-advance instead." >&2
-        echo "  Allowed: bash \${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance <command>" >&2
+        echo "  Allowed: bash \${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance <command>" >&2
         exit 2
       fi
     done

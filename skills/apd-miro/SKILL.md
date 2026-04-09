@@ -32,13 +32,13 @@ Run the following commands and save the output:
 
 ```bash
 # Pipeline status
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance status
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance status
 
 # Metrics (if available)
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance metrics
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance metrics
 
 # Skip statistics
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance stats
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance stats
 ```
 
 ### 2. Create dashboard table on the board
@@ -125,10 +125,10 @@ Dashboard updated: https://miro.com/app/board/...
 
 The orchestrator can call this skill automatically in two ways:
 
-1. **At the end of the pipeline** — after `pipeline-advance.sh verifier`, before commit
+1. **At the end of the pipeline** — after `pipeline-advance verifier`, before commit
 2. **On session start** — if a Miro board exists in the configuration
 
 For automatic updating at each step, add to the orchestrator workflow:
 ```
-After each pipeline-advance.sh step → call /apd-miro
+After each pipeline-advance step → call /apd-miro
 ```

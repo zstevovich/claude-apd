@@ -8,22 +8,22 @@ effort: high
 
 Maps APD pipeline phases to GitHub Projects v2 columns. Each task becomes an issue with a spec card, and pipeline progress is reflected on the board.
 
-## Automation — gh-sync.sh
+## Automation — gh-sync
 
-Instead of manually calling `gh issue create` and `gh issue close`, use the `gh-sync.sh` wrapper:
+Instead of manually calling `gh issue create` and `gh issue close`, use the `gh-sync` wrapper:
 
 ```bash
 # Instead of manually:
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/gh-sync spec "User login"      # creates issue + starts pipeline spec
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/gh-sync builder                 # comments on issue + starts pipeline builder
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/gh-sync reviewer                # comments + starts reviewer
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/gh-sync verifier                # comments + starts verifier
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/gh-sync done 42 abc1234         # closes issue with commit reference
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/gh-sync skip 42 "Hotfix"        # closes with apd-skip label
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/gh-sync status                  # shows active issue
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/gh-sync spec "User login"      # creates issue + starts pipeline spec
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/gh-sync builder                 # comments on issue + starts pipeline builder
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/gh-sync reviewer                # comments + starts reviewer
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/gh-sync verifier                # comments + starts verifier
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/gh-sync done 42 abc1234         # closes issue with commit reference
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/gh-sync skip 42 "Hotfix"        # closes with apd-skip label
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/gh-sync status                  # shows active issue
 ```
 
-`gh-sync.sh` automatically tracks the issue number for the current pipeline — you don't need to pass it at every step.
+`gh-sync` automatically tracks the issue number for the current pipeline — you don't need to pass it at every step.
 
 ## Prerequisite
 
@@ -35,12 +35,12 @@ bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/gh-sync status                  # shows 
 
 | APD step | GitHub Projects column | Action |
 |----------|----------------------|--------|
-| `pipeline-advance.sh spec "Task"` | **Spec** | Create issue with spec card, add to board |
-| `pipeline-advance.sh builder` | **In Progress** | Move issue to In Progress |
-| `pipeline-advance.sh reviewer` | **Review** | Move issue to Review |
-| `pipeline-advance.sh verifier` | **Testing** | Move issue to Testing |
+| `pipeline-advance spec "Task"` | **Spec** | Create issue with spec card, add to board |
+| `pipeline-advance builder` | **In Progress** | Move issue to In Progress |
+| `pipeline-advance reviewer` | **Review** | Move issue to Review |
+| `pipeline-advance verifier` | **Testing** | Move issue to Testing |
 | Commit (successful) | **Done** | Close issue, link commit, move to Done |
-| `pipeline-advance.sh skip` | **Done** | Close issue with `skip` label |
+| `pipeline-advance skip` | **Done** | Close issue with `skip` label |
 
 ## Procedure
 
@@ -104,7 +104,7 @@ gh issue edit ISSUE_NUMBER --add-label "apd-skip"
 The orchestrator can automate the entire flow:
 
 1. **On spec** → create issue + add to board in the Spec column
-2. **On each `pipeline-advance.sh` step** → move issue to the corresponding column
+2. **On each `pipeline-advance` step** → move issue to the corresponding column
 3. **On commit** → close issue with commit reference
 4. **On skip** → close with skip label
 
@@ -115,16 +115,16 @@ User: Implement user login
 Orchestrator:
   1. Creates spec card
   2. → gh issue create --title "[APD] User login" --project "MyProject"
-  3. → pipeline-advance.sh spec "User login"
+  3. → pipeline-advance spec "User login"
   4. Dispatches backend-builder
   5. → moves issue #42 to "In Progress"
-  6. → pipeline-advance.sh builder
+  6. → pipeline-advance builder
   7. Starts reviewer
   8. → moves issue #42 to "Review"
-  9. → pipeline-advance.sh reviewer
+  9. → pipeline-advance reviewer
   10. Starts verifier
   11. → moves issue #42 to "Testing"
-  12. → pipeline-advance.sh verifier
+  12. → pipeline-advance verifier
   13. Commits
   14. → gh issue close 42 --comment "Commit: abc1234"
   15. → issue moves to "Done"
@@ -137,7 +137,7 @@ GitHub Projects stores card movement history. This enables:
 - **Bottleneck detection** — which column holds cards the longest
 - **Throughput** — how many issues are closed per day/week
 
-This data is complementary to `pipeline-advance.sh metrics` — GitHub provides a board-level view, pipeline provides per-step timing.
+This data is complementary to `pipeline-advance metrics` — GitHub provides a board-level view, pipeline provides per-step timing.
 
 ## Board setup recommendation
 

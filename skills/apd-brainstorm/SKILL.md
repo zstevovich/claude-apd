@@ -29,7 +29,7 @@ digraph brainstorm {
     "Present design summary" -> "User approves?" [shape=diamond];
     "User approves?" -> "Revise" [label="no"];
     "Revise" -> "Present design summary";
-    "User approves?" -> "pipeline-advance.sh spec" [label="yes"];
+    "User approves?" -> "pipeline-advance spec" [label="yes"];
 }
 ```
 
@@ -84,7 +84,7 @@ Ready to write the spec card?
 Once user approves → write spec card and enter pipeline:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance spec "Feature name"
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance spec "Feature name"
 ```
 
 <HARD-GATE>
@@ -112,5 +112,5 @@ Do NOT write code during brainstorming. This skill produces a DESIGN, not an imp
 ## Integration
 
 - **Called by:** Orchestrator, when task is vague or complex (workflow.md step 1)
-- **Leads to:** `pipeline-advance.sh spec` (the only valid exit)
+- **Leads to:** `pipeline-advance spec` (the only valid exit)
 - **Never leads to:** code, agents, implementation

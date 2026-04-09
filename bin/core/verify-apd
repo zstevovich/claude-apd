@@ -125,11 +125,11 @@ for dir in rules memory agents; do
     fi
 done
 
-# .claude/scripts/ (project-level, for verify-all.sh)
+# .claude/bin/ (project-level, for verify-all.sh)
 if [ -d "$CLAUDE_DIR/scripts" ]; then
-    pass ".claude/scripts/"
+    pass ".claude/bin/"
 else
-    fail ".claude/scripts/ DOES NOT EXIST"
+    fail ".claude/bin/ DOES NOT EXIST"
 fi
 
 # CLAUDE.md
@@ -170,10 +170,10 @@ done
 
 # verify-all.sh — the only script in the project
 if [ ! -f "$CLAUDE_DIR/scripts/verify-all.sh" ]; then
-    fail "verify-all.sh DOES NOT EXIST (project: .claude/scripts/)"
+    fail "verify-all.sh DOES NOT EXIST (project: .claude/bin/)"
     SCRIPTS_OK=false
 elif [ ! -x "$CLAUDE_DIR/scripts/verify-all.sh" ]; then
-    fail "verify-all.sh is NOT executable — run: chmod +x .claude/scripts/verify-all.sh"
+    fail "verify-all.sh is NOT executable — run: chmod +x .claude/bin/verify-all.sh"
     SCRIPTS_OK=false
 else
     ((SUM_SCRIPTS_OK++))

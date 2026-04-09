@@ -5,7 +5,7 @@
 #
 # Provides:
 #   PROJECT_DIR   — user's project root (where CLAUDE.md lives)
-#   APD_PLUGIN_ROOT — plugin install directory (where scripts/ lives)
+#   APD_PLUGIN_ROOT — plugin install directory (where bin/ lives)
 #   CLAUDE_DIR    — $PROJECT_DIR/.claude
 #   MEMORY_DIR    — $CLAUDE_DIR/memory
 #   PIPELINE_DIR  — $CLAUDE_DIR/.pipeline
@@ -16,7 +16,7 @@
 if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
     APD_PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT"
 else
-    # Fallback: resolve from script location (scripts/lib/ → repo root)
+    # Fallback: resolve from script location (bin/lib/ → repo root)
     APD_PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fi
 
@@ -47,7 +47,7 @@ fi
 CLAUDE_DIR="$PROJECT_DIR/.claude"
 MEMORY_DIR="$CLAUDE_DIR/memory"
 PIPELINE_DIR="$CLAUDE_DIR/.pipeline"
-SCRIPT_DIR="$APD_PLUGIN_ROOT/scripts/core"
+SCRIPT_DIR="$APD_PLUGIN_ROOT/bin/core"
 
 # --- Activation check ---
 # APD is dormant unless .apd-config exists (created by /apd-setup)

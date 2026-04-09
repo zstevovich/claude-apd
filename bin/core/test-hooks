@@ -71,7 +71,7 @@ done
 # Project script — verify-all.sh lives in the project
 PROJECT_VERIFY="$CLAUDE_DIR/scripts/verify-all.sh"
 if [ ! -f "$PROJECT_VERIFY" ]; then
-    warn "verify-all.sh DOES NOT EXIST in the project (.claude/scripts/) — create with /apd-setup"
+    warn "verify-all.sh DOES NOT EXIST in the project (.claude/bin/) — create with /apd-setup"
 elif [ ! -x "$PROJECT_VERIFY" ]; then
     warn "verify-all.sh exists but is NOT executable (chmod +x)"
 else

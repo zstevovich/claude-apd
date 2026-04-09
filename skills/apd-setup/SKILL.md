@@ -10,7 +10,7 @@ effort: max
 **Step 1 — MANDATORY: Run the init script. Do this FIRST before anything else.**
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/core/apd-init"
+bash "${CLAUDE_PLUGIN_ROOT}/bin/core/apd-init"
 ```
 
 Do NOT skip this. Do NOT do your own analysis. Run the script and read its output.
@@ -132,8 +132,8 @@ Generate with sections (ALL populated, NO placeholders):
 **Builder agents** — one per domain, from `${CLAUDE_PLUGIN_ROOT}/templates/agent-template.md`:
 - Frontmatter: name, description, tools (Read/Write/Edit/Glob/Grep/Bash), **model: sonnet**, **effort: high**, maxTurns: 20, permissionMode: bypassPermissions
 - **color:** assign per role — backend: `purple`, frontend: `blue`, testing: `green`, other: `cyan`
-- Hooks with `${CLAUDE_PLUGIN_ROOT}/scripts/` paths
-- guard-scope.sh and guard-bash-scope.sh with exact SCOPE_PATHS
+- Hooks with `${CLAUDE_PLUGIN_ROOT}/bin/core/` paths
+- guard-scope and guard-bash-scope with exact SCOPE_PATHS
 - Body: role, stack, workflow, FORBIDDEN
 
 **Reviewer agent** — ALWAYS generated, from `${CLAUDE_PLUGIN_ROOT}/templates/reviewer-template.md`:
@@ -292,7 +292,7 @@ Include all recommended? (yes / adjust)
 ### 5. Verify
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/verify-apd
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/verify-apd
 ```
 
 ## Example
@@ -339,5 +339,5 @@ Claude:
   ✓ .apd-config created
   ✓ .mcp.json generated (3 servers)
 
-  verify-apd.sh: 52 PASS, 0 FAIL
+  verify-apd: 52 PASS, 0 FAIL
 ```

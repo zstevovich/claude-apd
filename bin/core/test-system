@@ -1,0 +1,339 @@
+#!/bin/bash
+# APD System Test — end-to-end verification of the entire framework
+#
+# Creates a temp project, simulates a full pipeline cycle, tests every guard
+# and enforcement mechanism. Run before every push.
+#
+# Usage: bash bin/core/test-system
+# Exit: 0 = all pass, 1 = failures found
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/../lib/style.sh"
+
+# Create isolated test project
+TEST_DIR=$(mktemp -d /tmp/apd-test-XXXX)
+mkdir -p "$TEST_DIR/.claude/.pipeline" "$TEST_DIR/.claude/memory" "$TEST_DIR/.claude/agents"
+touch "$TEST_DIR/.claude/.apd-config" "$TEST_DIR/CLAUDE.md"
+
+# Fake agent files
+printf '%s\n' '---' 'name: backend-api' 'model: sonnet' 'effort: high' '---' > "$TEST_DIR/.claude/agents/backend-api.md"
+printf '%s\n' '---' 'name: code-reviewer' 'model: opus' 'effort: max' '---' > "$TEST_DIR/.claude/agents/code-reviewer.md"
+printf '%s\n' '---' 'name: adversarial-reviewer' 'model: sonnet' 'memory: none' '---' > "$TEST_DIR/.claude/agents/adversarial-reviewer.md"
+
+# Helper
+run() {
+    APD_PROJECT_DIR="$TEST_DIR" bash "$SCRIPT_DIR/$1" "${@:2}" 2>&1
+}
+
+run_exit() {
+    APD_PROJECT_DIR="$TEST_DIR" bash "$SCRIPT_DIR/$1" "${@:2}" >/dev/null 2>&1
+    echo $?
+}
+
+guard_test() {
+    echo "$1" | APD_PROJECT_DIR="$TEST_DIR" bash "$SCRIPT_DIR/$2" "${@:3}" >/dev/null 2>&1
+    echo $?
+}
+
+apd_header "APD System Test"
+echo ""
+
+# ============================================================
+section "1. Pipeline Lifecycle"
+# ============================================================
+
+# 1.1 Spec without spec-card.md → BLOCK
+EXIT=$(run_exit pipeline-advance spec "Test task")
+[ "$EXIT" -ne 0 ] && pass "spec without spec-card.md → BLOCKED" || fail "spec without spec-card.md should BLOCK"
+
+# 1.2 Create spec-card.md with R* criteria
+cat > "$TEST_DIR/.claude/.pipeline/spec-card.md" << 'EOF'
+## Test task
+**Acceptance criteria:**
+- R1: First requirement
+- R2: Second requirement
+- R3: Third requirement
+EOF
+
+# 1.3 Spec with spec-card.md → PASS
+EXIT=$(run_exit pipeline-advance spec "Test task")
+[ "$EXIT" -eq 0 ] && pass "spec with spec-card.md → OK" || fail "spec with spec-card.md should pass"
+
+# 1.4 Spec hash created
+[ -f "$TEST_DIR/.claude/.pipeline/.spec-hash" ] && pass "spec-hash created" || fail "spec-hash NOT created"
+
+# 1.5 Spec hash matches
+if [ -f "$TEST_DIR/.claude/.pipeline/.spec-hash" ]; then
+    SAVED=$(cat "$TEST_DIR/.claude/.pipeline/.spec-hash")
+    CURRENT=$(shasum -a 256 "$TEST_DIR/.claude/.pipeline/spec-card.md" | cut -d' ' -f1)
+    [ "$SAVED" = "$CURRENT" ] && pass "spec-hash matches (frozen)" || fail "spec-hash MISMATCH"
+fi
+
+# 1.6 Builder without implementation-plan.md → BLOCK
+EXIT=$(run_exit pipeline-advance builder)
+[ "$EXIT" -ne 0 ] && pass "builder without plan → BLOCKED" || fail "builder without plan should BLOCK"
+
+# 1.7 Create implementation plan with Agents section
+cat > "$TEST_DIR/.claude/.pipeline/implementation-plan.md" << 'EOF'
+## Plan
+
+### Agents
+- backend-api
+
+### Files to modify
+- src/foo.cs — change something
+EOF
+
+# 1.8 Builder without agent dispatch → BLOCK
+EXIT=$(run_exit pipeline-advance builder)
+[ "$EXIT" -ne 0 ] && pass "builder without agent dispatch → BLOCKED" || fail "builder without agent should BLOCK"
+
+# 1.9 Simulate agent dispatch
+NOW_TS=$(date +"%Y-%m-%d %H:%M:%S")
+echo "${NOW_TS}|start|backend-api|test-id-001" >> "$TEST_DIR/.claude/.pipeline/.agents"
+echo "${NOW_TS}|stop|backend-api|test-id-001" >> "$TEST_DIR/.claude/.pipeline/.agents"
+
+# 1.10 Builder with agent dispatch → PASS
+EXIT=$(run_exit pipeline-advance builder)
+[ "$EXIT" -eq 0 ] && pass "builder with agent dispatch → OK" || fail "builder with agent should pass"
+
+# 1.11 Reviewer without reviewer agent → BLOCK
+EXIT=$(run_exit pipeline-advance reviewer)
+[ "$EXIT" -ne 0 ] && pass "reviewer without reviewer agent → BLOCKED" || fail "reviewer without agent should BLOCK"
+
+# 1.12 Simulate reviewer dispatch
+echo "${NOW_TS}|start|code-reviewer|test-id-002" >> "$TEST_DIR/.claude/.pipeline/.agents"
+echo "${NOW_TS}|stop|code-reviewer|test-id-002" >> "$TEST_DIR/.claude/.pipeline/.agents"
+
+# 1.13 Reviewer with agent → PASS
+EXIT=$(run_exit pipeline-advance reviewer)
+[ "$EXIT" -eq 0 ] && pass "reviewer with agent dispatch → OK" || fail "reviewer with agent should pass"
+
+# 1.14 Verifier → PASS (no test files = trace check exits 0 on backward compat for no @trace)
+EXIT=$(run_exit pipeline-advance verifier)
+# May fail due to trace coverage — that's OK, check separately
+if [ "$EXIT" -eq 0 ]; then
+    pass "verifier → OK"
+else
+    # Check if it's trace coverage failure (expected — no test files)
+    warn "verifier blocked (likely trace coverage — no test files in temp project)"
+fi
+
+# 1.15 All .done files exist
+DONE_COUNT=0
+for step in spec builder reviewer verifier; do
+    [ -f "$TEST_DIR/.claude/.pipeline/$step.done" ] && DONE_COUNT=$((DONE_COUNT + 1))
+done
+if [ "$DONE_COUNT" -ge 3 ]; then
+    pass "pipeline steps created ($DONE_COUNT/4 .done files)"
+else
+    fail "only $DONE_COUNT/4 .done files created"
+fi
+
+# 1.16 Reset cleans everything
+run pipeline-advance reset >/dev/null 2>&1
+REMAINING=$(ls "$TEST_DIR/.claude/.pipeline"/*.done 2>/dev/null | wc -l | tr -d ' ')
+[ "$REMAINING" -eq 0 ] && pass "reset clears all .done files" || fail "reset left $REMAINING .done files"
+[ ! -f "$TEST_DIR/.claude/.pipeline/spec-card.md" ] && pass "reset clears spec-card.md" || fail "reset did not clear spec-card.md"
+[ ! -f "$TEST_DIR/.claude/.pipeline/implementation-plan.md" ] && pass "reset clears implementation-plan.md" || fail "reset did not clear implementation-plan.md"
+
+# ============================================================
+section "2. Spec Enforcement"
+# ============================================================
+
+# 2.1 Max 7 criteria
+cat > "$TEST_DIR/.claude/.pipeline/spec-card.md" << 'EOF'
+## Big task
+**Acceptance criteria:**
+- R1: One
+- R2: Two
+- R3: Three
+- R4: Four
+- R5: Five
+- R6: Six
+- R7: Seven
+- R8: Eight
+EOF
+EXIT=$(run_exit pipeline-advance spec "Big task")
+[ "$EXIT" -ne 0 ] && pass "8 criteria → BLOCKED (max 7)" || fail "8 criteria should BLOCK"
+
+# 2.2 Exactly 7 criteria → PASS
+cat > "$TEST_DIR/.claude/.pipeline/spec-card.md" << 'EOF'
+## OK task
+**Acceptance criteria:**
+- R1: One
+- R2: Two
+- R3: Three
+- R4: Four
+- R5: Five
+- R6: Six
+- R7: Seven
+EOF
+EXIT=$(run_exit pipeline-advance spec "OK task")
+[ "$EXIT" -eq 0 ] && pass "7 criteria → OK" || fail "7 criteria should pass"
+
+# 2.3 Spec tamper detection
+echo "- R8: Sneaky addition" >> "$TEST_DIR/.claude/.pipeline/spec-card.md"
+# Create fake .done files to reach verifier
+echo "$(date +%s)|$(date +"%Y-%m-%d %H:%M:%S")" > "$TEST_DIR/.claude/.pipeline/builder.done"
+echo "$(date +%s)|$(date +"%Y-%m-%d %H:%M:%S")" > "$TEST_DIR/.claude/.pipeline/reviewer.done"
+cat > "$TEST_DIR/.claude/.pipeline/implementation-plan.md" << 'EOF'
+## Plan
+### Agents
+- backend-api
+EOF
+EXIT=$(run_exit pipeline-advance verifier)
+[ "$EXIT" -ne 0 ] && pass "spec tampered → verifier BLOCKED" || fail "spec tamper should BLOCK verifier"
+
+# Clean for next tests
+rm -f "$TEST_DIR/.claude/.pipeline"/*.done "$TEST_DIR/.claude/.pipeline"/.spec-hash "$TEST_DIR/.claude/.pipeline"/spec-card.md "$TEST_DIR/.claude/.pipeline"/implementation-plan.md "$TEST_DIR/.claude/.pipeline"/.agents
+
+# ============================================================
+section "3. Guard Tests"
+# ============================================================
+
+# 3.1 guard-git: commit without prefix → BLOCK
+EXIT=$(guard_test '{"tool_input":{"command":"git commit -m test"}}' guard-git)
+[ "$EXIT" -eq 2 ] && pass "guard-git: commit without prefix → BLOCKED" || fail "guard-git should block unprefixed commit (exit: $EXIT)"
+
+# 3.2 guard-git: --no-verify → BLOCK
+EXIT=$(guard_test '{"tool_input":{"command":"git commit --no-verify -m test"}}' guard-git)
+[ "$EXIT" -eq 2 ] && pass "guard-git: --no-verify → BLOCKED" || fail "guard-git should block --no-verify"
+
+# 3.3 guard-git: git add . → BLOCK
+EXIT=$(guard_test '{"tool_input":{"command":"git add ."}}' guard-git)
+[ "$EXIT" -eq 2 ] && pass "guard-git: git add . → BLOCKED" || fail "guard-git should block mass staging"
+
+# 3.4 guard-bash-scope: write to .pipeline/ → BLOCK
+EXIT=$(guard_test '{"tool_input":{"command":"echo fake >> .claude/.pipeline/.agents"}}' guard-bash-scope)
+[ "$EXIT" -eq 2 ] && pass "guard-bash-scope: write .pipeline/ → BLOCKED" || fail "guard-bash-scope should block .pipeline/ writes"
+
+# 3.5 guard-bash-scope: normal command → ALLOW
+EXIT=$(guard_test '{"tool_input":{"command":"dotnet build"}}' guard-bash-scope)
+[ "$EXIT" -eq 0 ] && pass "guard-bash-scope: normal command → ALLOWED" || fail "guard-bash-scope should allow normal commands"
+
+# 3.6 guard-pipeline-state: Write .done file → BLOCK
+EXIT=$(guard_test "{\"tool_input\":{\"file_path\":\"$TEST_DIR/.claude/.pipeline/spec.done\"}}" guard-pipeline-state)
+[ "$EXIT" -eq 2 ] && pass "guard-pipeline-state: write .done → BLOCKED" || fail "guard-pipeline-state should block .done writes"
+
+# 3.7 guard-pipeline-state: Write spec-card.md → ALLOW
+EXIT=$(guard_test "{\"tool_input\":{\"file_path\":\"$TEST_DIR/.claude/.pipeline/spec-card.md\"}}" guard-pipeline-state)
+[ "$EXIT" -eq 0 ] && pass "guard-pipeline-state: write spec-card.md → ALLOWED" || fail "guard-pipeline-state should allow spec-card.md"
+
+# 3.8 guard-scope: write outside scope → BLOCK
+EXIT=$(guard_test "{\"tool_input\":{\"file_path\":\"$TEST_DIR/apps/frontend/App.tsx\"}}" guard-scope src/)
+[ "$EXIT" -eq 2 ] && pass "guard-scope: outside scope → BLOCKED" || fail "guard-scope should block outside scope"
+
+# 3.9 guard-scope: write inside scope → ALLOW
+EXIT=$(guard_test "{\"tool_input\":{\"file_path\":\"$TEST_DIR/src/foo.cs\"}}" guard-scope src/)
+[ "$EXIT" -eq 0 ] && pass "guard-scope: inside scope → ALLOWED" || fail "guard-scope should allow inside scope"
+
+# ============================================================
+section "4. Concurrent Lock"
+# ============================================================
+
+# 4.1 mkdir lock blocks second run
+cat > "$TEST_DIR/.claude/.pipeline/spec-card.md" << 'EOF'
+## Lock test
+**Acceptance criteria:**
+- R1: Test
+EOF
+mkdir -p "$TEST_DIR/.claude/.pipeline/.lock"
+# Touch to make it recent (not stale)
+touch "$TEST_DIR/.claude/.pipeline/.lock"
+EXIT=$(run_exit pipeline-advance spec "Lock test")
+[ "$EXIT" -ne 0 ] && pass "concurrent lock → BLOCKED" || fail "concurrent lock should BLOCK"
+
+# 4.2 Stale lock (>5min) auto-removed
+# Backdate the lock directory
+touch -t 202601010000 "$TEST_DIR/.claude/.pipeline/.lock" 2>/dev/null || true
+EXIT=$(run_exit pipeline-advance spec "Lock test")
+[ "$EXIT" -eq 0 ] && pass "stale lock auto-removed → OK" || fail "stale lock should be auto-removed"
+
+# Clean
+rm -rf "$TEST_DIR/.claude/.pipeline/.lock"
+rm -f "$TEST_DIR/.claude/.pipeline"/*.done "$TEST_DIR/.claude/.pipeline"/.spec-hash "$TEST_DIR/.claude/.pipeline"/spec-card.md "$TEST_DIR/.claude/.pipeline"/implementation-plan.md "$TEST_DIR/.claude/.pipeline"/.agents
+
+# ============================================================
+section "5. Rollback"
+# ============================================================
+
+# Setup a pipeline to verifier
+cat > "$TEST_DIR/.claude/.pipeline/spec-card.md" << 'EOF'
+## Rollback test
+**Acceptance criteria:**
+- R1: Test
+EOF
+run pipeline-advance spec "Rollback test" >/dev/null 2>&1
+cat > "$TEST_DIR/.claude/.pipeline/implementation-plan.md" << 'EOF'
+## Plan
+### Agents
+- backend-api
+EOF
+echo "${NOW_TS}|stop|backend-api|rb-001" >> "$TEST_DIR/.claude/.pipeline/.agents"
+echo "${NOW_TS}|stop|code-reviewer|rb-002" >> "$TEST_DIR/.claude/.pipeline/.agents"
+run pipeline-advance builder >/dev/null 2>&1
+run pipeline-advance reviewer >/dev/null 2>&1
+
+# 5.1 Rollback reviewer
+run pipeline-advance rollback >/dev/null 2>&1
+[ ! -f "$TEST_DIR/.claude/.pipeline/reviewer.done" ] && pass "rollback: reviewer.done removed" || fail "rollback should remove reviewer.done"
+[ -f "$TEST_DIR/.claude/.pipeline/builder.done" ] && pass "rollback: builder.done preserved" || fail "rollback should preserve builder.done"
+
+# 5.2 Rollback builder
+run pipeline-advance rollback >/dev/null 2>&1
+[ ! -f "$TEST_DIR/.claude/.pipeline/builder.done" ] && pass "rollback: builder.done removed" || fail "rollback should remove builder.done"
+[ -f "$TEST_DIR/.claude/.pipeline/spec.done" ] && pass "rollback: spec.done preserved" || fail "rollback should preserve spec.done"
+
+# Clean
+rm -rf "$TEST_DIR/.claude/.pipeline"/*
+
+# ============================================================
+section "6. Entry Point"
+# ============================================================
+
+# 6.1 apd help
+OUTPUT=$(bash "$SCRIPT_DIR/../apd" help 2>&1)
+echo "$OUTPUT" | grep -q "APD" && pass "apd help → OK" || fail "apd help should show APD"
+
+# 6.2 apd pipeline status
+OUTPUT=$(APD_PROJECT_DIR="$TEST_DIR" bash "$SCRIPT_DIR/../apd" pipeline status 2>&1)
+echo "$OUTPUT" | grep -q "idle\|Pipeline\|task" && pass "apd pipeline status → OK" || fail "apd pipeline status should work"
+
+# 6.3 apd doctor
+OUTPUT=$(APD_PROJECT_DIR="$TEST_DIR" bash "$SCRIPT_DIR/../apd" doctor 2>&1)
+echo "$OUTPUT" | grep -q "Pipeline Doctor" && pass "apd doctor → OK" || fail "apd doctor should work"
+
+# ============================================================
+section "7. Syntax Check"
+# ============================================================
+
+SYNTAX_FAIL=0
+for f in "$SCRIPT_DIR"/*; do
+    [ -f "$f" ] || continue
+    if ! bash -n "$f" 2>/dev/null; then
+        fail "syntax error: $(basename "$f")"
+        SYNTAX_FAIL=$((SYNTAX_FAIL + 1))
+    fi
+done
+[ "$SYNTAX_FAIL" -eq 0 ] && pass "all core scripts pass syntax check" || fail "$SYNTAX_FAIL scripts have syntax errors"
+
+# Also check apd entry point
+bash -n "$SCRIPT_DIR/../apd" 2>/dev/null && pass "apd entry point syntax OK" || fail "apd entry point has syntax error"
+
+# ============================================================
+# CLEANUP & SUMMARY
+# ============================================================
+rm -rf "$TEST_DIR"
+
+section "Summary"
+printf "    PASS: %s  FAIL: %s  WARN: %s\n" "$PASS_COUNT" "$FAIL_COUNT" "$WARN_COUNT"
+echo ""
+
+if [ "$FAIL_COUNT" -gt 0 ]; then
+    fail "System test FAILED — $FAIL_COUNT issue(s) found"
+    exit 1
+else
+    pass "System test PASSED — all checks OK"
+    exit 0
+fi

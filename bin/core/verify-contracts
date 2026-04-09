@@ -266,7 +266,7 @@ if [ "${1:-}" = "--changed" ]; then
     fi
 
     echo -e "${YELLOW}Changes detected in type files — run full verification:${NC}"
-    echo "  bash .claude/scripts/verify-contracts <backend_types_dir> <frontend_types_dir>"
+    echo "  bash .claude/bin/verify-contracts <backend_types_dir> <frontend_types_dir>"
     exit 0
 fi
 

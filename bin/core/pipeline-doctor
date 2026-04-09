@@ -267,10 +267,10 @@ fi
 # ============================================================
 section "Shortcut"
 
-if [ -f "$CLAUDE_DIR/scripts/apd-pipeline" ]; then
-    pass "apd-pipeline shortcut exists"
+if [ -f "$CLAUDE_DIR/bin/apd" ]; then
+    pass "apd shortcut exists (.claude/bin/apd)"
 else
-    warn "apd-pipeline shortcut missing — run session-start to create"
+    warn "apd shortcut missing — run session-start to create"
 fi
 
 # ============================================================

@@ -43,6 +43,9 @@ case "$CMD" in
     test)
         exec bash "$CORE_DIR/test-hooks" "$@"
         ;;
+    test-system|system-test)
+        exec bash "$CORE_DIR/test-system" "$@"
+        ;;
     help|--help|-h)
         echo ""
         echo "  APD — Agent Pipeline Development"

@@ -1,6 +1,6 @@
 #!/bin/bash
 # APD Verify All — runs verification for all changed components
-# This script lives IN THE PROJECT (.claude/scripts/verify-all.sh), not in the plugin.
+# This script lives IN THE PROJECT (.claude/bin/verify-all.sh), not in the plugin.
 # Paths are relative to the project (../../ = PROJECT_DIR).
 # ===== CUSTOMIZE BUILD COMMANDS FOR YOUR STACK =====
 

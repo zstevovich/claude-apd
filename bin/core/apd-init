@@ -72,7 +72,7 @@ if [ "$MODE" = "new" ]; then
     AUTHOR="${AUTHOR:-$(git config user.name 2>/dev/null || echo 'Developer')}"
 
     # Create directories
-    mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/rules" "$CLAUDE_DIR/scripts" "$CLAUDE_DIR/memory" "$CLAUDE_DIR/.pipeline"
+    mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/rules" "$CLAUDE_DIR/scripts" "$CLAUDE_DIR/bin" "$CLAUDE_DIR/memory" "$CLAUDE_DIR/.pipeline"
 
     # .apd-config
     cat > "$CLAUDE_DIR/.apd-config" << EOF

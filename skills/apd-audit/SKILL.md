@@ -1,6 +1,6 @@
 ---
 name: apd-audit
-description: Use when you need to verify APD is correctly configured in the current project. Qualitative audit of agents, hooks, CLAUDE.md, pipeline, and guardrails — goes deeper than verify-apd.sh.
+description: Use when you need to verify APD is correctly configured in the current project. Qualitative audit of agents, hooks, CLAUDE.md, pipeline, and guardrails — goes deeper than verify-apd.
 effort: max
 allowed-tools: Read Glob Grep Bash
 ---
@@ -20,12 +20,12 @@ If the audit finds issues, fix them before starting work. A broken pipeline prod
 - First session after `/apd-setup` — confirm everything is correct
 - After manually editing agents, CLAUDE.md, or settings.json
 - When pipeline behaves unexpectedly
-- When verify-apd.sh passes but something "feels off"
+- When verify-apd passes but something "feels off"
 - Before handing the project to another developer
 
-## What This Checks (verify-apd.sh Does NOT)
+## What This Checks (verify-apd Does NOT)
 
-| verify-apd.sh | /apd-audit |
+| verify-apd | /apd-audit |
 |---|---|
 | Files exist? | Content correct and complete? |
 | JSON valid? | Hook `if` patterns correct? |
@@ -35,13 +35,13 @@ If the audit finds issues, fix them before starting work. A broken pipeline prod
 
 ## Process
 
-### 1. Run verify-apd.sh first
+### 1. Run verify-apd first
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/verify-apd
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/verify-apd
 ```
 
-If FAIL → fix those first. This skill builds on top of verify-apd.sh, not replaces it.
+If FAIL → fix those first. This skill builds on top of verify-apd, not replaces it.
 
 ### 2. Agent Quality
 
@@ -58,7 +58,7 @@ For each agent in `.claude/agents/*.md`:
 **Hook check:**
 - `if:` field must be inside hook objects, NOT at matcher level
 - No env var prefixes in `if` patterns (e.g., `Bash(git *)` not `Bash(APD_ORCHESTRATOR_COMMIT=1 git *)`)
-- Guard scripts use `${CLAUDE_PLUGIN_ROOT}/scripts/` paths
+- Guard scripts use `${CLAUDE_PLUGIN_ROOT}/bin/core/` paths
 - Builders have: guard-scope, guard-bash-scope, guard-secrets, guard-git
 - Reviewer has: guard-secrets, guard-git (NO guard-scope — read-only)
 
@@ -97,7 +97,7 @@ Read `.claude/settings.json` and verify:
 ### 5. Workflow Rules
 
 Read `.claude/rules/workflow.md` and verify:
-- Uses `${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance` (not `apd-pipeline`)
+- Uses `${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance` (not `apd-pipeline`)
 - Has step 9 (finish)
 - Has mandatory skills section (brainstorm, tdd, debug, finish)
 - Model discipline table present (orchestrator opus, builder sonnet, reviewer opus)
@@ -105,8 +105,8 @@ Read `.claude/rules/workflow.md` and verify:
 ### 6. Pipeline Health
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-advance status
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/core/apd-init --version
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance status
+bash ${CLAUDE_PLUGIN_ROOT}/bin/core/apd-init --version
 ```
 
 - Pipeline responds without errors
@@ -146,7 +146,7 @@ Result: X issues (Y critical, Z important)
 
 | Excuse | Reality |
 |--------|---------|
-| "verify-apd.sh passes so it's fine" | verify-apd.sh checks structure, not content quality |
+| "verify-apd passes so it's fine" | verify-apd checks structure, not content quality |
 | "Agents work, no need to audit" | Wrong model or missing maxTurns wastes time and money |
 | "CLAUDE.md looks ok" | Missing sections mean orchestrator skips important rules |
 | "I'll fix it when it breaks" | Broken pipeline produces broken code silently |
@@ -154,5 +154,5 @@ Result: X issues (Y critical, Z important)
 ## Integration
 
 - **Called by:** Developer at start of session or after configuration changes
-- **Pairs with:** `verify-apd.sh` (mechanical checks) + `/apd-setup` (fixes issues)
+- **Pairs with:** `verify-apd` (mechanical checks) + `/apd-setup` (fixes issues)
 - **Leads to:** Fix issues → re-audit → start working

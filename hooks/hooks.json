@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/core/session-start\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/session-start\"",
             "timeout": 5,
             "statusMessage": "Loading APD context..."
           }
@@ -20,7 +20,7 @@
           {
             "type": "command",
             "if": "Bash(git *)",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/core/guard-git\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/guard-git\"",
             "timeout": 5
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/core/guard-bash-scope\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/guard-bash-scope\"",
             "timeout": 5
           }
         ]
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/core/guard-orchestrator\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/guard-orchestrator\"",
             "timeout": 5
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/core/guard-pipeline-state\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/guard-pipeline-state\"",
             "timeout": 5
           }
         ]
@@ -61,7 +61,7 @@
           {
             "type": "command",
             "if": "Write(*/package-lock.json) | Write(*/pnpm-lock.yaml) | Write(*/yarn.lock) | Write(*/composer.lock) | Write(*/Cargo.lock) | Write(*/go.sum) | Write(*/packages.lock.json) | Write(*/Gemfile.lock) | Write(*/poetry.lock) | Edit(*/package-lock.json) | Edit(*/pnpm-lock.yaml) | Edit(*/yarn.lock) | Edit(*/composer.lock) | Edit(*/Cargo.lock) | Edit(*/go.sum) | Edit(*/packages.lock.json) | Edit(*/Gemfile.lock) | Edit(*/poetry.lock)",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/core/guard-lockfile\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/guard-lockfile\"",
             "timeout": 5
           }
         ]
@@ -74,7 +74,7 @@
           {
             "type": "command",
             "if": "Bash(git commit*)",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/core/pipeline-post-commit\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-post-commit\"",
             "timeout": 10
           }
         ]
@@ -85,7 +85,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/core/track-agent\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/track-agent\"",
             "timeout": 3
           }
         ]
@@ -96,7 +96,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/core/track-agent\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/track-agent\"",
             "timeout": 3
           }
         ]
@@ -107,7 +107,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/core/session-start\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/session-start\"",
             "timeout": 5,
             "statusMessage": "Reinjecting APD context after compaction..."
           }
@@ -119,7 +119,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/core/guard-permission-denied\""
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/guard-permission-denied\""
           }
         ]
       }

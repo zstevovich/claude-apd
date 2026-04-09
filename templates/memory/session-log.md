@@ -10,7 +10,7 @@
 **Status:** Completed
 **What was done:** Backend auth endpoint with JWT + frontend login form with validation.
 **Issues:** guard-scope blocked the frontend agent that tried to write to backend/ — fixed by redirecting to the backend agent.
-**Guardrail that helped:** guard-scope.sh — prevented cross-scope writing.
+**Guardrail that helped:** guard-scope — prevented cross-scope writing.
 **New rule:** None.
 
 ## [2026-04-02] Hotfix: broken migration
