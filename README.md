@@ -1,4 +1,4 @@
-# Agent Pipeline Development (APD) Framework v3.6.0
+# Agent Pipeline Development (APD) Framework v3.7.0
 
 Disciplined AI-assisted software development through specialised agents, enforced pipelines, and mechanical guardrails. Distributed as a Claude Code plugin.
 

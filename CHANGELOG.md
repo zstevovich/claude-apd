@@ -1,5 +1,22 @@
 # Changelog
 
+## v3.7.0 — 2026-04-10
+
+Pipeline hardening — mechanical enforcement, anti-bypass, concurrent session protection.
+
+- **Max 7 acceptance criteria** — `pipeline-advance.sh spec` hard-blocks specs with >7 R* criteria, forcing feature decomposition into smaller pipeline cycles.
+- **Pre-flight checklist** — after spec step, displays next steps with exact Agent tool dispatch format and superpowers warning.
+- **Spec freeze** — sha256 hash saved on spec step, verifier blocks if spec-card.md modified mid-pipeline. Must rollback to change scope.
+- **Auto GitHub sync** — `pipeline-advance.sh` calls `gh-sync.sh` at every step (best-effort, non-blocking). Board moves automatically: Spec → In Progress → Review → Testing → Done.
+- **Pipeline state guard** — `guard-pipeline-state.sh` blocks Write/Edit to .done, .agents, .spec-hash, .trace-summary. Only pipeline-advance.sh can create state files.
+- **Bash write protection** — `guard-bash-scope.sh` always protects `.pipeline/` directory, even without ALLOWED_PATHS. Blocks echo/tee/sed/cp/mv to pipeline state via Bash.
+- **File lock** — `flock` prevents concurrent pipeline operations. Second session gets BLOCKED.
+- **Reviewer block message** — specific fix instructions with exact Agent tool syntax, "do not rollback" warning.
+- **No-rollback rule** — workflow.md: if pipeline step fails, fix and retry instead of rolling back code.
+- **Explicit agent dispatch format** — workflow.md documents `Agent({ subagent_type: "code-reviewer" })`, warns against superpowers agents.
+
+---
+
 ## v3.6.0 — 2026-04-10
 
 Implementation plan step and enforcement gaps — orchestrator must write plan before dispatching builder, spec-card.md is now mandatory.
