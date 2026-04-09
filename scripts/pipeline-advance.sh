@@ -52,23 +52,28 @@ case "$STEP" in
             fi
         fi
 
-        # Validate spec-card.md if it exists
-        if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
-            if ! grep -qE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' "$PIPELINE_DIR/spec-card.md"; then
-                echo "BLOCKED: spec-card.md exists but has no R* acceptance criteria." >&2
-                echo "" >&2
-                echo "  Expected format in spec-card.md:" >&2
-                echo "    - R1: First requirement" >&2
-                echo "    - R2: Second requirement" >&2
-                exit 1
-            fi
+        # Validate spec-card.md exists and has R* criteria (hard block)
+        if [ ! -f "$PIPELINE_DIR/spec-card.md" ]; then
+            echo "BLOCKED: spec-card.md not found." >&2
+            echo "" >&2
+            echo "  Write the spec card to .claude/.pipeline/spec-card.md before advancing." >&2
+            echo "  Acceptance criteria must use R1:, R2:, ... format." >&2
+            exit 1
+        fi
+        if ! grep -qE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' "$PIPELINE_DIR/spec-card.md"; then
+            echo "BLOCKED: spec-card.md has no R* acceptance criteria." >&2
+            echo "" >&2
+            echo "  Expected format in spec-card.md:" >&2
+            echo "    - R1: First requirement" >&2
+            echo "    - R2: Second requirement" >&2
+            exit 1
         fi
 
         # Archive agent log before clearing (permanent audit trail)
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/implementation-plan.md"
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
         apd_spec_header "$ARG"
         show_pipeline "builder"
@@ -77,6 +82,15 @@ case "$STEP" in
     builder)
         if [ ! -f "$PIPELINE_DIR/spec.done" ]; then
             echo "ERROR: Spec must be completed before builder!" >&2
+            exit 1
+        fi
+
+        # Verify implementation plan exists (hard block)
+        if [ ! -f "$PIPELINE_DIR/implementation-plan.md" ]; then
+            echo "BLOCKED: implementation-plan.md not found." >&2
+            echo "" >&2
+            echo "  Write the implementation plan to .claude/.pipeline/implementation-plan.md" >&2
+            echo "  List files to change with 1-2 sentences per file describing the change." >&2
             exit 1
         fi
 
@@ -196,6 +210,12 @@ case "$STEP" in
                 echo "  Then re-run: pipeline-advance.sh verifier" >&2
                 exit 1
             fi
+        fi
+
+        # Warn if adversarial reviewer is configured but wasn't used
+        if [ -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ] && [ ! -f "$PIPELINE_DIR/.adversarial-summary" ]; then
+            warn "Adversarial reviewer is configured but was not used this task." >&2
+            echo "    Write ADVERSARIAL:total:accepted:dismissed to .pipeline/.adversarial-summary" >&2
         fi
 
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
@@ -377,7 +397,7 @@ EOF
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/spec-card.md"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md"
         echo "Pipeline reset. Ready for new task."
         ;;
 
@@ -389,6 +409,7 @@ EOF
                 rm -f "$PIPELINE_DIR/$step.done"
                 # If verifier rolled back, also remove cache timestamp and trace summary
                 [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary"
+                [ "$step" = "builder" ] && rm -f "$PIPELINE_DIR/implementation-plan.md"
                 apd_header "Rollback: $step"
                 show_pipeline "$step"
                 ROLLED_BACK=true

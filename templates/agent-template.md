@@ -47,7 +47,7 @@ You are {{role}} for {{PROJECT_NAME}}.
 - {{Technologies this agent uses}}
 
 ## Workflow
-1. Read `.claude/.pipeline/spec-card.md` for acceptance criteria (R1, R2, ...)
+1. Read `.claude/.pipeline/implementation-plan.md` for what to change and `.claude/.pipeline/spec-card.md` for acceptance criteria (R1, R2, ...)
 2. **MANDATORY: Use /apd-tdd skill** — write failing test first, then implement
 3. Add `@trace R*` markers in test files for each acceptance criterion you implement
 4. Implement changes following TDD cycle: test → code → verify

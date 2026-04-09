@@ -13,7 +13,10 @@
    → DO NOT proceed until user says "ok" / "approved" / "go ahead"
    → If user requests changes → update spec → present again
    ↓
-4. WRITE IMPLEMENTATION PLAN — break into micro-tasks, assign to agents
+4. WRITE IMPLEMENTATION PLAN
+   → Analyze codebase, write .pipeline/implementation-plan.md
+   → List files to create/modify with concrete change descriptions
+   → pipeline-advance.sh builder validates plan exists before advancing
    ↓
 5. DISPATCH BUILDER AGENT(S) — one agent per domain, max 3-4 edits each
    → Builder agents MUST use /apd-tdd skill for implementation
@@ -200,6 +203,32 @@ Builders MUST add `@trace R*` comments in test files for every acceptance criter
 - Use the comment syntax appropriate for the language (`//`, `#`, `--`, etc.)
 - Markers in code files (non-test) are optional and informational
 - `verify-trace.sh` runs during the verifier step and blocks commit if any R* is missing test coverage
+
+## 3c. Implementation plan
+
+Before dispatching the builder, the orchestrator MUST write `.claude/.pipeline/implementation-plan.md`. The plan bridges the gap between spec (what to build) and builder (how to build it).
+
+### Format
+
+```
+## Implementation Plan: [Task name]
+
+### Files to modify
+- `path/to/file.ext` — description of what to change (1-2 sentences)
+- `path/to/other.ext` — description of what to change
+
+### Files to create
+- `path/to/new-file.ext` — purpose and what it contains
+
+### Notes
+- Any relevant context the builder needs
+```
+
+**Rules:**
+- List every file the builder will touch
+- 1-2 sentences per file — enough context to avoid searching, not code snippets
+- Orchestrator reads relevant code BEFORE writing the plan
+- `pipeline-advance.sh builder` blocks if the plan does not exist
 
 ## 4. Verification before "done"
 
