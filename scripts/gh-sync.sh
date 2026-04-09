@@ -42,33 +42,35 @@ case "$STEP" in
             exit 1
         fi
 
-        # Create issue
-        ISSUE_URL=$(gh issue create \
-            --title "[APD] $ARG2" \
-            --body "## Spec Card
+        # Find existing issue or create new one
+        EXISTING_ISSUE=$(gh issue list --label "apd-pipeline" --state open --json number,title 2>/dev/null | \
+            jq -r ".[] | select(.title | test(\"$ARG2\")) | .number" 2>/dev/null | head -1)
+
+        if [ -n "$EXISTING_ISSUE" ]; then
+            echo "$EXISTING_ISSUE" > "$GH_ISSUE_FILE"
+            echo "GitHub issue #$EXISTING_ISSUE found (existing). Reusing."
+        else
+            ISSUE_URL=$(gh issue create \
+                --title "[APD] $ARG2" \
+                --body "## Spec Card
 
 **Task:** $ARG2
 **Created:** $(date +%Y-%m-%d\ %H:%M:%S)
 
 ---
 _APD Pipeline Task_" \
-            --label "apd-pipeline" 2>&1)
-        GH_EXIT=$?
+                --label "apd-pipeline" 2>&1)
+            GH_EXIT=$?
 
-        if [ $GH_EXIT -eq 0 ]; then
-            ISSUE_NUM=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
-            echo "$ISSUE_NUM" > "$GH_ISSUE_FILE"
-            echo "GitHub issue #$ISSUE_NUM created: $ISSUE_URL"
-
-            # Move to Spec column if Projects is configured
-            # (gh project item-edit requires project number — orchestrator configures this)
-        else
-            echo "WARNING: Could not create GitHub issue. Continuing without it." >&2
-            echo "$ISSUE_URL" >&2
+            if [ $GH_EXIT -eq 0 ]; then
+                ISSUE_NUM=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
+                echo "$ISSUE_NUM" > "$GH_ISSUE_FILE"
+                echo "GitHub issue #$ISSUE_NUM created: $ISSUE_URL"
+            else
+                echo "WARNING: Could not create GitHub issue. Continuing without it." >&2
+                echo "$ISSUE_URL" >&2
+            fi
         fi
-
-        # Run pipeline spec
-        bash "$SCRIPT_DIR/pipeline-advance.sh" spec "$ARG2"
         ;;
 
     builder|reviewer|verifier)
