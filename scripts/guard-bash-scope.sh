@@ -12,10 +12,6 @@ source "$(dirname "$0")/lib/resolve-project.sh"
 
 ALLOWED_PATHS=("$@")
 
-if [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
-  exit 0
-fi
-
 if ! command -v jq &>/dev/null; then
   echo "ERROR: jq is not installed." >&2
   exit 2
@@ -25,6 +21,30 @@ INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 
 if [ -z "$COMMAND" ]; then
+  exit 0
+fi
+
+# --- 0. Protected paths — ALWAYS enforced, even without ALLOWED_PATHS ---
+# .pipeline/ state files must only be modified by pipeline-advance.sh (not direct Bash writes)
+PROTECTED_PATHS=(".claude/.pipeline/" ".pipeline/")
+SHELL_WRITE_CHECK=('>>' '>' 'tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ')
+
+for ppath in "${PROTECTED_PATHS[@]}"; do
+  if [[ "$COMMAND" == *"$ppath"* ]]; then
+    # Check if command contains a write operation targeting protected path
+    for wp in "${SHELL_WRITE_CHECK[@]}"; do
+      if [[ "$COMMAND" == *"$wp"* ]]; then
+        echo "BLOCKED: Bash write to protected pipeline state directory." >&2
+        echo "" >&2
+        echo "  Do not write directly to .pipeline/ — use pipeline-advance.sh instead." >&2
+        echo "  Allowed: bash \${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh <command>" >&2
+        exit 2
+      fi
+    done
+  fi
+done
+
+if [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
   exit 0
 fi
 
