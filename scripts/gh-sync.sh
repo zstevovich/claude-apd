@@ -10,7 +10,7 @@
 #   gh-sync.sh skip ISSUE_NUM "Reason"  -> closes with apd-skip label
 #
 # Requires: gh CLI authenticated, GitHub Projects v2 configured
-# Optional: This script is NOT called automatically — orchestrator uses it as needed
+# Called automatically by pipeline-advance.sh at each step (best-effort, non-blocking)
 
 source "$(dirname "$0")/lib/resolve-project.sh"
 

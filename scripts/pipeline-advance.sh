@@ -89,6 +89,8 @@ case "$STEP" in
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
         apd_spec_header "$ARG"
         show_pipeline "builder"
+        # GitHub sync (best-effort — never blocks pipeline)
+        bash "$SCRIPT_DIR/gh-sync.sh" spec "$ARG" 2>/dev/null || true
         # Pre-flight checklist
         echo "" >&2
         echo "    ${D}Next steps:${R}" >&2
@@ -161,6 +163,8 @@ case "$STEP" in
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/builder.done"
         apd_header "Builder Complete" "+$ELAPSED"
         show_pipeline "reviewer"
+        # GitHub sync (best-effort)
+        bash "$SCRIPT_DIR/gh-sync.sh" builder 2>/dev/null || true
         ;;
 
     reviewer)
@@ -209,6 +213,8 @@ case "$STEP" in
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
         apd_header "Reviewer Complete" "+$ELAPSED"
         show_pipeline "verifier"
+        # GitHub sync (best-effort)
+        bash "$SCRIPT_DIR/gh-sync.sh" reviewer 2>/dev/null || true
         ;;
 
     verifier)
@@ -258,6 +264,8 @@ case "$STEP" in
         apd_header "COMMIT ALLOWED" "total: $TOTAL"
         show_pipeline ""
         echo "    Ready: APD_ORCHESTRATOR_COMMIT=1 git commit ..."
+        # GitHub sync (best-effort)
+        bash "$SCRIPT_DIR/gh-sync.sh" verifier 2>/dev/null || true
         ;;
 
     reset)
@@ -431,6 +439,8 @@ EOF
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
+        # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
+        bash "$SCRIPT_DIR/gh-sync.sh" done 2>/dev/null || true
         rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash"
         echo "Pipeline reset. Ready for new task."
         ;;
