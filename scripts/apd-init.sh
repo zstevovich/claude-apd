@@ -250,11 +250,29 @@ if [ "$MODE" = "update" ]; then
         fi
     fi
 
+    # --- adversarial-reviewer agent (optional but recommended) ---
+    if [ -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ]; then
+        if grep -q 'model: sonnet' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null && grep -q 'memory: none' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null; then
+            ok "adversarial-reviewer (sonnet/max, memory: none)"
+        else
+            sed -i.bak 's/model:.*/model: sonnet/' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null && rm -f "$CLAUDE_DIR/agents/adversarial-reviewer.md.bak"
+            fix "adversarial-reviewer: fixed model to sonnet"
+            FIXES=$((FIXES + 1))
+        fi
+    else
+        if [ -f "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" ]; then
+            sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" > "$CLAUDE_DIR/agents/adversarial-reviewer.md"
+            fix "Created adversarial-reviewer.md (sonnet/max, context-free review)"
+            FIXES=$((FIXES + 1))
+        fi
+    fi
+
     # --- maxTurns in builder agents ---
     for agent_file in "$CLAUDE_DIR/agents"/*.md; do
         [ -f "$agent_file" ] || continue
         AGENT_NAME=$(basename "$agent_file" .md)
         [ "$AGENT_NAME" = "code-reviewer" ] && continue
+        [ "$AGENT_NAME" = "adversarial-reviewer" ] && continue
         if grep -q 'maxTurns' "$agent_file" 2>/dev/null; then
             ok "$AGENT_NAME: maxTurns set"
         else
