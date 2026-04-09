@@ -40,6 +40,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/guard-pipeline-state.sh\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
             "if": "Write(*/package-lock.json) | Write(*/pnpm-lock.yaml) | Write(*/yarn.lock) | Write(*/composer.lock) | Write(*/Cargo.lock) | Write(*/go.sum) | Write(*/packages.lock.json) | Write(*/Gemfile.lock) | Write(*/poetry.lock) | Edit(*/package-lock.json) | Edit(*/pnpm-lock.yaml) | Edit(*/yarn.lock) | Edit(*/composer.lock) | Edit(*/Cargo.lock) | Edit(*/go.sum) | Edit(*/packages.lock.json) | Edit(*/Gemfile.lock) | Edit(*/poetry.lock)",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/guard-lockfile.sh\"",
             "timeout": 5

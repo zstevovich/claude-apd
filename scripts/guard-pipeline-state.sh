@@ -1,0 +1,45 @@
+#!/bin/bash
+# APD Pipeline State Guard — blocks direct Write/Edit to .pipeline/ internal files
+#
+# Only pipeline-advance.sh (via Bash) should create .done, .agents, .spec-hash etc.
+# Orchestrator MAY write: spec-card.md, implementation-plan.md, .adversarial-summary
+# Orchestrator must NOT write: *.done, .agents, .spec-hash, .trace-summary, verified.timestamp
+
+source "$(dirname "$0")/lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
+
+if ! command -v jq &>/dev/null; then
+    exit 0
+fi
+
+INPUT=$(cat)
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+
+if [ -z "$FILE_PATH" ]; then
+    exit 0
+fi
+
+REL_PATH="${FILE_PATH#"$PROJECT_DIR"/}"
+
+# Only guard .claude/.pipeline/ paths
+case "$REL_PATH" in
+    .claude/.pipeline/*)
+        FILENAME=$(basename "$REL_PATH")
+        # Allowed files — orchestrator writes these as part of pipeline workflow
+        case "$FILENAME" in
+            spec-card.md|implementation-plan.md|.adversarial-summary)
+                exit 0
+                ;;
+            *)
+                echo "BLOCKED: Direct write to pipeline state file: $FILENAME" >&2
+                echo "" >&2
+                echo "  Pipeline state is managed by pipeline-advance.sh — do not write directly." >&2
+                echo "  Use: bash \${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh <command>" >&2
+                exit 2
+                ;;
+        esac
+        ;;
+    *)
+        exit 0
+        ;;
+esac
