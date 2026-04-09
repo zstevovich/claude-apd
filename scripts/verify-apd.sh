@@ -613,7 +613,13 @@ else
     fail "pipeline-gate DOES NOT BLOCK empty pipeline (exit: $EXIT_CODE)"
 fi
 
-# Spec
+# Spec (requires spec-card.md with R* criteria since v3.6.0)
+mkdir -p "$PIPELINE_DIR"
+cat > "$PIPELINE_DIR/spec-card.md" << 'SPECEOF'
+## APD-VERIFY-TEST
+**Acceptance criteria:**
+- R1: Verify test passes
+SPECEOF
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" spec "APD-VERIFY-TEST" 2>&1)
 if echo "$RESULT" | grep -q "Spec:"; then
     pass "pipeline-advance: spec"
@@ -621,7 +627,8 @@ else
     fail "pipeline-advance spec ERROR: $RESULT"
 fi
 
-# Builder WITHOUT agent dispatch — must block
+# Builder WITHOUT agent dispatch — must block (also needs implementation-plan.md since v3.6.0)
+echo "## Plan: APD-VERIFY-TEST" > "$PIPELINE_DIR/implementation-plan.md"
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance.sh" builder 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "no project builder"; then
