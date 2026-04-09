@@ -117,7 +117,7 @@ case "$STEP" in
         # Pre-flight checklist
         echo "" >&2
         echo "    ${D}Next steps:${R}" >&2
-        echo "    ${D}1. Write .pipeline/implementation-plan.md (files + changes)${R}" >&2
+        echo "    ${D}1. Write .pipeline/implementation-plan.md (files + changes + ### Agents section)${R}" >&2
         echo "    ${D}2. Dispatch project builders: Agent({ subagent_type: \"<agent-name>\", ... })${R}" >&2
         echo "    ${D}3. Dispatch project reviewer: Agent({ subagent_type: \"code-reviewer\", ... })${R}" >&2
         echo "    ${D}   NEVER use superpowers: or feature-dev: agents — pipeline will BLOCK${R}" >&2
@@ -165,12 +165,14 @@ case "$STEP" in
             echo "BLOCKED: No project Builder agent was dispatched!" >&2
             echo "" >&2
             if [ -n "$BLOCKED_AGENTS" ]; then
-                echo "  Rejected conflicting agents: ${BLOCKED_AGENTS%, }" >&2
-                echo "  These conflict with APD pipeline roles." >&2
-                echo "  Dispatch agents defined in .claude/agents/ instead:" >&2
-            else
-                echo "  The orchestrator must dispatch a Builder agent to implement code." >&2
+                echo "  Rejected: ${BLOCKED_AGENTS%, }" >&2
+                echo "  These are plugin agents, NOT project agents." >&2
+                echo "" >&2
             fi
+            echo "  Dispatch project builders using the Agent tool:" >&2
+            echo "    Agent({ subagent_type: \"backend-api\", prompt: \"...\" })" >&2
+            echo "" >&2
+            echo "  NEVER use superpowers: or feature-dev: agents — pipeline will BLOCK." >&2
             echo "" >&2
             echo "  Project agents:" >&2
             if [ -d "$CLAUDE_DIR/agents" ]; then
@@ -180,6 +182,35 @@ case "$STEP" in
                 done
             fi
             exit 1
+        fi
+
+        # Verify all planned agents from implementation-plan.md were dispatched
+        if [ -f "$PIPELINE_DIR/implementation-plan.md" ] && [ -f "$AGENTS_LOG" ]; then
+            # Extract agents section — lines between "### Agents" and next "###" or empty line
+            MISSING_AGENTS=""
+            IN_AGENTS=false
+            while IFS= read -r line; do
+                if echo "$line" | grep -qE '^### Agents'; then
+                    IN_AGENTS=true
+                    continue
+                fi
+                if [ "$IN_AGENTS" = true ]; then
+                    # Stop at next section or empty line
+                    if echo "$line" | grep -qE '^###|^$'; then
+                        break
+                    fi
+                    # Extract agent name from "- agent-name"
+                    PLANNED=$(echo "$line" | sed -nE 's/^- ([a-zA-Z0-9_-]+).*/\1/p')
+                    if [ -n "$PLANNED" ]; then
+                        if ! grep -q "|stop|${PLANNED}|" "$AGENTS_LOG" 2>/dev/null; then
+                            MISSING_AGENTS="${MISSING_AGENTS}${PLANNED}, "
+                        fi
+                    fi
+                fi
+            done < "$PIPELINE_DIR/implementation-plan.md"
+            if [ -n "$MISSING_AGENTS" ]; then
+                warn "Planned agents not dispatched: ${MISSING_AGENTS%, }" >&2
+            fi
         fi
 
         ELAPSED=$(format_duration $((NOW - SPEC_TS)))

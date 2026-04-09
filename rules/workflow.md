@@ -224,6 +224,11 @@ Before dispatching the builder, the orchestrator MUST write `.claude/.pipeline/i
 ### Files to create
 - `path/to/new-file.ext` — purpose and what it contains
 
+### Agents
+- backend-api
+- database
+- code-reviewer
+
 ### Notes
 - Any relevant context the builder needs
 ```
@@ -231,6 +236,8 @@ Before dispatching the builder, the orchestrator MUST write `.claude/.pipeline/i
 **Rules:**
 - List every file the builder will touch
 - 1-2 sentences per file — enough context to avoid searching, not code snippets
+- **`### Agents` section is mandatory** — list all project agents needed for this task
+- `pipeline-advance.sh builder` warns if planned agents were not dispatched
 - Orchestrator reads relevant code BEFORE writing the plan
 - `pipeline-advance.sh builder` blocks if the plan does not exist
 
