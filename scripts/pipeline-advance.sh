@@ -11,14 +11,26 @@ source "$(dirname "$0")/lib/resolve-project.sh"
 
 mkdir -p "$PIPELINE_DIR"
 
-# File lock — prevent concurrent pipeline operations
-LOCK_FILE="$PIPELINE_DIR/.lock"
-exec 200>"$LOCK_FILE"
-if ! flock -n 200; then
-    echo "BLOCKED: Pipeline is locked by another session." >&2
-    echo "  Wait for the other session to finish or remove .pipeline/.lock" >&2
-    exit 1
+# File lock — prevent concurrent pipeline operations (POSIX-compatible, no flock)
+LOCK_DIR="$PIPELINE_DIR/.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    # Check if lock is stale (>5 minutes old)
+    if [ -d "$LOCK_DIR" ]; then
+        LOCK_AGE=0
+        LOCK_MTIME=$(stat -f %m "$LOCK_DIR" 2>/dev/null || stat -c %Y "$LOCK_DIR" 2>/dev/null || echo 0)
+        [ "$LOCK_MTIME" -gt 0 ] 2>/dev/null && LOCK_AGE=$(( $(date +%s) - LOCK_MTIME ))
+        if [ "$LOCK_AGE" -gt 300 ]; then
+            rmdir "$LOCK_DIR" 2>/dev/null
+            mkdir "$LOCK_DIR" 2>/dev/null || true
+        else
+            echo "BLOCKED: Pipeline is locked by another session." >&2
+            echo "  Wait for the other session to finish or: rmdir .pipeline/.lock" >&2
+            exit 1
+        fi
+    fi
 fi
+# Auto-remove lock on exit
+trap 'rmdir "$LOCK_DIR" 2>/dev/null; exit' EXIT INT TERM
 
 STEP="$1"
 ARG="$2"
