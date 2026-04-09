@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.5.1 — 2026-04-09
+
+Audit fixes and polish.
+
+- **Critical fix: spec-card.md lifecycle** — was deleted during spec step (before builder/verifier could read it), now correctly deleted on pipeline reset
+- **Dynamic version** — `apd-init.sh` reads version from `plugin.json` instead of hardcoding; no more version drift
+- **Version sync** — marketplace.json, CLAUDE.md, README.md, apd-setup SKILL.md all aligned
+- **README.md** — "Four roles" → "Five roles", added Adversarial Reviewer section and Mermaid diagram update
+- **CLAUDE.md** — fixed stale `/apd-init` → `/apd-setup`, updated skills directory listing
+- **Templates** — CLAUDE.md.reference and workflow.md section 8 model tables include Adversarial Reviewer
+- **Metrics display fix** — "Last 5" and duration loop properly consume adversarial columns, preventing partial task misidentification
+- **Adversarial parsing** — triple cat|cut replaced with single IFS read
+
+---
+
 ## v3.5.0 — 2026-04-09
 
 Adversarial reviewer — context-free code review that catches what contextual reviewers miss.
