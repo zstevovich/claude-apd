@@ -4,6 +4,8 @@ Enforced multi-agent pipelines with mechanical guardrails for AI-assisted softwa
 
 [**Getting Started**](GETTING-STARTED.md) | [**Interactive Demo**](https://zstevovich.github.io/claude-apd/demo/) | [**Changelog**](CHANGELOG.md)
 
+![APD Demo](docs/demo/apd-demo.gif)
+
 ---
 
 ## What is APD?
