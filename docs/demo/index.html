@@ -3,402 +3,379 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APD — 30 Second Demo</title>
+<title>APD v4 — Interactive Demo</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&display=swap');
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
-    background: #0a0a0f;
-    color: #c8c8d0;
+    background: #0d0d14;
+    color: #b0b0c0;
     font-family: 'JetBrains Mono', monospace;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: 20px;
+    padding: 32px 16px;
   }
 
-  .header {
-    text-align: center;
-    margin-bottom: 24px;
-  }
-
-  .header h1 {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 14px;
-    font-weight: 700;
-    color: #6a6a7a;
-    letter-spacing: 4px;
-    text-transform: uppercase;
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
     margin-bottom: 6px;
   }
 
-  .header .tagline {
+  .brand h1 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #af8fff;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+
+  .brand .ver {
     font-size: 11px;
     color: #4a4a5a;
+    font-weight: 300;
+  }
+
+  .tagline {
+    font-size: 11px;
+    color: #3a3a4a;
     letter-spacing: 1px;
+    margin-bottom: 24px;
   }
 
   .terminal {
-    background: #12121a;
-    border: 1px solid #1e1e2e;
+    background: #111119;
+    border: 1px solid #1c1c2c;
     border-radius: 10px;
     width: 100%;
-    max-width: 720px;
+    max-width: 760px;
     overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 1px rgba(255,255,255,0.05);
+    box-shadow: 0 24px 80px rgba(0,0,0,0.6);
   }
 
   .terminal-bar {
-    background: #1a1a26;
+    background: #161622;
     padding: 10px 16px;
     display: flex;
     align-items: center;
-    gap: 8px;
-    border-bottom: 1px solid #1e1e2e;
+    gap: 7px;
+    border-bottom: 1px solid #1c1c2c;
   }
 
   .dot { width: 10px; height: 10px; border-radius: 50%; }
-  .dot.r { background: #ff5f57; }
-  .dot.y { background: #febc2e; }
-  .dot.g { background: #28c840; }
+  .dot-r { background: #ff5f57; }
+  .dot-y { background: #febc2e; }
+  .dot-g { background: #28c840; }
 
   .terminal-title {
     flex: 1;
     text-align: center;
     font-size: 11px;
-    color: #4a4a5a;
-    letter-spacing: 1px;
+    color: #3a3a4a;
   }
 
-  .terminal-body {
+  .body {
     padding: 20px;
-    min-height: 380px;
-    font-size: 13px;
-    line-height: 1.7;
-    position: relative;
+    min-height: 420px;
+    max-height: 420px;
     overflow-y: auto;
+    font-size: 12.5px;
+    line-height: 1.75;
   }
 
-  .line {
+  .ln {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(3px);
     white-space: pre-wrap;
-    word-break: break-all;
+    word-break: break-word;
   }
 
-  .line.visible {
+  .ln.show {
     opacity: 1;
     transform: translateY(0);
     transition: opacity 0.15s, transform 0.15s;
   }
 
-  .prompt { color: #7aa2f7; }
-  .cmd { color: #c0caf5; }
-  .blocked { color: #f7768e; font-weight: 700; }
-  .reason { color: #9d7cd8; }
-  .success { color: #9ece6a; font-weight: 700; }
-  .info { color: #e0af68; }
+  .v   { color: #af8fff; }
+  .vb  { color: #af8fff; font-weight: 700; }
+  .blu { color: #5fafff; }
+  .org { color: #ff8844; }
+  .grn { color: #7ec87e; }
+  .red { color: #f05050; font-weight: 700; }
+  .ylw { color: #e0af68; }
   .dim { color: #3a3a4a; }
-  .step { color: #7dcfff; }
-  .file { color: #bb9af7; }
-  .accent { color: #ff9e64; }
-  .guard { color: #f7768e; }
-  .pipeline { color: #2ac3de; }
-  .check { color: #9ece6a; }
-  .summary { color: #c0caf5; }
+  .w   { color: #d0d0dd; }
 
-  @keyframes blink { 50% { opacity: 0; } }
+  .spacer { height: 12px; }
+
+  .bar-wrap {
+    width: 100%;
+    max-width: 760px;
+    height: 2px;
+    background: #1c1c2c;
+    border-radius: 1px;
+    margin-top: 1px;
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #af8fff, #5fafff);
+    width: 0%;
+    transition: width 0.3s;
+  }
 
   .controls {
     display: flex;
     gap: 12px;
-    margin-top: 20px;
+    margin-top: 18px;
     align-items: center;
   }
 
   button {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    padding: 8px 20px;
+    font-size: 11px;
+    padding: 7px 18px;
     border: 1px solid #2a2a3a;
-    border-radius: 6px;
-    background: #16161e;
-    color: #9a9aaa;
+    border-radius: 5px;
+    background: #14141e;
+    color: #8a8a9a;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.15s;
     letter-spacing: 1px;
   }
 
-  button:hover {
-    background: #1e1e2e;
-    border-color: #7aa2f7;
-    color: #c0caf5;
-  }
+  button:hover { border-color: #af8fff; color: #d0d0dd; }
+  button.pri { border-color: #af8fff; color: #af8fff; }
+  button.pri:hover { background: #af8fff; color: #0d0d14; }
 
-  button.primary {
-    background: #1a1a3a;
-    border-color: #7aa2f7;
-    color: #7aa2f7;
-  }
+  .phase { font-size: 10px; color: #3a3a4a; letter-spacing: 1px; }
+  .phase.on { color: #af8fff; }
 
-  button.primary:hover {
-    background: #7aa2f7;
-    color: #0a0a0f;
-  }
-
-  .phase-indicator {
-    font-size: 11px;
-    color: #3a3a4a;
-    letter-spacing: 1px;
-  }
-
-  .phase-indicator.active { color: #7aa2f7; }
-
-  .spacer { height: 10px; }
-
-  .progress-bar {
-    width: 100%;
-    max-width: 720px;
-    height: 2px;
-    background: #1e1e2e;
-    border-radius: 1px;
-    margin-top: 2px;
-    overflow: hidden;
-  }
-
-  .progress-fill {
-    height: 100%;
-    background: #7aa2f7;
-    width: 0%;
-    transition: width 0.3s;
-    border-radius: 1px;
-  }
-
-  .footer {
-    margin-top: 32px;
-    text-align: center;
-    font-size: 11px;
-    color: #3a3a4a;
-  }
-
-  .footer a {
-    color: #7aa2f7;
-    text-decoration: none;
-  }
-
-  .footer a:hover { text-decoration: underline; }
+  .foot { margin-top: 28px; font-size: 10px; color: #2a2a3a; }
+  .foot a { color: #5f5f7f; text-decoration: none; }
+  .foot a:hover { color: #af8fff; }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1>Agent Pipeline Development</h1>
-  <div class="tagline">what happens when AI agents meet mechanical discipline</div>
+<div class="brand">
+  <h1>APD</h1>
+  <span class="ver">v4.0</span>
 </div>
+<div class="tagline">enforced multi-agent pipelines with mechanical guardrails</div>
 
 <div class="terminal">
   <div class="terminal-bar">
-    <div class="dot r"></div>
-    <div class="dot y"></div>
-    <div class="dot g"></div>
-    <div class="terminal-title">claude-code &mdash; apd-demo</div>
+    <div class="dot dot-r"></div>
+    <div class="dot dot-y"></div>
+    <div class="dot dot-g"></div>
+    <div class="terminal-title">claude-code &mdash; my-project</div>
   </div>
-  <div class="terminal-body" id="body">
-    <div class="line visible" style="color:#3a3a4a">Press Play to start the demo...</div>
-  </div>
+  <div class="body" id="out"></div>
 </div>
-<div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
+<div class="bar-wrap"><div class="bar-fill" id="bar"></div></div>
 
 <div class="controls">
-  <button class="primary" id="playBtn">&#9654; Play Demo</button>
-  <button id="resetBtn">&#8634; Reset</button>
-  <span class="phase-indicator" id="phaseLabel"></span>
+  <button class="pri" id="play">&#9654; Play</button>
+  <button id="reset">&#8634; Reset</button>
+  <span class="phase" id="ph"></span>
 </div>
 
-<div class="footer">
-  <a href="https://github.com/zstevovich/claude-apd">github.com/zstevovich/claude-apd</a>
+<div class="foot">
+  <a href="https://github.com/zstevovich/claude-apd">github</a>
+  &middot;
+  <a href="../../GETTING-STARTED.md">getting started</a>
+  &middot;
+  <a href="../../CHANGELOG.md">changelog</a>
 </div>
 
 <script>
-const bodyEl = document.getElementById('body');
-const progressEl = document.getElementById('progress');
-const phaseLabelEl = document.getElementById('phaseLabel');
-const playBtnEl = document.getElementById('playBtn');
-const resetBtnEl = document.getElementById('resetBtn');
-let timeoutIds = [];
-let lineIdx = 0;
+var O=document.getElementById('out'),B=document.getElementById('bar'),
+    P=document.getElementById('ph'),PB=document.getElementById('play'),
+    RB=document.getElementById('reset');
+var T=[],I=0;
 
-// Scene data uses only text content, CSS classes handle styling
-const scenes = [
-  { phase: "Phase 1 \u2014 Without discipline", lines: [
-    { cls: "dim", text: "\u2500\u2500 Agent tries to commit directly \u2500\u2500" },
-    { delay: 600 },
-    { parts: [{cls:"prompt",text:"builder-agent $"},{cls:"cmd",text:" git commit -m \"feat: add login\""}] },
-    { delay: 800 },
-    { cls: "blocked", text: "\u26d4 BLOCKED: guard-git.sh" },
-    { cls: "reason", text: "   Commit without APD_ORCHESTRATOR_COMMIT=1 prefix." },
-    { cls: "reason", text: "   Only the orchestrator may commit." },
-    { delay: 400 },
-    { cls: "dim", text: "\u2500\u2500 Agent tries mass staging \u2500\u2500" },
-    { delay: 500 },
-    { parts: [{cls:"prompt",text:"builder-agent $"},{cls:"cmd",text:" git add ."}] },
-    { delay: 600 },
-    { cls: "blocked", text: "\u26d4 BLOCKED: guard-git.sh" },
-    { cls: "reason", text: "   Mass staging not allowed. Add files explicitly." },
-    { delay: 400 },
-    { cls: "dim", text: "\u2500\u2500 Agent writes outside scope \u2500\u2500" },
-    { delay: 500 },
-    { parts: [{cls:"prompt",text:"builder-agent $"},{cls:"cmd",text:" Write \u2192 apps/frontend/App.tsx"}] },
-    { delay: 600 },
-    { cls: "blocked", text: "\u26d4 BLOCKED: guard-scope.sh" },
-    { cls: "reason", text: "   File apps/frontend/App.tsx is outside allowed scope." },
-    { cls: "reason", text: "   Allowed paths: src/ tests/" },
-    { delay: 400 },
-    { cls: "dim", text: "\u2500\u2500 Agent tries to read secrets \u2500\u2500" },
-    { delay: 500 },
-    { parts: [{cls:"prompt",text:"builder-agent $"},{cls:"cmd",text:" Read \u2192 .env.production"}] },
-    { delay: 600 },
-    { cls: "blocked", text: "\u26d4 BLOCKED: guard-secrets.sh" },
-    { cls: "reason", text: "   Access to sensitive files is not permitted." },
-    { delay: 900 },
-    { cls: "guard", text: "   4 blocks logged to guard-audit.log" },
-    { delay: 1200 },
+function mk(cls,txt){var s=document.createElement('span');s.className=cls;s.textContent=txt;return s;}
+
+function line(){
+  var parts=Array.prototype.slice.call(arguments);
+  var d=document.createElement('div');
+  d.className='ln';
+  parts.forEach(function(p){
+    if(typeof p==='string'){d.appendChild(document.createTextNode(p));}
+    else{d.appendChild(p);}
+  });
+  return d;
+}
+
+function spacer(){var d=document.createElement('div');d.className='ln spacer';return d;}
+
+var scenes=[
+  {p:"Guards \u2014 mechanical enforcement",items:[
+    function(){return line(mk('dim','\u2500\u2500 Agent tries to commit \u2500\u2500'));},
+    {d:500},
+    function(){return line(mk('blu','builder $ '),mk('w','git commit -m "feat: login"'));},
+    {d:600},
+    function(){return line(mk('red','BLOCKED: '),mk('w','guard-git'));},
+    function(){return line(mk('v','  Commit without APD_ORCHESTRATOR_COMMIT=1 prefix.'));},
+    {d:400},
+    function(){return line(mk('dim','\u2500\u2500 Agent writes outside scope \u2500\u2500'));},
+    {d:400},
+    function(){return line(mk('blu','builder $ '),mk('w','Write \u2192 apps/frontend/App.tsx'));},
+    {d:500},
+    function(){return line(mk('red','BLOCKED: '),mk('w','guard-scope'));},
+    function(){return line(mk('v','  File outside allowed scope. Allowed: src/ tests/'));},
+    {d:400},
+    function(){return line(mk('dim','\u2500\u2500 Orchestrator hacks .pipeline/ \u2500\u2500'));},
+    {d:400},
+    function(){return line(mk('v','orchestrator $ '),mk('w','echo "fake" >> .pipeline/.agents'));},
+    {d:500},
+    function(){return line(mk('red','BLOCKED: '),mk('w','guard-bash-scope'));},
+    function(){return line(mk('v','  Bash write to protected pipeline state directory.'));},
+    {d:400},
+    function(){return line(mk('dim','\u2500\u2500 Orchestrator writes .done directly \u2500\u2500'));},
+    {d:400},
+    function(){return line(mk('v','orchestrator $ '),mk('w','Write \u2192 .pipeline/spec.done'));},
+    {d:500},
+    function(){return line(mk('red','BLOCKED: '),mk('w','guard-pipeline-state'));},
+    function(){return line(mk('v','  Pipeline state managed by pipeline-advance.'));},
+    {d:700},
+    function(){return line(mk('red','  4 blocks'),mk('dim',' logged to guard-audit.log'));},
+    {d:1000},
   ]},
-  { phase: "Phase 2 \u2014 With APD pipeline", lines: [
-    { cls: "dim", text: "\u2500\u2500 The disciplined way \u2500\u2500" },
-    { delay: 600 },
-    { cls: "pipeline", text: "\u2460 SPEC" },
-    { parts: [{cls:"prompt",text:"orchestrator $"},{cls:"cmd",text:" pipeline-advance.sh spec \"User login\""}] },
-    { delay: 500 },
-    { cls: "check", text: "   \u2713 Spec card created \u2192 user approved" },
-    { delay: 700 },
-    { cls: "pipeline", text: "\u2461 BUILDER" },
-    { parts: [{cls:"prompt",text:"orchestrator $"},{cls:"cmd",text:" dispatch backend-builder"}] },
-    { delay: 400 },
-    { parts: [{cls:"file",text:"   \u2192 src/Auth/LoginHandler.cs"},{cls:"dim",text:" (3 edits)"}] },
-    { parts: [{cls:"file",text:"   \u2192 tests/Auth/LoginTests.cs"},{cls:"dim",text:" (1 edit)"}] },
-    { cls: "check", text: "   \u2713 Builder complete \u2014 scope clean, 0 blocks" },
-    { delay: 700 },
-    { cls: "pipeline", text: "\u2462 REVIEWER" },
-    { parts: [{cls:"prompt",text:"orchestrator $"},{cls:"cmd",text:" dispatch code-reviewer"}] },
-    { delay: 500 },
-    { cls: "info", text: "   \u26a0 Nullable field Email missing null-check in DTO" },
-    { cls: "check", text: "   \u2713 Builder fixed \u2192 Reviewer approved" },
-    { delay: 700 },
-    { cls: "pipeline", text: "\u2463 VERIFIER" },
-    { parts: [{cls:"prompt",text:"orchestrator $"},{cls:"cmd",text:" verify-all.sh"}] },
-    { delay: 500 },
-    { cls: "check", text: "   \u2713 dotnet build \u2014 OK" },
-    { cls: "check", text: "   \u2713 dotnet test \u2014 47 passed, 0 failed" },
-    { cls: "check", text: "   \u2713 Cross-layer types \u2014 DTO \u2194 TS match" },
-    { delay: 900 },
-    { parts: [{cls:"prompt",text:"orchestrator $"},{cls:"cmd",text:" APD_ORCHESTRATOR_COMMIT=1 git commit -m \"feat: user login\""}] },
-    { delay: 600 },
-    { cls: "success", text: "\u2705 Commit successful \u2014 pipeline reset \u2014 session-log updated" },
-    { delay: 400 },
-    { spacer: true },
-    { cls: "summary", text: "   8 files \u00b7 4 phases \u00b7 1 fix from review \u00b7 0 skipped steps" },
-    { delay: 500 },
-    { cls: "dim", text: "   Error \u2192 Rule \u2192 Guardrail. Repeat." },
+
+  {p:"Pipeline \u2014 spec to commit",items:[
+    function(){return line(mk('dim','\u2500\u2500 Step 1: Spec \u2500\u2500'));},
+    {d:400},
+    function(){return line(mk('v','orchestrator $ '),mk('w','apd pipeline spec "Add user login"'));},
+    {d:500},
+    function(){return line('  ',mk('vb','APD'),mk('w',' '),mk('v','\u25a0'),mk('w',' '),mk('vb','Spec:'),mk('w',' '),mk('blu','"Add user login"'));},
+    function(){return line('  ',mk('v','\u25a0 spec'),mk('dim',' \u2192 '),mk('blu','\u25a1 builder'),mk('dim',' \u2192 '),mk('org','\u25a1 reviewer'),mk('dim',' \u2192 '),mk('grn','\u25a1 verifier'),mk('dim',' \u2192 commit'));},
+    {d:300},
+    function(){return line(mk('grn','  \u2713'),mk('w',' spec-card.md frozen \u2014 sha256 hash saved'));},
+    function(){return line(mk('grn','  \u2713'),mk('w',' R1-R3 acceptance criteria locked (max 7)'));},
+    {d:700},
+
+    function(){return line(mk('dim','\u2500\u2500 Step 2: Builder \u2500\u2500'));},
+    {d:400},
+    function(){return line(mk('v','orchestrator $ '),mk('w','dispatch backend-api'));},
+    {d:300},
+    function(){return line('  ',mk('blu','\u2606'),mk('w',' '),mk('blu','backend-api'));},
+    function(){return line(mk('dim','    \u2192 src/Auth/LoginHandler.cs (3 edits)'));},
+    function(){return line(mk('dim','    \u2192 tests/Auth/LoginTests.cs // @trace R1 R2 R3'));},
+    {d:400},
+    function(){return line(mk('v','orchestrator $ '),mk('w','apd pipeline builder'));},
+    {d:300},
+    function(){return line('  ',mk('vb','APD'),mk('w',' '),mk('v','\u25a0'),mk('w',' '),mk('vb','Builder Complete'),mk('dim',' +4m 12s'));},
+    function(){return line('  ',mk('v','\u25a0 spec'),mk('dim',' \u2192 '),mk('blu','\u25a0 builder'),mk('dim',' \u2192 '),mk('org','\u25a0 reviewer'),mk('dim',' \u2192 '),mk('grn','\u25a1 verifier'),mk('dim',' \u2192 commit'));},
+    {d:700},
+
+    function(){return line(mk('dim','\u2500\u2500 Step 3: Reviewer \u2500\u2500'));},
+    {d:400},
+    function(){return line(mk('v','orchestrator $ '),mk('w','dispatch code-reviewer'));},
+    {d:300},
+    function(){return line('  ',mk('org','\u2606'),mk('w',' '),mk('org','code-reviewer'));},
+    function(){return line(mk('ylw','  ! Nullable Email \u2014 missing null-check'));},
+    function(){return line(mk('grn','  \u2713'),mk('w',' Builder fixed \u2192 Reviewer approved'));},
+    {d:500},
+
+    function(){return line(mk('dim','\u2500\u2500 Step 3b: Adversarial \u2500\u2500'));},
+    {d:400},
+    function(){return line(mk('v','orchestrator $ '),mk('w','dispatch adversarial-reviewer'));},
+    {d:300},
+    function(){return line('  ',mk('red','\u2606'),mk('w',' '),mk('red','adversarial-reviewer'),mk('dim',' (sonnet/max, memory: none)'));},
+    function(){return line(mk('dim','  Zero context \u2014 judges code without knowing the spec'));},
+    function(){return line(mk('grn','  \u2713'),mk('w',' No findings \u2014 code looks solid'));},
+    {d:700},
+
+    function(){return line(mk('dim','\u2500\u2500 Step 4: Verifier \u2500\u2500'));},
+    {d:400},
+    function(){return line(mk('v','orchestrator $ '),mk('w','apd pipeline verifier'));},
+    {d:300},
+    function(){return line(mk('grn','  \u2713'),mk('w',' Spec frozen \u2014 hash matches'));},
+    function(){return line(mk('grn','  \u2713'),mk('w',' Trace: 3/3 (R1, R2, R3)'));},
+    function(){return line(mk('grn','  \u2713'),mk('w',' Build: 0 errors'));},
+    function(){return line(mk('grn','  \u2713'),mk('w',' Tests: 47 passed'));},
+    {d:400},
+    function(){return line('  ',mk('vb','APD'),mk('w',' '),mk('v','\u25a0'),mk('w',' '),mk('vb','COMMIT ALLOWED'),mk('dim',' total: 9m 20s'));},
+    function(){return line('  ',mk('v','\u25a0 spec'),mk('dim',' \u2192 '),mk('blu','\u25a0 builder'),mk('dim',' \u2192 '),mk('org','\u25a0 reviewer'),mk('dim',' \u2192 '),mk('grn','\u25a0 verifier'),mk('dim',' \u2192 commit'));},
+    {d:600},
+
+    function(){return line(mk('v','orchestrator $ '),mk('w','APD_ORCHESTRATOR_COMMIT=1 git commit -m "feat: user login"'));},
+    {d:500},
+    function(){return line(mk('grn','\u2713 Commit successful'),mk('dim',' \u2014 pipeline reset \u2014 session-log updated'));},
+    {d:300},
+    function(){return spacer();},
+    function(){return line(mk('w',' 4 files \u00b7 5 phases \u00b7 1 review fix \u00b7 3/3 traced \u00b7 0 skipped'));},
+  ]},
+
+  {p:"Doctor \u2014 diagnostics",items:[
+    {d:400},
+    function(){return line(mk('v','orchestrator $ '),mk('w','apd doctor'));},
+    {d:500},
+    function(){return line('  ',mk('vb','APD'),mk('w',' '),mk('v','\u25a0'),mk('w',' '),mk('vb','Pipeline Doctor'));},
+    {d:200},
+    function(){return line(mk('grn','  \u2713'),mk('w',' Pipeline: 4/4 steps done'));},
+    function(){return line(mk('grn','  \u2713'),mk('w',' Spec: 3 criteria, frozen'));},
+    function(){return line(mk('grn','  \u2713'),mk('w',' Guards: 8/8 active'));},
+    function(){return line(mk('grn','  \u2713'),mk('w',' Trace: 3/3 covered'));},
+    function(){return line(mk('grn','  \u2713'),mk('w',' Agents: 8 registered'));},
+    {d:200},
+    function(){return line(mk('grn','  PASS: 24'),mk('w','  FAIL: 0  WARN: 0'));},
+    {d:500},
   ]},
 ];
 
-function addLine(item) {
-  var div = document.createElement('div');
-  div.className = 'line';
-
-  if (item.spacer) {
-    div.classList.add('spacer');
-  } else if (item.parts) {
-    item.parts.forEach(function(p) {
-      var span = document.createElement('span');
-      span.className = p.cls;
-      span.textContent = p.text;
-      div.appendChild(span);
-    });
-  } else if (item.cls) {
-    var span = document.createElement('span');
-    span.className = item.cls;
-    span.textContent = item.text;
-    div.appendChild(span);
-  }
-
-  bodyEl.appendChild(div);
-  requestAnimationFrame(function() {
-    div.classList.add('visible');
-    bodyEl.scrollTop = bodyEl.scrollHeight;
-  });
-  lineIdx++;
+function addEl(el){
+  O.appendChild(el);
+  requestAnimationFrame(function(){el.classList.add('show');O.scrollTop=O.scrollHeight;});
+  I++;
 }
 
-function sleep(ms) {
-  return new Promise(function(resolve) {
-    var id = setTimeout(resolve, ms);
-    timeoutIds.push(id);
-  });
-}
+function wait(ms){return new Promise(function(r){var id=setTimeout(r,ms);T.push(id);});}
 
-async function playScene(scene, sceneIdx, totalScenes) {
-  phaseLabelEl.textContent = scene.phase;
-  phaseLabelEl.classList.add('active');
-
-  var totalLines = scene.lines.length;
-  for (var i = 0; i < totalLines; i++) {
-    var item = scene.lines[i];
-    if (item.delay) {
-      await sleep(item.delay);
-    } else {
-      addLine(item);
-      var pct = ((sceneIdx / totalScenes) + ((i / totalLines) / totalScenes)) * 100;
-      progressEl.style.width = pct + '%';
-      await sleep(80);
-    }
+async function runScene(sc,si,tot){
+  P.textContent=sc.p;P.classList.add('on');
+  var n=sc.items.length;
+  for(var i=0;i<n;i++){
+    var it=sc.items[i];
+    if(it.d){await wait(it.d);}
+    else{addEl(it());B.style.width=((si/tot)+((i/n)/tot))*100+'%';await wait(70);}
   }
 }
 
-async function startDemo() {
-  playBtnEl.disabled = true;
-  playBtnEl.textContent = '\u23f5 Playing...';
-  bodyEl.textContent = '';
-  lineIdx = 0;
-
-  for (var s = 0; s < scenes.length; s++) {
-    if (s > 0) {
-      addLine({ spacer: true });
-      await sleep(800);
-    }
-    await playScene(scenes[s], s, scenes.length);
+async function go(){
+  PB.disabled=true;PB.textContent='\u25b6 Playing...';O.textContent='';I=0;
+  for(var s=0;s<scenes.length;s++){
+    if(s>0){addEl(spacer());await wait(700);}
+    await runScene(scenes[s],s,scenes.length);
   }
-
-  progressEl.style.width = '100%';
-  phaseLabelEl.textContent = 'Demo complete';
-  playBtnEl.disabled = false;
-  playBtnEl.textContent = '\u25b6 Replay';
+  B.style.width='100%';P.textContent='Demo complete';
+  PB.disabled=false;PB.textContent='\u25b6 Replay';
 }
 
-function resetDemo() {
-  timeoutIds.forEach(clearTimeout);
-  timeoutIds = [];
-  bodyEl.textContent = '';
-  var initLine = document.createElement('div');
-  initLine.className = 'line visible';
-  initLine.style.color = '#3a3a4a';
-  initLine.textContent = 'Press Play to start the demo...';
-  bodyEl.appendChild(initLine);
-  progressEl.style.width = '0%';
-  phaseLabelEl.textContent = '';
-  phaseLabelEl.classList.remove('active');
-  playBtnEl.disabled = false;
-  playBtnEl.textContent = '\u25b6 Play Demo';
-  lineIdx = 0;
+function rst(){
+  T.forEach(clearTimeout);T=[];
+  O.textContent='';
+  var d=document.createElement('div');
+  d.className='ln show';
+  var s=document.createElement('span');
+  s.className='dim';
+  s.textContent='Press Play to start...';
+  d.appendChild(s);
+  O.appendChild(d);
+  B.style.width='0%';
+  P.textContent='';P.classList.remove('on');
+  PB.disabled=false;PB.textContent='\u25b6 Play';I=0;
 }
 
-playBtnEl.addEventListener('click', startDemo);
-resetBtnEl.addEventListener('click', resetDemo);
+PB.onclick=go;RB.onclick=rst;rst();
 </script>
 
 </body>
