@@ -13,6 +13,8 @@ mkdir -p "$PIPELINE_DIR"
 
 # File lock — prevent concurrent pipeline operations (POSIX-compatible, no flock)
 LOCK_DIR="$PIPELINE_DIR/.lock"
+# Clean up legacy lock file (from old flock-based implementation)
+[ -f "$LOCK_DIR" ] && rm -f "$LOCK_DIR"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     # Check if lock is stale (>5 minutes old)
     if [ -d "$LOCK_DIR" ]; then
