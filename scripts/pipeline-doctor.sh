@@ -1,0 +1,287 @@
+#!/bin/bash
+# APD Pipeline Doctor — comprehensive diagnostic of pipeline state and enforcement
+#
+# Usage: bash pipeline-doctor.sh [project_dir]
+#
+# Shows: pipeline state, enforcement status, file integrity, guard coverage,
+#        agent registry, GitHub sync, and identifies problems with fix instructions.
+
+source "$(dirname "$0")/lib/resolve-project.sh"
+source "$(dirname "$0")/lib/style.sh"
+
+apd_header "Pipeline Doctor"
+
+# ============================================================
+# 1. PIPELINE STATE
+# ============================================================
+section "Pipeline State"
+
+if [ ! -d "$PIPELINE_DIR" ]; then
+    fail "Pipeline directory does not exist: $PIPELINE_DIR"
+else
+    ok "Pipeline directory: $PIPELINE_DIR"
+fi
+
+# Current task
+if [ -f "$PIPELINE_DIR/spec.done" ]; then
+    TASK_NAME=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done" 2>/dev/null)
+    SPEC_TIME=$(cut -d'|' -f2 "$PIPELINE_DIR/spec.done" 2>/dev/null)
+    ok "Active task: $TASK_NAME ($SPEC_TIME)"
+else
+    echo "    ${D}No active task (pipeline idle)${R}"
+fi
+
+# Step status
+for step in spec builder reviewer verifier; do
+    if [ -f "$PIPELINE_DIR/$step.done" ]; then
+        TS=$(cut -d'|' -f2 "$PIPELINE_DIR/$step.done" 2>/dev/null)
+        pass "$step: done ($TS)"
+    else
+        if [ -f "$PIPELINE_DIR/spec.done" ]; then
+            fail "$step: NOT done"
+        else
+            echo "    ${D}$step: —${R}"
+        fi
+    fi
+done
+
+show_pipeline ""
+
+# ============================================================
+# 2. SPEC CARD
+# ============================================================
+section "Spec Card"
+
+if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+    CRITERIA_COUNT=$(grep -cE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' "$PIPELINE_DIR/spec-card.md" 2>/dev/null || echo 0)
+    pass "spec-card.md exists ($CRITERIA_COUNT criteria)"
+
+    if [ "$CRITERIA_COUNT" -gt 7 ]; then
+        fail "Too many criteria ($CRITERIA_COUNT > max 7) — decompose into smaller tasks"
+    elif [ "$CRITERIA_COUNT" -eq 0 ]; then
+        fail "No R* criteria found"
+    else
+        pass "Criteria count OK ($CRITERIA_COUNT <= 7)"
+    fi
+else
+    if [ -f "$PIPELINE_DIR/spec.done" ]; then
+        fail "spec-card.md MISSING but spec.done exists — spec was deleted mid-pipeline!"
+    else
+        echo "    ${D}No spec-card.md (pipeline idle)${R}"
+    fi
+fi
+
+# ============================================================
+# 3. SPEC FREEZE (HASH)
+# ============================================================
+section "Spec Freeze"
+
+if [ -f "$PIPELINE_DIR/.spec-hash" ]; then
+    ORIGINAL_HASH=$(cat "$PIPELINE_DIR/.spec-hash")
+    if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+        CURRENT_HASH=$(shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1)
+        if [ "$ORIGINAL_HASH" = "$CURRENT_HASH" ]; then
+            pass "Spec frozen — hash matches (${ORIGINAL_HASH:0:12}...)"
+        else
+            fail "SPEC TAMPERED — hash mismatch!"
+            echo "    ${D}Original: ${ORIGINAL_HASH:0:12}...${R}"
+            echo "    ${D}Current:  ${CURRENT_HASH:0:12}...${R}"
+            echo "    ${D}Fix: pipeline-advance.sh rollback → update spec → restart${R}"
+        fi
+    else
+        fail ".spec-hash exists but spec-card.md is missing"
+    fi
+else
+    if [ -f "$PIPELINE_DIR/spec.done" ]; then
+        fail ".spec-hash MISSING — spec freeze not working! Pipeline was created with old version."
+        echo "    ${D}Fix: Update plugin cache and restart pipeline${R}"
+    else
+        echo "    ${D}No hash (pipeline idle)${R}"
+    fi
+fi
+
+# ============================================================
+# 4. IMPLEMENTATION PLAN
+# ============================================================
+section "Implementation Plan"
+
+if [ -f "$PIPELINE_DIR/implementation-plan.md" ]; then
+    LINE_COUNT=$(wc -l < "$PIPELINE_DIR/implementation-plan.md" | tr -d ' ')
+    pass "implementation-plan.md exists ($LINE_COUNT lines)"
+else
+    if [ -f "$PIPELINE_DIR/builder.done" ]; then
+        warn "implementation-plan.md missing but builder already done"
+    elif [ -f "$PIPELINE_DIR/spec.done" ]; then
+        fail "implementation-plan.md MISSING — builder will be BLOCKED"
+        echo "    ${D}Fix: Write plan to .pipeline/implementation-plan.md before dispatching builder${R}"
+    else
+        echo "    ${D}No plan (pipeline idle)${R}"
+    fi
+fi
+
+# ============================================================
+# 5. AGENTS
+# ============================================================
+section "Agent Registry"
+
+if [ -d "$CLAUDE_DIR/agents" ]; then
+    AGENT_COUNT=0
+    HAS_REVIEWER=false
+    HAS_ADVERSARIAL=false
+    for f in "$CLAUDE_DIR/agents"/*.md; do
+        [ -f "$f" ] || continue
+        NAME=$(basename "$f" .md)
+        MODEL=$(grep -m1 '^model:' "$f" 2>/dev/null | sed 's/model:[[:space:]]*//')
+        EFFORT=$(grep -m1 '^effort:' "$f" 2>/dev/null | sed 's/effort:[[:space:]]*//')
+        MEMORY=$(grep -m1 '^memory:' "$f" 2>/dev/null | sed 's/memory:[[:space:]]*//')
+        pass "$NAME (${MODEL:-?}/${EFFORT:-?}${MEMORY:+, memory: $MEMORY})"
+        AGENT_COUNT=$((AGENT_COUNT + 1))
+        echo "$NAME" | grep -qiE 'review' && HAS_REVIEWER=true
+        [ "$NAME" = "adversarial-reviewer" ] && HAS_ADVERSARIAL=true
+    done
+
+    if [ "$HAS_REVIEWER" = false ]; then
+        fail "No code-reviewer agent found — reviewer step will BLOCK"
+    fi
+    if [ "$HAS_ADVERSARIAL" = false ]; then
+        warn "No adversarial-reviewer agent — run /apd-setup to create"
+    fi
+else
+    fail "No agents directory — run /apd-setup"
+fi
+
+# Dispatched agents in current pipeline
+if [ -f "$PIPELINE_DIR/.agents" ]; then
+    echo ""
+    echo "    ${D}Dispatched this pipeline:${R}"
+    while IFS='|' read -r ts evt agent_type agent_id; do
+        [ "$evt" = "stop" ] || continue
+        sc=$(_agent_color "$agent_type")
+        printf "    ${sc}■${R} %s ${D}(%s)${R}\n" "$agent_type" "${agent_id:0:8}"
+    done < "$PIPELINE_DIR/.agents"
+fi
+
+# ============================================================
+# 6. GUARDS
+# ============================================================
+section "Guard Coverage"
+
+GUARDS_OK=true
+for guard in guard-git.sh guard-orchestrator.sh guard-lockfile.sh guard-pipeline-state.sh guard-bash-scope.sh guard-scope.sh guard-secrets.sh guard-permission-denied.sh; do
+    if [ -f "$SCRIPT_DIR/$guard" ] && [ -x "$SCRIPT_DIR/$guard" ]; then
+        pass "$guard"
+    else
+        fail "$guard MISSING or not executable"
+        GUARDS_OK=false
+    fi
+done
+
+# ============================================================
+# 7. TRACE COVERAGE
+# ============================================================
+section "Trace Coverage"
+
+if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+    if [ -f "$SCRIPT_DIR/verify-trace.sh" ]; then
+        TRACE_RESULT=$(bash "$SCRIPT_DIR/verify-trace.sh" --summary 2>/dev/null)
+        if [ -n "$TRACE_RESULT" ]; then
+            TRACE_COVERED=$(echo "$TRACE_RESULT" | cut -d: -f2 | cut -d/ -f1)
+            TRACE_TOTAL=$(echo "$TRACE_RESULT" | cut -d: -f2 | cut -d/ -f2)
+            TRACE_MISSING=$(echo "$TRACE_RESULT" | cut -d: -f3)
+            if [ "$TRACE_COVERED" = "$TRACE_TOTAL" ] && [ "$TRACE_TOTAL" != "0" ]; then
+                pass "Trace coverage: $TRACE_COVERED/$TRACE_TOTAL (all covered)"
+            elif [ "$TRACE_TOTAL" = "0" ]; then
+                warn "No criteria to trace"
+            else
+                fail "Trace coverage: $TRACE_COVERED/$TRACE_TOTAL (missing: $TRACE_MISSING)"
+            fi
+        else
+            echo "    ${D}verify-trace.sh produced no output${R}"
+        fi
+    else
+        fail "verify-trace.sh not found"
+    fi
+else
+    echo "    ${D}No spec-card.md — trace not applicable${R}"
+fi
+
+# ============================================================
+# 8. ADVERSARIAL REVIEW
+# ============================================================
+section "Adversarial Review"
+
+if [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
+    ADV_LINE=$(cat "$PIPELINE_DIR/.adversarial-summary")
+    ADV_T=$(echo "$ADV_LINE" | cut -d: -f2)
+    ADV_A=$(echo "$ADV_LINE" | cut -d: -f3)
+    ADV_D=$(echo "$ADV_LINE" | cut -d: -f4)
+    pass "Summary: $ADV_T findings ($ADV_A accepted, $ADV_D dismissed)"
+else
+    if [ -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ]; then
+        if [ -f "$PIPELINE_DIR/reviewer.done" ]; then
+            warn "Adversarial reviewer configured but not used this task"
+        else
+            echo "    ${D}Not yet (reviewer step not complete)${R}"
+        fi
+    else
+        echo "    ${D}Adversarial reviewer not configured${R}"
+    fi
+fi
+
+# ============================================================
+# 9. GITHUB SYNC
+# ============================================================
+section "GitHub Sync"
+
+if [ -f "$PIPELINE_DIR/.gh-issue" ]; then
+    ISSUE_NUM=$(cat "$PIPELINE_DIR/.gh-issue")
+    pass "Linked to issue #$ISSUE_NUM"
+else
+    if command -v gh &>/dev/null; then
+        warn "gh CLI available but no issue linked (.gh-issue missing)"
+    else
+        echo "    ${D}gh CLI not installed — GitHub sync disabled${R}"
+    fi
+fi
+
+# ============================================================
+# 10. PLUGIN VERSION
+# ============================================================
+section "Plugin"
+
+PLUGIN_VER="unknown"
+if [ -f "$APD_PLUGIN_ROOT/.claude-plugin/plugin.json" ]; then
+    PLUGIN_VER=$(grep '"version"' "$APD_PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+fi
+ok "APD v$PLUGIN_VER (${APD_PLUGIN_ROOT})"
+
+# Check cache freshness
+CACHE_DIR=$(dirname "$APD_PLUGIN_ROOT" 2>/dev/null)
+CACHE_NAME=$(basename "$CACHE_DIR" 2>/dev/null)
+if [ "$CACHE_NAME" != "$PLUGIN_VER" ] 2>/dev/null; then
+    warn "Cache folder ($CACHE_NAME) differs from version ($PLUGIN_VER) — cosmetic, content is correct"
+fi
+
+# ============================================================
+# 11. SHORTCUT
+# ============================================================
+section "Shortcut"
+
+if [ -f "$CLAUDE_DIR/scripts/apd-pipeline" ]; then
+    pass "apd-pipeline shortcut exists"
+else
+    warn "apd-pipeline shortcut missing — run session-start.sh to create"
+fi
+
+# ============================================================
+# SUMMARY
+# ============================================================
+section "Summary"
+printf "    PASS: %s  FAIL: %s  WARN: %s\n" "$PASS_COUNT" "$FAIL_COUNT" "$WARN_COUNT"
+
+if [ "$FAIL_COUNT" -gt 0 ]; then
+    echo ""
+    fail "Pipeline has problems — fix FAIL items above"
+    exit 1
+fi
+exit 0
