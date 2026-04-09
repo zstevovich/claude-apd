@@ -32,6 +32,21 @@ case "$EVENT" in
   SubagentStart)
     echo "${NOW_HUMAN}|start|${AGENT_TYPE}|${AGENT_ID}" >> "$AGENTS_LOG"
     printf "  %s☭%s %s%s%s%s\n" "$ac" "$R" "$ac" "$B" "$AGENT_TYPE" "$R" >&2
+    # Pipeline step reminder — warn if orchestrator skipped pipeline-advance.sh
+    if [ -f "$PIPELINE_DIR/spec.done" ] && [ ! -f "$PIPELINE_DIR/builder.done" ]; then
+        # Builder dispatched without pipeline-advance.sh builder
+        echo "" >&2
+        echo "  ${RED}${B}WARNING: pipeline-advance.sh builder was NOT called before dispatching agent.${R}" >&2
+        echo "  ${RED}Run: bash .claude/scripts/apd-pipeline builder${R}" >&2
+        echo "  ${RED}Pipeline will BLOCK at reviewer step without builder.done${R}" >&2
+        echo "" >&2
+    elif [ -f "$PIPELINE_DIR/builder.done" ] && [ ! -f "$PIPELINE_DIR/reviewer.done" ]; then
+        # Check if this is a reviewer-type agent dispatched without advance
+        if echo "$AGENT_TYPE" | grep -qiE 'review'; then
+            echo "" >&2
+            echo "  ${D}Reminder: Run 'bash .claude/scripts/apd-pipeline reviewer' after review completes${R}" >&2
+        fi
+    fi
     ;;
   SubagentStop)
     echo "${NOW_HUMAN}|stop|${AGENT_TYPE}|${AGENT_ID}" >> "$AGENTS_LOG"
