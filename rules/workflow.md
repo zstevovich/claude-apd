@@ -103,6 +103,9 @@ bash ${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance.sh init "Description"  # Fir
 - NEVER batch multiple phases without a review between each
 - Speed is NOT an excuse for skipping steps
 - This rule is ABSOLUTE and inviolable
+- If a pipeline step fails, do NOT rollback code — fix the issue and retry. Builder work is preserved in the working tree.
+- NEVER use superpowers: or feature-dev: agents for pipeline steps. Pipeline BLOCKS non-project agents. Use: `Agent({ subagent_type: "code-reviewer", prompt: "..." })`
+- Max 7 acceptance criteria per spec. Large features MUST be decomposed into smaller pipeline cycles.
 
 ## 1. Spec card before code
 
@@ -155,6 +158,7 @@ The orchestrator MUST write the spec card to `.claude/.pipeline/spec-card.md` be
 - Does NOT suggest style changes outside scope
 - Runs AUTOMATICALLY after every Builder — **never skip**
 - Reports findings to orchestrator who decides action
+- **Dispatch:** `Agent({ subagent_type: "code-reviewer", prompt: "Review..." })` — NEVER use superpowers:code-reviewer
 
 ### Adversarial Reviewer (dispatched agent)
 - **Model:** sonnet | **Effort:** max

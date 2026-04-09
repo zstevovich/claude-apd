@@ -68,6 +68,16 @@ case "$STEP" in
             echo "    - R2: Second requirement" >&2
             exit 1
         fi
+        # Check criteria count — too many means feature should be decomposed
+        MAX_CRITERIA=7
+        CRITERIA_COUNT=$(grep -cE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' "$PIPELINE_DIR/spec-card.md" 2>/dev/null || echo 0)
+        if [ "$CRITERIA_COUNT" -gt "$MAX_CRITERIA" ]; then
+            echo "BLOCKED: spec-card.md has $CRITERIA_COUNT criteria (max $MAX_CRITERIA)." >&2
+            echo "" >&2
+            echo "  Decompose into smaller tasks — each task should be one pipeline cycle." >&2
+            echo "  Large features = large rollbacks. Small tasks = safe commits." >&2
+            exit 1
+        fi
 
         # Archive agent log before clearing (permanent audit trail)
         if [ -f "$PIPELINE_DIR/.agents" ]; then
@@ -77,6 +87,13 @@ case "$STEP" in
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
         apd_spec_header "$ARG"
         show_pipeline "builder"
+        # Pre-flight checklist
+        echo "" >&2
+        echo "    ${D}Next steps:${R}" >&2
+        echo "    ${D}1. Write .pipeline/implementation-plan.md (files + changes)${R}" >&2
+        echo "    ${D}2. Dispatch project builders: Agent({ subagent_type: \"<agent-name>\", ... })${R}" >&2
+        echo "    ${D}3. Dispatch project reviewer: Agent({ subagent_type: \"code-reviewer\", ... })${R}" >&2
+        echo "    ${D}   NEVER use superpowers: or feature-dev: agents — pipeline will BLOCK${R}" >&2
         ;;
 
     builder)
@@ -173,12 +190,15 @@ case "$STEP" in
             echo "BLOCKED: No project Reviewer agent was dispatched!" >&2
             echo "" >&2
             if [ -n "$BLOCKED_AGENTS" ]; then
-                echo "  Rejected conflicting agents: ${BLOCKED_AGENTS%, }" >&2
-                echo "  Use the project's code-reviewer agent (opus/max, read-only)." >&2
-            else
-                echo "  Code review is MANDATORY. Dispatch the code-reviewer agent." >&2
+                echo "  Rejected: ${BLOCKED_AGENTS%, }" >&2
+                echo "  These are plugin agents, NOT project agents." >&2
+                echo "" >&2
             fi
-            echo "  The reviewer finds bugs, risks, and security issues." >&2
+            echo "  Dispatch the project code-reviewer using the Agent tool:" >&2
+            echo "    Agent({ subagent_type: \"code-reviewer\", prompt: \"Review...\" })" >&2
+            echo "" >&2
+            echo "  NEVER use superpowers:code-reviewer or feature-dev:code-reviewer." >&2
+            echo "  If reviewer step fails, do NOT rollback code — fix the dispatch and retry." >&2
             exit 1
         fi
 
