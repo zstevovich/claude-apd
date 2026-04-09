@@ -6,7 +6,7 @@ Tracked results from APD pipeline usage in production projects. Not every task �
 
 <table>
 <tr>
-<td valign="top">
+<td width="50%" valign="top">
 
 ### #1 — XML Export Računa
 
@@ -25,7 +25,7 @@ Tracked results from APD pipeline usage in production projects. Not every task �
 First spec traceability run. Guardrails caught verify-failed and unprefixed commit.
 
 </td>
-<td valign="top">
+<td width="50%" valign="top">
 
 ### #2 — Export Računa (XML + CSV)
 
@@ -41,26 +41,7 @@ First spec traceability run. Guardrails caught verify-failed and unprefixed comm
 | **Guard blocks** | 0 |
 | **Adversarial** | 4 findings (3 accepted, 1 dismissed) |
 
-First adversarial reviewer run. Found CSV separator issue for Serbian locale — only adversarial caught it (no spec context needed).
-
-</td>
-<td valign="top">
-
-### #3
-
-| | |
-|---|---|
-| **Date** | — |
-| **Project** | — |
-| **Effort** | — |
-| **Duration** | — |
-| **Spec coverage** | — |
-| **Agents** | — |
-| **Iterations** | — |
-| **Guard blocks** | — |
-| **Adversarial** | — |
-
-*Next run...*
+First adversarial reviewer run. Found CSV separator issue for Serbian locale — only adversarial caught it.
 
 </td>
 </tr>
