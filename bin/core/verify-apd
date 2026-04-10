@@ -145,8 +145,9 @@ fi
 
 # Plugin scripts — exist and executable at $SCRIPT_DIR
 PLUGIN_SCRIPTS=(
-    guard-git guard-scope guard-bash-scope
+    guard-git guard-scope guard-bash-scope guard-send-message
     guard-secrets guard-lockfile guard-permission-denied guard-orchestrator
+    guard-pipeline-state
     track-agent pipeline-advance pipeline-gate pipeline-post-commit
     rotate-session-log session-start
 )

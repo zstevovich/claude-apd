@@ -44,7 +44,7 @@ source "$(dirname "$0")/../lib/style.sh"
 
 # --- Agent validation ---
 # Delegates to compiled Go binary for tamper-proof validation.
-# Binary checks: timestamp format, agent_id hex, start/stop pairs, duration, shadow log.
+# Binary checks: timestamp format, agent_id hex, start/stop pairs, duration.
 # Orchestrator cannot read binary source code to learn validation rules.
 # Falls back to basic check if binary is not available.
 validate_agent_entry() {
@@ -76,6 +76,7 @@ validate_agent_entry() {
         echo "  ${MARK_FAIL} $agent_name: no ${look_for_evt} entry found" >&2
         return 1
     fi
+    # Binary absent: skip verification for backward compat with unsigned .done files
     return 0
 }
 
@@ -850,10 +851,10 @@ EOF
             exit 1
         fi
 
-        echo "${NOW}|${NOW_HUMAN}|INIT: ${ARG}" > "$PIPELINE_DIR/spec.done"
-        echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/builder.done"
-        echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
-        echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
+        create_done "spec" "INIT: ${ARG}"
+        create_done "builder"
+        create_done "reviewer"
+        create_done "verifier"
 
         apd_header "Initial Setup"
         echo "    $ARG"

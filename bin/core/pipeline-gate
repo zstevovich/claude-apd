@@ -33,7 +33,7 @@ if [ ${#MISSING[@]} -gt 0 ] || [ ${#FORGED[@]} -gt 0 ]; then
 
     for step in spec builder reviewer verifier; do
         sc=$(_step_color "$step")
-        if printf '%s\n' "${FORGED[@]}" 2>/dev/null | grep -qx "$step"; then
+        if [ ${#FORGED[@]} -gt 0 ] && printf '%s\n' "${FORGED[@]}" | grep -qx "$step"; then
             printf "    %s□%s %s  ${RED}← forged${R}\n" "$sc" "$R" "$step" >&2
         elif [ -f "$PIPELINE_DIR/$step.done" ]; then
             printf "    %s■%s %s\n" "$sc" "$R" "$step" >&2

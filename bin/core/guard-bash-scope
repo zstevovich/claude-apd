@@ -48,7 +48,7 @@ done
 for ppath in "${PROTECTED_PIPELINE[@]}"; do
   if [[ "$COMMAND" == *"$ppath"* ]]; then
     # Allow APD's own tools to write to .pipeline/
-    if [[ "$COMMAND" == *"pipeline-advance"* ]] || [[ "$COMMAND" == *"apd pipeline"* ]] || [[ "$COMMAND" == *"apd "* ]] || [[ "$COMMAND" == *"verify-apd"* ]] || [[ "$COMMAND" == *"pipeline-post-commit"* ]] || [[ "$COMMAND" == *"pipeline-gate"* ]]; then
+    if [[ "$COMMAND" == *"pipeline-advance"* ]] || [[ "$COMMAND" == *"apd pipeline"* ]] || [[ "$COMMAND" == *"verify-apd"* ]] || [[ "$COMMAND" == *"pipeline-post-commit"* ]] || [[ "$COMMAND" == *"pipeline-gate"* ]]; then
       break
     fi
     # Check if command contains a write operation targeting protected path
