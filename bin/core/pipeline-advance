@@ -226,7 +226,7 @@ case "$STEP" in
         # Superpowers agents that conflict with APD pipeline are rejected.
         # Other plugin agents (figma, context7, etc.) are allowed alongside project agents.
         AGENTS_LOG="$PIPELINE_DIR/.agents"
-        SPEC_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/spec.done")
+        SPEC_TS=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f1)
         BUILDER_RAN=""
         BLOCKED_AGENTS=""
         SUSPICIOUS=""
@@ -369,7 +369,7 @@ case "$STEP" in
             exit 1
         fi
 
-        BUILDER_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/builder.done")
+        BUILDER_TS=$(head -1 "$PIPELINE_DIR/builder.done" | cut -d'|' -f1)
         ELAPSED=$(format_duration $((NOW - BUILDER_TS)))
         create_done "reviewer"
 
@@ -396,8 +396,8 @@ case "$STEP" in
             exit 1
         fi
         verify_done "reviewer" || exit 1
-        REVIEWER_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/reviewer.done")
-        SPEC_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/spec.done")
+        REVIEWER_TS=$(head -1 "$PIPELINE_DIR/reviewer.done" | cut -d'|' -f1)
+        SPEC_TS=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f1)
         ELAPSED=$(format_duration $((NOW - REVIEWER_TS)))
         TOTAL=$(format_duration $((NOW - SPEC_TS)))
         # Verify spec-card.md was not modified after spec step (frozen)
@@ -453,19 +453,19 @@ case "$STEP" in
     reset)
         # Auto-append to session-log before clearing flags
         if [ -f "$PIPELINE_DIR/spec.done" ]; then
-            TASK_NAME=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done" 2>/dev/null)
-            SPEC_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/spec.done" 2>/dev/null)
+            TASK_NAME=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f3 2>/dev/null)
+            SPEC_TS=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f1 2>/dev/null)
             TOTAL=""
             if [ -f "$PIPELINE_DIR/verifier.done" ] && [ -n "$SPEC_TS" ]; then
-                VERIFIER_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/verifier.done" 2>/dev/null)
+                VERIFIER_TS=$(head -1 "$PIPELINE_DIR/verifier.done" | cut -d'|' -f1 2>/dev/null)
                 TOTAL=" ($(format_duration $((VERIFIER_TS - SPEC_TS))))"
             fi
             # Append to metrics log
             METRICS_LOG="$MEMORY_DIR/pipeline-metrics.log"
             SPEC_TS_V=${SPEC_TS:-0}
-            BUILDER_TS_V=$(cut -d'|' -f1 "$PIPELINE_DIR/builder.done" 2>/dev/null || echo 0)
-            REVIEWER_TS_V=$(cut -d'|' -f1 "$PIPELINE_DIR/reviewer.done" 2>/dev/null || echo 0)
-            VERIFIER_TS_V=$(cut -d'|' -f1 "$PIPELINE_DIR/verifier.done" 2>/dev/null || echo 0)
+            BUILDER_TS_V=$(head -1 "$PIPELINE_DIR/builder.done" | cut -d'|' -f1 2>/dev/null || echo 0)
+            REVIEWER_TS_V=$(head -1 "$PIPELINE_DIR/reviewer.done" | cut -d'|' -f1 2>/dev/null || echo 0)
+            VERIFIER_TS_V=$(head -1 "$PIPELINE_DIR/verifier.done" | cut -d'|' -f1 2>/dev/null || echo 0)
             STATUS="completed"
             if [ ! -f "$PIPELINE_DIR/verifier.done" ]; then STATUS="partial"; fi
             # Read adversarial stats for metrics
@@ -528,9 +528,9 @@ case "$STEP" in
                 # (indicates rollback was used and passed again)
                 PROBLEMS="No problems"
                 if [ -f "$PIPELINE_DIR/verifier.done" ] && [ -f "$PIPELINE_DIR/reviewer.done" ]; then
-                    V_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/verifier.done" 2>/dev/null || echo 0)
-                    R_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/reviewer.done" 2>/dev/null || echo 0)
-                    B_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/builder.done" 2>/dev/null || echo 0)
+                    V_TS=$(head -1 "$PIPELINE_DIR/verifier.done" | cut -d'|' -f1 2>/dev/null || echo 0)
+                    R_TS=$(head -1 "$PIPELINE_DIR/reviewer.done" | cut -d'|' -f1 2>/dev/null || echo 0)
+                    B_TS=$(head -1 "$PIPELINE_DIR/builder.done" | cut -d'|' -f1 2>/dev/null || echo 0)
                     # If builder->reviewer took >60% of total time, possible problem
                     if [ "$V_TS" -gt 0 ] && [ "$SPEC_TS" -gt 0 ] && [ "$B_TS" -gt 0 ] && [ "$R_TS" -gt 0 ]; then
                         TOTAL_DUR=$((V_TS - SPEC_TS))
@@ -654,9 +654,9 @@ EOF
         SPEC_TIME=""
         NEXT_STEP=""
         if [ -f "$PIPELINE_DIR/spec.done" ]; then
-            TASK=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done")
-            SPEC_TIME=$(cut -d'|' -f2 "$PIPELINE_DIR/spec.done")
-            SPEC_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/spec.done")
+            TASK=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f3)
+            SPEC_TIME=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f2)
+            SPEC_TS=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f1)
         fi
 
         # Find next step
@@ -679,7 +679,7 @@ EOF
         PREV_TS="${SPEC_TS:-}"
         for step in spec builder reviewer verifier; do
             if [ -f "$PIPELINE_DIR/$step.done" ]; then
-                STEP_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/$step.done")
+                STEP_TS=$(head -1 "$PIPELINE_DIR/$step.done" | cut -d'|' -f1)
                 if [ "$step" != "spec" ] && [ -n "$PREV_TS" ]; then
                     DELTA=$(format_duration $((STEP_TS - PREV_TS)))
                     sc=$(_step_color "$step")

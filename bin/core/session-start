@@ -114,7 +114,7 @@ if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
             STALE_TASK="[unknown]"
             STALE_STEP="spec"
             if [ -f "$PIPELINE_DIR/spec.done" ]; then
-                STALE_TASK=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done" 2>/dev/null)
+                STALE_TASK=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f3 2>/dev/null)
             fi
             for step in verifier reviewer builder spec; do
                 if [ -f "$PIPELINE_DIR/$step.done" ]; then
@@ -149,7 +149,7 @@ if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
     if [ "$INCOMPLETE" = true ] && [ -n "$NEXT_STEP" ]; then
         CURRENT_TASK="[unknown]"
         if [ -f "$PIPELINE_DIR/spec.done" ]; then
-            CURRENT_TASK=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done" 2>/dev/null)
+            CURRENT_TASK=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f3 2>/dev/null)
         fi
         echo "  -> Pipeline in progress: $CURRENT_TASK — next step: $NEXT_STEP"
     fi
@@ -219,7 +219,7 @@ if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null; then
     TASK="[idle]"
     NEXT_STEP=""
     if [ -f "$PIPELINE_DIR/spec.done" ]; then
-        TASK=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done" 2>/dev/null)
+        TASK=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f3 2>/dev/null)
     fi
     for s in spec builder reviewer verifier; do
         if [ ! -f "$PIPELINE_DIR/$s.done" ]; then

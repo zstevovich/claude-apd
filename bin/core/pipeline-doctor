@@ -24,8 +24,8 @@ fi
 
 # Current task
 if [ -f "$PIPELINE_DIR/spec.done" ]; then
-    TASK_NAME=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done" 2>/dev/null)
-    SPEC_TIME=$(cut -d'|' -f2 "$PIPELINE_DIR/spec.done" 2>/dev/null)
+    TASK_NAME=$(head -1 "$PIPELINE_DIR/spec.done" 2>/dev/null | cut -d'|' -f3)
+    SPEC_TIME=$(head -1 "$PIPELINE_DIR/spec.done" 2>/dev/null | cut -d'|' -f2)
     ok "Active task: $TASK_NAME ($SPEC_TIME)"
 else
     echo "    ${D}No active task (pipeline idle)${R}"
@@ -34,7 +34,7 @@ fi
 # Step status
 for step in spec builder reviewer verifier; do
     if [ -f "$PIPELINE_DIR/$step.done" ]; then
-        TS=$(cut -d'|' -f2 "$PIPELINE_DIR/$step.done" 2>/dev/null)
+        TS=$(head -1 "$PIPELINE_DIR/$step.done" 2>/dev/null | cut -d'|' -f2)
         pass "$step: done ($TS)"
     else
         if [ -f "$PIPELINE_DIR/spec.done" ]; then
