@@ -142,7 +142,34 @@ Most chaotic run — 7 block attempts: direct code edit, pipeline-advance withou
 </td>
 <td width="50%" valign="top">
 
-### #8
+### #8 — Create Tags (M:N)
+
+| | |
+|---|---|
+| **Date** | 2026-04-10 |
+| **Project** | Test Blog (PHP) |
+| **Effort** | high |
+| **Duration** | 14m 57s |
+| **Spec coverage** | 7/7 |
+| **Agents** | 10 dispatches (backend×3, frontend×3, reviewer×2, adversarial×1, testing×1) |
+| **Guard blocks** | 0 |
+| **Adversarial** | 8 findings (3 accepted, 5 dismissed) |
+
+Cleanest run ever. Zero bypass attempts. First run on v4.1.0 with HMAC-signed .done files and compiled Go validator. Adversarial hard gate forced dispatch, 3 findings accepted and fixed. All agent IDs are real CC hex IDs with valid start/stop pairs.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### #9
+
+*Next run...*
+
+</td>
+<td width="50%" valign="top">
+
+### #10
 
 *Next run...*
 
