@@ -108,6 +108,16 @@ validate_agent_entry() {
         return 1
     fi
 
+    # Shadow verification: entry must exist in hook-written shadow log
+    # Shadow log lives in plugin cache — orchestrator cannot write there (guard-bash-scope blocks)
+    local shadow_log="${APD_PLUGIN_ROOT:+${APD_PLUGIN_ROOT}/.agents-shadow}"
+    if [ -n "$shadow_log" ] && [ -f "$shadow_log" ]; then
+        if ! grep -qF "$stop_line" "$shadow_log" 2>/dev/null; then
+            echo "  ${MARK_FAIL} Suspicious: $agent_name not in shadow log (fabricated entry)" >&2
+            return 1
+        fi
+    fi
+
     return 0
 }
 
@@ -608,6 +618,8 @@ EOF
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
         rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash"
+        # Clear shadow log (lives in plugin cache)
+        [ -n "${APD_PLUGIN_ROOT:-}" ] && rm -f "${APD_PLUGIN_ROOT}/.agents-shadow"
         echo "Pipeline reset. Ready for new task."
         ;;
 
