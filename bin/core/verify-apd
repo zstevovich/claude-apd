@@ -574,6 +574,7 @@ restore_pipeline_state() {
     [ "$CREATED_BUILDER" = true ] && rm -f "$CLAUDE_DIR/agents/backend-builder.md"
     [ "$CREATED_REVIEWER" = true ] && rm -f "$CLAUDE_DIR/agents/code-reviewer.md"
     [ "$CREATED_ADVERSARIAL" = true ] && rm -f "$CLAUDE_DIR/agents/adversarial-reviewer.md"
+    rm -f "$PROJECT_DIR/tests/apd-verify-trace-test.tmp"
 }
 trap restore_pipeline_state EXIT INT TERM
 
@@ -602,8 +603,22 @@ if [ -f "$CLAUDE_DIR/memory/session-log.md" ]; then
     fi
 fi
 
+# Helper: clean [fill in] entries from session-log (reset creates them)
+_clean_fill_in() {
+    local LOG="$CLAUDE_DIR/memory/session-log.md"
+    [ -f "$LOG" ] || return 0
+    local LAST_LINE
+    LAST_LINE=$(grep -n '^## \[' "$LOG" | tail -1 | cut -d: -f1)
+    if [ -n "$LAST_LINE" ]; then
+        if tail -n +"$LAST_LINE" "$LOG" | grep -q '\[fill in' 2>/dev/null; then
+            head -n $((LAST_LINE - 1)) "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+        fi
+    fi
+}
+
 # Clean start
 bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
+_clean_fill_in
 
 # pipeline-gate: must block when no steps exist
 RESULT=$(bash "$SCRIPT_DIR/pipeline-gate" 2>&1)
@@ -694,13 +709,19 @@ else
     fail "pipeline-advance reviewer should block without agent (exit: $EXIT_CODE)"
 fi
 
+# Adversarial gate: create agent BEFORE reviewer so .adversarial-pending gets created
+if [ ! -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ]; then
+    printf '%s\n' '---' 'name: adversarial-reviewer' '---' > "$CLAUDE_DIR/agents/adversarial-reviewer.md"
+    CREATED_ADVERSARIAL=true
+fi
+
 # Simulate reviewer agent dispatch (start + stop with >3s gap)
 _FAKE_START=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
 _FAKE_STOP=$(date +"%Y-%m-%d %H:%M:%S")
 echo "${_FAKE_START}|start|code-reviewer|a0000000000000002" >> "$AGENTS_LOG"
 echo "${_FAKE_STOP}|stop|code-reviewer|a0000000000000002" >> "$AGENTS_LOG"
 
-# Reviewer WITH agent dispatch — should pass
+# Reviewer WITH agent dispatch — should pass and create .adversarial-pending
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" reviewer 2>&1)
 if echo "$RESULT" | grep -q "Reviewer Complete"; then
     pass "pipeline-advance: reviewer"
@@ -708,11 +729,9 @@ else
     fail "pipeline-advance reviewer ERROR: $RESULT"
 fi
 
-# Adversarial gate: create agent to trigger the gate
-if [ ! -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ]; then
-    printf '%s\n' '---' 'name: adversarial-reviewer' '---' > "$CLAUDE_DIR/agents/adversarial-reviewer.md"
-    CREATED_ADVERSARIAL=true
-fi
+# Create fake test file with trace marker so traceability check passes
+mkdir -p "$PROJECT_DIR/tests"
+echo "// @trace R1" > "$PROJECT_DIR/tests/apd-verify-trace-test.tmp"
 
 # Verifier must BLOCK when .adversarial-pending exists without .adversarial-summary
 if [ ! -f "$PIPELINE_DIR/.adversarial-pending" ]; then
@@ -738,14 +757,16 @@ fi
 
 # Adversarial opt-out test: full pipeline restart with skip in spec-card
 bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
+_clean_fill_in
 cat > "$PIPELINE_DIR/spec-card.md" << 'SPECEOF2'
 ## APD-VERIFY-OPT-OUT
 **Acceptance criteria:**
 - R1: Verify opt-out works
 adversarial: skip — test verification
 SPECEOF2
-echo "## Plan: APD-VERIFY-OPT-OUT" > "$PIPELINE_DIR/implementation-plan.md"
 bash "$SCRIPT_DIR/pipeline-advance" spec "APD-VERIFY-OPT-OUT" >/dev/null 2>&1
+# Plan AFTER spec (spec clears all files including implementation-plan.md)
+echo "## Plan: APD-VERIFY-OPT-OUT" > "$PIPELINE_DIR/implementation-plan.md"
 # Builder dispatch
 _FAKE_START=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
 _FAKE_STOP=$(date +"%Y-%m-%d %H:%M:%S")
