@@ -167,7 +167,15 @@ FOOTER
   "permissions": {
     "allow": [
       "Edit(.claude/memory/**)",
-      "Write(.claude/memory/**)"
+      "Write(.claude/memory/**)",
+      "Write(.claude/.pipeline/spec-card.md)",
+      "Write(.claude/.pipeline/implementation-plan.md)",
+      "Write(.claude/.pipeline/.adversarial-summary)",
+      "Edit(.claude/.pipeline/spec-card.md)",
+      "Edit(.claude/.pipeline/implementation-plan.md)",
+      "Edit(.claude/.pipeline/.adversarial-summary)",
+      "Bash(bash .claude/bin/apd *)",
+      "Bash(bash .claude/bin/apd pipeline *)"
     ]
   },
   "enabledPlugins": {
@@ -349,27 +357,60 @@ maxTurns: 20' "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
             FIXES=$((FIXES + 1))
         fi
 
-        # Permissions — auto-allow memory writes
-        if grep -q '"permissions"' "$CLAUDE_DIR/settings.json" 2>/dev/null; then
-            ok "permissions configured"
+        # Permissions — auto-allow memory + pipeline writes + apd commands
+        PERMS_MISSING=false
+        for perm in "Write(.claude/.pipeline/spec-card.md)" "Bash(bash .claude/bin/apd *)"; do
+            if ! grep -qF "$perm" "$CLAUDE_DIR/settings.json" 2>/dev/null; then
+                PERMS_MISSING=true
+                break
+            fi
+        done
+        if [ "$PERMS_MISSING" = true ]; then
+            # Rebuild permissions array with all required entries
+            python3 -c "
+import json, sys
+with open('$CLAUDE_DIR/settings.json') as f:
+    s = json.load(f)
+required = [
+    'Edit(.claude/memory/**)', 'Write(.claude/memory/**)',
+    'Write(.claude/.pipeline/spec-card.md)', 'Write(.claude/.pipeline/implementation-plan.md)',
+    'Write(.claude/.pipeline/.adversarial-summary)', 'Edit(.claude/.pipeline/spec-card.md)',
+    'Edit(.claude/.pipeline/implementation-plan.md)', 'Edit(.claude/.pipeline/.adversarial-summary)',
+    'Bash(bash .claude/bin/apd *)', 'Bash(bash .claude/bin/apd pipeline *)'
+]
+existing = s.get('permissions', {}).get('allow', [])
+merged = list(dict.fromkeys(existing + required))
+s.setdefault('permissions', {})['allow'] = merged
+with open('$CLAUDE_DIR/settings.json', 'w') as f:
+    json.dump(s, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+" 2>/dev/null && fix "Updated permissions (pipeline + apd commands)" && FIXES=$((FIXES + 1)) || warn "Could not update permissions (python3 required)"
         else
-            tmp=$(mktemp)
-            awk '
-            /^}$/ {
-                print "  ,\"permissions\": {"
-                print "    \"allow\": ["
-                print "      \"Edit(.claude/memory/**)\","
-                print "      \"Write(.claude/memory/**)\""
-                print "    ]"
-                print "  }"
-                print "}"
-                next
-            }
-            { print }
-            ' "$CLAUDE_DIR/settings.json" > "$tmp" && mv "$tmp" "$CLAUDE_DIR/settings.json"
-            fix "Added permissions (auto-allow memory writes)"
+            ok "permissions (pipeline + apd commands)"
+        fi
+    fi
+
+    # --- Stale paths and legacy directories ---
+    # Remove legacy script directories that confuse orchestrator
+    for old_dir in "$CLAUDE_DIR/scripts.old" "$CLAUDE_DIR/scripts"; do
+        if [ -d "$old_dir" ] && [ -f "$old_dir/pipeline-advance.sh" -o -f "$old_dir/guard-git.sh" ]; then
+            rm -rf "$old_dir"
+            fix "Removed legacy $(basename "$old_dir")/ directory"
             FIXES=$((FIXES + 1))
         fi
+    done
+
+    # Check for stale pipeline-advance references in project files
+    STALE_FILES=""
+    for check_file in "$CLAUDE_DIR/rules/workflow.md" "$PROJECT_DIR/CLAUDE.md" "$CLAUDE_DIR/memory/MEMORY.md"; do
+        if [ -f "$check_file" ] && grep -qE 'pipeline-advance\.sh|scripts/pipeline-advance|bin/core/pipeline-advance' "$check_file" 2>/dev/null; then
+            STALE_FILES="${STALE_FILES}$(basename "$check_file"), "
+        fi
+    done
+    if [ -n "$STALE_FILES" ]; then
+        warn "Stale pipeline-advance references in: ${STALE_FILES%, }"
+        echo "    ${D}Correct command: bash .claude/bin/apd pipeline <command>${R}"
+        [ "$QUICK" = false ] && FIXES=$((FIXES + 1))
     fi
 
     # --- Memory files ---

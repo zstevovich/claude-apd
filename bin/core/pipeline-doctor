@@ -274,6 +274,31 @@ else
 fi
 
 # ============================================================
+# 12. STALE PATHS & LEGACY FILES
+# ============================================================
+section "Stale Paths"
+
+# Legacy script directories
+LEGACY_FOUND=false
+for old_dir in "$CLAUDE_DIR/scripts.old" "$CLAUDE_DIR/scripts"; do
+    if [ -d "$old_dir" ] && [ -f "$old_dir/pipeline-advance.sh" -o -f "$old_dir/guard-git.sh" ]; then
+        fail "Legacy directory: $(basename "$old_dir")/ — confuses orchestrator"
+        echo "    ${D}Fix: rm -rf $old_dir${R}"
+        LEGACY_FOUND=true
+    fi
+done
+
+# Stale pipeline-advance references
+for check_file in "$CLAUDE_DIR/rules/workflow.md" "$PROJECT_DIR/CLAUDE.md" "$CLAUDE_DIR/memory/MEMORY.md"; do
+    if [ -f "$check_file" ] && grep -qE 'pipeline-advance\.sh|scripts/pipeline-advance|bin/core/pipeline-advance' "$check_file" 2>/dev/null; then
+        warn "Stale path reference in $(basename "$check_file")"
+        echo "    ${D}Correct command: bash .claude/bin/apd pipeline <command>${R}"
+    fi
+done
+
+[ "$LEGACY_FOUND" = false ] && pass "No legacy directories"
+
+# ============================================================
 # SUMMARY
 # ============================================================
 section "Summary"
