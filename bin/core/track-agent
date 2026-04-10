@@ -39,14 +39,14 @@ case "$EVENT" in
         # Builder dispatched without pipeline-advance builder
         echo "" >&2
         echo "  ${RED}${B}WARNING: pipeline-advance builder was NOT called before dispatching agent.${R}" >&2
-        echo "  ${RED}Run: bash .claude/bin/apd-pipeline builder${R}" >&2
+        echo "  ${RED}Run: bash .claude/bin/apd pipeline builder${R}" >&2
         echo "  ${RED}Pipeline will BLOCK at reviewer step without builder.done${R}" >&2
         echo "" >&2
     elif [ -f "$PIPELINE_DIR/builder.done" ] && [ ! -f "$PIPELINE_DIR/reviewer.done" ]; then
         # Check if this is a reviewer-type agent dispatched without advance
         if echo "$AGENT_TYPE" | grep -qiE 'review'; then
             echo "" >&2
-            echo "  ${D}Reminder: Run 'bash .claude/bin/apd-pipeline reviewer' after review completes${R}" >&2
+            echo "  ${D}Reminder: Run 'bash .claude/bin/apd pipeline reviewer' after review completes${R}" >&2
         fi
     fi
     ;;

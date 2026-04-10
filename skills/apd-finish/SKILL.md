@@ -1,6 +1,6 @@
 ---
 name: apd-finish
-description: Use after a successful APD pipeline commit to decide next steps — push, create PR, keep local, or discard. MANDATORY after every pipeline commit.
+description: Use when a successful APD pipeline commit has just completed and a push/PR/keep decision is needed. MANDATORY after every pipeline commit.
 effort: high
 ---
 

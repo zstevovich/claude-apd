@@ -82,20 +82,20 @@ taskflow/
 Spec → Builder → Reviewer → Verifier → Commit
 
 - **Hooks BLOCK commits** if pipeline steps are not completed
-- Each step: `bash ${CLAUDE_PLUGIN_ROOT}/bin/pipeline-advance.sh {step}`
+- Each step: `bash .claude/bin/apd pipeline {step}`
 - There is NO skip command — every feature goes through the full pipeline
 - `init` is for first project setup ONLY — not for features
 
 ### Guardrails
 
-- `guard-git.sh` — git protection (commit/push orchestrator only, no force push, no mass staging)
-- `guard-scope.sh` — file scope per agent (Write/Edit)
-- `guard-bash-scope.sh` — bash write scope
-- `guard-secrets.sh` — sensitive files
-- `guard-lockfile.sh` — lock files
-- `verify-all.sh` — build + test before commit
-- `pipeline-advance.sh` + `pipeline-gate.sh` — pipeline flag system
-- `rotate-session-log.sh` — automatic session log archival
+- `guard-git` — git protection (commit/push orchestrator only, no force push, no mass staging)
+- `guard-scope` — file scope per agent (Write/Edit)
+- `guard-bash-scope` — bash write scope
+- `guard-secrets` — sensitive files
+- `guard-lockfile` — lock files
+- `verify-all` — build + test before commit
+- `pipeline-advance` + `pipeline-gate` — pipeline flag system
+- `rotate-session-log` — automatic session log archival
 
 ### Agents
 

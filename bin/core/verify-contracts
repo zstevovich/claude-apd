@@ -175,19 +175,19 @@ compare_types() {
     local frontend_file="$2"
 
     if [ ! -s "$backend_file" ]; then
-        echo -e "${YELLOW}No types detected on the backend side.${NC}"
+        printf '%s\n' "${YELLOW}No types detected on the backend side.${NC}"
         return
     fi
 
     if [ ! -s "$frontend_file" ]; then
-        echo -e "${YELLOW}No types detected on the frontend side.${NC}"
+        printf '%s\n' "${YELLOW}No types detected on the frontend side.${NC}"
         return
     fi
 
     local b_count=$(cut -d'|' -f1 "$backend_file" | sort -u | wc -l | tr -d ' ')
     local f_count=$(cut -d'|' -f1 "$frontend_file" | sort -u | wc -l | tr -d ' ')
 
-    echo -e "${BOLD}Detected: $b_count backend types, $f_count frontend types${NC}"
+    printf '%s\n' "${BOLD}Detected: $b_count backend types, $f_count frontend types${NC}"
     echo ""
 
     # For each backend type, find the corresponding frontend type
@@ -208,7 +208,7 @@ compare_types() {
             fi
         fi
 
-        echo -e "${BOLD}── $type_name ↔ $type_name_fe ──${NC}"
+        printf '%s\n' "${BOLD}── $type_name ↔ $type_name_fe ──${NC}"
 
         # Extract backend fields to temp file
         local b_tmp=$(mktemp)
@@ -218,17 +218,17 @@ compare_types() {
             FE_LINE=$(grep "^${type_name_fe}|${b_field}|" "$frontend_file" | head -1)
 
             if [ -z "$FE_LINE" ]; then
-                echo -e "  ${RED}✗ MISSING${NC}  $b_field ($b_type$b_nullable) — exists on backend, missing on frontend"
+                printf '%s\n' "  ${RED}✗ MISSING${NC}  $b_field ($b_type$b_nullable) — exists on backend, missing on frontend"
                 echo "MISSING" >> "$RESULTS_FILE"
             else
                 FE_TYPE=$(echo "$FE_LINE" | cut -d'|' -f3)
                 FE_NULLABLE=$(echo "$FE_LINE" | cut -d'|' -f4)
 
                 if [ "$b_nullable" = "?" ] && [ "$FE_NULLABLE" != "?" ]; then
-                    echo -e "  ${YELLOW}! NULL${NC}    $b_field — backend is nullable ($b_type?), frontend is NOT ($FE_TYPE)"
+                    printf '%s\n' "  ${YELLOW}! NULL${NC}    $b_field — backend is nullable ($b_type?), frontend is NOT ($FE_TYPE)"
                     echo "MISMATCH" >> "$RESULTS_FILE"
                 else
-                    echo -e "  ${GREEN}✓ MATCH${NC}   $b_field ($b_type$b_nullable ↔ $FE_TYPE$FE_NULLABLE)"
+                    printf '%s\n' "  ${GREEN}✓ MATCH${NC}   $b_field ($b_type$b_nullable ↔ $FE_TYPE$FE_NULLABLE)"
                     echo "MATCH" >> "$RESULTS_FILE"
                 fi
             fi
@@ -265,8 +265,8 @@ if [ "${1:-}" = "--changed" ]; then
         exit 0
     fi
 
-    echo -e "${YELLOW}Changes detected in type files — run full verification:${NC}"
-    echo "  bash .claude/bin/verify-contracts <backend_types_dir> <frontend_types_dir>"
+    printf '%s\n' "${YELLOW}Changes detected in type files — run full verification:${NC}"
+    echo "  bash .claude/bin/apd verify-contracts <backend_types_dir> <frontend_types_dir>"
     exit 0
 fi
 

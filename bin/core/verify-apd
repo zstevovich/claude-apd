@@ -23,8 +23,6 @@ SUM_MEMORY=0
 SUM_GITIGNORE=""
 SUM_ATTRIBUTION=""
 
-section() { echo ""; printf "  %s──%s %s %s──%s\n" "$D" "$R" "$1" "$D" "$R"; }
-
 apd_header "Verification"
 
 # ============================================================
