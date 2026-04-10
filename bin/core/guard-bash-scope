@@ -27,7 +27,7 @@ fi
 # --- 0. Protected paths — ALWAYS enforced, even without ALLOWED_PATHS ---
 # .pipeline/ state files must only be modified by pipeline-advance (not direct Bash writes)
 PROTECTED_PATHS=(".claude/.pipeline/" ".pipeline/")
-SHELL_WRITE_CHECK=('>>' '>' 'tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ')
+SHELL_WRITE_CHECK=('>>' '>' 'tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ' 'mkdir ' 'mkdir -p' 'touch ' 'rm ' 'rm -f' 'rm -rf' 'rmdir ')
 
 for ppath in "${PROTECTED_PATHS[@]}"; do
   if [[ "$COMMAND" == *"$ppath"* ]]; then
@@ -36,8 +36,8 @@ for ppath in "${PROTECTED_PATHS[@]}"; do
       if [[ "$COMMAND" == *"$wp"* ]]; then
         echo "BLOCKED: Bash write to protected pipeline state directory." >&2
         echo "" >&2
-        echo "  Do not write directly to .pipeline/ — use pipeline-advance instead." >&2
-        echo "  Allowed: bash \${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance <command>" >&2
+        echo "  Do not write directly to .pipeline/ — use the apd command instead." >&2
+        echo "  Allowed: bash .claude/bin/apd pipeline <command>" >&2
         exit 2
       fi
     done
