@@ -104,7 +104,34 @@ First run with v4.0.0 `apd` entry point. Orchestrator bypassed pipeline-advance 
 </td>
 <td width="50%" valign="top">
 
-### #6
+### #6 — Backoffice Audit Batch 2
+
+| | |
+|---|---|
+| **Date** | 2026-04-10 |
+| **Project** | Bambi Plazma (.NET 10) |
+| **Effort** | high |
+| **Duration** | 12m 23s |
+| **Spec coverage** | 5/5 |
+| **Agents** | 3 (backoffice, code-reviewer, adversarial-reviewer) |
+| **Guard blocks** | 0 |
+| **Adversarial** | 4 findings (0 accepted, 4 dismissed) |
+
+First clean run — no bypasses. Adversarial gate blocked verifier, forced orchestrator to dispatch adversarial-reviewer. Agent_id validation active — no fake entries. Orchestrator tried 3 wrong paths before using correct `apd pipeline` command.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### #7
+
+*Next run...*
+
+</td>
+<td width="50%" valign="top">
+
+### #8
 
 *Next run...*
 
