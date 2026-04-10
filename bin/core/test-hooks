@@ -90,26 +90,31 @@ else
     else
         pass "settings.json is valid JSON"
 
-        # Check if hooks exist
-        HOOK_COUNT=$(jq '[.hooks.PreToolUse[]?.hooks[]? // empty] | length' "$SETTINGS" 2>/dev/null || echo 0)
-        if [ "$HOOK_COUNT" -gt 0 ]; then
-            pass "PreToolUse hooks configured ($HOOK_COUNT)"
-        else
-            warn "No PreToolUse hooks in settings.json"
-        fi
+        # Check hooks — plugin hooks.json is the source of truth (not project settings.json)
+        PLUGIN_HOOKS="${APD_PLUGIN_ROOT}/hooks/hooks.json"
+        if [ -f "$PLUGIN_HOOKS" ]; then
+            HOOK_COUNT=$(jq '[.hooks.PreToolUse[]?.hooks[]? // empty] | length' "$PLUGIN_HOOKS" 2>/dev/null || echo 0)
+            if [ "$HOOK_COUNT" -gt 0 ]; then
+                pass "PreToolUse hooks configured ($HOOK_COUNT in plugin)"
+            else
+                fail "No PreToolUse hooks in plugin hooks.json"
+            fi
 
-        SESSION_HOOK=$(jq '.hooks.SessionStart // empty' "$SETTINGS" 2>/dev/null)
-        if [ -n "$SESSION_HOOK" ] && [ "$SESSION_HOOK" != "null" ]; then
-            pass "SessionStart hook configured"
-        else
-            warn "SessionStart hook is not configured"
-        fi
+            SESSION_HOOK=$(jq '.hooks.SessionStart // empty' "$PLUGIN_HOOKS" 2>/dev/null)
+            if [ -n "$SESSION_HOOK" ] && [ "$SESSION_HOOK" != "null" ]; then
+                pass "SessionStart hook configured (plugin)"
+            else
+                fail "SessionStart hook missing from plugin hooks.json"
+            fi
 
-        POST_HOOK=$(jq '.hooks.PostToolUse // empty' "$SETTINGS" 2>/dev/null)
-        if [ -n "$POST_HOOK" ] && [ "$POST_HOOK" != "null" ]; then
-            pass "PostToolUse hook configured"
+            POST_HOOK=$(jq '.hooks.PostToolUse // empty' "$PLUGIN_HOOKS" 2>/dev/null)
+            if [ -n "$POST_HOOK" ] && [ "$POST_HOOK" != "null" ]; then
+                pass "PostToolUse hook configured (plugin)"
+            else
+                fail "PostToolUse hook missing from plugin hooks.json"
+            fi
         else
-            warn "PostToolUse hook is not configured — pipeline will not reset after commit"
+            warn "Plugin hooks.json not found at $PLUGIN_HOOKS"
         fi
     fi
 fi
