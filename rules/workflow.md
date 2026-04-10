@@ -106,6 +106,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance init "Description"  # First
 - If a pipeline step fails, do NOT rollback code — fix the issue and retry. Builder work is preserved in the working tree.
 - NEVER use superpowers: or feature-dev: agents for pipeline steps. Pipeline BLOCKS non-project agents. Use: `Agent({ subagent_type: "code-reviewer", prompt: "..." })`
 - NEVER use SendMessage to continue a builder/reviewer agent. SendMessage does NOT trigger SubagentStart/Stop hooks — the agent dispatch will not be recorded and pipeline-advance will BLOCK. Always dispatch a NEW agent with `Agent()`.
+- When an agent hits maxTurns limit and stops mid-work: check what was done (`git diff`), then dispatch a NEW agent with specific instructions for the remaining work. Do NOT attempt to finish the work directly — you are the orchestrator, not the builder.
 - Max 7 acceptance criteria per spec. Large features MUST be decomposed into smaller pipeline cycles.
 
 ## 1. Spec card before code
