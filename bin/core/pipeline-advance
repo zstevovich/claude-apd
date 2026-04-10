@@ -59,17 +59,10 @@ validate_agent_entry() {
     [ "$arch_name" = "x86_64" ] && arch_name="amd64"
     validator="${APD_PLUGIN_ROOT}/bin/compiled/validate-agent-${os_name}-${arch_name}"
 
-    # Shadow log path
-    local shadow_log="${APD_PLUGIN_ROOT:+${APD_PLUGIN_ROOT}/.agents-shadow}"
-
     if [ -x "$validator" ]; then
         # Use compiled binary (opaque to orchestrator)
         local result
-        if [ -n "$shadow_log" ] && [ -f "$shadow_log" ]; then
-            result=$("$validator" -agent "$agent_name" -agents-log "$log_file" -shadow-log "$shadow_log" 2>&1)
-        else
-            result=$("$validator" -agent "$agent_name" -agents-log "$log_file" 2>&1)
-        fi
+        result=$("$validator" check -agent "$agent_name" -agents-log "$log_file" 2>&1)
         local exit_code=$?
         if [ $exit_code -ne 0 ]; then
             echo "  ${MARK_FAIL} $result" >&2
@@ -82,6 +75,50 @@ validate_agent_entry() {
     if ! grep -q "|${look_for_evt}|${agent_name}|" "$log_file" 2>/dev/null; then
         echo "  ${MARK_FAIL} $agent_name: no ${look_for_evt} entry found" >&2
         return 1
+    fi
+    return 0
+}
+
+# Resolve compiled binary path (shared by all functions)
+_os_name=$(uname -s | tr '[:upper:]' '[:lower:]')
+_arch_name=$(uname -m)
+[ "$_arch_name" = "x86_64" ] && _arch_name="amd64"
+APD_VALIDATOR="${APD_PLUGIN_ROOT}/bin/compiled/validate-agent-${_os_name}-${_arch_name}"
+
+# Create signed .done file via compiled binary (tamper-proof)
+# Falls back to plain text if binary not available
+create_done() {
+    local step="$1"
+    local task_name="${2:-}"
+    if [ -x "$APD_VALIDATOR" ]; then
+        if [ -n "$task_name" ]; then
+            "$APD_VALIDATOR" advance -step "$step" -task "$task_name" -pipeline-dir "$PIPELINE_DIR" 2>&1
+        else
+            "$APD_VALIDATOR" advance -step "$step" -pipeline-dir "$PIPELINE_DIR" 2>&1
+        fi
+    else
+        # Fallback: unsigned .done (old behavior)
+        if [ -n "$task_name" ]; then
+            echo "${NOW}|${NOW_HUMAN}|${task_name}" > "$PIPELINE_DIR/${step}.done"
+        else
+            echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/${step}.done"
+        fi
+    fi
+}
+
+# Verify .done file signature
+verify_done() {
+    local step="$1"
+    if [ -x "$APD_VALIDATOR" ]; then
+        local result
+        result=$("$APD_VALIDATOR" verify -step "$step" -pipeline-dir "$PIPELINE_DIR" 2>&1)
+        if [ $? -ne 0 ]; then
+            echo "BLOCKED: $result" >&2
+            echo "" >&2
+            echo "  The ${step}.done file was not created by pipeline-advance." >&2
+            echo "  Use: bash .claude/bin/apd pipeline ${step}" >&2
+            return 1
+        fi
     fi
     return 0
 }
@@ -152,7 +189,7 @@ case "$STEP" in
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
         rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash"
-        echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
+        create_done "spec" "$ARG"
         # Freeze spec-card.md — hash for tamper detection
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
         apd_spec_header "$ARG"
@@ -173,6 +210,7 @@ case "$STEP" in
             echo "ERROR: Spec must be completed before builder!" >&2
             exit 1
         fi
+        verify_done "spec" || exit 1
 
         # Verify implementation plan exists (hard block)
         if [ ! -f "$PIPELINE_DIR/implementation-plan.md" ]; then
@@ -270,7 +308,7 @@ case "$STEP" in
         fi
 
         ELAPSED=$(format_duration $((NOW - SPEC_TS)))
-        echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/builder.done"
+        create_done "builder"
         apd_header "Builder Complete" "+$ELAPSED"
         show_pipeline "reviewer"
         # GitHub sync (best-effort)
@@ -282,6 +320,7 @@ case "$STEP" in
             echo "ERROR: Builder must be completed before reviewer!" >&2
             exit 1
         fi
+        verify_done "builder" || exit 1
 
         # Verify that a PROJECT-DEFINED reviewer agent ran
         AGENTS_LOG="$PIPELINE_DIR/.agents"
@@ -331,7 +370,7 @@ case "$STEP" in
 
         BUILDER_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/builder.done")
         ELAPSED=$(format_duration $((NOW - BUILDER_TS)))
-        echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
+        create_done "reviewer"
 
         # Mark adversarial review as pending if agent exists
         if [ -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ]; then
@@ -355,6 +394,7 @@ case "$STEP" in
             echo "ERROR: Reviewer must be completed before verifier!" >&2
             exit 1
         fi
+        verify_done "reviewer" || exit 1
         REVIEWER_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/reviewer.done")
         SPEC_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/spec.done")
         ELAPSED=$(format_duration $((NOW - REVIEWER_TS)))
@@ -399,7 +439,7 @@ case "$STEP" in
             exit 1
         fi
 
-        echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
+        create_done "verifier"
         # Cache timestamp — verify-all.sh skips rebuild if fresh (<120s)
         echo "$NOW" > "$PIPELINE_DIR/verified.timestamp"
         apd_header "COMMIT ALLOWED" "total: $TOTAL"
@@ -583,8 +623,6 @@ EOF
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
         rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash"
-        # Clear shadow log (lives in plugin cache)
-        [ -n "${APD_PLUGIN_ROOT:-}" ] && rm -f "${APD_PLUGIN_ROOT}/.agents-shadow"
         echo "Pipeline reset. Ready for new task."
         ;;
 

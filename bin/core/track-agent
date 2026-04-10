@@ -23,7 +23,6 @@ fi
 
 mkdir -p "$PIPELINE_DIR"
 AGENTS_LOG="$PIPELINE_DIR/.agents"
-SHADOW_LOG="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/.agents-shadow}"
 NOW_HUMAN=$(date +"%Y-%m-%d %H:%M:%S")
 
 # Agent display color
@@ -32,7 +31,6 @@ ac=$(_agent_color "$AGENT_TYPE")
 case "$EVENT" in
   SubagentStart)
     echo "${NOW_HUMAN}|start|${AGENT_TYPE}|${AGENT_ID}" >> "$AGENTS_LOG"
-    [ -n "$SHADOW_LOG" ] && echo "${NOW_HUMAN}|start|${AGENT_TYPE}|${AGENT_ID}" >> "$SHADOW_LOG"
     printf "  %s☭%s %s%s%s%s\n" "$ac" "$R" "$ac" "$B" "$AGENT_TYPE" "$R" >&2
     # Pipeline step reminder — warn if orchestrator skipped pipeline-advance
     if [ -f "$PIPELINE_DIR/spec.done" ] && [ ! -f "$PIPELINE_DIR/builder.done" ]; then
@@ -52,7 +50,6 @@ case "$EVENT" in
     ;;
   SubagentStop)
     echo "${NOW_HUMAN}|stop|${AGENT_TYPE}|${AGENT_ID}" >> "$AGENTS_LOG"
-    [ -n "$SHADOW_LOG" ] && echo "${NOW_HUMAN}|stop|${AGENT_TYPE}|${AGENT_ID}" >> "$SHADOW_LOG"
     printf "  %s☭%s %s%s%s %sdone%s\n" "$ac" "$R" "$ac" "$AGENT_TYPE" "$R" "$D" "$R" >&2
     ;;
 esac

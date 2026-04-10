@@ -8,20 +8,34 @@ source "$(dirname "$0")/../lib/style.sh"
 mkdir -p "$PIPELINE_DIR"
 
 MISSING=()
+FORGED=()
+
+# Resolve compiled binary for signature verification
+_os_name=$(uname -s | tr '[:upper:]' '[:lower:]')
+_arch_name=$(uname -m)
+[ "$_arch_name" = "x86_64" ] && _arch_name="amd64"
+APD_VALIDATOR="${APD_PLUGIN_ROOT}/bin/compiled/validate-agent-${_os_name}-${_arch_name}"
 
 for step in spec builder reviewer verifier; do
     if [ ! -f "$PIPELINE_DIR/$step.done" ]; then
         MISSING+=("$step")
+    elif [ -x "$APD_VALIDATOR" ]; then
+        # Verify signature of existing .done files
+        if ! "$APD_VALIDATOR" verify -step "$step" -pipeline-dir "$PIPELINE_DIR" >/dev/null 2>&1; then
+            FORGED+=("$step")
+        fi
     fi
 done
 
-if [ ${#MISSING[@]} -gt 0 ]; then
+if [ ${#MISSING[@]} -gt 0 ] || [ ${#FORGED[@]} -gt 0 ]; then
     apd_blocked "Pipeline incomplete" >&2
     echo "" >&2
 
     for step in spec builder reviewer verifier; do
         sc=$(_step_color "$step")
-        if [ -f "$PIPELINE_DIR/$step.done" ]; then
+        if printf '%s\n' "${FORGED[@]}" 2>/dev/null | grep -qx "$step"; then
+            printf "    %s□%s %s  ${RED}← forged${R}\n" "$sc" "$R" "$step" >&2
+        elif [ -f "$PIPELINE_DIR/$step.done" ]; then
             printf "    %s■%s %s\n" "$sc" "$R" "$step" >&2
         else
             printf "    %s□%s %s  ${D}← missing${R}\n" "$sc" "$R" "$step" >&2
@@ -29,7 +43,7 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     done
 
     echo "" >&2
-    echo "    Use: pipeline-advance <step>" >&2
+    echo "    Use: bash .claude/bin/apd pipeline <step>" >&2
     exit 2
 fi
 
