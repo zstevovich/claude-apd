@@ -180,7 +180,34 @@ First run on v4.1.1 with complete audit trail. All 8 guards logging — lockfile
 </td>
 <td width="50%" valign="top">
 
-### #10
+### #10 — Backend Audit Batch 7
+
+| | |
+|---|---|
+| **Date** | 2026-04-11 |
+| **Project** | Bambi Plazma (.NET 10) |
+| **Effort** | high |
+| **Duration** | 18m 39s |
+| **Spec coverage** | 7/7 |
+| **Agents** | 4 (backend-api, code-reviewer, testing, adversarial-reviewer) |
+| **Guard blocks** | 1 (orchestrator-code-write) |
+| **Adversarial** | 4 findings (0 accepted, 4 dismissed) |
+
+New session without prior context — orchestrator still follows pipeline. Adversarial actually dispatched (not 0:0:0 skip). Builder dispatched without plan → blocked → wrote plan retroactively. Reviewer hit maxTurns (unfocused prompt) → dispatched focused second reviewer. Quality enforcement is the next frontier.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### #11
+
+*Next run...*
+
+</td>
+<td width="50%" valign="top">
+
+### #12
 
 *Next run...*
 
