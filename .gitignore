@@ -3,6 +3,11 @@ CLAUDE.md
 .claude/
 .vscode/
 
+# Go source — not distributed, only compiled binaries ship
+cmd/
+go.mod
+go.sum
+
 # OS
 .DS_Store
 Thumbs.db
