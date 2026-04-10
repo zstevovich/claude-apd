@@ -91,12 +91,15 @@ validate_agent_entry() {
     start_epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$start_ts" +%s 2>/dev/null || date -d "$start_ts" +%s 2>/dev/null || echo 0)
     stop_epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$stop_ts" +%s 2>/dev/null || date -d "$stop_ts" +%s 2>/dev/null || echo 0)
 
-    if [ "$start_epoch" -gt 0 ] && [ "$stop_epoch" -gt 0 ] 2>/dev/null; then
-        local duration=$((stop_epoch - start_epoch))
-        if [ "$duration" -lt "$min_duration" ]; then
-            echo "  ${MARK_FAIL} Suspicious: $agent_name ran for ${duration}s (minimum ${min_duration}s)" >&2
-            return 1
-        fi
+    if [ "$start_epoch" -eq 0 ] || [ "$stop_epoch" -eq 0 ] 2>/dev/null; then
+        echo "  ${MARK_FAIL} Suspicious: $agent_name timestamp could not be parsed" >&2
+        return 1
+    fi
+
+    local duration=$((stop_epoch - start_epoch))
+    if [ "$duration" -lt "$min_duration" ]; then
+        echo "  ${MARK_FAIL} Suspicious: $agent_name ran for ${duration}s (minimum ${min_duration}s)" >&2
+        return 1
     fi
 
     return 0
@@ -205,6 +208,7 @@ case "$STEP" in
         SPEC_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/spec.done")
         BUILDER_RAN=""
         BLOCKED_AGENTS=""
+        SUSPICIOUS=""
         # Superpowers skills that conflict with APD roles
         REJECTED_PREFIXES="superpowers:"
         if [ -f "$AGENTS_LOG" ]; then

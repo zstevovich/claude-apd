@@ -716,12 +716,16 @@ if [ ! -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ]; then
 fi
 
 # Verifier must BLOCK when .adversarial-pending exists without .adversarial-summary
-RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" verifier 2>&1)
-EXIT_CODE=$?
-if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "adversarial reviewer"; then
-    pass "pipeline-advance: verifier BLOCKS without adversarial review"
+if [ ! -f "$PIPELINE_DIR/.adversarial-pending" ]; then
+    fail "test setup: .adversarial-pending was not created by reviewer step — skipping gate test"
 else
-    fail "pipeline-advance verifier should block without adversarial review (exit: $EXIT_CODE)"
+    RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" verifier 2>&1)
+    EXIT_CODE=$?
+    if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "adversarial reviewer"; then
+        pass "pipeline-advance: verifier BLOCKS without adversarial review"
+    else
+        fail "pipeline-advance verifier should block without adversarial review (exit: $EXIT_CODE)"
+    fi
 fi
 
 # Verifier must PASS after .adversarial-summary is provided
@@ -733,17 +737,28 @@ else
     fail "pipeline-advance verifier ERROR with adversarial summary: $RESULT"
 fi
 
-# Rollback verifier for opt-out test
-bash "$SCRIPT_DIR/pipeline-advance" rollback >/dev/null 2>&1
-
-# Adversarial opt-out: add skip to spec-card, re-run reviewer
-# First rollback reviewer to re-trigger .adversarial-pending logic
-bash "$SCRIPT_DIR/pipeline-advance" rollback >/dev/null 2>&1
-echo "adversarial: skip — test verification" >> "$PIPELINE_DIR/spec-card.md"
+# Adversarial opt-out test: full pipeline restart with skip in spec-card
+bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
+cat > "$PIPELINE_DIR/spec-card.md" << 'SPECEOF2'
+## APD-VERIFY-OPT-OUT
+**Acceptance criteria:**
+- R1: Verify opt-out works
+adversarial: skip — test verification
+SPECEOF2
+echo "## Plan: APD-VERIFY-OPT-OUT" > "$PIPELINE_DIR/implementation-plan.md"
+bash "$SCRIPT_DIR/pipeline-advance" spec "APD-VERIFY-OPT-OUT" >/dev/null 2>&1
+# Builder dispatch
 _FAKE_START=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
 _FAKE_STOP=$(date +"%Y-%m-%d %H:%M:%S")
-echo "${_FAKE_START}|start|code-reviewer|test-reviewer-002" >> "$AGENTS_LOG"
-echo "${_FAKE_STOP}|stop|code-reviewer|test-reviewer-002" >> "$AGENTS_LOG"
+AGENTS_LOG="$PIPELINE_DIR/.agents"
+echo "${_FAKE_START}|start|backend-builder|test-opt-b" >> "$AGENTS_LOG"
+echo "${_FAKE_STOP}|stop|backend-builder|test-opt-b" >> "$AGENTS_LOG"
+bash "$SCRIPT_DIR/pipeline-advance" builder >/dev/null 2>&1
+# Reviewer dispatch — should detect opt-out
+_FAKE_START=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
+_FAKE_STOP=$(date +"%Y-%m-%d %H:%M:%S")
+echo "${_FAKE_START}|start|code-reviewer|test-opt-r" >> "$AGENTS_LOG"
+echo "${_FAKE_STOP}|stop|code-reviewer|test-opt-r" >> "$AGENTS_LOG"
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" reviewer 2>&1)
 if echo "$RESULT" | grep -qi "skipped"; then
     pass "pipeline-advance: adversarial opt-out via spec-card"
@@ -751,7 +766,7 @@ else
     fail "pipeline-advance adversarial opt-out not detected: $RESULT"
 fi
 
-# Verifier must PASS without adversarial summary when opted out
+# Verifier must PASS without adversarial summary when opted out (no hash mismatch)
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" verifier 2>&1)
 if echo "$RESULT" | grep -q "COMMIT ALLOWED"; then
     pass "pipeline-advance: verifier passes with adversarial opt-out"
