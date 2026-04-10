@@ -6,10 +6,16 @@
 #   Claude Code hooks capture both stdout and stderr; there is no reliable
 #   way to display output directly to the user from a hook.
 
+# Debug log — written to plugin cache for troubleshooting hook failures
+_SS_LOG="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/session-start.log}"
+_ss_log() { [ -n "$_SS_LOG" ] && echo "$(date +%H:%M:%S) $1" >> "$_SS_LOG"; }
+_ss_log "START pwd=$(pwd) PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-unset}"
+
 source "$(dirname "$0")/../lib/resolve-project.sh"
-[ "$APD_ACTIVE" = false ] && exit 0
+_ss_log "resolve: PROJECT_DIR=$PROJECT_DIR APD_ACTIVE=$APD_ACTIVE"
+[ "$APD_ACTIVE" = false ] && { _ss_log "EXIT: APD_ACTIVE=false"; exit 0; }
 source "$(dirname "$0")/../lib/style.sh"
-cd "$PROJECT_DIR" || exit 0
+cd "$PROJECT_DIR" || { _ss_log "EXIT: cd failed"; exit 0; }
 
 # --- Auto gap-analysis on every session start (quick mode, no verify) ---
 if [ -x "$SCRIPT_DIR/apd-init" ]; then
@@ -194,6 +200,7 @@ echo ""
 
 # Create project-level shortcut: .claude/bin/apd → plugin entry point
 APD_CMD="$CLAUDE_DIR/bin/apd"
+_ss_log "shortcut: APD_CMD=$APD_CMD exists=$([ -f "$APD_CMD" ] && echo yes || echo no)"
 if [ ! -f "$APD_CMD" ] || ! grep -q "$APD_PLUGIN_ROOT/bin/apd" "$APD_CMD" 2>/dev/null; then
     mkdir -p "$CLAUDE_DIR/bin"
     cat > "$APD_CMD" << SHORTCUT
@@ -203,6 +210,9 @@ if [ ! -f "$APD_CMD" ] || ! grep -q "$APD_PLUGIN_ROOT/bin/apd" "$APD_CMD" 2>/dev
 exec bash "$APD_PLUGIN_ROOT/bin/apd" "\$@"
 SHORTCUT
     chmod +x "$APD_CMD"
+    _ss_log "shortcut: CREATED"
+else
+    _ss_log "shortcut: SKIPPED (already exists)"
 fi
 
 # Clean up old shortcuts from previous versions
@@ -239,3 +249,4 @@ if [ -f "$MEMORY_DIR/session-log.md" ]; then
   echo "  Last session:"
   tail -20 "$MEMORY_DIR/session-log.md"
 fi
+_ss_log "END ok"
