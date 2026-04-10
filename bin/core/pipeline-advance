@@ -43,81 +43,46 @@ NOW_HUMAN=$(date +"%Y-%m-%d %H:%M:%S")
 source "$(dirname "$0")/../lib/style.sh"
 
 # --- Agent validation ---
-# Validates .agents log entries are from real track-agent dispatch, not faked.
-# Returns 0 if agent is valid, 1 if suspicious.
-# Usage: validate_agent_entry "stop" "agent-name" "$AGENTS_LOG"
+# Delegates to compiled Go binary for tamper-proof validation.
+# Binary checks: timestamp format, agent_id hex, start/stop pairs, duration, shadow log.
+# Orchestrator cannot read binary source code to learn validation rules.
+# Falls back to basic check if binary is not available.
 validate_agent_entry() {
     local look_for_evt="$1"
     local agent_name="$2"
     local log_file="$3"
-    local min_duration=3  # minimum seconds between start and stop
 
-    # Find the last matching stop entry
-    local stop_line
-    stop_line=$(grep "|${look_for_evt}|${agent_name}|" "$log_file" 2>/dev/null | tail -1)
-    [ -z "$stop_line" ] && return 1
+    # Resolve platform-specific binary
+    local os_name arch_name validator
+    os_name=$(uname -s | tr '[:upper:]' '[:lower:]')
+    arch_name=$(uname -m)
+    [ "$arch_name" = "x86_64" ] && arch_name="amd64"
+    validator="${APD_PLUGIN_ROOT}/bin/compiled/validate-agent-${os_name}-${arch_name}"
 
-    local stop_ts
-    stop_ts=$(echo "$stop_line" | cut -d'|' -f1)
-
-    # Validate timestamp format: must be "YYYY-MM-DD HH:MM:SS"
-    if ! echo "$stop_ts" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$'; then
-        echo "  ${MARK_FAIL} Suspicious: $agent_name has invalid timestamp format" >&2
-        return 1
-    fi
-
-    # Validate agent_id format: Claude Code generates hex IDs (17+ chars, starting with 'a')
-    local agent_id
-    agent_id=$(echo "$stop_line" | cut -d'|' -f4)
-    if ! echo "$agent_id" | grep -qE '^[a-f0-9]{15,}$'; then
-        echo "  ${MARK_FAIL} Suspicious: $agent_name has non-CC agent_id: $agent_id" >&2
-        return 1
-    fi
-
-    # Find matching start entry for this agent
-    local start_line
-    start_line=$(grep "|start|${agent_name}|${agent_id}" "$log_file" 2>/dev/null | tail -1)
-
-    if [ -z "$start_line" ]; then
-        echo "  ${MARK_FAIL} Suspicious: $agent_name has stop but no matching start" >&2
-        return 1
-    fi
-
-    local start_ts
-    start_ts=$(echo "$start_line" | cut -d'|' -f1)
-
-    # Validate start timestamp format
-    if ! echo "$start_ts" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$'; then
-        echo "  ${MARK_FAIL} Suspicious: $agent_name start has invalid timestamp" >&2
-        return 1
-    fi
-
-    # Check duration (start/stop can't be identical — real agents take time)
-    local start_epoch stop_epoch
-    start_epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$start_ts" +%s 2>/dev/null || date -d "$start_ts" +%s 2>/dev/null || echo 0)
-    stop_epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$stop_ts" +%s 2>/dev/null || date -d "$stop_ts" +%s 2>/dev/null || echo 0)
-
-    if [ "$start_epoch" -eq 0 ] || [ "$stop_epoch" -eq 0 ] 2>/dev/null; then
-        echo "  ${MARK_FAIL} Suspicious: $agent_name timestamp could not be parsed" >&2
-        return 1
-    fi
-
-    local duration=$((stop_epoch - start_epoch))
-    if [ "$duration" -lt "$min_duration" ]; then
-        echo "  ${MARK_FAIL} Suspicious: $agent_name ran for ${duration}s (minimum ${min_duration}s)" >&2
-        return 1
-    fi
-
-    # Shadow verification: entry must exist in hook-written shadow log
-    # Shadow log lives in plugin cache — orchestrator cannot write there (guard-bash-scope blocks)
+    # Shadow log path
     local shadow_log="${APD_PLUGIN_ROOT:+${APD_PLUGIN_ROOT}/.agents-shadow}"
-    if [ -n "$shadow_log" ] && [ -f "$shadow_log" ]; then
-        if ! grep -qF "$stop_line" "$shadow_log" 2>/dev/null; then
-            echo "  ${MARK_FAIL} Suspicious: $agent_name not in shadow log (fabricated entry)" >&2
+
+    if [ -x "$validator" ]; then
+        # Use compiled binary (opaque to orchestrator)
+        local result
+        if [ -n "$shadow_log" ] && [ -f "$shadow_log" ]; then
+            result=$("$validator" -agent "$agent_name" -agents-log "$log_file" -shadow-log "$shadow_log" 2>&1)
+        else
+            result=$("$validator" -agent "$agent_name" -agents-log "$log_file" 2>&1)
+        fi
+        local exit_code=$?
+        if [ $exit_code -ne 0 ]; then
+            echo "  ${MARK_FAIL} $result" >&2
             return 1
         fi
+        return 0
     fi
 
+    # Fallback: basic check if binary not available
+    if ! grep -q "|${look_for_evt}|${agent_name}|" "$log_file" 2>/dev/null; then
+        echo "  ${MARK_FAIL} $agent_name: no ${look_for_evt} entry found" >&2
+        return 1
+    fi
     return 0
 }
 
