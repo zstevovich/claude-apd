@@ -1,0 +1,24 @@
+#!/bin/bash
+# APD SendMessage Guard — blocks SendMessage during active pipeline
+#
+# SendMessage continues an existing agent without triggering SubagentStart/Stop
+# hooks. This means the agent dispatch is not recorded in .agents log and
+# pipeline-advance will reject it as "no agent dispatched."
+# Always use Agent() to dispatch a new agent instead.
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
+
+# Only block when pipeline is active (spec.done exists)
+if [ -f "$PIPELINE_DIR/spec.done" ]; then
+    echo "BLOCKED: Do not use SendMessage during an active pipeline." >&2
+    echo "" >&2
+    echo "  SendMessage does not trigger SubagentStart/Stop hooks." >&2
+    echo "  The agent dispatch will NOT be recorded — pipeline-advance will block." >&2
+    echo "" >&2
+    echo "  Instead, dispatch a NEW agent:" >&2
+    echo "    Agent({ subagent_type: \"agent-name\", prompt: \"...\" })" >&2
+    exit 2
+fi
+
+exit 0

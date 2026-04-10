@@ -36,6 +36,16 @@
         ]
       },
       {
+        "matcher": "SendMessage",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/guard-send-message\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Write|Edit",
         "hooks": [
           {
