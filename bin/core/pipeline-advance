@@ -161,8 +161,9 @@ case "$STEP" in
             exit 1
         fi
         # Check criteria count — too many means feature should be decomposed
+        # Only count R* lines within the Acceptance criteria section (between header and next ** section)
         MAX_CRITERIA=7
-        CRITERIA_COUNT=$(grep -cE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' "$PIPELINE_DIR/spec-card.md" 2>/dev/null || echo 0)
+        CRITERIA_COUNT=$(sed -n '/Acceptance criteria/,/^\*\*[^A]/p' "$PIPELINE_DIR/spec-card.md" 2>/dev/null | grep -cE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' || echo 0)
         if [ "$CRITERIA_COUNT" -gt "$MAX_CRITERIA" ]; then
             echo "BLOCKED: spec-card.md has $CRITERIA_COUNT criteria (max $MAX_CRITERIA)." >&2
             echo "" >&2
