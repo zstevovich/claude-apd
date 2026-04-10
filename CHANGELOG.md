@@ -1,5 +1,23 @@
 # Changelog
 
+## v4.1.1 — 2026-04-10
+
+Fixes and hardening after real-world testing on Bambi and Test projects.
+
+- **Complete audit trail** — all 8 guards now log to guard-audit.log via shared `log_block()`. Previously only guard-git logged blocks.
+- **Forgery detection logged** — verify_done tamper attempts now written to guard-audit.log
+- **Plugin cache guard** — fixed false positive blocking script execution (2>&1 matched as write)
+- **verify-apd E2E tests** — fixed signed .done parsing, lock cleanup, adversarial agent ordering, trace markers, session-log fill-in cleanup
+- **test-hooks** — checks plugin hooks.json instead of project settings.json (removed 3 false WARNs)
+- **session-start** — shortcut creation moved before apd-init (prevents hook timeout), debug log includes date
+- **apd-setup** — runs session-start as workaround for SessionStart hook not firing
+- **guard-bash-scope** — removed over-broad "apd " whitelist bypass
+- **.adversarial-summary** — multi-line safe parsing (head -1)
+- **Dead feature removed** — pipeline-skip-log.md references cleaned up
+- **Pipeline run #8** — documented (Test blog, 3 guard blocks, 8 adversarial findings)
+
+---
+
 ## v4.1.0 — 2026-04-10
 
 Tamper-proof pipeline enforcement with compiled Go binary.
