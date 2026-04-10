@@ -152,10 +152,10 @@ Most chaotic run — 7 block attempts: direct code edit, pipeline-advance withou
 | **Duration** | 14m 57s |
 | **Spec coverage** | 7/7 |
 | **Agents** | 10 dispatches (backend×3, frontend×3, reviewer×2, adversarial×1, testing×1) |
-| **Guard blocks** | 1 (guard-orchestrator blocked direct test file edit) |
+| **Guard blocks** | 3 (orchestrator code edit, .adversarial-summary via bash, builder without dispatch) |
 | **Adversarial** | 8 findings (3 accepted, 5 dismissed) |
 
-First run on v4.1.0 with HMAC-signed .done files and compiled Go validator. guard-orchestrator blocked direct code edit — orchestrator dispatched builder instead. Adversarial hard gate forced dispatch, 3 findings accepted and fixed. All agent IDs are real CC hex IDs with valid start/stop pairs.
+First run on v4.1.0 with HMAC-signed .done files and compiled Go validator. Three blocks: guard-orchestrator on direct code edit, guard-bash-scope on .adversarial-summary write, pipeline-advance on premature builder advance. All corrected — orchestrator dispatched agents and used Write tool. Adversarial hard gate forced dispatch, 3 findings accepted and fixed.
 
 </td>
 </tr>
