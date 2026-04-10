@@ -7,7 +7,7 @@
    → If task is vague or complex → MANDATORY: /apd-brainstorm first
    ↓
 2. ANALYZE & WRITE SPEC — create spec card with goal, scope, criteria, risks
-   → pipeline-advance spec "Task name"
+   → bash .claude/bin/apd pipeline spec "Task name"
    ↓
 3. PRESENT SPEC TO USER — wait for approval or correction
    → DO NOT proceed until user says "ok" / "approved" / "go ahead"
@@ -16,14 +16,14 @@
 4. WRITE IMPLEMENTATION PLAN
    → Analyze codebase, write .pipeline/implementation-plan.md
    → List files to create/modify with concrete change descriptions
-   → pipeline-advance builder validates plan exists before advancing
+   → bash .claude/bin/apd pipeline builder validates plan exists before advancing
    ↓
 5. DISPATCH BUILDER AGENT(S) — one agent per domain, max 3-4 edits each
    → Builder agents MUST use /apd-tdd skill for implementation
-   → pipeline-advance builder (after agent completes)
+   → bash .claude/bin/apd pipeline builder (after agent completes)
    ↓
 6. DISPATCH REVIEWER AGENT — opus/max, read-only, finds bugs
-   → pipeline-advance reviewer (after reviewer completes)
+   → bash .claude/bin/apd pipeline reviewer (after reviewer completes)
    → If reviewer finds critical issues → dispatch builder to fix → re-review
    ↓
 6b. DISPATCH ADVERSARIAL REVIEWER (optional, recommended)
@@ -34,7 +34,7 @@
    → If accepted findings → fix via builder → re-review
    ↓
 7. RUN VERIFIER — build + test
-   → pipeline-advance verifier
+   → bash .claude/bin/apd pipeline verifier
    → If verifier FAILS → MANDATORY: /apd-debug before re-dispatching builder
    ↓
 8. ONE COMMIT for the entire feature
@@ -82,20 +82,21 @@ This is not just a documented rule — **hooks technically block commits** if st
 
 - `guard-git` → calls `pipeline-gate` → checks that ALL 4 files exist
 - If any is missing → **commit is BLOCKED**
-- After commit → `pipeline-advance reset` automatically deletes flags
+- After commit → pipeline auto-resets (deletes flags)
 
 ### Commands
 
+**Use the project shortcut** — never guess plugin paths:
+
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance spec "Task name"
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance builder
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance reviewer
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance verifier
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance status
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance reset
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance rollback           # Roll back one step
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance stats
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance init "Description"  # First setup only
+bash .claude/bin/apd pipeline spec "Task name"
+bash .claude/bin/apd pipeline builder
+bash .claude/bin/apd pipeline reviewer
+bash .claude/bin/apd pipeline verifier
+bash .claude/bin/apd pipeline status
+bash .claude/bin/apd pipeline reset
+bash .claude/bin/apd pipeline rollback
+bash .claude/bin/apd pipeline stats
 ```
 
 ### Hard rules
@@ -105,7 +106,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance init "Description"  # First
 - This rule is ABSOLUTE and inviolable
 - If a pipeline step fails, do NOT rollback code — fix the issue and retry. Builder work is preserved in the working tree.
 - NEVER use superpowers: or feature-dev: agents for pipeline steps. Pipeline BLOCKS non-project agents. Use: `Agent({ subagent_type: "code-reviewer", prompt: "..." })`
-- NEVER use SendMessage to continue a builder/reviewer agent. SendMessage does NOT trigger SubagentStart/Stop hooks — the agent dispatch will not be recorded and pipeline-advance will BLOCK. Always dispatch a NEW agent with `Agent()`.
+- NEVER use SendMessage to continue a builder/reviewer agent. SendMessage does NOT trigger SubagentStart/Stop hooks — the agent dispatch will not be recorded and `apd pipeline` will BLOCK. Always dispatch a NEW agent with `Agent()`.
 - When an agent hits maxTurns limit and stops mid-work: check what was done (`git diff`), then dispatch a NEW agent with specific instructions for the remaining work. Do NOT attempt to finish the work directly — you are the orchestrator, not the builder.
 - Max 7 acceptance criteria per spec. Large features MUST be decomposed into smaller pipeline cycles.
 
@@ -132,7 +133,7 @@ The spec is shared with the user BEFORE implementation.
 
 ### Spec persistence
 
-The orchestrator MUST write the spec card to `.claude/.pipeline/spec-card.md` before calling `pipeline-advance spec "Task name"`. This enables mechanical traceability verification.
+The orchestrator MUST write the spec card to `.claude/.pipeline/spec-card.md` before calling `bash .claude/bin/apd pipeline spec "Task name"`. This enables mechanical traceability verification.
 
 ## 2. Five roles — strict model and effort enforcement
 
@@ -172,7 +173,7 @@ The orchestrator MUST write the spec card to `.claude/.pipeline/spec-card.md` be
 
 ### Verifier (script, not agent)
 - Runs `verify-all.sh` (build + test)
-- Triggered by `pipeline-advance verifier`
+- Triggered by `bash .claude/bin/apd pipeline verifier`
 - Blocks commit if build or tests fail
 
 ### Model and effort summary
@@ -239,9 +240,9 @@ Before dispatching the builder, the orchestrator MUST write `.claude/.pipeline/i
 - List every file the builder will touch
 - 1-2 sentences per file — enough context to avoid searching, not code snippets
 - **`### Agents` section is mandatory** — list all project agents needed for this task
-- `pipeline-advance builder` warns if planned agents were not dispatched
+- `apd pipeline builder` warns if planned agents were not dispatched
 - Orchestrator reads relevant code BEFORE writing the plan
-- `pipeline-advance builder` blocks if the plan does not exist
+- `apd pipeline builder` blocks if the plan does not exist
 
 ## 4. Verification before "done"
 
