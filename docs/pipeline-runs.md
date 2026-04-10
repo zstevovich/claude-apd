@@ -124,9 +124,20 @@ First clean run — no bypasses. Adversarial gate blocked verifier, forced orche
 <tr>
 <td width="50%" valign="top">
 
-### #7
+### #7 — Backoffice Audit Batch 3
 
-*Next run...*
+| | |
+|---|---|
+| **Date** | 2026-04-10 |
+| **Project** | Bambi Plazma (.NET 10) |
+| **Effort** | high |
+| **Duration** | 9m 37s |
+| **Spec coverage** | 5/5 |
+| **Agents** | 2 (backoffice, code-reviewer) |
+| **Guard blocks** | 7 (all blocked, none bypassed) |
+| **Adversarial** | opt-out (cosmetic i18n changes) |
+
+Most chaotic run — 7 block attempts: direct code edit, pipeline-advance without dispatch, SendMessage bypass, reverse-engineering guards, maxTurns recovery, max criteria overflow. Every single one blocked. Orchestrator learned SendMessage rule the hard way. First run where adversarial opt-out was used via spec-card.
 
 </td>
 <td width="50%" valign="top">
