@@ -7,13 +7,15 @@ effort: max
 
 # APD Setup
 
-**Step 1 — MANDATORY: Run the init script. Do this FIRST before anything else.**
+**Step 1 — MANDATORY: Run the init script AND session-start. Do this FIRST before anything else.**
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/bin/core/apd-init"
+bash "${CLAUDE_PLUGIN_ROOT}/bin/core/session-start"
 ```
 
-Do NOT skip this. Do NOT do your own analysis. Run the script and read its output.
+Do NOT skip this. Do NOT do your own analysis. Run both scripts and read their output.
+The second script creates the `apd` shortcut and loads project context.
 
 **Step 2 — Only if the script says CLAUDE.md or agents are missing:**
 
