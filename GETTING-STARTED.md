@@ -178,7 +178,7 @@ The reviewer looks for bugs, edge cases, and security issues. It does not sugges
 ```
 
 The commit will:
-1. Check that all 4 pipeline steps are complete (`pipeline-gate`)
+1. Check that all pipeline steps are complete (`pipeline-gate`)
 2. Run build + test verification (`verify-all.sh`)
 3. Check spec traceability — all R* criteria have @trace markers in tests
 4. If everything passes — commit succeeds

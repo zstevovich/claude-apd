@@ -96,6 +96,8 @@ Every rule is backed by a hook script that **blocks** violations. No bypass from
 | Spec modified mid-pipeline | `pipeline-advance` (sha256 hash freeze) |
 | More than 7 acceptance criteria per spec | `pipeline-advance` (forces decomposition) |
 | Builder dispatch without implementation plan | `pipeline-advance` (hard block) |
+| Pipeline step forgery | Compiled Go binary creates HMAC-signed .done files — orchestrator cannot forge signatures |
+| SendMessage during pipeline | guard-send-message blocks — must use Agent() for tracked dispatch |
 
 ## Spec traceability
 
@@ -161,6 +163,7 @@ ${CLAUDE_PLUGIN_ROOT}/
 │   │   ├── gh-sync                # GitHub Projects sync
 │   │   ├── session-start          # Context loader + self-healing
 │   │   └── ...
+│   ├── compiled/                  # Go binaries (validate-agent)
 │   └── lib/                       # Shared libraries (.sh)
 │       ├── resolve-project.sh
 │       └── style.sh

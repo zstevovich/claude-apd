@@ -18,6 +18,18 @@ Scripts restructured — single entry point, clean architecture.
 - Existing projects must run `/apd-setup` to update agent hook paths
 - Old shortcuts (apd-pipeline, apd-doctor) auto-removed, replaced by single `apd`
 
+### Enforcement hardening (v4.0.0)
+- **Compiled Go validator** — `bin/compiled/validate-agent-*` creates HMAC-signed `.done` files. Orchestrator cannot forge pipeline steps — signatures verified at every step transition and commit gate.
+- **Adversarial reviewer hard gate** — `pipeline-advance verifier` blocks if adversarial-reviewer agent exists but was not dispatched. Opt-out via `adversarial: skip` in spec-card.md.
+- **Agent dispatch validation** — compiled binary checks timestamp format, hex agent_id, start/stop pairs, minimum duration.
+- **SendMessage guard** — `guard-send-message` blocks SendMessage during active pipeline (SubagentStart/Stop hooks don't fire for SendMessage).
+- **guard-bash-scope hardened** — blocks mkdir, touch, rm on .pipeline/ and all writes to plugin cache directory.
+- **Criteria counter fix** — counts R* only within Acceptance criteria section (sed instead of grep).
+- **Git toplevel resolution** — `resolve-project.sh` uses `git rev-parse --show-toplevel` as primary method for correct subdirectory/worktree support.
+- **Pipeline permissions** — `apd-init` auto-configures settings.json allowlist for pipeline files and apd commands.
+- **Stale path detection** — `apd-init` and `pipeline-doctor` detect and remove legacy `scripts.old/` directories and stale `pipeline-advance` references.
+- **workflow.md** — all paths updated from `${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance` to `bash .claude/bin/apd pipeline`.
+
 ---
 
 ## v3.7.0 — 2026-04-10

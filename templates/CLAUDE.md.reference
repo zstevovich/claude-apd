@@ -80,6 +80,7 @@ Spec → Builder → Reviewer → Verifier → Commit → Finish
 - `guard-secrets` — sensitive files
 - `guard-lockfile` — lock files
 - `guard-pipeline-state` — blocks direct Write/Edit to .pipeline/ state files
+- `guard-send-message` — blocks SendMessage during active pipeline
 - `verify-all.sh` — build + test before commit (project-level)
 - `pipeline-advance` + `pipeline-gate` — pipeline flag system
 - `rotate-session-log` — automatic session log archival
