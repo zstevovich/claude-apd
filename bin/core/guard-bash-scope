@@ -31,9 +31,21 @@ PROTECTED_PIPELINE=(".claude/.pipeline/" ".pipeline/")
 PROTECTED_PLUGIN=(".claude/plugins/cache/" "plugins/cache/")
 SHELL_WRITE_CHECK=('>>' '>' 'tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ' 'mkdir ' 'mkdir -p' 'touch ' 'rm ' 'rm -f' 'rm -rf' 'rmdir ')
 
-# Block writes to plugin cache (no exceptions — orchestrator must never write here)
+# Block writes to plugin cache — only block if a write operator TARGETS the cache path
+# (not just present anywhere in the command, e.g. bash .../plugins/cache/.../script 2>&1)
 for ppath in "${PROTECTED_PLUGIN[@]}"; do
   if [[ "$COMMAND" == *"$ppath"* ]]; then
+    # Allow execution of scripts from plugin cache (bash .../plugins/cache/.../script)
+    if [[ "$COMMAND" == bash* ]] || [[ "$COMMAND" == *"/bin/"* ]]; then
+      # Check if a write operator is followed by a path containing plugin cache
+      if echo "$COMMAND" | grep -qE "(>|tee |cp |mv |mkdir |touch |rm |install ).*plugins/cache" 2>/dev/null; then
+        echo "BLOCKED: Bash write to plugin cache directory." >&2
+        echo "  Plugin files are read-only. Do not modify." >&2
+        exit 2
+      fi
+      break
+    fi
+    # Non-execution command mentioning plugin cache + write op = block
     for wp in "${SHELL_WRITE_CHECK[@]}"; do
       if [[ "$COMMAND" == *"$wp"* ]]; then
         echo "BLOCKED: Bash write to plugin cache directory." >&2
