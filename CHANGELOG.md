@@ -1,5 +1,29 @@
 # Changelog
 
+## v4.1.0 — 2026-04-10
+
+Tamper-proof pipeline enforcement with compiled Go binary.
+
+### Highlights
+- **Compiled Go validator** — `bin/compiled/validate-agent-*` creates HMAC-signed `.done` files. Orchestrator cannot forge pipeline steps — signature verified at every step transition and commit gate.
+- **Adversarial reviewer hard gate** — verifier blocks if adversarial-reviewer agent exists but was not dispatched. Opt-out via `adversarial: skip` in spec-card.md.
+- **SendMessage guard** — blocks SendMessage during active pipeline (SubagentStart/Stop hooks don't fire for continued agents).
+
+### Enforcement
+- Agent dispatch validation via compiled binary (timestamp, hex agent_id, start/stop pairs, duration)
+- guard-bash-scope: blocks mkdir, touch, rm on .pipeline/ and all writes to plugin cache
+- Criteria counter: counts R* only within Acceptance criteria section
+- Git toplevel resolution: `resolve-project.sh` uses `git rev-parse --show-toplevel`
+- Pipeline permissions: `apd-init` auto-configures settings.json allowlist
+- Stale path detection: `apd-init` and `pipeline-doctor` detect legacy directories and old path references
+- workflow.md: all paths updated to `bash .claude/bin/apd pipeline`
+
+### Pipeline runs
+- Run #6: First clean run — adversarial gate blocked verifier, forced dispatch
+- Run #7: 7 bypass attempts, all blocked (direct edit, fake dispatch, SendMessage, max criteria)
+
+---
+
 ## v4.0.0 — 2026-04-10
 
 Scripts restructured — single entry point, clean architecture.
