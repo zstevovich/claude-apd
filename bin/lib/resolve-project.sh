@@ -22,13 +22,16 @@ fi
 
 # --- Project root ---
 # Claude Code hook commands execute with cwd = project directory
-# Priority: explicit env var → pwd detection → upward walk
+# Priority: explicit env var → git toplevel → pwd detection → upward walk
 if [ -n "${APD_PROJECT_DIR:-}" ]; then
     PROJECT_DIR="$APD_PROJECT_DIR"
+elif _git_root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -d "$_git_root/.claude" ]; then
+    # Git toplevel is authoritative — works from any subdirectory or worktree
+    PROJECT_DIR="$_git_root"
 elif [ -f "$(pwd)/CLAUDE.md" ] || [ -d "$(pwd)/.claude" ]; then
     PROJECT_DIR="$(pwd)"
 else
-    # Walk upward looking for project markers
+    # Walk upward looking for project markers (fallback for non-git dirs)
     _apd_dir="$(pwd)"
     PROJECT_DIR=""
     while [ "$_apd_dir" != "/" ]; do
