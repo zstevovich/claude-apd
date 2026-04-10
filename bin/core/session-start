@@ -1,5 +1,9 @@
 #!/bin/bash
 # APD Session Start — loads project context at the beginning of a session
+#
+# Output strategy:
+#   stderr → displayed to user in terminal (visual feedback)
+#   stdout → injected into Claude's context (machine-readable state)
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
@@ -35,16 +39,16 @@ if command -v claude &>/dev/null; then
         FUNC_NUM=$(ver_to_num "$APD_FUNCTIONAL_VERSION")
 
         if [ "$CC_NUM" -lt "$FUNC_NUM" ] 2>/dev/null; then
-            apd_blocked "Claude Code $CC_VERSION is too old"
-            echo "    Minimum for APD: v$APD_FUNCTIONAL_VERSION (agents + pipeline)"
-            echo "    Update: npm install -g @anthropic-ai/claude-code"
-            echo ""
+            apd_blocked "Claude Code $CC_VERSION is too old" >&2
+            echo "    Minimum for APD: v$APD_FUNCTIONAL_VERSION (agents + pipeline)" >&2
+            echo "    Update: npm install -g @anthropic-ai/claude-code" >&2
+            echo "" >&2
         elif [ "$CC_NUM" -lt "$MIN_NUM" ] 2>/dev/null; then
-            apd_header "Claude Code $CC_VERSION — missing features"
-            echo "    Recommended: v$APD_MIN_VERSION+ for full APD feature set"
-            echo "    Missing: conditional hooks, PostCompact, PermissionDenied, effort frontmatter"
-            echo "    Update: npm install -g @anthropic-ai/claude-code"
-            echo ""
+            apd_header "Claude Code $CC_VERSION — missing features" >&2
+            echo "    Recommended: v$APD_MIN_VERSION+ for full APD feature set" >&2
+            echo "    Missing: conditional hooks, PostCompact, PermissionDenied, effort frontmatter" >&2
+            echo "    Update: npm install -g @anthropic-ai/claude-code" >&2
+            echo "" >&2
         fi
     fi
 fi
@@ -54,13 +58,13 @@ fi
 HEALED=0
 BLOCKED=0
 
-heal()  { echo "  ${MARK_PASS} HEALED: $1"; HEALED=$((HEALED + 1)); }
-block() { echo "  ${MARK_FAIL} BLOCKED: $1"; BLOCKED=$((BLOCKED + 1)); }
+heal()  { echo "  ${MARK_PASS} HEALED: $1" >&2; HEALED=$((HEALED + 1)); }
+block() { echo "  ${MARK_FAIL} BLOCKED: $1" >&2; BLOCKED=$((BLOCKED + 1)); }
 
 # 1. jq — guards don't work without it (cannot be auto-fixed)
 if ! command -v jq &>/dev/null; then
     block "jq is NOT installed — guard scripts will not work!"
-    echo "    -> Install: brew install jq (macOS) / apt install jq (Linux)"
+    echo "    -> Install: brew install jq (macOS) / apt install jq (Linux)" >&2
 fi
 
 # 2. Scripts — if they exist but are not executable, fix automatically
@@ -120,10 +124,10 @@ if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
 
             STALE_HOURS=$((FLAG_AGE / 3600))
             heal "Stale pipeline detected (${STALE_HOURS}h old)"
-            echo "    -> Task: $STALE_TASK (last step: $STALE_STEP)"
-            echo "    -> Auto-resetting..."
+            echo "    -> Task: $STALE_TASK (last step: $STALE_STEP)" >&2
+            echo "    -> Auto-resetting..." >&2
             bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
-            echo "    -> Pipeline reset. Ready for new task."
+            echo "    -> Pipeline reset. Ready for new task." >&2
         fi
     fi
 fi
@@ -146,20 +150,20 @@ if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
         if [ -f "$PIPELINE_DIR/spec.done" ]; then
             CURRENT_TASK=$(cut -d'|' -f3 "$PIPELINE_DIR/spec.done" 2>/dev/null)
         fi
-        echo "  -> Pipeline in progress: $CURRENT_TASK — next step: $NEXT_STEP"
+        echo "  -> Pipeline in progress: $CURRENT_TASK — next step: $NEXT_STEP" >&2
     fi
 fi
 
 # Show summary
 if [ "$HEALED" -gt 0 ] || [ "$BLOCKED" -gt 0 ]; then
-    echo ""
+    echo "" >&2
     if [ "$BLOCKED" -gt 0 ]; then
-        apd_header "Self-heal: $HEALED fixed, $BLOCKED require attention"
-        echo "    Run: bash .claude/bin/apd verify"
+        apd_header "Self-heal: $HEALED fixed, $BLOCKED require attention" >&2
+        echo "    Run: bash .claude/bin/apd verify" >&2
     else
-        apd_header "Self-heal: $HEALED problem(s) automatically fixed"
+        apd_header "Self-heal: $HEALED problem(s) automatically fixed" >&2
     fi
-    echo ""
+    echo "" >&2
 fi
 # ========================================
 
@@ -182,8 +186,8 @@ PROJ_NAME="${PROJ_NAME:-$(basename "$PROJECT_DIR")}"
 
 APD_VER=$(cat "$CLAUDE_DIR/.apd-version" 2>/dev/null | tr -d '[:space:]')
 APD_VER="${APD_VER:-?}"
-apd_header "$PROJ_NAME" "v$APD_VER"
-echo ""
+apd_header "$PROJ_NAME" "v$APD_VER" >&2
+echo "" >&2
 
 # Create project-level shortcut: .claude/bin/apd → plugin entry point
 APD_CMD="$CLAUDE_DIR/bin/apd"
@@ -203,11 +207,11 @@ for old_path in "$CLAUDE_DIR/scripts/apd-pipeline" "$CLAUDE_DIR/scripts/apd-doct
     [ -f "$old_path" ] && rm -f "$old_path"
 done
 
-echo "  APD: bash .claude/bin/apd <command>"
-echo "       apd pipeline|doctor|verify|trace|init|gh|test"
-echo ""
+echo "  APD: bash .claude/bin/apd <command>" >&2
+echo "       apd pipeline|doctor|verify|trace|init|gh|test" >&2
+echo "" >&2
 
-# Pipeline
+# Pipeline — visual to stderr, state summary to stdout (for Claude context)
 if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null; then
     TASK="[idle]"
     NEXT_STEP=""
@@ -220,15 +224,18 @@ if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null; then
             break
         fi
     done
-    echo "  ${D}Task:${R} $TASK"
-    show_pipeline "$NEXT_STEP"
+    echo "  ${D}Task:${R} $TASK" >&2
+    show_pipeline "$NEXT_STEP" >&2
+    # Context for Claude (stdout)
+    echo "Pipeline active: task=$TASK next_step=${NEXT_STEP:-commit}"
 else
-    echo "  ${D}Pipeline:${R} idle"
+    echo "  ${D}Pipeline:${R} idle" >&2
+    echo "Pipeline: idle"
 fi
-echo ""
+echo "" >&2
 
 # Last session
 if [ -f "$MEMORY_DIR/session-log.md" ]; then
-  echo "  Last session:"
-  tail -20 "$MEMORY_DIR/session-log.md"
+  echo "  Last session:" >&2
+  tail -20 "$MEMORY_DIR/session-log.md" >&2
 fi
