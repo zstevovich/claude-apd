@@ -7,6 +7,7 @@
 # file extensions are code files for the project's stack.
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
 if ! command -v jq &>/dev/null; then
@@ -74,6 +75,7 @@ if echo "$REL_PATH" | grep -qE "\.(${CODE_EXT})$"; then
       echo "    - $AGENT_NAME" >&2
     done
   fi
+  log_block "orchestrator-code-write" "$REL_PATH"
   exit 2
 fi
 

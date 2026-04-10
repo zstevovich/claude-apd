@@ -8,6 +8,7 @@
 #      with write functions (writeFileSync, open().write, file_put_contents...)
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
 ALLOWED_PATHS=("$@")
@@ -19,6 +20,8 @@ fi
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
+AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null)
+AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
 
 if [ -z "$COMMAND" ]; then
   exit 0
@@ -40,6 +43,7 @@ for ppath in "${PROTECTED_PLUGIN[@]}"; do
       if [[ "$COMMAND" == *"$wp"*"$ppath"* ]] || [[ "$COMMAND" == *"$wp"*plugin* ]]; then
         echo "BLOCKED: Bash write to plugin cache directory." >&2
         echo "  Plugin files are read-only. Do not modify." >&2
+        log_block "plugin-cache-write" "${COMMAND:0:100}"
         exit 2
       fi
     done
@@ -47,6 +51,7 @@ for ppath in "${PROTECTED_PLUGIN[@]}"; do
     if echo "$COMMAND" | grep -qE '>[^&].*plugins/cache|>>.*plugins/cache' 2>/dev/null; then
       echo "BLOCKED: Bash write to plugin cache directory." >&2
       echo "  Plugin files are read-only. Do not modify." >&2
+      log_block "plugin-cache-write" "${COMMAND:0:100}"
       exit 2
     fi
   fi
@@ -66,6 +71,7 @@ for ppath in "${PROTECTED_PIPELINE[@]}"; do
         echo "" >&2
         echo "  Do not write directly to .pipeline/ — use the apd command instead." >&2
         echo "  Allowed: bash .claude/bin/apd pipeline <command>" >&2
+        log_block "pipeline-state-write" "${COMMAND:0:100}"
         exit 2
       fi
     done
@@ -154,4 +160,5 @@ else
   echo "BLOCKED: Runtime write ($WRITE_TYPE) detected outside the allowed scope." >&2
 fi
 echo "Allowed paths: ${ALLOWED_PATHS[*]}" >&2
+log_block "out-of-scope-bash-write" "${COMMAND:0:100}"
 exit 2

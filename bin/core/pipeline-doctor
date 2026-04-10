@@ -211,7 +211,7 @@ fi
 section "Adversarial Review"
 
 if [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
-    ADV_LINE=$(cat "$PIPELINE_DIR/.adversarial-summary")
+    ADV_LINE=$(head -1 "$PIPELINE_DIR/.adversarial-summary")
     ADV_T=$(echo "$ADV_LINE" | cut -d: -f2)
     ADV_A=$(echo "$ADV_LINE" | cut -d: -f3)
     ADV_D=$(echo "$ADV_LINE" | cut -d: -f4)

@@ -183,7 +183,7 @@ if [ "$SCRIPTS_OK" = true ]; then
 fi
 
 # Memory files
-for file in MEMORY.md status.md session-log.md pipeline-skip-log.md; do
+for file in MEMORY.md status.md session-log.md; do
     if [ -f "$CLAUDE_DIR/memory/$file" ]; then
         pass "memory/$file"
         ((SUM_MEMORY++))

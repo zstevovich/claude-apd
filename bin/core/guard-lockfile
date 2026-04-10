@@ -2,6 +2,7 @@
 # APD Lockfile Guard — prevents modification of lock files
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
 if ! command -v jq &>/dev/null; then
@@ -10,6 +11,8 @@ fi
 
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null)
+AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
 
 if [ -z "$FILE_PATH" ]; then
   exit 0
@@ -21,6 +24,7 @@ case "$BASENAME" in
   package-lock.json|pnpm-lock.yaml|yarn.lock|packages.lock.json|composer.lock|Gemfile.lock|poetry.lock|Cargo.lock|go.sum)
     echo "BLOCKED: Lock file '$BASENAME' must not be modified directly." >&2
     echo "Use the package manager to update." >&2
+    log_block "lockfile-write" "$BASENAME"
     exit 2
     ;;
 esac

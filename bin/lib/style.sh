@@ -192,3 +192,18 @@ show_pipeline() {
     bar="${bar}${C_COMMIT}commit${R}"
     echo "$bar"
 }
+
+# log_block "reason" ["command_summary"]
+# Writes a guard block event to guard-audit.log for centralized audit trail.
+# Uses AGENT_ID, AGENT_TYPE from hook stdin JSON (set by guard scripts).
+log_block() {
+    local reason="$1"
+    local cmd_summary="${2:-}"
+    local log_file="${MEMORY_DIR:-}/guard-audit.log"
+    [ -d "${MEMORY_DIR:-}" ] || return 0
+    local agent_info="${AGENT_ID:-orchestrator}"
+    [ -n "${AGENT_TYPE:-}" ] && agent_info="${agent_info}(${AGENT_TYPE})"
+    local ts
+    ts=$(date +"%Y-%m-%d %H:%M:%S")
+    echo "${ts}|BLOCK|${agent_info}|${reason}|${cmd_summary}" >> "$log_file"
+}

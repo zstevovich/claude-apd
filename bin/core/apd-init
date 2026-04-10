@@ -147,7 +147,7 @@ FOOTER
     fi
 
     # Memory files
-    for file in MEMORY.md status.md session-log.md pipeline-skip-log.md; do
+    for file in MEMORY.md status.md session-log.md; do
         if [ ! -f "$CLAUDE_DIR/memory/$file" ]; then
             if [ -f "$APD_PLUGIN_ROOT/templates/memory/$file" ]; then
                 cp "$APD_PLUGIN_ROOT/templates/memory/$file" "$CLAUDE_DIR/memory/$file"
@@ -414,7 +414,7 @@ with open('$CLAUDE_DIR/settings.json', 'w') as f:
     fi
 
     # --- Memory files ---
-    for file in MEMORY.md status.md session-log.md pipeline-skip-log.md; do
+    for file in MEMORY.md status.md session-log.md; do
         if [ -f "$CLAUDE_DIR/memory/$file" ]; then
             ok "memory/$file"
         else

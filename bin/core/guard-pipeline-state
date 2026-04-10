@@ -6,6 +6,7 @@
 # Orchestrator must NOT write: *.done, .agents, .spec-hash, .trace-summary, verified.timestamp
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
 if ! command -v jq &>/dev/null; then
@@ -14,6 +15,8 @@ fi
 
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null)
+AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
 
 if [ -z "$FILE_PATH" ]; then
     exit 0
@@ -35,6 +38,7 @@ case "$REL_PATH" in
                 echo "" >&2
                 echo "  Pipeline state is managed by pipeline-advance — do not write directly." >&2
                 echo "  Use: bash .claude/bin/apd pipeline <command>" >&2
+                log_block "pipeline-state-direct-write" "$FILENAME"
                 exit 2
                 ;;
         esac

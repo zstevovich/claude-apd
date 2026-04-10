@@ -8,7 +8,7 @@
 
 # Debug log — written to plugin cache for troubleshooting hook failures
 _SS_LOG="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/session-start.log}"
-_ss_log() { [ -n "$_SS_LOG" ] && echo "$(date +%H:%M:%S) $1" >> "$_SS_LOG"; }
+_ss_log() { [ -n "$_SS_LOG" ] && echo "$(date +"%Y-%m-%d %H:%M:%S") $1" >> "$_SS_LOG"; }
 _ss_log "START pwd=$(pwd) PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-unset}"
 
 source "$(dirname "$0")/../lib/resolve-project.sh"

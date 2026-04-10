@@ -118,6 +118,7 @@ verify_done() {
             echo "" >&2
             echo "  The ${step}.done file was not created by pipeline-advance." >&2
             echo "  Use: bash .claude/bin/apd pipeline ${step}" >&2
+            log_block "forged-done-file" "${step}.done"
             return 1
         fi
     fi
@@ -590,7 +591,7 @@ case "$STEP" in
                 # 8. Adversarial review hit rate
                 ADV_REVIEW=""
                 if [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
-                    ADV_LINE=$(cat "$PIPELINE_DIR/.adversarial-summary")
+                    ADV_LINE=$(head -1 "$PIPELINE_DIR/.adversarial-summary")
                     # Format: ADVERSARIAL:total:accepted:dismissed
                     ADV_TOTAL=$(echo "$ADV_LINE" | cut -d: -f2)
                     ADV_ACCEPTED=$(echo "$ADV_LINE" | cut -d: -f3)
