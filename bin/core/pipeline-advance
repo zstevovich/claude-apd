@@ -66,9 +66,15 @@ validate_agent_entry() {
         return 1
     fi
 
-    # Find matching start entry for this agent
+    # Validate agent_id format: Claude Code generates hex IDs (17+ chars, starting with 'a')
     local agent_id
     agent_id=$(echo "$stop_line" | cut -d'|' -f4)
+    if ! echo "$agent_id" | grep -qE '^[a-f0-9]{15,}$'; then
+        echo "  ${MARK_FAIL} Suspicious: $agent_name has non-CC agent_id: $agent_id" >&2
+        return 1
+    fi
+
+    # Find matching start entry for this agent
     local start_line
     start_line=$(grep "|start|${agent_name}|${agent_id}" "$log_file" 2>/dev/null | tail -1)
 

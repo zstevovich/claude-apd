@@ -652,12 +652,12 @@ if [ ! -f "$CLAUDE_DIR/agents/code-reviewer.md" ]; then
 fi
 AGENTS_LOG="$PIPELINE_DIR/.agents"
 
-# Fake agent entry — stop without start, should be rejected
+# Fake agent entry — non-CC agent_id, should be rejected
 echo "$(date +"%Y-%m-%d %H:%M:%S")|stop|backend-builder|fake-001" >> "$AGENTS_LOG"
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" builder 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "suspicious"; then
-    pass "pipeline-advance: builder REJECTS fake agent entry (no start)"
+    pass "pipeline-advance: builder REJECTS fake agent entry"
 else
     fail "pipeline-advance builder should reject fake agent (exit: $EXIT_CODE): $RESULT"
 fi
@@ -666,8 +666,8 @@ rm -f "$AGENTS_LOG"
 # Simulate realistic agent dispatch (start + stop with >3s gap)
 _FAKE_START=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
 _FAKE_STOP=$(date +"%Y-%m-%d %H:%M:%S")
-echo "${_FAKE_START}|start|backend-builder|test-agent-001" >> "$AGENTS_LOG"
-echo "${_FAKE_STOP}|stop|backend-builder|test-agent-001" >> "$AGENTS_LOG"
+echo "${_FAKE_START}|start|backend-builder|a0000000000000001" >> "$AGENTS_LOG"
+echo "${_FAKE_STOP}|stop|backend-builder|a0000000000000001" >> "$AGENTS_LOG"
 
 # Builder WITH agent dispatch — should pass
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" builder 2>&1)
@@ -698,8 +698,8 @@ fi
 # Simulate reviewer agent dispatch (start + stop with >3s gap)
 _FAKE_START=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
 _FAKE_STOP=$(date +"%Y-%m-%d %H:%M:%S")
-echo "${_FAKE_START}|start|code-reviewer|test-reviewer-001" >> "$AGENTS_LOG"
-echo "${_FAKE_STOP}|stop|code-reviewer|test-reviewer-001" >> "$AGENTS_LOG"
+echo "${_FAKE_START}|start|code-reviewer|a0000000000000002" >> "$AGENTS_LOG"
+echo "${_FAKE_STOP}|stop|code-reviewer|a0000000000000002" >> "$AGENTS_LOG"
 
 # Reviewer WITH agent dispatch — should pass
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" reviewer 2>&1)
@@ -751,14 +751,14 @@ bash "$SCRIPT_DIR/pipeline-advance" spec "APD-VERIFY-OPT-OUT" >/dev/null 2>&1
 _FAKE_START=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
 _FAKE_STOP=$(date +"%Y-%m-%d %H:%M:%S")
 AGENTS_LOG="$PIPELINE_DIR/.agents"
-echo "${_FAKE_START}|start|backend-builder|test-opt-b" >> "$AGENTS_LOG"
-echo "${_FAKE_STOP}|stop|backend-builder|test-opt-b" >> "$AGENTS_LOG"
+echo "${_FAKE_START}|start|backend-builder|a0000000000000003" >> "$AGENTS_LOG"
+echo "${_FAKE_STOP}|stop|backend-builder|a0000000000000003" >> "$AGENTS_LOG"
 bash "$SCRIPT_DIR/pipeline-advance" builder >/dev/null 2>&1
 # Reviewer dispatch — should detect opt-out
 _FAKE_START=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
 _FAKE_STOP=$(date +"%Y-%m-%d %H:%M:%S")
-echo "${_FAKE_START}|start|code-reviewer|test-opt-r" >> "$AGENTS_LOG"
-echo "${_FAKE_STOP}|stop|code-reviewer|test-opt-r" >> "$AGENTS_LOG"
+echo "${_FAKE_START}|start|code-reviewer|a0000000000000004" >> "$AGENTS_LOG"
+echo "${_FAKE_STOP}|stop|code-reviewer|a0000000000000004" >> "$AGENTS_LOG"
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" reviewer 2>&1)
 if echo "$RESULT" | grep -qi "skipped"; then
     pass "pipeline-advance: adversarial opt-out via spec-card"
