@@ -560,6 +560,7 @@ section "8. Pipeline end-to-end test"
 # Restore function for safe cleanup on interrupt
 CREATED_BUILDER=false
 CREATED_REVIEWER=false
+CREATED_ADVERSARIAL=false
 
 restore_pipeline_state() {
     if [ "$HAD_EXISTING_PIPELINE" = true ] && [ -d /tmp/apd-verify-backup ]; then
@@ -573,6 +574,7 @@ restore_pipeline_state() {
     fi
     [ "$CREATED_BUILDER" = true ] && rm -f "$CLAUDE_DIR/agents/backend-builder.md"
     [ "$CREATED_REVIEWER" = true ] && rm -f "$CLAUDE_DIR/agents/code-reviewer.md"
+    [ "$CREATED_ADVERSARIAL" = true ] && rm -f "$CLAUDE_DIR/agents/adversarial-reviewer.md"
 }
 trap restore_pipeline_state EXIT INT TERM
 
@@ -649,7 +651,23 @@ if [ ! -f "$CLAUDE_DIR/agents/code-reviewer.md" ]; then
     CREATED_REVIEWER=true
 fi
 AGENTS_LOG="$PIPELINE_DIR/.agents"
-echo "$(date +"%Y-%m-%d %H:%M:%S")|stop|backend-builder|test-agent-001" >> "$AGENTS_LOG"
+
+# Fake agent entry — stop without start, should be rejected
+echo "$(date +"%Y-%m-%d %H:%M:%S")|stop|backend-builder|fake-001" >> "$AGENTS_LOG"
+RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" builder 2>&1)
+EXIT_CODE=$?
+if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "suspicious"; then
+    pass "pipeline-advance: builder REJECTS fake agent entry (no start)"
+else
+    fail "pipeline-advance builder should reject fake agent (exit: $EXIT_CODE): $RESULT"
+fi
+rm -f "$AGENTS_LOG"
+
+# Simulate realistic agent dispatch (start + stop with >3s gap)
+_FAKE_START=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
+_FAKE_STOP=$(date +"%Y-%m-%d %H:%M:%S")
+echo "${_FAKE_START}|start|backend-builder|test-agent-001" >> "$AGENTS_LOG"
+echo "${_FAKE_STOP}|stop|backend-builder|test-agent-001" >> "$AGENTS_LOG"
 
 # Builder WITH agent dispatch — should pass
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" builder 2>&1)
@@ -677,8 +695,11 @@ else
     fail "pipeline-advance reviewer should block without agent (exit: $EXIT_CODE)"
 fi
 
-# Simulate reviewer agent dispatch
-echo "$(date +"%Y-%m-%d %H:%M:%S")|stop|code-reviewer|test-reviewer-001" >> "$AGENTS_LOG"
+# Simulate reviewer agent dispatch (start + stop with >3s gap)
+_FAKE_START=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
+_FAKE_STOP=$(date +"%Y-%m-%d %H:%M:%S")
+echo "${_FAKE_START}|start|code-reviewer|test-reviewer-001" >> "$AGENTS_LOG"
+echo "${_FAKE_STOP}|stop|code-reviewer|test-reviewer-001" >> "$AGENTS_LOG"
 
 # Reviewer WITH agent dispatch — should pass
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" reviewer 2>&1)
@@ -688,12 +709,54 @@ else
     fail "pipeline-advance reviewer ERROR: $RESULT"
 fi
 
-# Verifier
+# Adversarial gate: create agent to trigger the gate
+if [ ! -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ]; then
+    printf '%s\n' '---' 'name: adversarial-reviewer' '---' > "$CLAUDE_DIR/agents/adversarial-reviewer.md"
+    CREATED_ADVERSARIAL=true
+fi
+
+# Verifier must BLOCK when .adversarial-pending exists without .adversarial-summary
+RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" verifier 2>&1)
+EXIT_CODE=$?
+if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "adversarial reviewer"; then
+    pass "pipeline-advance: verifier BLOCKS without adversarial review"
+else
+    fail "pipeline-advance verifier should block without adversarial review (exit: $EXIT_CODE)"
+fi
+
+# Verifier must PASS after .adversarial-summary is provided
+echo "ADVERSARIAL:3:2:1" > "$PIPELINE_DIR/.adversarial-summary"
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" verifier 2>&1)
 if echo "$RESULT" | grep -q "COMMIT ALLOWED"; then
-    pass "pipeline-advance: verifier -> COMMIT ALLOWED"
+    pass "pipeline-advance: verifier passes with adversarial summary"
 else
-    fail "pipeline-advance verifier ERROR: $RESULT"
+    fail "pipeline-advance verifier ERROR with adversarial summary: $RESULT"
+fi
+
+# Rollback verifier for opt-out test
+bash "$SCRIPT_DIR/pipeline-advance" rollback >/dev/null 2>&1
+
+# Adversarial opt-out: add skip to spec-card, re-run reviewer
+# First rollback reviewer to re-trigger .adversarial-pending logic
+bash "$SCRIPT_DIR/pipeline-advance" rollback >/dev/null 2>&1
+echo "adversarial: skip — test verification" >> "$PIPELINE_DIR/spec-card.md"
+_FAKE_START=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
+_FAKE_STOP=$(date +"%Y-%m-%d %H:%M:%S")
+echo "${_FAKE_START}|start|code-reviewer|test-reviewer-002" >> "$AGENTS_LOG"
+echo "${_FAKE_STOP}|stop|code-reviewer|test-reviewer-002" >> "$AGENTS_LOG"
+RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" reviewer 2>&1)
+if echo "$RESULT" | grep -qi "skipped"; then
+    pass "pipeline-advance: adversarial opt-out via spec-card"
+else
+    fail "pipeline-advance adversarial opt-out not detected: $RESULT"
+fi
+
+# Verifier must PASS without adversarial summary when opted out
+RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" verifier 2>&1)
+if echo "$RESULT" | grep -q "COMMIT ALLOWED"; then
+    pass "pipeline-advance: verifier passes with adversarial opt-out"
+else
+    fail "pipeline-advance verifier ERROR with opt-out: $RESULT"
 fi
 
 # pipeline-gate: must pass (all 4 steps completed)

@@ -42,6 +42,66 @@ NOW_HUMAN=$(date +"%Y-%m-%d %H:%M:%S")
 # --- Visual helpers ---
 source "$(dirname "$0")/../lib/style.sh"
 
+# --- Agent validation ---
+# Validates .agents log entries are from real track-agent dispatch, not faked.
+# Returns 0 if agent is valid, 1 if suspicious.
+# Usage: validate_agent_entry "stop" "agent-name" "$AGENTS_LOG"
+validate_agent_entry() {
+    local look_for_evt="$1"
+    local agent_name="$2"
+    local log_file="$3"
+    local min_duration=3  # minimum seconds between start and stop
+
+    # Find the last matching stop entry
+    local stop_line
+    stop_line=$(grep "|${look_for_evt}|${agent_name}|" "$log_file" 2>/dev/null | tail -1)
+    [ -z "$stop_line" ] && return 1
+
+    local stop_ts
+    stop_ts=$(echo "$stop_line" | cut -d'|' -f1)
+
+    # Validate timestamp format: must be "YYYY-MM-DD HH:MM:SS"
+    if ! echo "$stop_ts" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$'; then
+        echo "  ${MARK_FAIL} Suspicious: $agent_name has invalid timestamp format" >&2
+        return 1
+    fi
+
+    # Find matching start entry for this agent
+    local agent_id
+    agent_id=$(echo "$stop_line" | cut -d'|' -f4)
+    local start_line
+    start_line=$(grep "|start|${agent_name}|${agent_id}" "$log_file" 2>/dev/null | tail -1)
+
+    if [ -z "$start_line" ]; then
+        echo "  ${MARK_FAIL} Suspicious: $agent_name has stop but no matching start" >&2
+        return 1
+    fi
+
+    local start_ts
+    start_ts=$(echo "$start_line" | cut -d'|' -f1)
+
+    # Validate start timestamp format
+    if ! echo "$start_ts" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$'; then
+        echo "  ${MARK_FAIL} Suspicious: $agent_name start has invalid timestamp" >&2
+        return 1
+    fi
+
+    # Check duration (start/stop can't be identical — real agents take time)
+    local start_epoch stop_epoch
+    start_epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$start_ts" +%s 2>/dev/null || date -d "$start_ts" +%s 2>/dev/null || echo 0)
+    stop_epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$stop_ts" +%s 2>/dev/null || date -d "$stop_ts" +%s 2>/dev/null || echo 0)
+
+    if [ "$start_epoch" -gt 0 ] && [ "$stop_epoch" -gt 0 ] 2>/dev/null; then
+        local duration=$((stop_epoch - start_epoch))
+        if [ "$duration" -lt "$min_duration" ]; then
+            echo "  ${MARK_FAIL} Suspicious: $agent_name ran for ${duration}s (minimum ${min_duration}s)" >&2
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
 case "$STEP" in
     spec)
         if [ -z "$ARG" ]; then
@@ -106,7 +166,7 @@ case "$STEP" in
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash"
         echo "${NOW}|${NOW_HUMAN}|${ARG}" > "$PIPELINE_DIR/spec.done"
         # Freeze spec-card.md — hash for tamper detection
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
@@ -155,15 +215,25 @@ case "$STEP" in
                     BLOCKED_AGENTS="${BLOCKED_AGENTS}${agent_type}, "
                     continue
                 fi
-                # Accept project-defined agents
+                # Accept project-defined agents (with validation)
                 if [ -f "$CLAUDE_DIR/agents/${agent_type}.md" ]; then
-                    BUILDER_RAN="$agent_type"
+                    if validate_agent_entry "stop" "$agent_type" "$AGENTS_LOG"; then
+                        BUILDER_RAN="$agent_type"
+                    else
+                        SUSPICIOUS="${SUSPICIOUS:-}${agent_type}, "
+                    fi
                 fi
             done < "$AGENTS_LOG"
         fi
         if [ -z "${BUILDER_RAN:-}" ]; then
             echo "BLOCKED: No project Builder agent was dispatched!" >&2
             echo "" >&2
+            if [ -n "${SUSPICIOUS:-}" ]; then
+                echo "  Suspicious dispatch detected: ${SUSPICIOUS%, }" >&2
+                echo "  Agent entries look fabricated (wrong timestamp, zero duration, or missing start)." >&2
+                echo "  Dispatch REAL agents — do not write to .agents directly." >&2
+                echo "" >&2
+            fi
             if [ -n "$BLOCKED_AGENTS" ]; then
                 echo "  Rejected: ${BLOCKED_AGENTS%, }" >&2
                 echo "  These are plugin agents, NOT project agents." >&2
@@ -231,6 +301,7 @@ case "$STEP" in
         AGENTS_LOG="$PIPELINE_DIR/.agents"
         REVIEWER_RAN=""
         BLOCKED_AGENTS=""
+        SUSPICIOUS=""
         REJECTED_PREFIXES="superpowers:"
         if [ -f "$AGENTS_LOG" ]; then
             while IFS='|' read -r _ts _evt agent_type _id; do
@@ -240,15 +311,25 @@ case "$STEP" in
                     BLOCKED_AGENTS="${BLOCKED_AGENTS}${agent_type}, "
                     continue
                 fi
-                # Accept reviewer if defined in project
+                # Accept reviewer if defined in project (with validation)
                 if [ -f "$CLAUDE_DIR/agents/${agent_type}.md" ] && echo "$agent_type" | grep -qiE 'review'; then
-                    REVIEWER_RAN="$agent_type"
+                    if validate_agent_entry "stop" "$agent_type" "$AGENTS_LOG"; then
+                        REVIEWER_RAN="$agent_type"
+                    else
+                        SUSPICIOUS="${SUSPICIOUS}${agent_type}, "
+                    fi
                 fi
             done < "$AGENTS_LOG"
         fi
         if [ -z "${REVIEWER_RAN:-}" ]; then
             echo "BLOCKED: No project Reviewer agent was dispatched!" >&2
             echo "" >&2
+            if [ -n "${SUSPICIOUS:-}" ]; then
+                echo "  Suspicious dispatch detected: ${SUSPICIOUS%, }" >&2
+                echo "  Agent entries look fabricated (wrong timestamp, zero duration, or missing start)." >&2
+                echo "  Dispatch REAL agents — do not write to .agents directly." >&2
+                echo "" >&2
+            fi
             if [ -n "$BLOCKED_AGENTS" ]; then
                 echo "  Rejected: ${BLOCKED_AGENTS%, }" >&2
                 echo "  These are plugin agents, NOT project agents." >&2
@@ -265,6 +346,18 @@ case "$STEP" in
         BUILDER_TS=$(cut -d'|' -f1 "$PIPELINE_DIR/builder.done")
         ELAPSED=$(format_duration $((NOW - BUILDER_TS)))
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/reviewer.done"
+
+        # Mark adversarial review as pending if agent exists
+        if [ -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ]; then
+            # Check for opt-out in spec-card
+            if [ -f "$PIPELINE_DIR/spec-card.md" ] && grep -qi '^adversarial:.*skip' "$PIPELINE_DIR/spec-card.md" 2>/dev/null; then
+                ok "Adversarial reviewer: skipped (opt-out in spec-card.md)"
+            else
+                echo "${NOW}" > "$PIPELINE_DIR/.adversarial-pending"
+                ok "Adversarial reviewer: required before verifier"
+            fi
+        fi
+
         apd_header "Reviewer Complete" "+$ELAPSED"
         show_pipeline "verifier"
         # GitHub sync (best-effort)
@@ -306,10 +399,18 @@ case "$STEP" in
             fi
         fi
 
-        # Warn if adversarial reviewer is configured but wasn't used
-        if [ -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ] && [ ! -f "$PIPELINE_DIR/.adversarial-summary" ]; then
-            warn "Adversarial reviewer is configured but was not used this task." >&2
-            echo "    Write ADVERSARIAL:total:accepted:dismissed to .pipeline/.adversarial-summary" >&2
+        # Hard gate: adversarial reviewer must complete before verifier
+        if [ -f "$PIPELINE_DIR/.adversarial-pending" ] && [ ! -f "$PIPELINE_DIR/.adversarial-summary" ]; then
+            echo "BLOCKED: Adversarial reviewer has not been dispatched!" >&2
+            echo "" >&2
+            echo "  The adversarial-reviewer agent is required for this task." >&2
+            echo "  Dispatch it using the Agent tool, then write results to:" >&2
+            echo "    .pipeline/.adversarial-summary" >&2
+            echo "" >&2
+            echo "  To skip for this task, add to spec-card.md:" >&2
+            echo "    adversarial: skip — <reason>" >&2
+            echo "  Then re-run: pipeline-advance rollback → pipeline-advance reviewer" >&2
+            exit 1
         fi
 
         echo "${NOW}|${NOW_HUMAN}" > "$PIPELINE_DIR/verifier.done"
@@ -495,7 +596,7 @@ EOF
         fi
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash"
         echo "Pipeline reset. Ready for new task."
         ;;
 
@@ -507,6 +608,7 @@ EOF
                 rm -f "$PIPELINE_DIR/$step.done"
                 # If verifier rolled back, also remove cache timestamp and trace summary
                 [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary"
+                [ "$step" = "reviewer" ] && rm -f "$PIPELINE_DIR/.adversarial-pending"
                 [ "$step" = "builder" ] && rm -f "$PIPELINE_DIR/implementation-plan.md"
                 apd_header "Rollback: $step"
                 show_pipeline "$step"
