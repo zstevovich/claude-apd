@@ -831,7 +831,7 @@ EOF
             echo "  Use the full pipeline: spec → builder → reviewer → verifier → commit" >&2
             echo "" >&2
             echo "  If this is truly a re-initialization, run:" >&2
-            echo "    APD_FORCE_INIT=1 bash \${CLAUDE_PLUGIN_ROOT}/scripts/pipeline-advance init \"$ARG\"" >&2
+            echo "    APD_FORCE_INIT=1 bash .claude/bin/apd pipeline init \"$ARG\"" >&2
             exit 1
         fi
 

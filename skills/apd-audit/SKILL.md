@@ -97,7 +97,7 @@ Read `.claude/settings.json` and verify:
 ### 5. Workflow Rules
 
 Read `.claude/rules/workflow.md` and verify:
-- Uses `${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance` (not `apd-pipeline`)
+- Uses `apd pipeline` commands (not `apd-pipeline`)
 - Has step 9 (finish)
 - Has mandatory skills section (brainstorm, tdd, debug, finish)
 - Model discipline table present (orchestrator opus, builder sonnet, reviewer opus)
@@ -105,7 +105,7 @@ Read `.claude/rules/workflow.md` and verify:
 ### 6. Pipeline Health
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/pipeline-advance status
+bash .claude/bin/apd pipeline status
 bash ${CLAUDE_PLUGIN_ROOT}/bin/core/apd-init --version
 ```
 
