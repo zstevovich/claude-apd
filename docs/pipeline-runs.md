@@ -162,9 +162,20 @@ First run on v4.1.0 with HMAC-signed .done files and compiled Go validator. Thre
 <tr>
 <td width="50%" valign="top">
 
-### #9
+### #9 — Backend Audit Batch 1
 
-*Next run...*
+| | |
+|---|---|
+| **Date** | 2026-04-10 |
+| **Project** | Bambi Plazma (.NET 10) |
+| **Effort** | high |
+| **Duration** | 16m 44s |
+| **Spec coverage** | 7/7 |
+| **Agents** | 3 (backend-api, code-reviewer, adversarial-reviewer) |
+| **Guard blocks** | 2 (pipeline-state-write, orchestrator-code-write) |
+| **Adversarial** | 3 findings (0 accepted, 3 dismissed) |
+
+First run on v4.1.1 with complete audit trail. All 8 guards logging — lockfile-write, secret-access, pipeline-state-write, orchestrator-code-write all captured. Code-reviewer agent also blocked on pipeline-state-write (reading spec-card via Bash). HMAC-signed .done files active, Go binary validator running.
 
 </td>
 <td width="50%" valign="top">
