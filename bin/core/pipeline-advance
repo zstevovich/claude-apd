@@ -441,6 +441,24 @@ case "$STEP" in
             exit 1
         fi
 
+        # Run build + tests (verify-all.sh lives in the PROJECT, not the plugin)
+        VERIFY_ALL="$CLAUDE_DIR/scripts/verify-all.sh"
+        if [ -x "$VERIFY_ALL" ]; then
+            echo "" >&2
+            echo "  Running build + tests..." >&2
+            VERIFY_OUT=$(bash "$VERIFY_ALL" 2>&1)
+            VERIFY_EXIT=$?
+            if [ $VERIFY_EXIT -ne 0 ]; then
+                echo "BLOCKED: Build or tests failed." >&2
+                echo "" >&2
+                echo "$VERIFY_OUT" | tail -20 >&2
+                echo "" >&2
+                echo "  Fix the errors and re-run: bash .claude/bin/apd pipeline verifier" >&2
+                exit 1
+            fi
+            echo "  ${MARK_PASS} Build + tests passed" >&2
+        fi
+
         create_done "verifier"
         # Cache timestamp — verify-all.sh skips rebuild if fresh (<120s)
         echo "$NOW" > "$PIPELINE_DIR/verified.timestamp"
