@@ -575,6 +575,7 @@ restore_pipeline_state() {
     [ "$CREATED_REVIEWER" = true ] && rm -f "$CLAUDE_DIR/agents/code-reviewer.md"
     [ "$CREATED_ADVERSARIAL" = true ] && rm -f "$CLAUDE_DIR/agents/adversarial-reviewer.md"
     rm -f "$PROJECT_DIR/tests/apd-verify-trace-test.tmp"
+    rmdir "$PIPELINE_DIR/.lock" 2>/dev/null
 }
 trap restore_pipeline_state EXIT INT TERM
 
@@ -616,7 +617,8 @@ _clean_fill_in() {
     fi
 }
 
-# Clean start
+# Clean start — remove stale lock before E2E tests
+rmdir "$PIPELINE_DIR/.lock" 2>/dev/null
 bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
 _clean_fill_in
 
