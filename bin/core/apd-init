@@ -305,10 +305,10 @@ maxTurns: 20' "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
 
     # --- workflow.md ---
     if [ -f "$CLAUDE_DIR/rules/workflow.md" ]; then
-        # Check for outdated ${CLAUDE_PLUGIN_ROOT} references
-        if grep -q 'CLAUDE_PLUGIN_ROOT' "$CLAUDE_DIR/rules/workflow.md" 2>/dev/null; then
+        # Check for outdated references
+        if grep -q 'CLAUDE_PLUGIN_ROOT' "$CLAUDE_DIR/rules/workflow.md" 2>/dev/null || grep -qF '.claude/.pipeline' "$CLAUDE_DIR/rules/workflow.md" 2>/dev/null; then
             cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$CLAUDE_DIR/rules/workflow.md"
-            fix "workflow.md: updated (removed stale CLAUDE_PLUGIN_ROOT references)"
+            fix "workflow.md: updated (stale paths)"
             FIXES=$((FIXES + 1))
         else
             ok "workflow.md"
