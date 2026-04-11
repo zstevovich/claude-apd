@@ -171,9 +171,15 @@ FOOTER
       "Write(.claude/.pipeline/spec-card.md)",
       "Write(.claude/.pipeline/implementation-plan.md)",
       "Write(.claude/.pipeline/.adversarial-summary)",
+      "Write(**/.pipeline/spec-card.md)",
+      "Write(**/.pipeline/implementation-plan.md)",
+      "Write(**/.pipeline/.adversarial-summary)",
       "Edit(.claude/.pipeline/spec-card.md)",
       "Edit(.claude/.pipeline/implementation-plan.md)",
       "Edit(.claude/.pipeline/.adversarial-summary)",
+      "Edit(**/.pipeline/spec-card.md)",
+      "Edit(**/.pipeline/implementation-plan.md)",
+      "Edit(**/.pipeline/.adversarial-summary)",
       "Bash(bash .claude/bin/apd *)",
       "Bash(bash .claude/bin/apd pipeline *)"
     ],
@@ -380,8 +386,13 @@ with open('$CLAUDE_DIR/settings.json') as f:
 required_allow = [
     'Edit(.claude/memory/**)', 'Write(.claude/memory/**)',
     'Write(.claude/.pipeline/spec-card.md)', 'Write(.claude/.pipeline/implementation-plan.md)',
-    'Write(.claude/.pipeline/.adversarial-summary)', 'Edit(.claude/.pipeline/spec-card.md)',
-    'Edit(.claude/.pipeline/implementation-plan.md)', 'Edit(.claude/.pipeline/.adversarial-summary)',
+    'Write(.claude/.pipeline/.adversarial-summary)',
+    'Write(**/.pipeline/spec-card.md)', 'Write(**/.pipeline/implementation-plan.md)',
+    'Write(**/.pipeline/.adversarial-summary)',
+    'Edit(.claude/.pipeline/spec-card.md)', 'Edit(.claude/.pipeline/implementation-plan.md)',
+    'Edit(.claude/.pipeline/.adversarial-summary)',
+    'Edit(**/.pipeline/spec-card.md)', 'Edit(**/.pipeline/implementation-plan.md)',
+    'Edit(**/.pipeline/.adversarial-summary)',
     'Bash(bash .claude/bin/apd *)', 'Bash(bash .claude/bin/apd pipeline *)'
 ]
 required_deny = [
