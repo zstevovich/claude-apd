@@ -109,6 +109,8 @@ bash .claude/bin/apd pipeline stats
 - NEVER use SendMessage to continue a builder/reviewer agent. SendMessage does NOT trigger SubagentStart/Stop hooks — the agent dispatch will not be recorded and `apd pipeline` will BLOCK. Always dispatch a NEW agent with `Agent()`.
 - When an agent hits maxTurns limit and stops mid-work: check what was done (`git diff`), then dispatch a NEW agent with specific instructions for the remaining work. Do NOT attempt to finish the work directly — you are the orchestrator, not the builder.
 - Max 7 acceptance criteria per spec. Large features MUST be decomposed into smaller pipeline cycles.
+- **NEVER write, edit, or create project source files** (code, templates, CSS, JS, tests, configs). You are the ORCHESTRATOR — you write ONLY pipeline files (spec-card.md, implementation-plan.md, .adversarial-summary) and memory files. ALL code changes go through dispatched Builder agents. `guard-orchestrator` mechanically blocks this — every failed attempt wastes tokens.
+- **NEVER read code files after a reviewer finishes** to "verify" or "double-check" the review. Trust the reviewer's findings. If the reviewer missed something, dispatch the reviewer again — do not replicate its work.
 
 ## 1. Spec card before code
 

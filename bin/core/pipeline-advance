@@ -468,6 +468,19 @@ case "$STEP" in
             exit 1
         fi
 
+        # Hard gate: adversarial summary must be backed by actual dispatch
+        if [ -f "$PIPELINE_DIR/.adversarial-pending" ] && [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
+            if [ -f "$AGENTS_LOG" ] && ! grep -q "|start|adversarial-reviewer|" "$AGENTS_LOG" 2>/dev/null; then
+                echo "BLOCKED: Adversarial summary written but agent was never dispatched!" >&2
+                echo "" >&2
+                echo "  .adversarial-summary exists but no adversarial-reviewer in agent log." >&2
+                echo "  You must dispatch the adversarial-reviewer agent before writing results." >&2
+                echo "  Dispatch: Agent({ subagent_type: \"adversarial-reviewer\", prompt: \"...\" })" >&2
+                log_block "adversarial-summary-without-dispatch" "adversarial-reviewer"
+                exit 1
+            fi
+        fi
+
         # Run build + tests (verify-all.sh lives in the PROJECT, not the plugin)
         VERIFY_ALL="$CLAUDE_DIR/scripts/verify-all.sh"
         if [ -x "$VERIFY_ALL" ]; then
