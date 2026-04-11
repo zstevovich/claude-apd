@@ -376,10 +376,18 @@ case "$STEP" in
 
         # Mark adversarial review as pending if agent exists
         if [ -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ]; then
-            # Check for opt-out in spec-card
+            # Check for opt-out in spec-card — only allowed for small tasks (<=2 criteria)
+            ADV_OPT_OUT=false
             if [ -f "$PIPELINE_DIR/spec-card.md" ] && grep -qi '^adversarial:.*skip' "$PIPELINE_DIR/spec-card.md" 2>/dev/null; then
-                ok "Adversarial reviewer: skipped (opt-out in spec-card.md)"
-            else
+                ADV_CRITERIA=$(sed -n '/Acceptance criteria/,/^\*\*[^A]/p' "$PIPELINE_DIR/spec-card.md" 2>/dev/null | grep -cE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' || echo 0)
+                if [ "$ADV_CRITERIA" -le 2 ] 2>/dev/null; then
+                    ADV_OPT_OUT=true
+                    ok "Adversarial reviewer: skipped (opt-out, $ADV_CRITERIA criteria)"
+                else
+                    warn "Adversarial opt-out DENIED: $ADV_CRITERIA criteria (max 2 for opt-out)" >&2
+                fi
+            fi
+            if [ "$ADV_OPT_OUT" = false ]; then
                 echo "${NOW}" > "$PIPELINE_DIR/.adversarial-pending"
                 ok "Adversarial reviewer: required before verifier"
             fi

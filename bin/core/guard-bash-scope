@@ -58,15 +58,16 @@ for ppath in "${PROTECTED_PLUGIN[@]}"; do
 done
 
 # Block writes to .pipeline/ (APD tools whitelisted)
+# Uses PLUGIN_WRITE_CHECK (no > and >>) to avoid false positives from 2>/dev/null redirects
 for ppath in "${PROTECTED_PIPELINE[@]}"; do
   if [[ "$COMMAND" == *"$ppath"* ]]; then
     # Allow APD's own tools to write to .pipeline/
     if [[ "$COMMAND" == *"pipeline-advance"* ]] || [[ "$COMMAND" == *"apd pipeline"* ]] || [[ "$COMMAND" == *"verify-apd"* ]] || [[ "$COMMAND" == *"pipeline-post-commit"* ]] || [[ "$COMMAND" == *"pipeline-gate"* ]]; then
       break
     fi
-    # Check if command contains a write operation targeting protected path
-    for wp in "${SHELL_WRITE_CHECK[@]}"; do
-      if [[ "$COMMAND" == *"$wp"* ]]; then
+    # Check non-redirect write operations
+    for wp in "${PLUGIN_WRITE_CHECK[@]}"; do
+      if [[ "$COMMAND" == *"$wp"*"$ppath"* ]] || [[ "$COMMAND" == *"$wp"*pipeline* ]]; then
         echo "BLOCKED: Bash write to protected pipeline state directory." >&2
         echo "" >&2
         echo "  Do not write directly to .pipeline/ — use the apd command instead." >&2
@@ -75,6 +76,13 @@ for ppath in "${PROTECTED_PIPELINE[@]}"; do
         exit 2
       fi
     done
+    # Check redirect operators only when they TARGET .pipeline/ (not 2>/dev/null)
+    if echo "$COMMAND" | grep -qE '>[^&].*\.pipeline/|>>.*\.pipeline/' 2>/dev/null; then
+      echo "BLOCKED: Bash redirect to protected pipeline state directory." >&2
+      echo "  Do not write directly to .pipeline/ — use the apd command instead." >&2
+      log_block "pipeline-state-write" "${COMMAND:0:100}"
+      exit 2
+    fi
   fi
 done
 
