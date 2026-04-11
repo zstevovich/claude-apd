@@ -427,6 +427,24 @@ case "$STEP" in
             fi
         fi
 
+        # Verify adversarial ran AFTER reviewer (not parallel)
+        if [ -f "$PIPELINE_DIR/.adversarial-pending" ] && [ -f "$PIPELINE_DIR/.adversarial-summary" ] && [ -f "$AGENTS_LOG" ]; then
+            REVIEWER_TS=$(head -1 "$PIPELINE_DIR/reviewer.done" | cut -d'|' -f1)
+            ADV_STOP=$(grep "|stop|adversarial-reviewer|" "$AGENTS_LOG" 2>/dev/null | tail -1 | cut -d'|' -f1)
+            if [ -n "$ADV_STOP" ] && [ -n "$REVIEWER_TS" ]; then
+                ADV_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$ADV_STOP" +%s 2>/dev/null || date -d "$ADV_STOP" +%s 2>/dev/null || echo 0)
+                if [ "$ADV_EPOCH" -gt 0 ] && [ "$ADV_EPOCH" -lt "$REVIEWER_TS" ] 2>/dev/null; then
+                    echo "BLOCKED: Adversarial reviewer ran BEFORE reviewer step completed." >&2
+                    echo "" >&2
+                    echo "  Pipeline flow: builder → reviewer → fix → adversarial" >&2
+                    echo "  Adversarial must review the FINAL code after reviewer fixes." >&2
+                    echo "  Re-dispatch adversarial-reviewer after reviewer is done." >&2
+                    log_block "adversarial-before-reviewer" "adversarial-reviewer"
+                    exit 1
+                fi
+            fi
+        fi
+
         # Hard gate: adversarial reviewer must complete before verifier
         if [ -f "$PIPELINE_DIR/.adversarial-pending" ] && [ ! -f "$PIPELINE_DIR/.adversarial-summary" ]; then
             echo "BLOCKED: Adversarial reviewer has not been dispatched!" >&2

@@ -41,7 +41,16 @@ case "$EVENT" in
         echo "  ${RED}Pipeline will BLOCK at reviewer step without builder.done${R}" >&2
         echo "" >&2
     elif [ -f "$PIPELINE_DIR/builder.done" ] && [ ! -f "$PIPELINE_DIR/reviewer.done" ]; then
-        # Check if this is a reviewer-type agent dispatched without advance
+        # Warn if adversarial dispatched before reviewer completes
+        if echo "$AGENT_TYPE" | grep -qiE 'adversarial'; then
+            echo "" >&2
+            echo "  ${RED}${B}WARNING: adversarial-reviewer dispatched before reviewer step.${R}" >&2
+            echo "  ${RED}Pipeline flow: builder → reviewer → fix → adversarial${R}" >&2
+            echo "  ${RED}Verifier will BLOCK if adversarial ran before reviewer.done${R}" >&2
+            echo "" >&2
+            log_block "adversarial-before-reviewer" "$AGENT_TYPE"
+        fi
+        # Reminder for regular reviewer
         if echo "$AGENT_TYPE" | grep -qiE 'review'; then
             echo "" >&2
             echo "  ${D}Reminder: Run 'bash .claude/bin/apd pipeline reviewer' after review completes${R}" >&2
