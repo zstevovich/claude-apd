@@ -3,6 +3,9 @@ CLAUDE.md
 .claude/
 .vscode/
 
+# Dev tools — local only
+bump-version
+
 # Go source — not distributed, only compiled binaries ship
 cmd/
 go.mod
