@@ -1,5 +1,30 @@
 # Changelog
 
+## v4.2.0 — 2026-04-11
+
+Enforcement hardening + quality gates.
+
+### New enforcement
+- **Adversarial ordering** — verifier blocks if adversarial-reviewer ran before reviewer step completed. Pipeline flow: builder → reviewer → fix → adversarial.
+- **Adversarial opt-out limit** — skip only allowed for tasks with <=2 criteria. 3+ criteria = must dispatch adversarial-reviewer.
+- **mkdir deny** — `permissions.deny` blocks orchestrator from creating `.pipeline/` directory manually. Must use `apd pipeline spec`.
+- **SendMessage guard** — blocks SendMessage during active pipeline (SubagentStart/Stop hooks don't fire for continued agents).
+
+### Fixes
+- **Guard read false positive** — `cat spec-card.md 2>/dev/null` no longer blocked (redirect operators excluded from pipeline write check)
+- **AGENTS_LOG missing in verifier** — adversarial ordering check was silently skipped because variable was undefined
+- **sed criteria terminator** — `^\*\*[^A]` → `^\*\*[A-Z]` (correctly stops at `**Affected modules:`)
+- **guard-bash-scope** — `*pipeline*` → `*.pipeline/*` (avoids matching APD tool names)
+- **track-agent** — removed `log_block` from SubagentStart warning (not a real block, inflated counter)
+- **Glob permissions** — added `**/.pipeline/` wildcard variants for absolute path matching
+- **Implementation plan preserved** — `pipeline-advance spec` no longer deletes plan on re-run
+
+### Infrastructure
+- **Plugin update flow** — version bump required for `/plugin update` to pull changes (same version = cached)
+- **Verify-apd** — adversarial ordering E2E test added (98 checks total)
+
+---
+
 ## v4.1.1 — 2026-04-10
 
 Fixes and hardening after real-world testing on Bambi and Test projects.
