@@ -72,7 +72,7 @@ if [ "$MODE" = "new" ]; then
     AUTHOR="${AUTHOR:-$(git config user.name 2>/dev/null || echo 'Developer')}"
 
     # Create directories
-    mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/rules" "$CLAUDE_DIR/scripts" "$CLAUDE_DIR/bin" "$CLAUDE_DIR/memory" "$CLAUDE_DIR/.pipeline"
+    mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/rules" "$CLAUDE_DIR/scripts" "$CLAUDE_DIR/bin" "$CLAUDE_DIR/memory" "$PROJECT_DIR/.apd/pipeline"
 
     # .apd-config
     cat > "$CLAUDE_DIR/.apd-config" << EOF
@@ -110,7 +110,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_DIR" || exit 0
 
 # Cache — skip if Verifier step already passed recently
-VERIFIED_TS_FILE="$PROJECT_DIR/.claude/.pipeline/verified.timestamp"
+VERIFIED_TS_FILE="$PROJECT_DIR/.apd/pipeline/verified.timestamp"
 if [ -f "$VERIFIED_TS_FILE" ]; then
     VERIFIED_AT=$(cat "$VERIFIED_TS_FILE" 2>/dev/null | tr -d '[:space:]')
     NOW=$(date +%s)
@@ -168,26 +168,26 @@ FOOTER
     "allow": [
       "Edit(.claude/memory/**)",
       "Write(.claude/memory/**)",
-      "Write(.claude/.pipeline/spec-card.md)",
-      "Write(.claude/.pipeline/implementation-plan.md)",
-      "Write(.claude/.pipeline/.adversarial-summary)",
-      "Write(**/.pipeline/spec-card.md)",
-      "Write(**/.pipeline/implementation-plan.md)",
-      "Write(**/.pipeline/.adversarial-summary)",
-      "Edit(.claude/.pipeline/spec-card.md)",
-      "Edit(.claude/.pipeline/implementation-plan.md)",
-      "Edit(.claude/.pipeline/.adversarial-summary)",
-      "Edit(**/.pipeline/spec-card.md)",
-      "Edit(**/.pipeline/implementation-plan.md)",
-      "Edit(**/.pipeline/.adversarial-summary)",
+      "Write(.apd/pipeline/spec-card.md)",
+      "Write(.apd/pipeline/implementation-plan.md)",
+      "Write(.apd/pipeline/.adversarial-summary)",
+      "Edit(.apd/pipeline/spec-card.md)",
+      "Edit(.apd/pipeline/implementation-plan.md)",
+      "Edit(.apd/pipeline/.adversarial-summary)",
+      "Write(**/.apd/pipeline/spec-card.md)",
+      "Write(**/.apd/pipeline/implementation-plan.md)",
+      "Write(**/.apd/pipeline/.adversarial-summary)",
+      "Edit(**/.apd/pipeline/spec-card.md)",
+      "Edit(**/.apd/pipeline/implementation-plan.md)",
+      "Edit(**/.apd/pipeline/.adversarial-summary)",
       "Bash(bash .claude/bin/apd *)",
       "Bash(bash .claude/bin/apd pipeline *)"
     ],
     "deny": [
-      "Bash(mkdir */.pipeline/*)",
-      "Bash(mkdir -p */.pipeline/*)",
-      "Bash(mkdir */.pipeline)",
-      "Bash(mkdir -p */.pipeline)"
+      "Bash(mkdir */.apd/pipeline/*)",
+      "Bash(mkdir -p */.apd/pipeline/*)",
+      "Bash(mkdir */.apd/pipeline)",
+      "Bash(mkdir -p */.apd/pipeline)"
     ]
   },
   "enabledPlugins": {
@@ -371,7 +371,7 @@ maxTurns: 20' "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
 
         # Permissions — auto-allow memory + pipeline writes + apd commands
         PERMS_MISSING=false
-        for perm in "Write(.claude/.pipeline/spec-card.md)" "Bash(bash .claude/bin/apd *)" "Write(**/.pipeline/spec-card.md)"; do
+        for perm in "Write(.apd/pipeline/spec-card.md)" "Bash(bash .claude/bin/apd *)" "Write(**/.apd/pipeline/spec-card.md)"; do
             if ! grep -qF "$perm" "$CLAUDE_DIR/settings.json" 2>/dev/null; then
                 PERMS_MISSING=true
                 break
@@ -385,19 +385,19 @@ with open('$CLAUDE_DIR/settings.json') as f:
     s = json.load(f)
 required_allow = [
     'Edit(.claude/memory/**)', 'Write(.claude/memory/**)',
-    'Write(.claude/.pipeline/spec-card.md)', 'Write(.claude/.pipeline/implementation-plan.md)',
-    'Write(.claude/.pipeline/.adversarial-summary)',
-    'Write(**/.pipeline/spec-card.md)', 'Write(**/.pipeline/implementation-plan.md)',
-    'Write(**/.pipeline/.adversarial-summary)',
-    'Edit(.claude/.pipeline/spec-card.md)', 'Edit(.claude/.pipeline/implementation-plan.md)',
-    'Edit(.claude/.pipeline/.adversarial-summary)',
-    'Edit(**/.pipeline/spec-card.md)', 'Edit(**/.pipeline/implementation-plan.md)',
-    'Edit(**/.pipeline/.adversarial-summary)',
+    'Write(.apd/pipeline/spec-card.md)', 'Write(.apd/pipeline/implementation-plan.md)',
+    'Write(.apd/pipeline/.adversarial-summary)',
+    'Write(**/.apd/pipeline/spec-card.md)', 'Write(**/.apd/pipeline/implementation-plan.md)',
+    'Write(**/.apd/pipeline/.adversarial-summary)',
+    'Edit(.apd/pipeline/spec-card.md)', 'Edit(.apd/pipeline/implementation-plan.md)',
+    'Edit(.apd/pipeline/.adversarial-summary)',
+    'Edit(**/.apd/pipeline/spec-card.md)', 'Edit(**/.apd/pipeline/implementation-plan.md)',
+    'Edit(**/.apd/pipeline/.adversarial-summary)',
     'Bash(bash .claude/bin/apd *)', 'Bash(bash .claude/bin/apd pipeline *)'
 ]
 required_deny = [
-    'Bash(mkdir */.pipeline/*)', 'Bash(mkdir -p */.pipeline/*)',
-    'Bash(mkdir */.pipeline)', 'Bash(mkdir -p */.pipeline)'
+    'Bash(mkdir */.apd/pipeline/*)', 'Bash(mkdir -p */.apd/pipeline/*)',
+    'Bash(mkdir */.apd/pipeline)', 'Bash(mkdir -p */.apd/pipeline)'
 ]
 existing_allow = s.get('permissions', {}).get('allow', [])
 existing_deny = s.get('permissions', {}).get('deny', [])
@@ -433,6 +433,40 @@ with open('$CLAUDE_DIR/settings.json', 'w') as f:
         warn "Stale pipeline-advance references in: ${STALE_FILES%, }"
         echo "    ${D}Correct command: bash .claude/bin/apd pipeline <command>${R}"
         [ "$QUICK" = false ] && FIXES=$((FIXES + 1))
+    fi
+
+    # --- Pipeline directory migration (.claude/.pipeline → .apd/pipeline) ---
+    if [ -d "$CLAUDE_DIR/.pipeline" ]; then
+        mkdir -p "$PROJECT_DIR/.apd/pipeline"
+        # Move any existing state files
+        if ls "$CLAUDE_DIR/.pipeline"/* 1>/dev/null 2>&1; then
+            cp -a "$CLAUDE_DIR/.pipeline"/. "$PROJECT_DIR/.apd/pipeline/" 2>/dev/null
+        fi
+        rm -rf "$CLAUDE_DIR/.pipeline"
+        fix "Migrated .claude/.pipeline/ → .apd/pipeline/"
+        FIXES=$((FIXES + 1))
+    fi
+    # Ensure .apd/pipeline directory exists
+    mkdir -p "$PROJECT_DIR/.apd/pipeline"
+
+    # Update .gitignore: old entry → new entry
+    if [ -f "$PROJECT_DIR/.gitignore" ]; then
+        if grep -qF '.claude/.pipeline/' "$PROJECT_DIR/.gitignore" 2>/dev/null; then
+            sed -i.bak 's|\.claude/\.pipeline/|.apd/pipeline/|g' "$PROJECT_DIR/.gitignore" && rm -f "$PROJECT_DIR/.gitignore.bak"
+            fix "Updated .gitignore: .claude/.pipeline/ → .apd/pipeline/"
+            FIXES=$((FIXES + 1))
+        elif ! grep -qF '.apd/pipeline/' "$PROJECT_DIR/.gitignore" 2>/dev/null; then
+            echo '.apd/pipeline/' >> "$PROJECT_DIR/.gitignore"
+            fix "Added .apd/pipeline/ to .gitignore"
+            FIXES=$((FIXES + 1))
+        fi
+    fi
+
+    # Update old permission patterns in settings.json
+    if [ -f "$CLAUDE_DIR/settings.json" ] && grep -qF '.pipeline/' "$CLAUDE_DIR/settings.json" 2>/dev/null; then
+        sed -i.bak 's|\.claude/\.pipeline/|.apd/pipeline/|g; s|\*\*/\.pipeline/|**/.apd/pipeline/|g; s|mkdir \*/\.pipeline|mkdir */.apd/pipeline|g; s|Write(\.pipeline/|Write(.apd/pipeline/|g; s|Edit(\.pipeline/|Edit(.apd/pipeline/|g' "$CLAUDE_DIR/settings.json" && rm -f "$CLAUDE_DIR/settings.json.bak"
+        fix "Updated permission patterns in settings.json"
+        FIXES=$((FIXES + 1))
     fi
 
     # --- Memory files ---

@@ -86,7 +86,7 @@ Every rule is backed by a hook script that **blocks** violations. No bypass from
 | Orchestrator writes code files directly | `guard-orchestrator` |
 | Agent writes outside its scope | `guard-scope` |
 | Bash writes to pipeline state (.done, .agents) | `guard-bash-scope` + `guard-pipeline-state` |
-| Direct Write/Edit to .pipeline/ state files | `guard-pipeline-state` |
+| Direct Write/Edit to .apd/pipeline/ state files | `guard-pipeline-state` |
 | `git commit` without `APD_ORCHESTRATOR_COMMIT=1` | `guard-git` |
 | `git add .` / mass staging | `guard-git` |
 | `--no-verify` / force push / destructive git ops | `guard-git` |
@@ -104,7 +104,7 @@ Every rule is backed by a hook script that **blocks** violations. No bypass from
 Acceptance criteria get R* IDs. Builders add `@trace R*` markers in test files. Verification blocks commit if any criterion lacks test coverage.
 
 ```markdown
-# .pipeline/spec-card.md
+# .apd/pipeline/spec-card.md
 **Acceptance criteria:**
 - R1: Login endpoint returns JWT
 - R2: Invalid credentials return 401
@@ -122,7 +122,7 @@ test('password verified via bcrypt', () => { ... });
 
 ## Implementation plan
 
-Orchestrator writes `.pipeline/implementation-plan.md` before dispatching builder — lists files to change with 1-2 sentences each, plus `### Agents` section.
+Orchestrator writes `.apd/pipeline/implementation-plan.md` before dispatching builder — lists files to change with 1-2 sentences each, plus `### Agents` section.
 
 ```markdown
 ## Implementation Plan: Add user login
@@ -153,7 +153,7 @@ ${CLAUDE_PLUGIN_ROOT}/
 │   │   ├── guard-scope            # File scope per agent
 │   │   ├── guard-bash-scope       # Bash write protection
 │   │   ├── guard-orchestrator     # Blocks orchestrator code writes
-│   │   ├── guard-pipeline-state   # Protects .pipeline/ state files
+│   │   ├── guard-pipeline-state   # Protects .apd/pipeline/ state files
 │   │   ├── guard-secrets          # Sensitive file protection
 │   │   ├── guard-lockfile         # Lock file protection
 │   │   ├── verify-trace           # Spec traceability checker
@@ -188,7 +188,8 @@ my-project/
 │   │   ├── workflow.md            # Pipeline workflow
 │   │   └── principles.md          # Code conventions
 │   ├── memory/                    # Session log, status, metrics
-│   └── .pipeline/                 # Ephemeral pipeline state (gitignored)
+├── .apd/
+│   └── pipeline/                  # Ephemeral pipeline state (gitignored)
 └── docs/adr/                      # Architecture Decision Records
 ```
 

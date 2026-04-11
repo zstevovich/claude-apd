@@ -1,5 +1,5 @@
 # APD Framework — runtime files
-.claude/.pipeline/
+.apd/pipeline/
 .claude/memory/guard-audit.log
 .claude/memory/pipeline-metrics.log
 .claude/settings.local.json

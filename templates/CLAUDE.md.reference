@@ -76,10 +76,10 @@ Spec → Builder → Reviewer → Verifier → Commit → Finish
 
 - `guard-git` — git protection (commit/push only by orchestrator, no force push, no mass staging)
 - `guard-scope` — file scope per agent (Write/Edit)
-- `guard-bash-scope` — bash write scope, protects .pipeline/ state
+- `guard-bash-scope` — bash write scope, protects .apd/pipeline/ state
 - `guard-secrets` — sensitive files
 - `guard-lockfile` — lock files
-- `guard-pipeline-state` — blocks direct Write/Edit to .pipeline/ state files
+- `guard-pipeline-state` — blocks direct Write/Edit to .apd/pipeline/ state files
 - `guard-send-message` — blocks SendMessage during active pipeline
 - `verify-all.sh` — build + test before commit (project-level)
 - `pipeline-advance` + `pipeline-gate` — pipeline flag system

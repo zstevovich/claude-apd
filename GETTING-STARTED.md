@@ -70,7 +70,7 @@ If you see any FAIL items, follow the instructions in the output to fix them.
 
 ### 5.1 Write the spec card
 
-Write `.claude/.pipeline/spec-card.md` with acceptance criteria using R* format:
+Write `.apd/pipeline/spec-card.md` with acceptance criteria using R* format:
 
 ```markdown
 ## Add user login endpoint
@@ -96,7 +96,7 @@ Share with the user. Wait for approval before proceeding. Then advance:
   ■ spec → ■ builder → □ reviewer → □ verifier → commit
 
     Next steps:
-    1. Write .pipeline/implementation-plan.md (files + changes + ### Agents section)
+    1. Write .apd/pipeline/implementation-plan.md (files + changes + ### Agents section)
     2. Dispatch project builders: Agent({ subagent_type: "<agent-name>", ... })
     3. Dispatch project reviewer: Agent({ subagent_type: "code-reviewer", ... })
        NEVER use superpowers: or feature-dev: agents — pipeline will BLOCK
@@ -106,7 +106,7 @@ Share with the user. Wait for approval before proceeding. Then advance:
 
 ### 5.2 Write the implementation plan
 
-Write `.claude/.pipeline/implementation-plan.md`:
+Write `.apd/pipeline/implementation-plan.md`:
 
 ```markdown
 ## Implementation Plan: Add user login endpoint
@@ -215,9 +215,9 @@ BLOCKED: File apps/frontend/App.tsx is outside allowed scope.
 # Agent tries to read secrets:
 BLOCKED: Access to sensitive files not permitted.
 
-# Orchestrator writes directly to .pipeline/:
+# Orchestrator writes directly to .apd/pipeline/:
 BLOCKED: Bash write to protected pipeline state directory.
-   Do not write directly to .pipeline/ — use pipeline-advance instead.
+   Do not write directly to .apd/pipeline/ — use the apd command instead.
 ```
 
 All blocks are logged to `guard-audit.log` with agent ID and timestamp.

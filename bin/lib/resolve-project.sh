@@ -8,7 +8,7 @@
 #   APD_PLUGIN_ROOT — plugin install directory (where bin/ lives)
 #   CLAUDE_DIR    — $PROJECT_DIR/.claude
 #   MEMORY_DIR    — $CLAUDE_DIR/memory
-#   PIPELINE_DIR  — $CLAUDE_DIR/.pipeline
+#   PIPELINE_DIR  — $PROJECT_DIR/.apd/pipeline
 #   SCRIPT_DIR    — $APD_PLUGIN_ROOT/scripts
 
 # --- Plugin root ---
@@ -49,7 +49,7 @@ fi
 # --- Derived paths ---
 CLAUDE_DIR="$PROJECT_DIR/.claude"
 MEMORY_DIR="$CLAUDE_DIR/memory"
-PIPELINE_DIR="$CLAUDE_DIR/.pipeline"
+PIPELINE_DIR="$PROJECT_DIR/.apd/pipeline"
 SCRIPT_DIR="$APD_PLUGIN_ROOT/bin/core"
 
 # --- Activation check ---

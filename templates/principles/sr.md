@@ -12,7 +12,7 @@
 ## Git
 - No AI signatures in commits — no Co-Authored-By
 - Branches: develop → staging → main, feature/* as needed
-- .claude/settings.local.json and .claude/.pipeline/ must not go to git — all other .claude/ files are committed
+- .claude/settings.local.json and .apd/pipeline/ must not go to git — all other .claude/ files are committed
 - Commit messages: short, in English, imperative mood
 
 ## Docker (local development)

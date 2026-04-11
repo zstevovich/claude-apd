@@ -10,7 +10,7 @@ cd "$PROJECT_DIR" || exit 0
 # ===== CACHE — skip if Verifier step already passed recently =====
 # pipeline-advance verifier writes timestamp to verified.timestamp
 # If fresh (<120s) and no new changes -> skip rebuild
-VERIFIED_TS_FILE="$PROJECT_DIR/.claude/.pipeline/verified.timestamp"
+VERIFIED_TS_FILE="$PROJECT_DIR/.apd/pipeline/verified.timestamp"
 if [ -f "$VERIFIED_TS_FILE" ]; then
     VERIFIED_AT=$(cat "$VERIFIED_TS_FILE" 2>/dev/null | tr -d '[:space:]')
     NOW=$(date +%s)

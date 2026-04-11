@@ -28,9 +28,9 @@ if [ -z "$COMMAND" ]; then
 fi
 
 # --- 0. Protected paths — ALWAYS enforced, even without ALLOWED_PATHS ---
-# .pipeline/ state files must only be modified by pipeline-advance (not direct Bash writes)
+# .apd/pipeline/ state files must only be modified by pipeline-advance (not direct Bash writes)
 # Plugin cache must never be modified by orchestrator
-PROTECTED_PIPELINE=(".claude/.pipeline/" ".pipeline/")
+PROTECTED_PIPELINE=(".apd/pipeline/")
 PROTECTED_PLUGIN=(".claude/plugins/cache/" "plugins/cache/")
 SHELL_WRITE_CHECK=('>>' '>' 'tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ' 'mkdir ' 'mkdir -p' 'touch ' 'rm ' 'rm -f' 'rm -rf' 'rmdir ')
 # Write checks for plugin cache — exclude '>' and '>>' (false positives from 2>&1 redirects)
@@ -57,29 +57,29 @@ for ppath in "${PROTECTED_PLUGIN[@]}"; do
   fi
 done
 
-# Block writes to .pipeline/ (APD tools whitelisted)
+# Block writes to .apd/pipeline/ (APD tools whitelisted)
 # Uses PLUGIN_WRITE_CHECK (no > and >>) to avoid false positives from 2>/dev/null redirects
 for ppath in "${PROTECTED_PIPELINE[@]}"; do
   if [[ "$COMMAND" == *"$ppath"* ]]; then
-    # Allow APD's own tools to write to .pipeline/
+    # Allow APD's own tools to write to .apd/pipeline/
     if [[ "$COMMAND" == *"pipeline-advance"* ]] || [[ "$COMMAND" == *"apd pipeline"* ]] || [[ "$COMMAND" == *"verify-apd"* ]] || [[ "$COMMAND" == *"pipeline-post-commit"* ]] || [[ "$COMMAND" == *"pipeline-gate"* ]]; then
       break
     fi
     # Check non-redirect write operations
     for wp in "${PLUGIN_WRITE_CHECK[@]}"; do
-      if [[ "$COMMAND" == *"$wp"*"$ppath"* ]] || [[ "$COMMAND" == *"$wp"*".pipeline/"* ]]; then
+      if [[ "$COMMAND" == *"$wp"*"$ppath"* ]] || [[ "$COMMAND" == *"$wp"*".apd/pipeline/"* ]]; then
         echo "BLOCKED: Bash write to protected pipeline state directory." >&2
         echo "" >&2
-        echo "  Do not write directly to .pipeline/ — use the apd command instead." >&2
+        echo "  Do not write directly to .apd/pipeline/ — use the apd command instead." >&2
         echo "  Allowed: bash .claude/bin/apd pipeline <command>" >&2
         log_block "pipeline-state-write" "${COMMAND:0:100}"
         exit 2
       fi
     done
-    # Check redirect operators only when they TARGET .pipeline/ (not 2>/dev/null)
-    if echo "$COMMAND" | grep -qE '>[^&].*\.pipeline/|>>.*\.pipeline/' 2>/dev/null; then
+    # Check redirect operators only when they TARGET .apd/pipeline/ (not 2>/dev/null)
+    if echo "$COMMAND" | grep -qE '>[^&].*\.apd/pipeline/|>>.*\.apd/pipeline/' 2>/dev/null; then
       echo "BLOCKED: Bash redirect to protected pipeline state directory." >&2
-      echo "  Do not write directly to .pipeline/ — use the apd command instead." >&2
+      echo "  Do not write directly to .apd/pipeline/ — use the apd command instead." >&2
       log_block "pipeline-state-write" "${COMMAND:0:100}"
       exit 2
     fi

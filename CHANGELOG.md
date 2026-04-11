@@ -1,5 +1,23 @@
 # Changelog
 
+## v4.3.0 — 2026-04-11
+
+Pipeline state moved out of protected `.claude/` directory.
+
+### Breaking change
+- **Pipeline directory relocated** — `.claude/.pipeline/` → `.apd/pipeline/`. Claude Code treats `.claude/` as a protected path, causing permission prompts on every Write/Edit regardless of `permissions.allow` settings. Moving to `.apd/pipeline/` eliminates forced prompts.
+- **Automatic migration** — `apd init` (update mode) detects old `.claude/.pipeline/`, moves contents to `.apd/pipeline/`, updates `.gitignore` and permission patterns in `settings.json`.
+
+### Fixes
+- **Rollback no longer deletes implementation plan** — `pipeline-advance rollback` of builder step previously deleted `implementation-plan.md`. Plan is now preserved as part of frozen spec.
+- **test-system agent_id format** — fake agent entries now use valid CC agent_id format (`a0000000000000001`) and realistic start/stop timing.
+
+### Updated
+- All guards, templates, rules, documentation, and tests updated for new path.
+- 20 files changed across scripts, templates, rules, and docs.
+
+---
+
 ## v4.2.0 — 2026-04-11
 
 Enforcement hardening + quality gates.

@@ -26,7 +26,7 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
             mkdir "$LOCK_DIR" 2>/dev/null || true
         else
             echo "BLOCKED: Pipeline is locked by another session." >&2
-            echo "  Wait for the other session to finish or: rmdir .pipeline/.lock" >&2
+            echo "  Wait for the other session to finish or: rmdir .apd/pipeline/.lock" >&2
             exit 1
         fi
     fi
@@ -162,7 +162,7 @@ case "$STEP" in
         if [ ! -f "$PIPELINE_DIR/spec-card.md" ]; then
             echo "BLOCKED: spec-card.md not found." >&2
             echo "" >&2
-            echo "  Write the spec card to .claude/.pipeline/spec-card.md before advancing." >&2
+            echo "  Write the spec card to .apd/pipeline/spec-card.md before advancing." >&2
             echo "  Acceptance criteria must use R1:, R2:, ... format." >&2
             exit 1
         fi
@@ -201,7 +201,7 @@ case "$STEP" in
         # Pre-flight checklist
         echo "" >&2
         echo "    ${D}Next steps:${R}" >&2
-        echo "    ${D}1. Write .pipeline/implementation-plan.md (files + changes + ### Agents section)${R}" >&2
+        echo "    ${D}1. Write .apd/pipeline/implementation-plan.md (files + changes + ### Agents section)${R}" >&2
         echo "    ${D}2. Dispatch project builders: Agent({ subagent_type: \"<agent-name>\", ... })${R}" >&2
         echo "    ${D}3. Dispatch project reviewer: Agent({ subagent_type: \"code-reviewer\", ... })${R}" >&2
         echo "    ${D}   NEVER use superpowers: or feature-dev: agents — pipeline will BLOCK${R}" >&2
@@ -218,7 +218,7 @@ case "$STEP" in
         if [ ! -f "$PIPELINE_DIR/implementation-plan.md" ]; then
             echo "BLOCKED: implementation-plan.md not found." >&2
             echo "" >&2
-            echo "  Write the implementation plan to .claude/.pipeline/implementation-plan.md" >&2
+            echo "  Write the implementation plan to .apd/pipeline/implementation-plan.md" >&2
             echo "  List files to change with 1-2 sentences per file describing the change." >&2
             exit 1
         fi
@@ -460,7 +460,7 @@ case "$STEP" in
             echo "" >&2
             echo "  The adversarial-reviewer agent is required for this task." >&2
             echo "  Dispatch it using the Agent tool, then write results to:" >&2
-            echo "    .pipeline/.adversarial-summary" >&2
+            echo "    .apd/pipeline/.adversarial-summary" >&2
             echo "" >&2
             echo "  To skip for this task, add to spec-card.md:" >&2
             echo "    adversarial: skip — <reason>" >&2
@@ -682,7 +682,7 @@ EOF
                 # If verifier rolled back, also remove cache timestamp and trace summary
                 [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary"
                 [ "$step" = "reviewer" ] && rm -f "$PIPELINE_DIR/.adversarial-pending"
-                [ "$step" = "builder" ] && rm -f "$PIPELINE_DIR/implementation-plan.md"
+                # implementation-plan.md is NOT deleted on rollback — it's part of the frozen spec
                 apd_header "Rollback: $step"
                 show_pipeline "$step"
                 ROLLED_BACK=true

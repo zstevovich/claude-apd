@@ -1,7 +1,7 @@
 #!/bin/bash
 # APD Agent Tracker — records agent start/stop events to pipeline state
 # Called by SubagentStart and SubagentStop hooks.
-# Writes to .claude/.pipeline/.agents so pipeline-advance can verify
+# Writes to .apd/pipeline/.agents so pipeline-advance can verify
 # that a real agent ran before marking a step complete.
 
 source "$(dirname "$0")/../lib/resolve-project.sh"

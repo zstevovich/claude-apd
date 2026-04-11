@@ -1,5 +1,5 @@
 #!/bin/bash
-# APD Pipeline State Guard — blocks direct Write/Edit to .pipeline/ internal files
+# APD Pipeline State Guard — blocks direct Write/Edit to .apd/pipeline/ internal files
 #
 # Only pipeline-advance (via Bash) should create .done, .agents, .spec-hash etc.
 # Orchestrator MAY write: spec-card.md, implementation-plan.md, .adversarial-summary
@@ -24,9 +24,9 @@ fi
 
 REL_PATH="${FILE_PATH#"$PROJECT_DIR"/}"
 
-# Only guard .claude/.pipeline/ paths
+# Only guard .apd/pipeline/ paths
 case "$REL_PATH" in
-    .claude/.pipeline/*)
+    .apd/pipeline/*)
         FILENAME=$(basename "$REL_PATH")
         # Allowed files — orchestrator writes these as part of pipeline workflow
         case "$FILENAME" in

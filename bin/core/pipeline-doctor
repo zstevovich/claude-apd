@@ -113,7 +113,7 @@ else
         warn "implementation-plan.md missing but builder already done"
     elif [ -f "$PIPELINE_DIR/spec.done" ]; then
         fail "implementation-plan.md MISSING — builder will be BLOCKED"
-        echo "    ${D}Fix: Write plan to .pipeline/implementation-plan.md before dispatching builder${R}"
+        echo "    ${D}Fix: Write plan to .apd/pipeline/implementation-plan.md before dispatching builder${R}"
     else
         echo "    ${D}No plan (pipeline idle)${R}"
     fi

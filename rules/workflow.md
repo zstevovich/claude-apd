@@ -14,7 +14,7 @@
    → If user requests changes → update spec → present again
    ↓
 4. WRITE IMPLEMENTATION PLAN
-   → Analyze codebase, write .pipeline/implementation-plan.md
+   → Analyze codebase, write .apd/pipeline/implementation-plan.md
    → List files to create/modify with concrete change descriptions
    → bash .claude/bin/apd pipeline builder validates plan exists before advancing
    ↓
@@ -30,7 +30,7 @@
    → Dispatch adversarial-reviewer agent (sonnet/max, read-only, no spec context)
    → Agent sees only git diff + touched files, finds issues blind
    → Orchestrator evaluates findings: accept or dismiss each
-   → Write ADVERSARIAL:total:accepted:dismissed to .pipeline/.adversarial-summary
+   → Write ADVERSARIAL:total:accepted:dismissed to .apd/pipeline/.adversarial-summary
    → If accepted findings → fix via builder → re-review
    ↓
 7. RUN VERIFIER — build + test
@@ -73,7 +73,7 @@ This is not just a documented rule — **hooks technically block commits** if st
 ### Mechanism: Pipeline Flag System
 
 ```
-.claude/.pipeline/
+.apd/pipeline/
 ├── spec.done        # Orchestrator creates after approved spec
 ├── builder.done     # Orchestrator creates after Builder
 ├── reviewer.done    # Orchestrator creates after Review
@@ -133,7 +133,7 @@ The spec is shared with the user BEFORE implementation.
 
 ### Spec persistence
 
-The orchestrator MUST write the spec card to `.claude/.pipeline/spec-card.md` before calling `bash .claude/bin/apd pipeline spec "Task name"`. This enables mechanical traceability verification.
+The orchestrator MUST write the spec card to `.apd/pipeline/spec-card.md` before calling `bash .claude/bin/apd pipeline spec "Task name"`. This enables mechanical traceability verification.
 
 ## 2. Five roles — strict model and effort enforcement
 
@@ -195,7 +195,7 @@ The orchestrator MUST write the spec card to `.claude/.pipeline/spec-card.md` be
 
 ## 3b. Spec traceability
 
-Builders MUST add `@trace R*` comments in test files for every acceptance criterion from `.claude/.pipeline/spec-card.md`.
+Builders MUST add `@trace R*` comments in test files for every acceptance criterion from `.apd/pipeline/spec-card.md`.
 
 ```
 // Single requirement
@@ -213,7 +213,7 @@ Builders MUST add `@trace R*` comments in test files for every acceptance criter
 
 ## 3c. Implementation plan
 
-Before dispatching the builder, the orchestrator MUST write `.claude/.pipeline/implementation-plan.md`. The plan bridges the gap between spec (what to build) and builder (how to build it).
+Before dispatching the builder, the orchestrator MUST write `.apd/pipeline/implementation-plan.md`. The plan bridges the gap between spec (what to build) and builder (how to build it).
 
 ### Format
 

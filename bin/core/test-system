@@ -12,7 +12,7 @@ source "$SCRIPT_DIR/../lib/style.sh"
 
 # Create isolated test project
 TEST_DIR=$(mktemp -d /tmp/apd-test-XXXX)
-mkdir -p "$TEST_DIR/.claude/.pipeline" "$TEST_DIR/.claude/memory" "$TEST_DIR/.claude/agents"
+mkdir -p "$TEST_DIR/.apd/pipeline" "$TEST_DIR/.claude/memory" "$TEST_DIR/.claude/agents"
 touch "$TEST_DIR/.claude/.apd-config" "$TEST_DIR/CLAUDE.md"
 
 # Fake agent files
@@ -47,7 +47,7 @@ EXIT=$(run_exit pipeline-advance spec "Test task")
 [ "$EXIT" -ne 0 ] && pass "spec without spec-card.md → BLOCKED" || fail "spec without spec-card.md should BLOCK"
 
 # 1.2 Create spec-card.md with R* criteria
-cat > "$TEST_DIR/.claude/.pipeline/spec-card.md" << 'EOF'
+cat > "$TEST_DIR/.apd/pipeline/spec-card.md" << 'EOF'
 ## Test task
 **Acceptance criteria:**
 - R1: First requirement
@@ -60,12 +60,12 @@ EXIT=$(run_exit pipeline-advance spec "Test task")
 [ "$EXIT" -eq 0 ] && pass "spec with spec-card.md → OK" || fail "spec with spec-card.md should pass"
 
 # 1.4 Spec hash created
-[ -f "$TEST_DIR/.claude/.pipeline/.spec-hash" ] && pass "spec-hash created" || fail "spec-hash NOT created"
+[ -f "$TEST_DIR/.apd/pipeline/.spec-hash" ] && pass "spec-hash created" || fail "spec-hash NOT created"
 
 # 1.5 Spec hash matches
-if [ -f "$TEST_DIR/.claude/.pipeline/.spec-hash" ]; then
-    SAVED=$(cat "$TEST_DIR/.claude/.pipeline/.spec-hash")
-    CURRENT=$(shasum -a 256 "$TEST_DIR/.claude/.pipeline/spec-card.md" | cut -d' ' -f1)
+if [ -f "$TEST_DIR/.apd/pipeline/.spec-hash" ]; then
+    SAVED=$(cat "$TEST_DIR/.apd/pipeline/.spec-hash")
+    CURRENT=$(shasum -a 256 "$TEST_DIR/.apd/pipeline/spec-card.md" | cut -d' ' -f1)
     [ "$SAVED" = "$CURRENT" ] && pass "spec-hash matches (frozen)" || fail "spec-hash MISMATCH"
 fi
 
@@ -74,7 +74,7 @@ EXIT=$(run_exit pipeline-advance builder)
 [ "$EXIT" -ne 0 ] && pass "builder without plan → BLOCKED" || fail "builder without plan should BLOCK"
 
 # 1.7 Create implementation plan with Agents section
-cat > "$TEST_DIR/.claude/.pipeline/implementation-plan.md" << 'EOF'
+cat > "$TEST_DIR/.apd/pipeline/implementation-plan.md" << 'EOF'
 ## Plan
 
 ### Agents
@@ -88,10 +88,11 @@ EOF
 EXIT=$(run_exit pipeline-advance builder)
 [ "$EXIT" -ne 0 ] && pass "builder without agent dispatch → BLOCKED" || fail "builder without agent should BLOCK"
 
-# 1.9 Simulate agent dispatch
-NOW_TS=$(date +"%Y-%m-%d %H:%M:%S")
-echo "${NOW_TS}|start|backend-api|test-id-001" >> "$TEST_DIR/.claude/.pipeline/.agents"
-echo "${NOW_TS}|stop|backend-api|test-id-001" >> "$TEST_DIR/.claude/.pipeline/.agents"
+# 1.9 Simulate agent dispatch (realistic: start 10s ago, valid agent_id format)
+_START_TS=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
+_STOP_TS=$(date +"%Y-%m-%d %H:%M:%S")
+echo "${_START_TS}|start|backend-api|a0000000000000001" >> "$TEST_DIR/.apd/pipeline/.agents"
+echo "${_STOP_TS}|stop|backend-api|a0000000000000001" >> "$TEST_DIR/.apd/pipeline/.agents"
 
 # 1.10 Builder with agent dispatch → PASS
 EXIT=$(run_exit pipeline-advance builder)
@@ -102,8 +103,10 @@ EXIT=$(run_exit pipeline-advance reviewer)
 [ "$EXIT" -ne 0 ] && pass "reviewer without reviewer agent → BLOCKED" || fail "reviewer without agent should BLOCK"
 
 # 1.12 Simulate reviewer dispatch
-echo "${NOW_TS}|start|code-reviewer|test-id-002" >> "$TEST_DIR/.claude/.pipeline/.agents"
-echo "${NOW_TS}|stop|code-reviewer|test-id-002" >> "$TEST_DIR/.claude/.pipeline/.agents"
+_START_TS=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
+_STOP_TS=$(date +"%Y-%m-%d %H:%M:%S")
+echo "${_START_TS}|start|code-reviewer|a0000000000000002" >> "$TEST_DIR/.apd/pipeline/.agents"
+echo "${_STOP_TS}|stop|code-reviewer|a0000000000000002" >> "$TEST_DIR/.apd/pipeline/.agents"
 
 # 1.13 Reviewer with agent → PASS
 EXIT=$(run_exit pipeline-advance reviewer)
@@ -122,7 +125,7 @@ fi
 # 1.15 All .done files exist
 DONE_COUNT=0
 for step in spec builder reviewer verifier; do
-    [ -f "$TEST_DIR/.claude/.pipeline/$step.done" ] && DONE_COUNT=$((DONE_COUNT + 1))
+    [ -f "$TEST_DIR/.apd/pipeline/$step.done" ] && DONE_COUNT=$((DONE_COUNT + 1))
 done
 if [ "$DONE_COUNT" -ge 3 ]; then
     pass "pipeline steps created ($DONE_COUNT/4 .done files)"
@@ -132,17 +135,17 @@ fi
 
 # 1.16 Reset cleans everything
 run pipeline-advance reset >/dev/null 2>&1
-REMAINING=$(ls "$TEST_DIR/.claude/.pipeline"/*.done 2>/dev/null | wc -l | tr -d ' ')
+REMAINING=$(ls "$TEST_DIR/.apd/pipeline"/*.done 2>/dev/null | wc -l | tr -d ' ')
 [ "$REMAINING" -eq 0 ] && pass "reset clears all .done files" || fail "reset left $REMAINING .done files"
-[ ! -f "$TEST_DIR/.claude/.pipeline/spec-card.md" ] && pass "reset clears spec-card.md" || fail "reset did not clear spec-card.md"
-[ ! -f "$TEST_DIR/.claude/.pipeline/implementation-plan.md" ] && pass "reset clears implementation-plan.md" || fail "reset did not clear implementation-plan.md"
+[ ! -f "$TEST_DIR/.apd/pipeline/spec-card.md" ] && pass "reset clears spec-card.md" || fail "reset did not clear spec-card.md"
+[ ! -f "$TEST_DIR/.apd/pipeline/implementation-plan.md" ] && pass "reset clears implementation-plan.md" || fail "reset did not clear implementation-plan.md"
 
 # ============================================================
 section "2. Spec Enforcement"
 # ============================================================
 
 # 2.1 Max 7 criteria
-cat > "$TEST_DIR/.claude/.pipeline/spec-card.md" << 'EOF'
+cat > "$TEST_DIR/.apd/pipeline/spec-card.md" << 'EOF'
 ## Big task
 **Acceptance criteria:**
 - R1: One
@@ -158,7 +161,7 @@ EXIT=$(run_exit pipeline-advance spec "Big task")
 [ "$EXIT" -ne 0 ] && pass "8 criteria → BLOCKED (max 7)" || fail "8 criteria should BLOCK"
 
 # 2.2 Exactly 7 criteria → PASS
-cat > "$TEST_DIR/.claude/.pipeline/spec-card.md" << 'EOF'
+cat > "$TEST_DIR/.apd/pipeline/spec-card.md" << 'EOF'
 ## OK task
 **Acceptance criteria:**
 - R1: One
@@ -173,11 +176,11 @@ EXIT=$(run_exit pipeline-advance spec "OK task")
 [ "$EXIT" -eq 0 ] && pass "7 criteria → OK" || fail "7 criteria should pass"
 
 # 2.3 Spec tamper detection
-echo "- R8: Sneaky addition" >> "$TEST_DIR/.claude/.pipeline/spec-card.md"
+echo "- R8: Sneaky addition" >> "$TEST_DIR/.apd/pipeline/spec-card.md"
 # Create fake .done files to reach verifier
-echo "$(date +%s)|$(date +"%Y-%m-%d %H:%M:%S")" > "$TEST_DIR/.claude/.pipeline/builder.done"
-echo "$(date +%s)|$(date +"%Y-%m-%d %H:%M:%S")" > "$TEST_DIR/.claude/.pipeline/reviewer.done"
-cat > "$TEST_DIR/.claude/.pipeline/implementation-plan.md" << 'EOF'
+echo "$(date +%s)|$(date +"%Y-%m-%d %H:%M:%S")" > "$TEST_DIR/.apd/pipeline/builder.done"
+echo "$(date +%s)|$(date +"%Y-%m-%d %H:%M:%S")" > "$TEST_DIR/.apd/pipeline/reviewer.done"
+cat > "$TEST_DIR/.apd/pipeline/implementation-plan.md" << 'EOF'
 ## Plan
 ### Agents
 - backend-api
@@ -186,7 +189,7 @@ EXIT=$(run_exit pipeline-advance verifier)
 [ "$EXIT" -ne 0 ] && pass "spec tampered → verifier BLOCKED" || fail "spec tamper should BLOCK verifier"
 
 # Clean for next tests
-rm -f "$TEST_DIR/.claude/.pipeline"/*.done "$TEST_DIR/.claude/.pipeline"/.spec-hash "$TEST_DIR/.claude/.pipeline"/spec-card.md "$TEST_DIR/.claude/.pipeline"/implementation-plan.md "$TEST_DIR/.claude/.pipeline"/.agents
+rm -f "$TEST_DIR/.apd/pipeline"/*.done "$TEST_DIR/.apd/pipeline"/.spec-hash "$TEST_DIR/.apd/pipeline"/spec-card.md "$TEST_DIR/.apd/pipeline"/implementation-plan.md "$TEST_DIR/.apd/pipeline"/.agents
 
 # ============================================================
 section "3. Guard Tests"
@@ -204,20 +207,20 @@ EXIT=$(guard_test '{"tool_input":{"command":"git commit --no-verify -m test"}}' 
 EXIT=$(guard_test '{"tool_input":{"command":"git add ."}}' guard-git)
 [ "$EXIT" -eq 2 ] && pass "guard-git: git add . → BLOCKED" || fail "guard-git should block mass staging"
 
-# 3.4 guard-bash-scope: write to .pipeline/ → BLOCK
-EXIT=$(guard_test '{"tool_input":{"command":"echo fake >> .claude/.pipeline/.agents"}}' guard-bash-scope)
-[ "$EXIT" -eq 2 ] && pass "guard-bash-scope: write .pipeline/ → BLOCKED" || fail "guard-bash-scope should block .pipeline/ writes"
+# 3.4 guard-bash-scope: write to .apd/pipeline/ → BLOCK
+EXIT=$(guard_test '{"tool_input":{"command":"echo fake >> .apd/pipeline/.agents"}}' guard-bash-scope)
+[ "$EXIT" -eq 2 ] && pass "guard-bash-scope: write .apd/pipeline/ → BLOCKED" || fail "guard-bash-scope should block .apd/pipeline/ writes"
 
 # 3.5 guard-bash-scope: normal command → ALLOW
 EXIT=$(guard_test '{"tool_input":{"command":"dotnet build"}}' guard-bash-scope)
 [ "$EXIT" -eq 0 ] && pass "guard-bash-scope: normal command → ALLOWED" || fail "guard-bash-scope should allow normal commands"
 
 # 3.6 guard-pipeline-state: Write .done file → BLOCK
-EXIT=$(guard_test "{\"tool_input\":{\"file_path\":\"$TEST_DIR/.claude/.pipeline/spec.done\"}}" guard-pipeline-state)
+EXIT=$(guard_test "{\"tool_input\":{\"file_path\":\"$TEST_DIR/.apd/pipeline/spec.done\"}}" guard-pipeline-state)
 [ "$EXIT" -eq 2 ] && pass "guard-pipeline-state: write .done → BLOCKED" || fail "guard-pipeline-state should block .done writes"
 
 # 3.7 guard-pipeline-state: Write spec-card.md → ALLOW
-EXIT=$(guard_test "{\"tool_input\":{\"file_path\":\"$TEST_DIR/.claude/.pipeline/spec-card.md\"}}" guard-pipeline-state)
+EXIT=$(guard_test "{\"tool_input\":{\"file_path\":\"$TEST_DIR/.apd/pipeline/spec-card.md\"}}" guard-pipeline-state)
 [ "$EXIT" -eq 0 ] && pass "guard-pipeline-state: write spec-card.md → ALLOWED" || fail "guard-pipeline-state should allow spec-card.md"
 
 # 3.8 guard-scope: write outside scope → BLOCK
@@ -233,60 +236,64 @@ section "4. Concurrent Lock"
 # ============================================================
 
 # 4.1 mkdir lock blocks second run
-cat > "$TEST_DIR/.claude/.pipeline/spec-card.md" << 'EOF'
+cat > "$TEST_DIR/.apd/pipeline/spec-card.md" << 'EOF'
 ## Lock test
 **Acceptance criteria:**
 - R1: Test
 EOF
-mkdir -p "$TEST_DIR/.claude/.pipeline/.lock"
+mkdir -p "$TEST_DIR/.apd/pipeline/.lock"
 # Touch to make it recent (not stale)
-touch "$TEST_DIR/.claude/.pipeline/.lock"
+touch "$TEST_DIR/.apd/pipeline/.lock"
 EXIT=$(run_exit pipeline-advance spec "Lock test")
 [ "$EXIT" -ne 0 ] && pass "concurrent lock → BLOCKED" || fail "concurrent lock should BLOCK"
 
 # 4.2 Stale lock (>5min) auto-removed
 # Backdate the lock directory
-touch -t 202601010000 "$TEST_DIR/.claude/.pipeline/.lock" 2>/dev/null || true
+touch -t 202601010000 "$TEST_DIR/.apd/pipeline/.lock" 2>/dev/null || true
 EXIT=$(run_exit pipeline-advance spec "Lock test")
 [ "$EXIT" -eq 0 ] && pass "stale lock auto-removed → OK" || fail "stale lock should be auto-removed"
 
 # Clean
-rm -rf "$TEST_DIR/.claude/.pipeline/.lock"
-rm -f "$TEST_DIR/.claude/.pipeline"/*.done "$TEST_DIR/.claude/.pipeline"/.spec-hash "$TEST_DIR/.claude/.pipeline"/spec-card.md "$TEST_DIR/.claude/.pipeline"/implementation-plan.md "$TEST_DIR/.claude/.pipeline"/.agents
+rm -rf "$TEST_DIR/.apd/pipeline/.lock"
+rm -f "$TEST_DIR/.apd/pipeline"/*.done "$TEST_DIR/.apd/pipeline"/.spec-hash "$TEST_DIR/.apd/pipeline"/spec-card.md "$TEST_DIR/.apd/pipeline"/implementation-plan.md "$TEST_DIR/.apd/pipeline"/.agents
 
 # ============================================================
 section "5. Rollback"
 # ============================================================
 
 # Setup a pipeline to verifier
-cat > "$TEST_DIR/.claude/.pipeline/spec-card.md" << 'EOF'
+cat > "$TEST_DIR/.apd/pipeline/spec-card.md" << 'EOF'
 ## Rollback test
 **Acceptance criteria:**
 - R1: Test
 EOF
 run pipeline-advance spec "Rollback test" >/dev/null 2>&1
-cat > "$TEST_DIR/.claude/.pipeline/implementation-plan.md" << 'EOF'
+cat > "$TEST_DIR/.apd/pipeline/implementation-plan.md" << 'EOF'
 ## Plan
 ### Agents
 - backend-api
 EOF
-echo "${NOW_TS}|stop|backend-api|rb-001" >> "$TEST_DIR/.claude/.pipeline/.agents"
-echo "${NOW_TS}|stop|code-reviewer|rb-002" >> "$TEST_DIR/.claude/.pipeline/.agents"
+_START_TS=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
+_STOP_TS=$(date +"%Y-%m-%d %H:%M:%S")
+echo "${_START_TS}|start|backend-api|a0000000000000005" >> "$TEST_DIR/.apd/pipeline/.agents"
+echo "${_STOP_TS}|stop|backend-api|a0000000000000005" >> "$TEST_DIR/.apd/pipeline/.agents"
+echo "${_START_TS}|start|code-reviewer|a0000000000000006" >> "$TEST_DIR/.apd/pipeline/.agents"
+echo "${_STOP_TS}|stop|code-reviewer|a0000000000000006" >> "$TEST_DIR/.apd/pipeline/.agents"
 run pipeline-advance builder >/dev/null 2>&1
 run pipeline-advance reviewer >/dev/null 2>&1
 
 # 5.1 Rollback reviewer
 run pipeline-advance rollback >/dev/null 2>&1
-[ ! -f "$TEST_DIR/.claude/.pipeline/reviewer.done" ] && pass "rollback: reviewer.done removed" || fail "rollback should remove reviewer.done"
-[ -f "$TEST_DIR/.claude/.pipeline/builder.done" ] && pass "rollback: builder.done preserved" || fail "rollback should preserve builder.done"
+[ ! -f "$TEST_DIR/.apd/pipeline/reviewer.done" ] && pass "rollback: reviewer.done removed" || fail "rollback should remove reviewer.done"
+[ -f "$TEST_DIR/.apd/pipeline/builder.done" ] && pass "rollback: builder.done preserved" || fail "rollback should preserve builder.done"
 
 # 5.2 Rollback builder
 run pipeline-advance rollback >/dev/null 2>&1
-[ ! -f "$TEST_DIR/.claude/.pipeline/builder.done" ] && pass "rollback: builder.done removed" || fail "rollback should remove builder.done"
-[ -f "$TEST_DIR/.claude/.pipeline/spec.done" ] && pass "rollback: spec.done preserved" || fail "rollback should preserve spec.done"
+[ ! -f "$TEST_DIR/.apd/pipeline/builder.done" ] && pass "rollback: builder.done removed" || fail "rollback should remove builder.done"
+[ -f "$TEST_DIR/.apd/pipeline/spec.done" ] && pass "rollback: spec.done preserved" || fail "rollback should preserve spec.done"
 
 # Clean
-rm -rf "$TEST_DIR/.claude/.pipeline"/*
+rm -rf "$TEST_DIR/.apd/pipeline"/*
 
 # ============================================================
 section "6. Entry Point"

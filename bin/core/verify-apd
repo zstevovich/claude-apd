@@ -919,11 +919,11 @@ if [ -f "$PROJECT_DIR/.gitignore" ]; then
         warn ".gitignore does not contain .claude/settings.local.json"
     fi
 
-    if grep -q '\.claude/\.pipeline' "$PROJECT_DIR/.gitignore" 2>/dev/null; then
-        pass ".gitignore: .claude/.pipeline/"
-        GIT_IGNORE_ITEMS+=(".pipeline/")
+    if grep -q '\.apd/pipeline' "$PROJECT_DIR/.gitignore" 2>/dev/null; then
+        pass ".gitignore: .apd/pipeline/"
+        GIT_IGNORE_ITEMS+=(".apd/pipeline/")
     else
-        fail ".gitignore does not contain .claude/.pipeline/ — pipeline flags may end up in the repo"
+        fail ".gitignore does not contain .apd/pipeline/ — pipeline flags may end up in the repo"
     fi
 else
     fail ".gitignore DOES NOT EXIST"
