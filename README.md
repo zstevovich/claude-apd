@@ -1,4 +1,4 @@
-# Agent Pipeline Development (APD) v4.0.0
+# Agent Pipeline Development (APD) v4.3.0
 
 Enforced multi-agent pipelines with mechanical guardrails for AI-assisted software development. Distributed as a Claude Code plugin.
 
@@ -69,7 +69,9 @@ apd pipeline reviewer             # Advance after review
 apd pipeline verifier             # Run verification (spec traceability + build + test)
 apd pipeline status               # Show current state
 apd pipeline rollback             # Undo last step
+apd pipeline reset                # Clear pipeline (start fresh)
 apd pipeline metrics              # Performance dashboard
+apd pipeline stats                # Skip log
 apd doctor                        # Full diagnostics
 apd verify                        # Setup verification (50+ checks)
 ```
