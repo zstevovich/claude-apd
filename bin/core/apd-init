@@ -371,7 +371,7 @@ maxTurns: 20' "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
 
         # Permissions — auto-allow memory + pipeline writes + apd commands
         PERMS_MISSING=false
-        for perm in "Write(.claude/.pipeline/spec-card.md)" "Bash(bash .claude/bin/apd *)" "Bash(mkdir */.pipeline/*)"; do
+        for perm in "Write(.claude/.pipeline/spec-card.md)" "Bash(bash .claude/bin/apd *)" "Write(**/.pipeline/spec-card.md)"; do
             if ! grep -qF "$perm" "$CLAUDE_DIR/settings.json" 2>/dev/null; then
                 PERMS_MISSING=true
                 break

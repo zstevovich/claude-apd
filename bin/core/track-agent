@@ -48,7 +48,8 @@ case "$EVENT" in
             echo "  ${RED}Pipeline flow: builder → reviewer → fix → adversarial${R}" >&2
             echo "  ${RED}Verifier will BLOCK if adversarial ran before reviewer.done${R}" >&2
             echo "" >&2
-            log_block "adversarial-before-reviewer" "$AGENT_TYPE"
+            # Note: NOT using log_block here — this is a warning, not a block.
+            # SubagentStart hooks cannot prevent dispatch. Verifier will enforce.
         fi
         # Reminder for regular reviewer
         if echo "$AGENT_TYPE" | grep -qiE 'review'; then

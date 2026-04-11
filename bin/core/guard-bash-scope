@@ -67,7 +67,7 @@ for ppath in "${PROTECTED_PIPELINE[@]}"; do
     fi
     # Check non-redirect write operations
     for wp in "${PLUGIN_WRITE_CHECK[@]}"; do
-      if [[ "$COMMAND" == *"$wp"*"$ppath"* ]] || [[ "$COMMAND" == *"$wp"*pipeline* ]]; then
+      if [[ "$COMMAND" == *"$wp"*"$ppath"* ]] || [[ "$COMMAND" == *"$wp"*".pipeline/"* ]]; then
         echo "BLOCKED: Bash write to protected pipeline state directory." >&2
         echo "" >&2
         echo "  Do not write directly to .pipeline/ — use the apd command instead." >&2
