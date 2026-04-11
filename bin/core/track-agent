@@ -17,6 +17,12 @@ EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
 AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
 AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null)
 
+# Debug log — capture full hook input for analysis
+AGENT_DEBUG_LOG="$MEMORY_DIR/agent-dispatch-debug.log"
+echo "=== $(date +"%Y-%m-%d %H:%M:%S") | $EVENT | $AGENT_TYPE ===" >> "$AGENT_DEBUG_LOG"
+echo "$INPUT" | jq '.' >> "$AGENT_DEBUG_LOG" 2>/dev/null
+echo "" >> "$AGENT_DEBUG_LOG"
+
 if [ -z "$AGENT_TYPE" ] || [ -z "$EVENT" ]; then
   exit 0
 fi
