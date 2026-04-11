@@ -1,4 +1,4 @@
-# Agent Pipeline Development (APD) v4.3.0
+# Agent Pipeline Development (APD) v4.3.1
 
 Enforced multi-agent pipelines with mechanical guardrails for AI-assisted software development. Distributed as a Claude Code plugin.
 
