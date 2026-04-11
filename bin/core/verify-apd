@@ -757,6 +757,37 @@ else
     fail "pipeline-advance verifier ERROR with adversarial summary: $RESULT"
 fi
 
+# Adversarial ordering test: verifier must BLOCK if adversarial ran BEFORE reviewer
+# Rollback verifier to re-test with manipulated .agents
+bash "$SCRIPT_DIR/pipeline-advance" rollback >/dev/null 2>&1
+# reviewer.done still exists after verifier rollback
+if [ -f "$PIPELINE_DIR/reviewer.done" ]; then
+    REVIEWER_EPOCH=$(head -1 "$PIPELINE_DIR/reviewer.done" | cut -d'|' -f1)
+    BEFORE_REVIEWER=$((REVIEWER_EPOCH - 60))
+    BEFORE_TS=$(date -j -f "%s" "$BEFORE_REVIEWER" +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "@$BEFORE_REVIEWER" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
+    if [ -n "$BEFORE_TS" ]; then
+        # Ensure .adversarial-pending exists (reviewer step creates it)
+        echo "$REVIEWER_EPOCH" > "$PIPELINE_DIR/.adversarial-pending"
+        # Inject adversarial stop BEFORE reviewer timestamp
+        echo "${BEFORE_TS}|start|adversarial-reviewer|a0000000000000099" >> "$AGENTS_LOG"
+        echo "${BEFORE_TS}|stop|adversarial-reviewer|a0000000000000099" >> "$AGENTS_LOG"
+        echo "ADVERSARIAL:1:0:1" > "$PIPELINE_DIR/.adversarial-summary"
+        RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" verifier 2>&1)
+        EXIT_CODE=$?
+        if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "before reviewer"; then
+            pass "pipeline-advance: verifier BLOCKS adversarial that ran before reviewer"
+        else
+            fail "pipeline-advance verifier should block adversarial before reviewer (exit: $EXIT_CODE): $RESULT"
+        fi
+        # Clean up
+        rm -f "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending"
+    else
+        pass "pipeline-advance: adversarial ordering test skipped (date conversion unavailable)"
+    fi
+else
+    fail "pipeline-advance: adversarial ordering test setup failed (no reviewer.done after rollback)"
+fi
+
 # Adversarial opt-out test: full pipeline restart with skip in spec-card
 bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
 _clean_fill_in

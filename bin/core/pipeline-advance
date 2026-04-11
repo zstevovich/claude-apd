@@ -400,6 +400,7 @@ case "$STEP" in
         ;;
 
     verifier)
+        AGENTS_LOG="$PIPELINE_DIR/.agents"
         if [ ! -f "$PIPELINE_DIR/reviewer.done" ]; then
             echo "ERROR: Reviewer must be completed before verifier!" >&2
             exit 1
