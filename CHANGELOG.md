@@ -1,20 +1,28 @@
 # Changelog
 
-## v4.3.0 — 2026-04-11
+## v4.3.4 — 2026-04-12
 
-Pipeline state moved out of protected `.claude/` directory.
+Pipeline relocation, quality enforcement, and SubagentStop workaround.
 
 ### Breaking change
 - **Pipeline directory relocated** — `.claude/.pipeline/` → `.apd/pipeline/`. Claude Code treats `.claude/` as a protected path, causing permission prompts on every Write/Edit regardless of `permissions.allow` settings. Moving to `.apd/pipeline/` eliminates forced prompts.
-- **Automatic migration** — `apd init` (update mode) detects old `.claude/.pipeline/`, moves contents to `.apd/pipeline/`, updates `.gitignore` and permission patterns in `settings.json`.
+- **Automatic migration** — `apd init` (update mode) detects old `.claude/.pipeline/`, moves contents to `.apd/pipeline/`, updates `.gitignore`, permission patterns in `settings.json`, and `workflow.md`.
+
+### New enforcement
+- **Adversarial dispatch verification** — verifier blocks if `.adversarial-summary` exists but no `adversarial-reviewer` start entry in `.agents` log. Prevents `ADVERSARIAL:0:0:0` bypass without actual dispatch.
+- **Orchestrator code write instructions** — stronger workflow.md rules against orchestrator writing code directly or reading files after review to "verify". Reduced code-write guard blocks from 3/task to 0/task.
 
 ### Fixes
-- **Rollback no longer deletes implementation plan** — `pipeline-advance rollback` of builder step previously deleted `implementation-plan.md`. Plan is now preserved as part of frozen spec.
-- **test-system agent_id format** — fake agent entries now use valid CC agent_id format (`a0000000000000001`) and realistic start/stop timing.
+- **SubagentStop workaround** — CC SubagentStop hook has ~42% failure rate (GitHub #27755). Go binary now accepts agents with start but no stop if 30+ seconds elapsed. Eliminates false "No agent dispatched" blocks.
+- **Rollback preserves implementation plan** — `pipeline-advance rollback` of builder step no longer deletes `implementation-plan.md`. Plan is frozen spec.
+- **Workflow.md auto-update** — `apd init` update mode now replaces `workflow.md` when it contains stale `.claude/.pipeline` paths.
+- **Timezone fix in Go binary** — elapsed time calculation uses local timezone for start timestamp parsing.
+- **test-system agent_id format** — fake agent entries use valid CC agent_id format and realistic start/stop timing.
 
-### Updated
-- All guards, templates, rules, documentation, and tests updated for new path.
-- 20 files changed across scripts, templates, rules, and docs.
+### Infrastructure
+- **Agent dispatch debug logging** — `track-agent` logs full SubagentStart/Stop hook JSON to `agent-dispatch-debug.log` for dispatch analysis.
+- **bump-version script** — local tool for consistent version updates across all files (plugin.json, marketplace.json, README, CLAUDE.md, memory).
+- All guards, templates, rules, documentation, and tests updated for new `.apd/pipeline/` path.
 
 ---
 
