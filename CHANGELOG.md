@@ -1,5 +1,25 @@
 # Changelog
 
+## v4.4.0 — 2026-04-12
+
+Runtime contract adapter layer — Phase 2 of ADR-001.
+
+### Architecture
+- **Adapter layer** — 9 guard scripts split into `bin/adapter/cc/` (CC-specific stdin JSON parsing) and `bin/core/` (platform-agnostic CLI args). Core guards are now testable without Claude Code or jq.
+- **Explicit fail-open/fail-closed policy** — enforcement guards (git, scope, bash-scope, secrets, orchestrator, pipeline-state) fail-closed when jq is missing; advisory guards (lockfile, track-agent, pipeline-post-commit) fail-open with documented rationale.
+
+### Updated
+- `hooks.json` — all 8 hook entries point to `bin/adapter/cc/` shims
+- Agent templates — all guard references updated to adapter paths
+- `verify-apd` — functional tests use CLI args; adapter shim existence checks added; plugin detection validates both core and adapter layers
+- `apd-init` — detects and auto-migrates stale `bin/core/guard-*` paths in existing agent files with visible STALE PATH warning
+
+### Infrastructure
+- `track-agent` debug logging moved from adapter to core via `--raw-payload` arg — adapter layer stays thin
+- ADR-001 design spec and implementation plan added to `docs/`
+
+---
+
 ## v4.3.4 — 2026-04-12
 
 Pipeline relocation, quality enforcement, and SubagentStop workaround.
