@@ -46,11 +46,16 @@ case "$CMD" in
     test-system|system-test)
         exec bash "$CORE_DIR/test-system" "$@"
         ;;
+    version|--version|-v)
+        APD_VER=$(grep '"version"' "$(dirname "$0")/../.claude-plugin/plugin.json" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        echo "APD v${APD_VER:-unknown}"
+        ;;
     help|--help|-h)
         source "$(dirname "$0")/lib/style.sh"
+        APD_VER=$(grep '"version"' "$(dirname "$0")/../.claude-plugin/plugin.json" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         apd_logo
         echo ""
-        echo "  ${V}APD${R} — Agent Pipeline Development"
+        echo "  ${V}APD${R} — Agent Pipeline Development ${D}v${APD_VER:-unknown}${R}"
         echo ""
         echo "  Usage: apd <command> [args]"
         echo ""

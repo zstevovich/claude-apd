@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.5.1 — 2026-04-13
+
+### Added
+- **`apd version`** — new command to display current version
+- **Version in help** — `apd help` now shows version next to title
+
+---
+
 ## v4.5.0 — 2026-04-13
 
 CLI branding and stale hook cleanup.
