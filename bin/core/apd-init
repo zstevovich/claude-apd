@@ -30,6 +30,7 @@ source "$(dirname "$0")/../lib/style.sh"
 FIXES=0
 SKIPS=0
 
+apd_logo
 apd_header "Init"
 echo ""
 
@@ -335,6 +336,38 @@ maxTurns: 20' "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
             fix "Copied workflow.md"
             FIXES=$((FIXES + 1))
         fi
+    fi
+
+    # --- settings.json: remove stale SessionStart hooks ---
+    # Plugin hooks.json handles SessionStart via ${CLAUDE_PLUGIN_ROOT}.
+    # Old project setups may override it with hardcoded paths that no longer exist.
+    if [ -f "$CLAUDE_DIR/settings.json" ] && grep -q '"SessionStart"' "$CLAUDE_DIR/settings.json" 2>/dev/null; then
+        tmp=$(mktemp)
+        python3 -c "
+import json, sys
+with open('$CLAUDE_DIR/settings.json') as f:
+    data = json.load(f)
+removed = False
+if 'hooks' in data and 'SessionStart' in data['hooks']:
+    del data['hooks']['SessionStart']
+    removed = True
+    if not data['hooks']:
+        del data['hooks']
+if removed:
+    with open('$CLAUDE_DIR/settings.json', 'w') as f:
+        json.dump(data, f, indent=2)
+        f.write('\n')
+    sys.exit(0)
+sys.exit(1)
+" 2>/dev/null
+        if [ $? -eq 0 ]; then
+            fix "Removed stale SessionStart hook from settings.json (plugin handles it)"
+            FIXES=$((FIXES + 1))
+        else
+            ok "No stale SessionStart hooks"
+        fi
+    else
+        ok "No stale SessionStart hooks"
     fi
 
     # --- settings.json: superpowers disabled ---

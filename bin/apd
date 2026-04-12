@@ -47,8 +47,10 @@ case "$CMD" in
         exec bash "$CORE_DIR/test-system" "$@"
         ;;
     help|--help|-h)
+        source "$(dirname "$0")/lib/style.sh"
+        apd_logo
         echo ""
-        echo "  APD — Agent Pipeline Development"
+        echo "  ${V}APD${R} — Agent Pipeline Development"
         echo ""
         echo "  Usage: apd <command> [args]"
         echo ""

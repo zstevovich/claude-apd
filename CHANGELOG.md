@@ -1,5 +1,15 @@
 # Changelog
 
+## v4.5.0 — 2026-04-13
+
+CLI branding and stale hook cleanup.
+
+### Added
+- **CLI logo** — `apd_logo()` in `style.sh` renders pixel-art APD logo with terminal colors (violet A, blue P, green D, pipeline indicator). Displayed in `apd help` and `apd init`.
+- **Stale SessionStart cleanup** — `apd-init` update mode detects and removes project-level SessionStart hooks from `settings.json` that override the plugin's `hooks.json` (common in pre-v4 projects).
+
+---
+
 ## v4.4.0 — 2026-04-12
 
 Runtime contract adapter layer — Phase 2 of ADR-001.

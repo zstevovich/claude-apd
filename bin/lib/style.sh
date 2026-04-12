@@ -69,6 +69,18 @@ WARN_COUNT=0
 
 # --- Helper functions ---
 
+# apd_logo
+# Displays the APD pixel-art logo in terminal colors (matches docs/logo.svg)
+apd_logo() {
+    echo ""
+    printf "        ${V}█ █ █${R}     ${BLU}█ █ █${R}     ${GRN}█ █ █${R}\n"
+    printf "      ${V}█${R}       ${V}█${R}   ${BLU}█${R}     ${BLU}█${R}   ${GRN}█${R}     ${GRN}█${R}\n"
+    printf "      ${V}█${R} ${V}${D}█ █ █${R} ${V}█${R}   ${BLU}█${R} ${BLU}${D}█ █ █${R}   ${GRN}█${R}     ${GRN}█${R}\n"
+    printf "      ${V}█${R}       ${V}█${R}   ${BLU}█${R}         ${GRN}█${R}     ${GRN}█${R}\n"
+    printf "      ${V}█${R}       ${V}█${R}   ${BLU}█${R}         ${GRN}█ █ █${R}\n"
+    printf "            ${V}█${R} ${D}→${R} ${BLU}█${R} ${D}→${R} ${ORG}█${R} ${D}→${R} ${GRN}█${R} ${D}→${R} ${GRN}✓${R}\n"
+}
+
 # apd_header "Title" ["+2m 15s"]
 #   → \n  APD ■ Title
 #   → \n  APD ■ Title  +2m 15s (dim)
