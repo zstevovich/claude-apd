@@ -30,9 +30,14 @@ apd_header "Verification"
 # ============================================================
 section "1. Prerequisites"
 
-# Plugin installation
-if [ -d "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/guard-git" ]; then
-    pass "APD plugin installed ($SCRIPT_DIR)"
+# Plugin installation — check both core and adapter layers
+ADAPTER_CHECK_DIR="$APD_PLUGIN_ROOT/bin/adapter/cc"
+if [ -d "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/guard-git" ] && [ -d "$ADAPTER_CHECK_DIR" ] && [ -f "$ADAPTER_CHECK_DIR/guard-git" ]; then
+    pass "APD plugin installed (core + adapter)"
+elif [ -d "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/guard-git" ]; then
+    fail "APD plugin partially installed — core exists but adapter/cc/ is missing"
+    echo "  Aborting — reinstall the plugin."
+    exit 1
 else
     fail "APD plugin is NOT installed — SCRIPT_DIR=$SCRIPT_DIR does not contain guard-git"
     echo "  Aborting — plugin must be installed."

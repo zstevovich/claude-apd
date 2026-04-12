@@ -213,7 +213,7 @@ hooks:
     - matcher: "Write|Edit"
       hooks:
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/bin/core/guard-scope src/ tests/"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/guard-scope src/ tests/"
 ```
 
 Agent writing to `apps/frontend/App.tsx`:

@@ -1,12 +1,15 @@
 #!/bin/bash
 # CC adapter shim for guard-pipeline-state
 # Reads Claude Code hook stdin JSON, passes normalized args to core
+
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CORE_DIR="$SCRIPT_DIR/../../core"
 
+# Fail-closed: enforcement guard — jq is required to parse hook input
 if ! command -v jq &>/dev/null; then
-  exit 0
+  echo "ERROR: jq is not installed." >&2
+  exit 2
 fi
 
 INPUT=$(cat)

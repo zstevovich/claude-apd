@@ -3,7 +3,7 @@
 # Writes to .apd/pipeline/.agents so pipeline-advance can verify
 # that a real agent ran before marking a step complete.
 #
-# Interface: --event <SubagentStart|SubagentStop> --agent-type <name> --agent-id <id>
+# Interface: --event <SubagentStart|SubagentStop> --agent-type <name> --agent-id <id> [--raw-payload <json>]
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
@@ -12,17 +12,27 @@ source "$(dirname "$0")/../lib/style.sh"
 EVENT=""
 AGENT_TYPE=""
 AGENT_ID=""
+RAW_PAYLOAD=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --event)      EVENT="$2"; shift 2 ;;
-    --agent-type) AGENT_TYPE="$2"; shift 2 ;;
-    --agent-id)   AGENT_ID="$2"; shift 2 ;;
+    --event)       EVENT="$2"; shift 2 ;;
+    --agent-type)  AGENT_TYPE="$2"; shift 2 ;;
+    --agent-id)    AGENT_ID="$2"; shift 2 ;;
+    --raw-payload) RAW_PAYLOAD="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
 
 if [ -z "$AGENT_TYPE" ] || [ -z "$EVENT" ]; then
   exit 0
+fi
+
+# Debug log — raw adapter payload for analysis
+if [ -n "$RAW_PAYLOAD" ] && [ -d "$MEMORY_DIR" ]; then
+  AGENT_DEBUG_LOG="$MEMORY_DIR/agent-dispatch-debug.log"
+  echo "=== $(date +"%Y-%m-%d %H:%M:%S") | $EVENT | $AGENT_TYPE ===" >> "$AGENT_DEBUG_LOG"
+  echo "$RAW_PAYLOAD" >> "$AGENT_DEBUG_LOG"
+  echo "" >> "$AGENT_DEBUG_LOG"
 fi
 
 mkdir -p "$PIPELINE_DIR"

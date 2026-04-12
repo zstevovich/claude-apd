@@ -6,6 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CORE_DIR="$SCRIPT_DIR/../../core"
 
+# Fail-open: agent tracking is observability — missing jq should not block agent dispatch
 if ! command -v jq &>/dev/null; then
   exit 0
 fi
@@ -15,13 +16,4 @@ EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
 AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
 AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null)
 
-# Debug log — capture full hook input for analysis (CC-specific raw payload)
-source "$CORE_DIR/../lib/resolve-project.sh" 2>/dev/null
-if [ -d "${MEMORY_DIR:-}" ]; then
-  AGENT_DEBUG_LOG="$MEMORY_DIR/agent-dispatch-debug.log"
-  echo "=== $(date +"%Y-%m-%d %H:%M:%S") | $EVENT | $AGENT_TYPE ===" >> "$AGENT_DEBUG_LOG"
-  echo "$INPUT" | jq '.' >> "$AGENT_DEBUG_LOG" 2>/dev/null
-  echo "" >> "$AGENT_DEBUG_LOG"
-fi
-
-exec "$CORE_DIR/track-agent" --event "$EVENT" --agent-type "$AGENT_TYPE" --agent-id "$AGENT_ID" "$@"
+exec "$CORE_DIR/track-agent" --event "$EVENT" --agent-type "$AGENT_TYPE" --agent-id "$AGENT_ID" --raw-payload "$INPUT" "$@"

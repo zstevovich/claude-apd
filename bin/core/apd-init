@@ -308,6 +308,7 @@ maxTurns: 20' "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
         [ -f "$agent_file" ] || continue
         AGENT_NAME=$(basename "$agent_file" .md)
         if grep -q 'bin/core/guard-scope\|bin/core/guard-bash-scope\|bin/core/guard-git\|bin/core/guard-secrets' "$agent_file" 2>/dev/null; then
+            echo "  ${YELLOW}${B}STALE PATH:${R} $AGENT_NAME references bin/core/ guard paths — updating to bin/adapter/cc/" >&2
             sed -i.bak 's|bin/core/guard-scope|bin/adapter/cc/guard-scope|g' "$agent_file" && rm -f "${agent_file}.bak"
             sed -i.bak 's|bin/core/guard-bash-scope|bin/adapter/cc/guard-bash-scope|g' "$agent_file" && rm -f "${agent_file}.bak"
             sed -i.bak 's|bin/core/guard-git|bin/adapter/cc/guard-git|g' "$agent_file" && rm -f "${agent_file}.bak"
