@@ -1,26 +1,23 @@
 #!/bin/bash
 # APD Scope Guard — blocks Write/Edit operations outside the allowed scope
-# Usage: bash guard-scope <allowed_path_1> <allowed_path_2> ...
+# Interface: --file-path <path> <allowed_path_1> <allowed_path_2> ...
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
-ALLOWED_PATHS=("$@")
+FILE_PATH=""
+ALLOWED_PATHS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --file-path) FILE_PATH="$2"; shift 2 ;;
+    *) ALLOWED_PATHS+=("$1"); shift ;;
+  esac
+done
 
 if [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
   exit 0
 fi
-
-if ! command -v jq &>/dev/null; then
-  echo "ERROR: jq is not installed." >&2
-  exit 2
-fi
-
-INPUT=$(cat)
-FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
-AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null)
-AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
 
 if [ -z "$FILE_PATH" ]; then
   exit 0
