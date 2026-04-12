@@ -1,22 +1,24 @@
 #!/bin/bash
 # APD Pipeline Post-Commit — resets pipeline AFTER a successful commit
-# Registered as PostToolUse hook for Bash tool
 #
 # Why PostToolUse and not PreToolUse:
 #   PreToolUse executes BEFORE the commit — if the commit fails (merge conflict,
 #   disk full, pre-commit hook), the pipeline is already reset and the next commit
 #   passes without the pipeline. PostToolUse executes only AFTER the tool runs
 #   successfully — if the commit fails, the hook is not triggered.
+#
+# Interface: --command <cmd>
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
-if ! command -v jq &>/dev/null; then
-  exit 0
-fi
-
-INPUT=$(cat)
-COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
+COMMAND=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --command) COMMAND="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
 
 if [ -z "$COMMAND" ]; then
   exit 0

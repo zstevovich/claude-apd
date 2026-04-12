@@ -1,22 +1,23 @@
 #!/bin/bash
 # APD Guard — blocks unauthorized git operations
 # Subagents must not commit, push, or perform destructive operations
+#
+# Interface: --command <cmd> --agent-id <id> --agent-type <type>
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
-if ! command -v jq &>/dev/null; then
-  echo "ERROR: jq is not installed. Required for guard-git." >&2
-  exit 2
-fi
-
-INPUT=$(cat)
-COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
-
-# Extract agent metadata (available since Claude Code v2.1.72+)
-AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null)
-AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
-SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
+COMMAND=""
+AGENT_ID=""
+AGENT_TYPE=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --command)    COMMAND="$2"; shift 2 ;;
+    --agent-id)   AGENT_ID="$2"; shift 2 ;;
+    --agent-type) AGENT_TYPE="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
 
 # Log function — logs blocked actions with agent context
 log_block() {
