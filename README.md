@@ -1,8 +1,18 @@
-# Agent Pipeline Development (APD) v4.3.4
+<p align="center">
+  <img src="docs/logo.svg" alt="APD — Agent Pipeline Development" width="560">
+</p>
 
-Enforced multi-agent pipelines with mechanical guardrails for AI-assisted software development. Distributed as a Claude Code plugin.
+<p align="center">
+  Enforced multi-agent pipelines with mechanical guardrails for AI-assisted software development.<br>
+  Distributed as a Claude Code plugin.
+</p>
 
-[**Getting Started**](GETTING-STARTED.md) | [**Interactive Demo**](https://zstevovich.github.io/claude-apd/demo/) | [**Changelog**](CHANGELOG.md)
+<p align="center">
+  <a href="GETTING-STARTED.md"><b>Getting Started</b></a> &middot;
+  <a href="https://zstevovich.github.io/claude-apd/demo/"><b>Interactive Demo</b></a> &middot;
+  <a href="https://zstevovich.github.io/claude-apd/pipeline-runs/"><b>Pipeline Runs</b></a> &middot;
+  <a href="CHANGELOG.md"><b>Changelog</b></a>
+</p>
 
 ![APD Demo](docs/demo/apd-demo.gif)
 
