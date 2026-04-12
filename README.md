@@ -53,22 +53,9 @@ See [Getting Started](GETTING-STARTED.md) for the full walkthrough.
 
 ## Pipeline flow
 
-```mermaid
-graph LR
-    SPEC["Spec"] --> PLAN["Plan"] --> BUILDER["Builder"] --> REVIEWER["Reviewer"]
-    REVIEWER -->|"fix"| BUILDER
-    REVIEWER -->|"OK"| ADV["Adversarial"]
-    ADV --> VERIFIER["Verifier"]
-    VERIFIER --> COMMIT["Commit"]
-
-    style SPEC fill:#4da6ff,stroke:#0073e6,color:#fff
-    style PLAN fill:#4da6ff,stroke:#0073e6,color:#fff
-    style BUILDER fill:#66cc66,stroke:#339933,color:#fff
-    style REVIEWER fill:#ff884d,stroke:#cc5500,color:#fff
-    style ADV fill:#ff6666,stroke:#cc0000,color:#fff
-    style VERIFIER fill:#66cc66,stroke:#339933,color:#fff
-    style COMMIT fill:#555,stroke:#333,color:#fff
-```
+<p align="center">
+  <img src="docs/pipeline.svg" alt="APD Pipeline: Spec → Plan → Builder → Reviewer → Adversarial → Verifier → ✓" width="900">
+</p>
 
 ### Pipeline commands
 
