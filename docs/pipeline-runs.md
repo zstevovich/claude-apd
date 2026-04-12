@@ -332,7 +332,34 @@ Fastest run overall. Orchestrator correctly chose `testing` agent (not backend-a
 </td>
 <td width="50%" valign="top">
 
-### #18
+### #18 — Bambi Audit Batch 15
+
+| | |
+|---|---|
+| **Date** | 2026-04-12 |
+| **Project** | Bambi Plazma (.NET 10) |
+| **Effort** | high |
+| **Duration** | 6m 25s |
+| **Spec coverage** | 6/6 |
+| **Agents** | 3 (testing, code-reviewer, adversarial-reviewer) |
+| **Guard blocks** | 0 |
+| **Adversarial** | 4 findings (0 accepted, 4 dismissed) |
+
+Fastest run ever. Five consecutive zero-block Bambi batches. Orchestrator chose `testing` agent for pure test task — no backend-api dispatch needed. Pipeline matured: 17m → 6m over 5 runs.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### #19
+
+*Next run...*
+
+</td>
+<td width="50%" valign="top">
+
+### #20
 
 *Next run...*
 
