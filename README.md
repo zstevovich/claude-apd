@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="APD — Agent Pipeline Development" width="560">
+  <img src="docs/logo.svg" alt="APD — Agent Pipeline Development" width="280">
 </p>
 
 <p align="center">
