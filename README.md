@@ -240,7 +240,7 @@ Allowed paths: src/ tests/
 
 ## Real-world results
 
-See [Pipeline Runs](docs/pipeline-runs.md) for tracked production results with metrics.
+See [Pipeline Runs](https://zstevovich.github.io/claude-apd/pipeline-runs/) for tracked production results with metrics.
 
 ## Plugin compatibility
 

@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>APD Pipeline Runs — Real-World Results</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0a0a12;
+    --surface: #12121e;
+    --surface2: #1a1a2a;
+    --border: #252538;
+    --text: #c0c0d0;
+    --text-dim: #5a5a70;
+    --text-bright: #e8e8f0;
+    --purple: #af8fff;
+    --purple-dim: rgba(175, 143, 255, 0.15);
+    --green: #66cc66;
+    --green-dim: rgba(102, 204, 102, 0.15);
+    --orange: #ff884d;
+    --orange-dim: rgba(255, 136, 77, 0.15);
+    --red: #ff6666;
+    --blue: #4da6ff;
+    --blue-dim: rgba(77, 166, 255, 0.15);
+    --glow-purple: 0 0 20px rgba(175, 143, 255, 0.3);
+    --glow-green: 0 0 20px rgba(102, 204, 102, 0.2);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    padding: 0;
+    overflow-x: hidden;
+  }
+
+  .header {
+    text-align: center;
+    padding: 48px 24px 32px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(175,143,255,0.04) 0%, transparent 100%);
+  }
+
+  .header .brand {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+
+  .header h1 {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--purple);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+
+  .header .ver {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-weight: 300;
+  }
+
+  .header .subtitle {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin-top: 12px;
+    letter-spacing: -0.5px;
+  }
+
+  .header .tagline {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    letter-spacing: 0.5px;
+  }
+
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px 24px;
+  }
+
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+
+  .summary-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .summary-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+
+  .summary-card.purple::before { background: var(--purple); box-shadow: var(--glow-purple); }
+  .summary-card.green::before { background: var(--green); box-shadow: var(--glow-green); }
+  .summary-card.orange::before { background: var(--orange); }
+  .summary-card.blue::before { background: var(--blue); }
+
+  .summary-card .label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+
+  .summary-card .value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--text-bright);
+    line-height: 1;
+  }
+
+  .summary-card .detail {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 6px;
+  }
+
+  .summary-card .trend {
+    font-size: 11px;
+    margin-top: 4px;
+  }
+
+  .trend.down { color: var(--green); }
+
+  .section-header {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-header .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--purple);
+    box-shadow: var(--glow-purple);
+  }
+
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 40px;
+  }
+
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+
+  .chart-card .chart-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+  }
+
+  .chart-area {
+    width: 100%;
+    height: 180px;
+    position: relative;
+  }
+
+  .chart-area svg { width: 100%; height: 100%; }
+
+  .runs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .runs-table thead th {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .runs-table tbody tr {
+    border-bottom: 1px solid rgba(37, 37, 56, 0.5);
+    transition: background 0.15s;
+  }
+
+  .runs-table tbody tr:hover { background: var(--surface); }
+
+  .runs-table td {
+    padding: 12px 12px;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  .run-id { color: var(--purple); font-weight: 500; }
+
+  .run-name {
+    color: var(--text-bright);
+    font-weight: 400;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .project-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+  }
+
+  .project-badge.net { background: var(--purple-dim); color: var(--purple); }
+  .project-badge.php { background: var(--blue-dim); color: var(--blue); }
+
+  .duration-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .duration-bar .bar {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--purple);
+    opacity: 0.6;
+    min-width: 4px;
+  }
+
+  .blocks-zero { color: var(--green); font-size: 11px; }
+
+  .blocks-count { color: var(--orange); }
+
+  .adversarial-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  .adversarial-badge.real { background: var(--green-dim); color: var(--green); }
+  .adversarial-badge.bypass { background: var(--orange-dim); color: var(--orange); }
+  .adversarial-badge.na { color: var(--text-dim); }
+  .adversarial-badge.optout { background: rgba(77,166,255,0.1); color: var(--blue); }
+
+  .note-text {
+    color: var(--text-dim);
+    font-size: 11px;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .version-marker {
+    display: inline-block;
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--purple-dim);
+    color: var(--purple);
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+
+  .footer {
+    text-align: center;
+    padding: 32px;
+    border-top: 1px solid var(--border);
+    margin-top: 40px;
+  }
+
+  .footer a {
+    color: var(--purple);
+    text-decoration: none;
+    font-size: 12px;
+  }
+
+  .footer a:hover { text-decoration: underline; }
+  .footer .sep { color: var(--text-dim); margin: 0 12px; }
+
+  @media (max-width: 768px) {
+    .summary-grid { grid-template-columns: repeat(2, 1fr); }
+    .charts-grid { grid-template-columns: 1fr; }
+    .runs-table { font-size: 11px; }
+    .runs-table .hide-mobile { display: none; }
+    .header .subtitle { font-size: 22px; }
+  }
+
+  @media (max-width: 480px) {
+    .summary-grid { grid-template-columns: 1fr; }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate {
+    animation: fadeUp 0.4s ease-out forwards;
+    opacity: 0;
+  }
+
+  .delay-1 { animation-delay: 0.1s; }
+  .delay-2 { animation-delay: 0.2s; }
+  .delay-3 { animation-delay: 0.3s; }
+  .delay-4 { animation-delay: 0.4s; }
+
+  @keyframes drawLine {
+    from { stroke-dashoffset: 1000; }
+    to { stroke-dashoffset: 0; }
+  }
+
+  .chart-line {
+    stroke-dasharray: 1000;
+    animation: drawLine 1.5s ease-out forwards;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="brand">
+    <h1>APD</h1>
+    <span class="ver">v4.3.4</span>
+  </div>
+  <div class="subtitle">Pipeline Runs</div>
+  <div class="tagline">18 tracked runs across 3 projects &middot; April 9&ndash;12, 2026</div>
+</div>
+
+<div class="container">
+
+  <div class="summary-grid">
+    <div class="summary-card purple animate delay-1">
+      <div class="label">Total Runs</div>
+      <div class="value">18</div>
+      <div class="detail">3 projects, 4 days</div>
+    </div>
+    <div class="summary-card green animate delay-2">
+      <div class="label">Avg Duration</div>
+      <div class="value">14m</div>
+      <div class="trend down">Last 5: 10m avg</div>
+    </div>
+    <div class="summary-card orange animate delay-3">
+      <div class="label">Guard Blocks</div>
+      <div class="value">26</div>
+      <div class="trend down">Last 5 runs: 0 blocks</div>
+    </div>
+    <div class="summary-card blue animate delay-4">
+      <div class="label">Fastest Run</div>
+      <div class="value">6:25</div>
+      <div class="detail">Bambi Batch 15 (#18)</div>
+    </div>
+  </div>
+
+  <div class="section-header"><span class="dot"></span> Trends</div>
+  <div class="charts-grid">
+    <div class="chart-card animate delay-2">
+      <div class="chart-title">Pipeline Duration (minutes)</div>
+      <div class="chart-area" id="duration-chart"></div>
+    </div>
+    <div class="chart-card animate delay-3">
+      <div class="chart-title">Guard Blocks per Run</div>
+      <div class="chart-area" id="blocks-chart"></div>
+    </div>
+  </div>
+
+  <div class="section-header"><span class="dot"></span> All Runs</div>
+  <div style="overflow-x: auto;">
+  <table class="runs-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Task</th>
+        <th>Project</th>
+        <th>Duration</th>
+        <th>Spec</th>
+        <th>Blocks</th>
+        <th>Adversarial</th>
+        <th class="hide-mobile">Note</th>
+      </tr>
+    </thead>
+    <tbody id="runs-tbody">
+    </tbody>
+  </table>
+  </div>
+
+</div>
+
+<div class="footer">
+  <a href="https://github.com/zstevovich/claude-apd">GitHub</a>
+  <span class="sep">&middot;</span>
+  <a href="../demo/">Interactive Demo</a>
+  <span class="sep">&middot;</span>
+  <a href="../../GETTING-STARTED.md">Getting Started</a>
+</div>
+
+<script>
+const runs = [
+  { id: 1, name: "XML Export", date: "2026-04-09", stack: "php", duration: 749, spec: "7/7", blocks: 2, adversarial: "N/A", advType: "na", note: "First spec traceability run" },
+  { id: 2, name: "Export XML+CSV", date: "2026-04-09", stack: "php", duration: 470, spec: "N/A", blocks: 0, adversarial: "4 (3/1)", advType: "real", note: "First adversarial \u2014 found CSV separator bug" },
+  { id: 3, name: "Loyalty Program", date: "2026-04-09", stack: "net", duration: 2761, spec: "14/14", blocks: 0, adversarial: "3 (0/3)", advType: "real", note: "First .NET project \u2014 max effort, 7 agents" },
+  { id: 4, name: "Hangfire Migration", date: "2026-04-10", stack: "net", duration: 1328, spec: "6/6", blocks: 0, adversarial: "N/A", advType: "na", note: "Orchestrator hacked .agents \u2014 led to guard fix" },
+  { id: 5, name: "Hangfire Monitoring", date: "2026-04-10", stack: "net", duration: 630, spec: "N/A", blocks: 0, adversarial: "N/A", advType: "na", note: "First v4.0.0 run \u2014 bypass detected" },
+  { id: 6, name: "Backoffice Audit 2", date: "2026-04-10", stack: "net", duration: 743, spec: "5/5", blocks: 0, adversarial: "4 (0/4)", advType: "real", note: "First clean run \u2014 no bypasses" },
+  { id: 7, name: "Backoffice Audit 3", date: "2026-04-10", stack: "net", duration: 577, spec: "5/5", blocks: 7, adversarial: "opt-out", advType: "optout", note: "Most chaotic \u2014 7 blocks, all caught" },
+  { id: 8, name: "Create Tags (M:N)", date: "2026-04-10", stack: "php", duration: 897, spec: "7/7", blocks: 3, adversarial: "8 (3/5)", advType: "real", note: "First HMAC-signed .done files" },
+  { id: 9, name: "Backend Audit 1", date: "2026-04-10", stack: "net", duration: 1004, spec: "7/7", blocks: 2, adversarial: "3 (0/3)", advType: "real", note: "Full audit trail active" },
+  { id: 10, name: "Backend Audit 7", date: "2026-04-11", stack: "net", duration: 1119, spec: "7/7", blocks: 1, adversarial: "4 (0/4)", advType: "real", note: "New session \u2014 still follows pipeline" },
+  { id: 11, name: "Split Post List", date: "2026-04-11", stack: "php", duration: 2074, spec: "7/7", blocks: 6, adversarial: "bypass", advType: "bypass", note: "v4.3.0 \u2014 permissions fixed, quality issues found", ver: "v4.3.0" },
+  { id: 12, name: "Page Routes", date: "2026-04-11", stack: "php", duration: 610, spec: "7/7", blocks: 1, adversarial: "9 (0/9)", advType: "real", note: "Post quality fixes \u2014 0 code-write blocks" },
+  { id: 13, name: "Add Comments", date: "2026-04-12", stack: "php", duration: 701, spec: "7/7", blocks: 2, adversarial: "dispatched", advType: "real", note: "Stable \u2014 SendMessage guard caught bypass" },
+  { id: 14, name: "Bambi Audit 10", date: "2026-04-12", stack: "net", duration: 1043, spec: "5/5", blocks: 2, adversarial: "7 (0/7)", advType: "real", note: "adversarial-before-reviewer guard worked", ver: "v4.3.4" },
+  { id: 15, name: "Bambi Audit 11", date: "2026-04-12", stack: "net", duration: 1143, spec: "5/5", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "First zero-block Bambi run" },
+  { id: 16, name: "Bambi Audit 12", date: "2026-04-12", stack: "net", duration: 700, spec: "5/5", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "Distributed locking \u2014 complex, clean" },
+  { id: 17, name: "Bambi Audit 14", date: "2026-04-12", stack: "net", duration: 512, spec: "5/5", blocks: 0, adversarial: "3 (0/3)", advType: "real", note: "Chose testing agent for test-only task" },
+  { id: 18, name: "Bambi Audit 15", date: "2026-04-12", stack: "net", duration: 385, spec: "6/6", blocks: 0, adversarial: "4 (0/4)", advType: "real", note: "Fastest ever \u2014 5 zero-block streak" },
+];
+
+// --- Render table using DOM methods ---
+const tbody = document.getElementById('runs-tbody');
+const maxDur = 2761;
+
+runs.forEach(function(r) {
+  const mins = Math.floor(r.duration / 60);
+  const secs = r.duration % 60;
+  const durStr = mins + 'm ' + String(secs).padStart(2, '0') + 's';
+  const barW = Math.max(4, (r.duration / maxDur) * 120);
+
+  const tr = document.createElement('tr');
+
+  // #
+  const tdId = document.createElement('td');
+  const spanId = document.createElement('span');
+  spanId.className = 'run-id';
+  spanId.textContent = '#' + r.id;
+  tdId.appendChild(spanId);
+  tr.appendChild(tdId);
+
+  // Task name + version marker
+  const tdName = document.createElement('td');
+  const spanName = document.createElement('span');
+  spanName.className = 'run-name';
+  spanName.textContent = r.name;
+  tdName.appendChild(spanName);
+  if (r.ver) {
+    const spanVer = document.createElement('span');
+    spanVer.className = 'version-marker';
+    spanVer.textContent = r.ver;
+    tdName.appendChild(spanVer);
+  }
+  tr.appendChild(tdName);
+
+  // Project
+  const tdProj = document.createElement('td');
+  const spanProj = document.createElement('span');
+  spanProj.className = 'project-badge ' + r.stack;
+  spanProj.textContent = r.stack === 'net' ? '.NET' : 'PHP';
+  tdProj.appendChild(spanProj);
+  tr.appendChild(tdProj);
+
+  // Duration
+  const tdDur = document.createElement('td');
+  const divDur = document.createElement('div');
+  divDur.className = 'duration-bar';
+  const divBar = document.createElement('div');
+  divBar.className = 'bar';
+  divBar.style.width = barW + 'px';
+  divDur.appendChild(divBar);
+  divDur.appendChild(document.createTextNode(durStr));
+  tdDur.appendChild(divDur);
+  tr.appendChild(tdDur);
+
+  // Spec
+  const tdSpec = document.createElement('td');
+  tdSpec.textContent = r.spec;
+  tr.appendChild(tdSpec);
+
+  // Blocks
+  const tdBlocks = document.createElement('td');
+  if (r.blocks === 0) {
+    const spanZero = document.createElement('span');
+    spanZero.className = 'blocks-zero';
+    spanZero.textContent = '\u2714 0';
+    tdBlocks.appendChild(spanZero);
+  } else {
+    const spanCount = document.createElement('span');
+    spanCount.className = 'blocks-count';
+    spanCount.textContent = r.blocks;
+    tdBlocks.appendChild(spanCount);
+  }
+  tr.appendChild(tdBlocks);
+
+  // Adversarial
+  const tdAdv = document.createElement('td');
+  const spanAdv = document.createElement('span');
+  spanAdv.className = 'adversarial-badge ' + r.advType;
+  spanAdv.textContent = r.adversarial;
+  tdAdv.appendChild(spanAdv);
+  tr.appendChild(tdAdv);
+
+  // Note
+  const tdNote = document.createElement('td');
+  tdNote.className = 'hide-mobile';
+  const spanNote = document.createElement('span');
+  spanNote.className = 'note-text';
+  spanNote.textContent = r.note;
+  tdNote.appendChild(spanNote);
+  tr.appendChild(tdNote);
+
+  tbody.appendChild(tr);
+});
+
+// --- SVG Charts ---
+function drawChart(containerId, data, color, maxVal, unit) {
+  var container = document.getElementById(containerId);
+  var w = container.clientWidth;
+  var h = container.clientHeight;
+  var pad = { top: 10, right: 20, bottom: 25, left: 40 };
+  var plotW = w - pad.left - pad.right;
+  var plotH = h - pad.top - pad.bottom;
+  var max = maxVal || Math.max.apply(null, data);
+  var stepX = plotW / (data.length - 1);
+  var ns = 'http://www.w3.org/2000/svg';
+
+  var svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+  svg.setAttribute('preserveAspectRatio', 'none');
+
+  var points = data.map(function(v, i) {
+    return {
+      x: pad.left + i * stepX,
+      y: pad.top + plotH - (v / max * plotH),
+      v: v
+    };
+  });
+
+  // Grid lines
+  var gridCount = 4;
+  for (var i = 0; i <= gridCount; i++) {
+    var y = pad.top + (i / gridCount) * plotH;
+    var val = Math.round(max - (i / gridCount) * max);
+
+    var line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', pad.left);
+    line.setAttribute('y1', y);
+    line.setAttribute('x2', w - pad.right);
+    line.setAttribute('y2', y);
+    line.setAttribute('stroke', 'var(--border)');
+    line.setAttribute('stroke-width', '0.5');
+    svg.appendChild(line);
+
+    var label = document.createElementNS(ns, 'text');
+    label.setAttribute('x', pad.left - 6);
+    label.setAttribute('y', y + 3);
+    label.setAttribute('fill', 'var(--text-dim)');
+    label.setAttribute('font-size', '9');
+    label.setAttribute('text-anchor', 'end');
+    label.setAttribute('font-family', 'JetBrains Mono');
+    label.textContent = val + unit;
+    svg.appendChild(label);
+  }
+
+  // X labels
+  data.forEach(function(v, i) {
+    if (i % 3 === 0 || i === data.length - 1) {
+      var xLabel = document.createElementNS(ns, 'text');
+      xLabel.setAttribute('x', points[i].x);
+      xLabel.setAttribute('y', h - 4);
+      xLabel.setAttribute('fill', 'var(--text-dim)');
+      xLabel.setAttribute('font-size', '9');
+      xLabel.setAttribute('text-anchor', 'middle');
+      xLabel.setAttribute('font-family', 'JetBrains Mono');
+      xLabel.textContent = '#' + (i + 1);
+      svg.appendChild(xLabel);
+    }
+  });
+
+  // Area path
+  var pathD = points.map(function(p, i) { return (i === 0 ? 'M' : 'L') + p.x + ',' + p.y; }).join(' ');
+  var areaD = pathD + ' L' + points[points.length-1].x + ',' + (pad.top + plotH) + ' L' + points[0].x + ',' + (pad.top + plotH) + ' Z';
+
+  var area = document.createElementNS(ns, 'path');
+  area.setAttribute('d', areaD);
+  area.setAttribute('fill', color);
+  area.setAttribute('opacity', '0.06');
+  svg.appendChild(area);
+
+  // Line path
+  var linePath = document.createElementNS(ns, 'path');
+  linePath.setAttribute('d', pathD);
+  linePath.setAttribute('fill', 'none');
+  linePath.setAttribute('stroke', color);
+  linePath.setAttribute('stroke-width', '2');
+  linePath.setAttribute('stroke-linecap', 'round');
+  linePath.setAttribute('stroke-linejoin', 'round');
+  linePath.classList.add('chart-line');
+  svg.appendChild(linePath);
+
+  // Dots
+  points.forEach(function(p, i) {
+    var circle = document.createElementNS(ns, 'circle');
+    circle.setAttribute('cx', p.x);
+    circle.setAttribute('cy', p.y);
+    circle.setAttribute('r', '3');
+    circle.setAttribute('fill', color);
+    circle.setAttribute('opacity', '0.8');
+    var title = document.createElementNS(ns, 'title');
+    title.textContent = '#' + (i+1) + ': ' + Math.round(p.v) + unit;
+    circle.appendChild(title);
+    svg.appendChild(circle);
+  });
+
+  // Clear and append
+  while (container.firstChild) container.removeChild(container.firstChild);
+  container.appendChild(svg);
+}
+
+var durations = runs.map(function(r) { return r.duration / 60; });
+var blocks = runs.map(function(r) { return r.blocks; });
+
+window.addEventListener('load', function() {
+  drawChart('duration-chart', durations, '#af8fff', 50, 'm');
+  drawChart('blocks-chart', blocks, '#ff884d', 8, '');
+});
+
+window.addEventListener('resize', function() {
+  drawChart('duration-chart', durations, '#af8fff', 50, 'm');
+  drawChart('blocks-chart', blocks, '#ff884d', 8, '');
+});
+</script>
+
+</body>
+</html>
