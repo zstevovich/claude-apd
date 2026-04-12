@@ -1,0 +1,19 @@
+#!/bin/bash
+# CC adapter shim for track-agent
+# Reads Claude Code hook stdin JSON, passes normalized args to core
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CORE_DIR="$SCRIPT_DIR/../../core"
+
+# Fail-open: agent tracking is observability — missing jq should not block agent dispatch
+if ! command -v jq &>/dev/null; then
+  exit 0
+fi
+
+INPUT=$(cat)
+EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
+AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
+AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null)
+
+exec "$CORE_DIR/track-agent" --event "$EVENT" --agent-type "$AGENT_TYPE" --agent-id "$AGENT_ID" --raw-payload "$INPUT" "$@"

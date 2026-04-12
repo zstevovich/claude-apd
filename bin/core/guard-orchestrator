@@ -1,22 +1,25 @@
 #!/bin/bash
 # APD Orchestrator Guard — prevents the orchestrator from writing code files directly
-# Agents have agent_id in stdin JSON; orchestrator does not.
+# Agents have agent_id; orchestrator does not.
 # If no agent_id → this is the orchestrator → block code file writes.
 #
 # Uses CLAUDE_PLUGIN_OPTION_STACK (from userConfig) to determine which
 # file extensions are code files for the project's stack.
+# Interface: --file-path <path> --agent-id <id>
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
-if ! command -v jq &>/dev/null; then
-  exit 0
-fi
-
-INPUT=$(cat)
-FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
-AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null)
+FILE_PATH=""
+AGENT_ID=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --file-path) FILE_PATH="$2"; shift 2 ;;
+    --agent-id)  AGENT_ID="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
 
 # If this is an agent (has agent_id), allow — agents have their own guard-scope
 if [ -n "$AGENT_ID" ]; then

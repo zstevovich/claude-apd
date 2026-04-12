@@ -1,30 +1,38 @@
 #!/bin/bash
 # APD Agent Tracker — records agent start/stop events to pipeline state
-# Called by SubagentStart and SubagentStop hooks.
 # Writes to .apd/pipeline/.agents so pipeline-advance can verify
 # that a real agent ran before marking a step complete.
+#
+# Interface: --event <SubagentStart|SubagentStop> --agent-type <name> --agent-id <id> [--raw-payload <json>]
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 source "$(dirname "$0")/../lib/style.sh"
 
-if ! command -v jq &>/dev/null; then
-  exit 0
-fi
-
-INPUT=$(cat)
-EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
-AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
-AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null)
-
-# Debug log — capture full hook input for analysis
-AGENT_DEBUG_LOG="$MEMORY_DIR/agent-dispatch-debug.log"
-echo "=== $(date +"%Y-%m-%d %H:%M:%S") | $EVENT | $AGENT_TYPE ===" >> "$AGENT_DEBUG_LOG"
-echo "$INPUT" | jq '.' >> "$AGENT_DEBUG_LOG" 2>/dev/null
-echo "" >> "$AGENT_DEBUG_LOG"
+EVENT=""
+AGENT_TYPE=""
+AGENT_ID=""
+RAW_PAYLOAD=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --event)       EVENT="$2"; shift 2 ;;
+    --agent-type)  AGENT_TYPE="$2"; shift 2 ;;
+    --agent-id)    AGENT_ID="$2"; shift 2 ;;
+    --raw-payload) RAW_PAYLOAD="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
 
 if [ -z "$AGENT_TYPE" ] || [ -z "$EVENT" ]; then
   exit 0
+fi
+
+# Debug log — raw adapter payload for analysis
+if [ -n "$RAW_PAYLOAD" ] && [ -d "$MEMORY_DIR" ]; then
+  AGENT_DEBUG_LOG="$MEMORY_DIR/agent-dispatch-debug.log"
+  echo "=== $(date +"%Y-%m-%d %H:%M:%S") | $EVENT | $AGENT_TYPE ===" >> "$AGENT_DEBUG_LOG"
+  echo "$RAW_PAYLOAD" >> "$AGENT_DEBUG_LOG"
+  echo "" >> "$AGENT_DEBUG_LOG"
 fi
 
 mkdir -p "$PIPELINE_DIR"

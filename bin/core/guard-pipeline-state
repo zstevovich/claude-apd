@@ -4,19 +4,19 @@
 # Only pipeline-advance (via Bash) should create .done, .agents, .spec-hash etc.
 # Orchestrator MAY write: spec-card.md, implementation-plan.md, .adversarial-summary
 # Orchestrator must NOT write: *.done, .agents, .spec-hash, .trace-summary, verified.timestamp
+# Interface: --file-path <path>
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
-if ! command -v jq &>/dev/null; then
-    exit 0
-fi
-
-INPUT=$(cat)
-FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
-AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null)
-AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
+FILE_PATH=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --file-path) FILE_PATH="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
 
 if [ -z "$FILE_PATH" ]; then
     exit 0

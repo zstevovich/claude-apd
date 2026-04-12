@@ -1,0 +1,17 @@
+#!/bin/bash
+# CC adapter shim for guard-lockfile
+# Reads Claude Code hook stdin JSON, passes normalized args to core
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CORE_DIR="$SCRIPT_DIR/../../core"
+
+# Fail-open: lockfile guard is advisory — missing jq should not block all writes
+if ! command -v jq &>/dev/null; then
+  exit 0
+fi
+
+INPUT=$(cat)
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+
+exec "$CORE_DIR/guard-lockfile" --file-path "$FILE_PATH" "$@"

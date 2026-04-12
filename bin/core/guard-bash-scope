@@ -6,22 +6,21 @@
 #   1. Shell write operations: redirect (>), tee, sed -i, cp, mv, dd, install
 #   2. Runtime write operations: node -e, python -c, ruby -e, php -r, perl -e
 #      with write functions (writeFileSync, open().write, file_put_contents...)
+#
+# Interface: --command <cmd> [allowed_path_1] [allowed_path_2] ...
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
-ALLOWED_PATHS=("$@")
-
-if ! command -v jq &>/dev/null; then
-  echo "ERROR: jq is not installed." >&2
-  exit 2
-fi
-
-INPUT=$(cat)
-COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
-AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null)
-AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
+COMMAND=""
+ALLOWED_PATHS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --command) COMMAND="$2"; shift 2 ;;
+    *) ALLOWED_PATHS+=("$1"); shift ;;
+  esac
+done
 
 if [ -z "$COMMAND" ]; then
   exit 0
