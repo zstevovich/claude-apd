@@ -303,6 +303,20 @@ maxTurns: 20' "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
         fi
     done
 
+    # --- Agent stale paths: bin/core/ → bin/adapter/cc/ ---
+    for agent_file in "$CLAUDE_DIR/agents"/*.md; do
+        [ -f "$agent_file" ] || continue
+        AGENT_NAME=$(basename "$agent_file" .md)
+        if grep -q 'bin/core/guard-scope\|bin/core/guard-bash-scope\|bin/core/guard-git\|bin/core/guard-secrets' "$agent_file" 2>/dev/null; then
+            sed -i.bak 's|bin/core/guard-scope|bin/adapter/cc/guard-scope|g' "$agent_file" && rm -f "${agent_file}.bak"
+            sed -i.bak 's|bin/core/guard-bash-scope|bin/adapter/cc/guard-bash-scope|g' "$agent_file" && rm -f "${agent_file}.bak"
+            sed -i.bak 's|bin/core/guard-git|bin/adapter/cc/guard-git|g' "$agent_file" && rm -f "${agent_file}.bak"
+            sed -i.bak 's|bin/core/guard-secrets|bin/adapter/cc/guard-secrets|g' "$agent_file" && rm -f "${agent_file}.bak"
+            fix "$AGENT_NAME: updated stale guard paths (core/ → adapter/cc/)"
+            FIXES=$((FIXES + 1))
+        fi
+    done
+
     # --- workflow.md ---
     if [ -f "$CLAUDE_DIR/rules/workflow.md" ]; then
         # Check for outdated references
