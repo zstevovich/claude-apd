@@ -200,14 +200,139 @@ New session without prior context — orchestrator still follows pipeline. Adver
 <tr>
 <td width="50%" valign="top">
 
-### #11
+### #11 — Split Post List/Detail
 
-*Next run...*
+| | |
+|---|---|
+| **Date** | 2026-04-11 |
+| **Project** | Test Blog (PHP) |
+| **Effort** | high |
+| **Duration** | 34m 34s |
+| **Spec coverage** | 7/7 |
+| **Agents** | 4 (backend-builder, frontend-builder, code-reviewer, testing) |
+| **Guard blocks** | 6 (orchestrator-code-write ×3, pipeline-state-write ×2, pipeline-state-direct-write ×1) |
+| **Adversarial** | bypass (0:0:0 without dispatch) |
+
+First run on v4.3.0 after pipeline relocation to `.apd/pipeline/`. Permission prompts eliminated. But orchestrator wrote code directly 3 times (all blocked), bypassed adversarial, and SubagentStop missing for some agents. Led to three quality fixes in v4.3.3–v4.3.4.
 
 </td>
 <td width="50%" valign="top">
 
-### #12
+### #12 — Page Routes + Dynamic Nav
+
+| | |
+|---|---|
+| **Date** | 2026-04-11 |
+| **Project** | Test Blog (PHP) |
+| **Effort** | high |
+| **Duration** | 10m 10s |
+| **Spec coverage** | 7/7 |
+| **Agents** | 5 (backend-builder, frontend-builder, code-reviewer, testing, adversarial-reviewer) |
+| **Guard blocks** | 1 (pipeline-state-write) |
+| **Adversarial** | 9 findings (0 accepted, 9 dismissed) |
+
+First run after quality fixes. Zero code-write blocks. Adversarial properly dispatched. All SubagentStop events received. Dispatch prompt quality analyzed from transcript JSONL — orchestrator sends precise file:line references and concrete code to builders.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### #13 — Add Comments on Posts
+
+| | |
+|---|---|
+| **Date** | 2026-04-12 |
+| **Project** | Test Blog (PHP) |
+| **Effort** | high |
+| **Duration** | 11m 41s |
+| **Spec coverage** | 7/7 |
+| **Agents** | 4 (backend-builder, frontend-builder, code-reviewer, testing) |
+| **Guard blocks** | 2 (send-message-during-pipeline ×1, pipeline-state-write ×1) |
+| **Adversarial** | dispatched |
+
+Stable run. Zero code-write blocks. New guard-send-message caught SendMessage attempt during pipeline. Pipeline consistently under 12 minutes on PHP project.
+
+</td>
+<td width="50%" valign="top">
+
+### #14 — Bambi Audit Batch 10
+
+| | |
+|---|---|
+| **Date** | 2026-04-12 |
+| **Project** | Bambi Plazma (.NET 10) |
+| **Effort** | high |
+| **Duration** | 17m 23s |
+| **Spec coverage** | 5/5 |
+| **Agents** | 4 (Explore, backend-api, code-reviewer, adversarial-reviewer) |
+| **Guard blocks** | 2 (pipeline-state-write ×1, adversarial-before-reviewer ×1) |
+| **Adversarial** | 7 findings (0 accepted, 7 dismissed) |
+
+First Bambi run on v4.3.4. New adversarial-before-reviewer guard caught wrong dispatch order — orchestrator corrected and re-dispatched in correct sequence.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### #15 — Bambi Audit Batch 11
+
+| | |
+|---|---|
+| **Date** | 2026-04-12 |
+| **Project** | Bambi Plazma (.NET 10) |
+| **Effort** | high |
+| **Duration** | 19m 3s |
+| **Spec coverage** | 5/5 |
+| **Agents** | 4 (Explore, backend-api, code-reviewer, adversarial-reviewer) |
+| **Guard blocks** | 0 |
+| **Adversarial** | 5 findings (0 accepted, 5 dismissed) |
+
+First zero-block Bambi run. Pipeline fully autonomous — no guard intervention needed.
+
+</td>
+<td width="50%" valign="top">
+
+### #16 — Bambi Audit Batch 12
+
+| | |
+|---|---|
+| **Date** | 2026-04-12 |
+| **Project** | Bambi Plazma (.NET 10) |
+| **Effort** | high |
+| **Duration** | 11m 40s |
+| **Spec coverage** | 5/5 |
+| **Agents** | 4 (Explore, backend-api, code-reviewer, adversarial-reviewer) |
+| **Guard blocks** | 0 |
+| **Adversarial** | 5 findings (0 accepted, 5 dismissed) |
+
+Fastest Bambi run. Distributed locking fixes — complex domain, clean execution.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### #17 — Bambi Audit Batch 14
+
+| | |
+|---|---|
+| **Date** | 2026-04-12 |
+| **Project** | Bambi Plazma (.NET 10) |
+| **Effort** | high |
+| **Duration** | 8m 32s |
+| **Spec coverage** | 5/5 |
+| **Agents** | 4 (Explore, testing, code-reviewer, adversarial-reviewer) |
+| **Guard blocks** | 0 |
+| **Adversarial** | 3 findings (0 accepted, 3 dismissed) |
+
+Fastest run overall. Orchestrator correctly chose `testing` agent (not backend-api) for pure test coverage task. Four consecutive zero-block runs on Bambi.
+
+</td>
+<td width="50%" valign="top">
+
+### #18
 
 *Next run...*
 
