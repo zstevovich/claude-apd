@@ -11,5 +11,6 @@ Status: **Accepted**, **Superseded**, **Withdrawn**.
 
 | # | Decision | Status |
 | - | -------- | :----: |
+| 001 | [Runtime Contract and Adapter Architecture](001-runtime-contract.md) | Accepted |
 
 Template: [TEMPLATE.md](./TEMPLATE.md)
