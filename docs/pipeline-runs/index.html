@@ -362,7 +362,7 @@
     <img src="../logo.svg" alt="APD" width="200" style="max-width:90%;">
   </div>
   <div class="subtitle">Pipeline Runs</div>
-  <div class="tagline">19 tracked runs across 3 projects &middot; April 9&ndash;13, 2026</div>
+  <div class="tagline">20 tracked runs across 3 projects &middot; April 9&ndash;13, 2026</div>
 </div>
 
 <div class="container">
@@ -370,7 +370,7 @@
   <div class="summary-grid">
     <div class="summary-card purple animate delay-1">
       <div class="label">Total Runs</div>
-      <div class="value">19</div>
+      <div class="value">20</div>
       <div class="detail">3 projects, 5 days</div>
     </div>
     <div class="summary-card green animate delay-2">
@@ -380,8 +380,8 @@
     </div>
     <div class="summary-card orange animate delay-3">
       <div class="label">Guard Blocks</div>
-      <div class="value">27</div>
-      <div class="trend down">Last 5 runs: 1 block</div>
+      <div class="value">28</div>
+      <div class="trend down">Last 5 runs: 2 blocks</div>
     </div>
     <div class="summary-card blue animate delay-4">
       <div class="label">Fastest Run</div>
@@ -453,6 +453,7 @@ const runs = [
   { id: 17, name: "Bambi Audit 14", date: "2026-04-12", stack: "net", duration: 512, spec: "5/5", blocks: 0, adversarial: "3 (0/3)", advType: "real", note: "Chose testing agent for test-only task" },
   { id: 18, name: "Bambi Audit 15", date: "2026-04-12", stack: "net", duration: 385, spec: "6/6", blocks: 0, adversarial: "4 (0/4)", advType: "real", note: "Fastest ever \u2014 5 zero-block streak" },
   { id: 19, name: "MojOff Security P1", date: "2026-04-13", stack: "net", duration: 875, spec: "5/5", blocks: 1, adversarial: "5 (0/5)", advType: "real", note: "First v4.5 run \u2014 7 security fixes, 4 parallel explorers", ver: "v4.5.0" },
+  { id: 20, name: "MojOff Arch P2a", date: "2026-04-13", stack: "net", duration: 690, spec: "5/5", blocks: 1, adversarial: "5 (1/4)", advType: "real", note: "MediatR refactor \u2014 adversarial found 1 critical, guard blocked code-write" },
 ];
 
 // --- Render table using DOM methods ---
