@@ -42,7 +42,15 @@ bash "$(git rev-parse --show-toplevel)/.claude/scripts/verify-all.sh"
 
 If tests fail → fix before proceeding.
 
-### Step 2: Present Options
+### Step 2: Pipeline Report
+
+```bash
+bash "$(git rev-parse --show-toplevel)/.claude/bin/apd" report
+```
+
+Show the formatted pipeline recap so the user sees what was done before deciding.
+
+### Step 3: Present Options
 
 ```
 Pipeline complete. What would you like to do?
@@ -53,7 +61,7 @@ Pipeline complete. What would you like to do?
 4. Discard this work
 ```
 
-### Step 3: Execute
+### Step 4: Execute
 
 #### Option 1: Push
 ```bash

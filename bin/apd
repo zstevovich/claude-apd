@@ -11,6 +11,7 @@
 #   trace             Check spec traceability
 #   contracts         Check cross-layer type contracts
 #   gh <step>         GitHub sync
+#   report [--history] Pipeline run report
 #   test              Quick static hook test
 
 CORE_DIR="$(cd "$(dirname "$0")/core" && pwd)"
@@ -40,6 +41,9 @@ case "$CMD" in
     gh|github)
         exec bash "$CORE_DIR/gh-sync" "$@"
         ;;
+    report|rp)
+        exec bash "$CORE_DIR/pipeline-report" "$@"
+        ;;
     test)
         exec bash "$CORE_DIR/test-hooks" "$@"
         ;;
@@ -67,7 +71,8 @@ case "$CMD" in
         echo "    trace             Check spec traceability"
         echo "    contracts         Check cross-layer type contracts"
         echo "    gh <step>         GitHub sync"
-        echo "    test              Quick static hook test"
+        echo "    report            Pipeline run report (--history for all runs)"
+    echo "    test              Quick static hook test"
         echo ""
         ;;
     *)

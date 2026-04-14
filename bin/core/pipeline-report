@@ -1,0 +1,640 @@
+#!/bin/bash
+# APD Pipeline Report — formatted recap of current or historical pipeline runs
+#
+# Usage:
+#   pipeline-report            Show current/last run report
+#   pipeline-report --history  Show all completed runs summary
+#
+# Called by apd-finish before presenting options, or standalone via:
+#   apd report [--history]
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+
+MODE="${1:-current}"
+
+# ── Box drawing helpers ──────────────────────────────────────────────
+# Stellar violet: violet borders, color-coded content
+
+BOX_W=52  # inner width
+MAX_CONTENT=$(( BOX_W - 2 ))  # max visible chars inside box (minus padding)
+
+# Generate N dash characters (avoids tr multi-byte issues)
+_dashes() {
+    local n=$1 s=""
+    for ((i=0; i<n; i++)); do s="${s}─"; done
+    printf '%s' "$s"
+}
+
+_box_top() {
+    printf "  ${V}╭%s╮${R}\n" "$(_dashes $BOX_W)"
+}
+
+_box_bottom() {
+    printf "  ${V}╰%s╯${R}\n" "$(_dashes $BOX_W)"
+}
+
+_box_title() {
+    local title="$1"
+    local pad=$(( (BOX_W - ${#title}) / 2 ))
+    printf "  ${V}│${R}%${pad}s${V}${B}%s${R}%$(( BOX_W - pad - ${#title} ))s${V}│${R}\n" "" "$title" ""
+}
+
+_box_empty() {
+    printf "  ${V}│${R}%${BOX_W}s${V}│${R}\n" ""
+}
+
+_box_sep() {
+    printf "  ${V}├%s┤${R}\n" "$(_dashes $BOX_W)"
+}
+
+# Print a line inside a box
+# Args: $1=plain text (for width calc), $2=formatted text (with ANSI colors)
+_box_line() {
+    local plain="$1"
+    local formatted="$2"
+    local visible_len=${#plain}
+    local rpad=$(( BOX_W - 2 - visible_len ))
+    [ "$rpad" -lt 0 ] && rpad=0
+    local spaces=""
+    [ "$rpad" -gt 0 ] && spaces=$(printf "%${rpad}s" "")
+    printf "  ${V}│${R} %s%s ${V}│${R}\n" "$formatted" "$spaces"
+}
+
+# ── Visual helpers ───────────────────────────────────────────────────
+
+# Progress bar: _progress_bar covered total max_width
+# → "████░░ 5/6"
+_progress_bar() {
+    local covered=$1 total=$2 max_w=${3:-20}
+    [ "$total" -eq 0 ] 2>/dev/null && { printf "N/A"; return; }
+    local filled=$(( covered * max_w / total ))
+    local empty=$(( max_w - filled ))
+    local bar=""
+    for ((i=0; i<filled; i++)); do bar="${bar}█"; done
+    for ((i=0; i<empty; i++)); do bar="${bar}░"; done
+    printf "%s %s/%s" "$bar" "$covered" "$total"
+}
+
+# Plain version (no color, for width calc)
+_progress_bar_plain() {
+    local covered=$1 total=$2 max_w=${3:-20}
+    [ "$total" -eq 0 ] 2>/dev/null && { printf "N/A"; return; }
+    local filled=$(( covered * max_w / total ))
+    local empty=$(( max_w - filled ))
+    local bar=""
+    for ((i=0; i<filled; i++)); do bar="${bar}#"; done
+    for ((i=0; i<empty; i++)); do bar="${bar}."; done
+    printf "%s %s/%s" "$bar" "$covered" "$total"
+}
+
+# ── Read pipeline state ──────────────────────────────────────────────
+
+_read_current_run() {
+    TASK=""
+    SPEC_TS=0; BUILDER_TS=0; REVIEWER_TS=0; VERIFIER_TS=0
+    SPEC_TIME=""; RUN_STATUS="no active run"
+    TRACE_COV=""; TRACE_MISS=""; TRACE_COVERED=0; TRACE_TOTAL=0
+    ADV_T=0; ADV_A=0; ADV_D=0
+    AGENTS_DATA=""
+    SPEC_GOAL=""
+    CHANGED_FILES_SUMMARY=""
+
+    if [ -f "$PIPELINE_DIR/spec.done" ]; then
+        TASK=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f3)
+        SPEC_TS=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f1)
+        SPEC_TIME=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f2)
+    fi
+
+    [ -f "$PIPELINE_DIR/builder.done" ] && BUILDER_TS=$(head -1 "$PIPELINE_DIR/builder.done" | cut -d'|' -f1 2>/dev/null || echo 0)
+    [ -f "$PIPELINE_DIR/reviewer.done" ] && REVIEWER_TS=$(head -1 "$PIPELINE_DIR/reviewer.done" | cut -d'|' -f1 2>/dev/null || echo 0)
+    [ -f "$PIPELINE_DIR/verifier.done" ] && VERIFIER_TS=$(head -1 "$PIPELINE_DIR/verifier.done" | cut -d'|' -f1 2>/dev/null || echo 0)
+
+    # Status
+    if [ -z "$TASK" ]; then
+        RUN_STATUS="no active run"
+    elif [ "$VERIFIER_TS" -gt 0 ] 2>/dev/null; then
+        RUN_STATUS="complete"
+    elif [ "$REVIEWER_TS" -gt 0 ] 2>/dev/null; then
+        RUN_STATUS="in progress (verifier pending)"
+    elif [ "$BUILDER_TS" -gt 0 ] 2>/dev/null; then
+        RUN_STATUS="in progress (reviewer pending)"
+    elif [ "$SPEC_TS" -gt 0 ] 2>/dev/null; then
+        RUN_STATUS="in progress (builder pending)"
+    fi
+
+    # Duration
+    TOTAL_DUR=""
+    if [ "$VERIFIER_TS" -gt 0 ] 2>/dev/null && [ "$SPEC_TS" -gt 0 ] 2>/dev/null; then
+        TOTAL_DUR=$(format_duration $((VERIFIER_TS - SPEC_TS)))
+    elif [ "$SPEC_TS" -gt 0 ] 2>/dev/null; then
+        TOTAL_DUR="$(format_duration $(($(date +%s) - SPEC_TS))) (running)"
+    fi
+
+    # Trace summary
+    if [ -f "$PIPELINE_DIR/.trace-summary" ]; then
+        IFS=: read -r _prefix TRACE_COV TRACE_MISS < "$PIPELINE_DIR/.trace-summary" 2>/dev/null || true
+        # Parse "5/6" into covered and total
+        if [[ "$TRACE_COV" =~ ^([0-9]+)/([0-9]+)$ ]]; then
+            TRACE_COVERED=${BASH_REMATCH[1]}
+            TRACE_TOTAL=${BASH_REMATCH[2]}
+        fi
+    fi
+
+    # Adversarial summary
+    if [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
+        IFS=: read -r _prefix ADV_T ADV_A ADV_D < "$PIPELINE_DIR/.adversarial-summary" 2>/dev/null || true
+        ADV_T=${ADV_T:-0}; ADV_A=${ADV_A:-0}; ADV_D=${ADV_D:-0}
+    fi
+
+    # Agents
+    if [ -f "$PIPELINE_DIR/.agents" ]; then
+        AGENTS_DATA=$(cat "$PIPELINE_DIR/.agents")
+    fi
+
+    # Spec goal (first line after ## Goal in spec-card)
+    if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+        SPEC_GOAL=$(sed -n '/^## Goal/,/^##/{/^## Goal/d;/^##/d;/^$/d;p;}' "$PIPELINE_DIR/spec-card.md" | head -1 | sed 's/^[[:space:]]*//')
+    fi
+
+    # Changed files (git diff)
+    if command -v git &>/dev/null && git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
+        local changed_files=""
+        changed_files=$(git -C "$PROJECT_DIR" diff --name-only HEAD~1 HEAD 2>/dev/null)
+        [ -z "$changed_files" ] && changed_files=$(git -C "$PROJECT_DIR" diff --cached --name-only 2>/dev/null)
+        [ -z "$changed_files" ] && changed_files=$(git -C "$PROJECT_DIR" diff --name-only HEAD 2>/dev/null)
+        if [ -n "$changed_files" ]; then
+            local file_count=$(echo "$changed_files" | wc -l | tr -d ' ')
+            local top_dirs=$(echo "$changed_files" | sed 's|/.*||' | sort -u | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g')
+            CHANGED_FILES_SUMMARY="${file_count} files (${top_dirs})"
+        fi
+    fi
+}
+
+# ── Render current run ───────────────────────────────────────────────
+
+_render_current() {
+    _read_current_run
+
+    # If no active run, try last from metrics log
+    if [ "$RUN_STATUS" = "no active run" ]; then
+        METRICS_LOG="$MEMORY_DIR/pipeline-metrics.log"
+        if [ -f "$METRICS_LOG" ] && [ -s "$METRICS_LOG" ]; then
+            _render_last_from_metrics
+            return
+        fi
+        echo ""
+        printf "  ${V}APD${R} ${MARK_TODO} No pipeline runs found.\n"
+        echo ""
+        return
+    fi
+
+    echo ""
+    _box_top
+    _box_title "APD Pipeline Report"
+    _box_sep
+
+    # ── Task info ──
+    # Truncate task name to fit box
+    local tname="${TASK:-unknown}"
+    local max_task=$(( MAX_CONTENT - 12 ))
+    [ ${#tname} -gt $max_task ] && tname="${tname:0:$((max_task - 3))}..."
+    _box_line "  Task:     ${tname}" "  ${D}Task:${R}     ${V}${B}${tname}${R}"
+
+    local status_color="$GRN"
+    [ "$RUN_STATUS" != "complete" ] && status_color="$Y"
+    _box_line "  Status:   ${RUN_STATUS}" "  ${D}Status:${R}   ${status_color}${RUN_STATUS}${R}"
+
+    if [ -n "$TOTAL_DUR" ]; then
+        _box_line "  Duration: ${TOTAL_DUR}" "  ${D}Duration:${R} ${TOTAL_DUR}"
+    fi
+
+    if [ -n "$SPEC_GOAL" ]; then
+        local max_goal=$(( MAX_CONTENT - 12 ))
+        local goal="$SPEC_GOAL"
+        [ ${#goal} -gt $max_goal ] && goal="${goal:0:$((max_goal - 3))}..."
+        _box_line "  Goal:     ${goal}" "  ${D}Goal:${R}     ${goal}"
+    fi
+
+    # Changed files
+    if [ -n "$CHANGED_FILES_SUMMARY" ]; then
+        local max_chg=$(( MAX_CONTENT - 12 ))
+        local chg="$CHANGED_FILES_SUMMARY"
+        [ ${#chg} -gt $max_chg ] && chg="${chg:0:$((max_chg - 3))}..."
+        _box_line "  Changed:  ${chg}" "  ${D}Changed:${R}  ${chg}"
+    fi
+
+    # ── Pipeline Progress ──
+    _box_sep
+    _box_line "  Pipeline" "  ${V}${B}Pipeline${R}"
+
+    # Progress bar for pipeline (4 steps)
+    local done_count=0
+    [ "$SPEC_TS" -gt 0 ] 2>/dev/null && done_count=$((done_count + 1))
+    [ "$BUILDER_TS" -gt 0 ] 2>/dev/null && done_count=$((done_count + 1))
+    [ "$REVIEWER_TS" -gt 0 ] 2>/dev/null && done_count=$((done_count + 1))
+    [ "$VERIFIER_TS" -gt 0 ] 2>/dev/null && done_count=$((done_count + 1))
+
+    local pb_plain=$(_progress_bar_plain $done_count 4 8)
+    local pb_fmt="${GRN}$(_progress_bar $done_count 4 8)${R}"
+    _box_line "  Progress: ${pb_plain}" "  ${D}Progress:${R} ${pb_fmt}"
+
+    # Per-step timing
+    local steps=("spec" "builder" "reviewer" "verifier")
+    local step_ts=("$SPEC_TS" "$BUILDER_TS" "$REVIEWER_TS" "$VERIFIER_TS")
+    local prev_ts="$SPEC_TS"
+
+    for i in "${!steps[@]}"; do
+        local s="${steps[$i]}"
+        local ts="${step_ts[$i]}"
+        local sc=$(_step_color "$s")
+
+        if [ "$ts" -gt 0 ] 2>/dev/null; then
+            local time_str=""
+            if [ "$i" -eq 0 ]; then
+                time_str=$(date -r "$ts" +"%H:%M:%S" 2>/dev/null || date -d "@$ts" +"%H:%M:%S" 2>/dev/null || echo "")
+            else
+                [ "$prev_ts" -gt 0 ] 2>/dev/null && time_str=$(format_duration $((ts - prev_ts)))
+            fi
+            _box_line "  ✓ $(printf '%-12s' "$s") ${time_str}" "  ${sc}✓${R} $(printf '%-12s' "$s") ${D}${time_str}${R}"
+            prev_ts="$ts"
+        else
+            _box_line "  □ $(printf '%-12s' "$s") pending" "  ${sc}□${R} $(printf '%-12s' "$s") ${D}pending${R}"
+        fi
+    done
+
+    # Iteration detection (builder→reviewer took >50% of total)
+    if [ "$VERIFIER_TS" -gt 0 ] 2>/dev/null && [ "$SPEC_TS" -gt 0 ] 2>/dev/null && \
+       [ "$BUILDER_TS" -gt 0 ] 2>/dev/null && [ "$REVIEWER_TS" -gt 0 ] 2>/dev/null; then
+        local total_secs=$((VERIFIER_TS - SPEC_TS))
+        local build_secs=$((REVIEWER_TS - BUILDER_TS))
+        if [ "$total_secs" -gt 0 ] && [ "$build_secs" -gt 0 ]; then
+            local build_pct=$((build_secs * 100 / total_secs))
+            if [ "$build_pct" -gt 50 ]; then
+                _box_line "  ! iterations likely (build ${build_pct}% of total)" \
+                          "  ${Y}!${R} ${D}iterations likely (build ${build_pct}% of total)${R}"
+            fi
+        fi
+    fi
+
+    # ── Quality ──
+    _box_sep
+    _box_line "  Quality" "  ${V}${B}Quality${R}"
+
+    # Trace coverage with progress bar
+    if [ "$TRACE_TOTAL" -gt 0 ] 2>/dev/null; then
+        local miss_info=""
+        [ -n "$TRACE_MISS" ] && [ "$TRACE_MISS" != "" ] && miss_info=" ${TRACE_MISS}"
+
+        local bar_w=12
+        local tb_plain=$(_progress_bar_plain $TRACE_COVERED $TRACE_TOTAL $bar_w)
+        local tb_fmt="${GRN}$(_progress_bar $TRACE_COVERED $TRACE_TOTAL $bar_w)${R}"
+        if [ "$TRACE_COVERED" -lt "$TRACE_TOTAL" ]; then
+            tb_fmt="${Y}$(_progress_bar $TRACE_COVERED $TRACE_TOTAL $bar_w)${R}"
+        fi
+
+        _box_line "  Spec:  ${tb_plain}${miss_info}" "  ${D}Spec:${R}  ${tb_fmt}${D}${miss_info}${R}"
+    elif [ -n "$TRACE_COV" ]; then
+        _box_line "  Spec coverage:  ${TRACE_COV}" "  ${D}Spec coverage:${R}  ${TRACE_COV}"
+    fi
+
+    # Adversarial
+    if [ "$ADV_T" -gt 0 ] 2>/dev/null; then
+        local hit_rate=$((ADV_A * 100 / ADV_T))
+        _box_line "  Adversarial:    ${ADV_T} findings (${hit_rate}% hit)" \
+                  "  ${D}Adversarial:${R}    ${ORG}${ADV_T}${R} findings (${hit_rate}% hit)"
+        _box_line "    accepted: ${ADV_A}  dismissed: ${ADV_D}" \
+                  "    ${G}accepted: ${ADV_A}${R}  ${D}dismissed: ${ADV_D}${R}"
+    else
+        _box_line "  Adversarial:    N/A" "  ${D}Adversarial:${R}    ${D}N/A${R}"
+    fi
+
+    # Guard blocks
+    GUARD_BLOCKS=0
+    AUDIT_LOG="$MEMORY_DIR/guard-audit.log"
+    if [ -f "$AUDIT_LOG" ] && [ "$SPEC_TS" -gt 0 ] 2>/dev/null; then
+        while IFS='|' read -r log_ts _type _agent _reason _cmd; do
+            LOG_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$log_ts" +%s 2>/dev/null || date -d "$log_ts" +%s 2>/dev/null || echo 0)
+            [ "$LOG_EPOCH" -ge "$SPEC_TS" ] 2>/dev/null && GUARD_BLOCKS=$((GUARD_BLOCKS + 1))
+        done < "$AUDIT_LOG"
+    fi
+    if [ "$GUARD_BLOCKS" -gt 0 ]; then
+        _box_line "  Guard blocks:   ${GUARD_BLOCKS}" "  ${D}Guard blocks:${R}   ${RED}${GUARD_BLOCKS}${R}"
+    else
+        _box_line "  Guard blocks:   0" "  ${D}Guard blocks:${R}   ${G}0${R}"
+    fi
+
+    # ── Agents ──
+    if [ -n "$AGENTS_DATA" ]; then
+        _box_sep
+        _box_line "  Agents" "  ${V}${B}Agents${R}"
+
+        local agent_tmp
+        agent_tmp=$(mktemp)
+        while IFS='|' read -r ts event agent_type agent_id; do
+            event=$(echo "$event" | tr -d '[:space:]')
+            agent_type=$(echo "$agent_type" | tr -d '[:space:]')
+            [ -z "$agent_type" ] && continue
+            local safe_name="${agent_type//[^a-zA-Z0-9_]/_}"
+            if [ "$event" = "START" ]; then
+                eval "_start_${safe_name}=$ts"
+            elif [ "$event" = "STOP" ]; then
+                eval "local start_ts=\${_start_${safe_name}:-0}"
+                if [ "$start_ts" -gt 0 ] 2>/dev/null; then
+                    echo "$agent_type $((ts - start_ts))" >> "$agent_tmp"
+                fi
+            fi
+        done <<< "$AGENTS_DATA"
+
+        if [ -s "$agent_tmp" ]; then
+            awk '{dur[$1]+=$2} END {for(a in dur) print a, dur[a]}' "$agent_tmp" | sort | while read -r agent secs; do
+                local dur_str=$(format_duration "$secs")
+                local ac=$(_agent_color "$agent")
+                _box_line "  $(printf '%-18s' "$agent") ${dur_str}" \
+                          "  ${ac}$(printf '%-18s' "$agent")${R} ${D}${dur_str}${R}"
+            done
+        fi
+        rm -f "$agent_tmp"
+    fi
+
+    _box_bottom
+    echo ""
+}
+
+# ── Render last run from metrics log (when no active pipeline) ───────
+
+_render_last_from_metrics() {
+    local last_line
+    last_line=$(tail -1 "$METRICS_LOG")
+    IFS='|' read -r _ts task_name spec_ts builder_ts reviewer_ts verifier_ts status adv_t adv_a adv_d <<< "$last_line"
+
+    spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
+    builder_ts=$(echo "$builder_ts" | tr -d '[:space:]')
+    reviewer_ts=$(echo "$reviewer_ts" | tr -d '[:space:]')
+    verifier_ts=$(echo "$verifier_ts" | tr -d '[:space:]')
+    status=$(echo "$status" | tr -d '[:space:]')
+    adv_t=$(echo "${adv_t:-0}" | tr -d '[:space:]')
+    adv_a=$(echo "${adv_a:-0}" | tr -d '[:space:]')
+    adv_d=$(echo "${adv_d:-0}" | tr -d '[:space:]')
+
+    local dur="N/A"
+    if [ "$verifier_ts" -gt 0 ] 2>/dev/null && [ "$spec_ts" -gt 0 ] 2>/dev/null; then
+        dur=$(format_duration $((verifier_ts - spec_ts)))
+    fi
+
+    echo ""
+    _box_top
+    _box_title "APD Pipeline Report"
+    _box_line "  (last completed run)" "  ${D}(last completed run)${R}"
+    _box_sep
+
+    _box_line "  Task:     ${task_name}" "  ${D}Task:${R}     ${V}${B}${task_name}${R}"
+
+    local sc="$GRN"; local si="✓"
+    [ "$status" = "partial" ] && sc="$Y" && si="…"
+    _box_line "  Status:   ${status}" "  ${D}Status:${R}   ${sc}${status}${R}"
+    _box_line "  Duration: ${dur}" "  ${D}Duration:${R} ${dur}"
+
+    # Steps timing
+    _box_sep
+    _box_line "  Pipeline Steps" "  ${V}${B}Pipeline Steps${R}"
+
+    local prev="$spec_ts"
+    if [ "$spec_ts" -gt 0 ] 2>/dev/null; then
+        local t=$(date -r "$spec_ts" +"%H:%M:%S" 2>/dev/null || echo "")
+        _box_line "  ${si} spec         ${t}" "  ${C_SPEC}✓${R} $(printf '%-12s' "spec") ${D}${t}${R}"
+    fi
+    for step_info in "builder:${builder_ts}:${C_BUILDER}" "reviewer:${reviewer_ts}:${C_REVIEWER}" "verifier:${verifier_ts}:${C_VERIFIER}"; do
+        IFS=: read -r sname sts scolor <<< "$step_info"
+        if [ "$sts" -gt 0 ] 2>/dev/null; then
+            local delta=""
+            [ "$prev" -gt 0 ] 2>/dev/null && delta=$(format_duration $((sts - prev)))
+            _box_line "  ✓ $(printf '%-12s' "$sname") ${delta}" "  ${scolor}✓${R} $(printf '%-12s' "$sname") ${D}${delta}${R}"
+            prev="$sts"
+        fi
+    done
+
+    # Adversarial
+    if [ "$adv_t" -gt 0 ] 2>/dev/null; then
+        _box_sep
+        _box_line "  Quality" "  ${V}${B}Quality${R}"
+        local hr=$((adv_a * 100 / adv_t))
+        _box_line "  Adversarial:    ${adv_t} findings (${hr}% hit)" \
+                  "  ${D}Adversarial:${R}    ${ORG}${adv_t}${R} findings (${hr}% hit)"
+        _box_line "    accepted: ${adv_a}  dismissed: ${adv_d}" \
+                  "    ${G}accepted: ${adv_a}${R}  ${D}dismissed: ${adv_d}${R}"
+    fi
+
+    _box_bottom
+    echo ""
+}
+
+# ── History mode ─────────────────────────────────────────────────────
+
+_render_history() {
+    METRICS_LOG="$MEMORY_DIR/pipeline-metrics.log"
+    if [ ! -f "$METRICS_LOG" ] || [ ! -s "$METRICS_LOG" ]; then
+        echo ""
+        printf "  ${V}APD${R} ${MARK_TODO} No pipeline history found.\n"
+        echo ""
+        return
+    fi
+
+    local total_tasks=$(wc -l < "$METRICS_LOG" | tr -d '[:space:]')
+    local completed; completed=$(grep -c '|completed' "$METRICS_LOG" 2>/dev/null) || completed=0
+    local partial; partial=$(grep -c '|partial' "$METRICS_LOG" 2>/dev/null) || partial=0
+
+    # Aggregate stats + per-task tracking for best/worst adversarial
+    local total_dur=0 fastest=999999 slowest=0 valid=0
+    local adv_sum_t=0 adv_sum_a=0 adv_tasks=0
+    local best_adv_task="" best_adv_count=0
+    local worst_adv_task="" worst_adv_rate=101
+    # Duration arrays for trend calculation
+    local recent_dur="" older_dur=""
+    local task_index=0
+
+    # Collect all durations for trend
+    local all_durations=""
+
+    while IFS='|' read -r _ts task_name spec_ts _b _r verifier_ts status adv_t adv_a adv_d; do
+        verifier_ts=$(echo "$verifier_ts" | tr -d '[:space:]')
+        spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
+        adv_t=$(echo "${adv_t:-0}" | tr -d '[:space:]')
+        adv_a=$(echo "${adv_a:-0}" | tr -d '[:space:]')
+
+        if [ "$verifier_ts" -gt 0 ] 2>/dev/null && [ "$spec_ts" -gt 0 ] 2>/dev/null; then
+            local d=$((verifier_ts - spec_ts))
+            total_dur=$((total_dur + d))
+            [ "$d" -lt "$fastest" ] && fastest=$d
+            [ "$d" -gt "$slowest" ] && slowest=$d
+            valid=$((valid + 1))
+            all_durations="${all_durations}${d} "
+        fi
+
+        if [ "$adv_t" -gt 0 ] 2>/dev/null; then
+            adv_sum_t=$((adv_sum_t + adv_t))
+            adv_sum_a=$((adv_sum_a + adv_a))
+            adv_tasks=$((adv_tasks + 1))
+            # Track best adversarial (most accepted findings)
+            if [ "$adv_a" -gt "$best_adv_count" ] 2>/dev/null; then
+                best_adv_count=$adv_a
+                best_adv_task="$task_name"
+            fi
+            # Track worst adversarial (lowest hit rate with >0 findings)
+            local this_rate=$((adv_a * 100 / adv_t))
+            if [ "$this_rate" -lt "$worst_adv_rate" ] 2>/dev/null; then
+                worst_adv_rate=$this_rate
+                worst_adv_task="$task_name"
+            fi
+        fi
+
+        task_index=$((task_index + 1))
+    done < "$METRICS_LOG"
+
+    # Success rate
+    local success_rate=0
+    [ "$total_tasks" -gt 0 ] && success_rate=$((completed * 100 / total_tasks))
+
+    # Trend calculation: last 3 completed vs previous 3
+    local trend_arrow="" trend_label=""
+    if [ "$valid" -ge 6 ]; then
+        local dur_array=($all_durations)
+        local dur_count=${#dur_array[@]}
+        local recent_sum=0 older_sum=0
+        for ((i=dur_count-3; i<dur_count; i++)); do recent_sum=$((recent_sum + dur_array[i])); done
+        for ((i=dur_count-6; i<dur_count-3; i++)); do older_sum=$((older_sum + dur_array[i])); done
+        local recent_avg=$((recent_sum / 3))
+        local older_avg=$((older_sum / 3))
+        if [ "$recent_avg" -lt "$((older_avg * 85 / 100))" ]; then
+            trend_arrow="↑"; trend_label="faster"
+        elif [ "$recent_avg" -gt "$((older_avg * 115 / 100))" ]; then
+            trend_arrow="↓"; trend_label="slower"
+        else
+            trend_arrow="→"; trend_label="stable"
+        fi
+    fi
+
+    # Today / this week counts
+    local today_count=0 week_count=0
+    local today_str=$(date +"%Y-%m-%d")
+    local week_ago=$(date -v-7d +%s 2>/dev/null || date -d "7 days ago" +%s 2>/dev/null || echo 0)
+
+    while IFS='|' read -r run_ts _rest; do
+        run_ts=$(echo "$run_ts" | tr -d '[:space:]')
+        [ "$run_ts" -gt 0 ] 2>/dev/null || continue
+        local run_date=$(date -r "$run_ts" +"%Y-%m-%d" 2>/dev/null || date -d "@$run_ts" +"%Y-%m-%d" 2>/dev/null || echo "")
+        [ "$run_date" = "$today_str" ] && today_count=$((today_count + 1))
+        [ "$run_ts" -ge "$week_ago" ] 2>/dev/null && week_count=$((week_count + 1))
+    done < "$METRICS_LOG"
+
+    # ── Render ──
+    echo ""
+    _box_top
+    _box_title "APD Pipeline History"
+    _box_sep
+
+    # Overview
+    _box_line "  Tasks:    ${total_tasks} (${completed} complete, ${partial} partial)" \
+              "  ${D}Tasks:${R}    ${V}${total_tasks}${R} (${G}${completed} complete${R}, ${Y}${partial} partial${R})"
+
+    # Success rate with progress bar
+    local sr_bar_plain=$(_progress_bar_plain $completed $total_tasks 10)
+    local sr_color="$GRN"
+    [ "$success_rate" -lt 80 ] && sr_color="$Y"
+    [ "$success_rate" -lt 50 ] && sr_color="$RED"
+    local sr_bar_fmt="${sr_color}$(_progress_bar $completed $total_tasks 10)${R}"
+    _box_line "  Success:  ${sr_bar_plain} ${success_rate}%" \
+              "  ${D}Success:${R}  ${sr_bar_fmt} ${sr_color}${success_rate}%${R}"
+
+    if [ "$valid" -gt 0 ]; then
+        local avg=$(format_duration $((total_dur / valid)))
+        local fast=$(format_duration $fastest)
+        local slow=$(format_duration $slowest)
+        _box_line "  Avg time: ${avg}" "  ${D}Avg time:${R} ${avg}"
+        _box_line "  Fastest:  ${fast}  Slowest: ${slow}" \
+                  "  ${D}Fastest:${R}  ${G}${fast}${R}  ${D}Slowest:${R} ${slow}"
+
+        # Trend
+        if [ -n "$trend_arrow" ]; then
+            local tc="$D"
+            [ "$trend_arrow" = "↑" ] && tc="$GRN"
+            [ "$trend_arrow" = "↓" ] && tc="$Y"
+            _box_line "  Trend:    ${trend_arrow} ${trend_label} (last 3 vs prev 3)" \
+                      "  ${D}Trend:${R}    ${tc}${trend_arrow} ${trend_label}${R} ${D}(last 3 vs prev 3)${R}"
+        fi
+    fi
+
+    # Session stats
+    _box_sep
+    _box_line "  Session" "  ${V}${B}Session${R}"
+    _box_line "  Today:    ${today_count} tasks" "  ${D}Today:${R}    ${V}${today_count}${R} tasks"
+    _box_line "  This week: ${week_count} tasks" "  ${D}This week:${R} ${V}${week_count}${R} tasks"
+
+    # Adversarial summary
+    if [ "$adv_tasks" -gt 0 ] && [ "$adv_sum_t" -gt 0 ]; then
+        _box_sep
+        _box_line "  Adversarial Review" "  ${V}${B}Adversarial Review${R}"
+        local hr=$((adv_sum_a * 100 / adv_sum_t))
+        _box_line "  Hit rate: ${hr}% (${adv_sum_a}/${adv_sum_t} across ${adv_tasks} runs)" \
+                  "  ${D}Hit rate:${R} ${ORG}${hr}%${R} (${adv_sum_a}/${adv_sum_t} across ${adv_tasks} runs)"
+
+        if [ -n "$best_adv_task" ]; then
+            local bt="$best_adv_task"
+            [ ${#bt} -gt 24 ] && bt="${bt:0:21}..."
+            _box_line "  Most hits: ${bt} (${best_adv_count})" \
+                      "  ${D}Most hits:${R} ${RED}${bt}${R} ${D}(${best_adv_count})${R}"
+        fi
+        if [ -n "$worst_adv_task" ] && [ "$adv_tasks" -gt 1 ]; then
+            local wt="$worst_adv_task"
+            [ ${#wt} -gt 24 ] && wt="${wt:0:21}..."
+            _box_line "  Cleanest: ${wt} (${worst_adv_rate}%)" \
+                      "  ${D}Cleanest:${R} ${G}${wt}${R} ${D}(${worst_adv_rate}%)${R}"
+        fi
+    fi
+
+    # ── Run list ──
+    _box_sep
+    _box_line "  Completed Runs" "  ${V}${B}Completed Runs${R}"
+
+    local count=0
+    while IFS='|' read -r run_ts task_name spec_ts _b _r verifier_ts status adv_t adv_a adv_d; do
+        verifier_ts=$(echo "$verifier_ts" | tr -d '[:space:]')
+        spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
+        status=$(echo "$status" | tr -d '[:space:]')
+        adv_t=$(echo "${adv_t:-0}" | tr -d '[:space:]')
+        adv_a=$(echo "${adv_a:-0}" | tr -d '[:space:]')
+
+        local dur="N/A"
+        if [ "$verifier_ts" -gt 0 ] 2>/dev/null && [ "$spec_ts" -gt 0 ] 2>/dev/null; then
+            dur=$(format_duration $((verifier_ts - spec_ts)))
+        fi
+
+        local icon="${MARK_PASS}"
+        [ "$status" = "partial" ] && icon="${D}…${R}"
+
+        local adv_info=""
+        [ "$adv_t" -gt 0 ] 2>/dev/null && adv_info=" adv:${adv_a}/${adv_t}"
+
+        local tname="$task_name"
+        [ ${#tname} -gt 22 ] && tname="${tname:0:19}..."
+
+        _box_line "  x $(printf '%-22s' "$tname") ${dur}${adv_info}" \
+                  "  ${icon} $(printf '%-22s' "$tname") ${D}${dur}${adv_info}${R}"
+
+        count=$((count + 1))
+    done < "$METRICS_LOG"
+
+    _box_bottom
+    echo ""
+}
+
+# ── Main ─────────────────────────────────────────────────────────────
+
+case "$MODE" in
+    --history|history|-H)
+        _render_history
+        ;;
+    current|*)
+        _render_current
+        ;;
+esac

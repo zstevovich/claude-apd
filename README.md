@@ -75,6 +75,21 @@ apd verify                        # Setup verification (50+ checks)
 
 All commands via: `bash .claude/bin/apd <command>`
 
+### Pipeline report
+
+Full pipeline recap — available after any run or on demand:
+
+```bash
+apd report              # Current/last run
+apd report --history    # All runs with trends and stats
+```
+
+<p align="center">
+  <img src="docs/demo/pipeline-report.png" alt="APD Pipeline Report" width="500">
+</p>
+
+Shows task info, step timing, spec coverage bar, adversarial findings, guard blocks, and agent durations. History mode adds success rate, trend analysis, session stats, and adversarial insights.
+
 ## Mechanical enforcement
 
 Every rule is backed by a hook script that **blocks** violations. No bypass from within Claude Code.

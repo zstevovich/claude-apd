@@ -1,5 +1,22 @@
 # Changelog
 
+## v4.6.0 — 2026-04-14
+
+Pipeline report command — full recap dashboard for CLI.
+
+### Added
+- **`apd report`** — formatted pipeline recap with task info, step timing, spec coverage bar, adversarial findings, guard blocks, and agent durations. Called automatically by `apd-finish` before presenting push/PR options.
+- **`apd report --history`** — all completed runs with success rate, trend analysis (last 3 vs prev 3), session stats (today/this week), adversarial insights (most hits, cleanest task).
+- **Visual progress bars** — pipeline progress (`████████ 4/4`) and spec coverage (`██████████░░ 5/6`) with color-coded bars.
+- **Iteration detection** — warns when builder→reviewer dominates total time, indicating possible rework cycles.
+- **Changed files summary** — shows file count and top-level directories affected by the pipeline run.
+- **Pipeline report screenshot** in README.
+
+### Updated
+- `apd-finish` SKILL.md — new Step 2 shows report before presenting options to user.
+
+---
+
 ## v4.5.1 — 2026-04-13
 
 ### Added
