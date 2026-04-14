@@ -458,23 +458,29 @@ _render_history() {
         return
     fi
 
-    local total_tasks=$(wc -l < "$METRICS_LOG" | tr -d '[:space:]')
-    local completed; completed=$(grep -c '|completed' "$METRICS_LOG" 2>/dev/null) || completed=0
-    local partial; partial=$(grep -c '|partial' "$METRICS_LOG" 2>/dev/null) || partial=0
+    local total_all=$(wc -l < "$METRICS_LOG" | tr -d '[:space:]')
 
-    # Aggregate stats + per-task tracking for best/worst adversarial
+    # Build the working dataset: if limit is set, take last N lines; otherwise all
+    local work_data
+    if [ "$HISTORY_LIMIT" -gt 0 ] 2>/dev/null; then
+        work_data=$(tail -n "$HISTORY_LIMIT" "$METRICS_LOG")
+    else
+        work_data=$(cat "$METRICS_LOG")
+    fi
+
+    local total_tasks=$(echo "$work_data" | wc -l | tr -d '[:space:]')
+    local completed; completed=$(echo "$work_data" | grep -c '|completed' 2>/dev/null) || completed=0
+    local partial; partial=$(echo "$work_data" | grep -c '|partial' 2>/dev/null) || partial=0
+
+    # Aggregate stats from working dataset only
     local total_dur=0 fastest=999999 slowest=0 valid=0
     local adv_sum_t=0 adv_sum_a=0 adv_tasks=0
     local best_adv_task="" best_adv_count=0
     local worst_adv_task="" worst_adv_rate=101
-    # Duration arrays for trend calculation
-    local recent_dur="" older_dur=""
-    local task_index=0
-
-    # Collect all durations for trend
     local all_durations=""
 
     while IFS='|' read -r _ts task_name spec_ts _b _r verifier_ts status adv_t adv_a adv_d; do
+        [ -z "$_ts" ] && continue
         verifier_ts=$(echo "$verifier_ts" | tr -d '[:space:]')
         spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
         adv_t=$(echo "${adv_t:-0}" | tr -d '[:space:]')
@@ -493,27 +499,23 @@ _render_history() {
             adv_sum_t=$((adv_sum_t + adv_t))
             adv_sum_a=$((adv_sum_a + adv_a))
             adv_tasks=$((adv_tasks + 1))
-            # Track best adversarial (most accepted findings)
             if [ "$adv_a" -gt "$best_adv_count" ] 2>/dev/null; then
                 best_adv_count=$adv_a
                 best_adv_task="$task_name"
             fi
-            # Track worst adversarial (lowest hit rate with >0 findings)
             local this_rate=$((adv_a * 100 / adv_t))
             if [ "$this_rate" -lt "$worst_adv_rate" ] 2>/dev/null; then
                 worst_adv_rate=$this_rate
                 worst_adv_task="$task_name"
             fi
         fi
-
-        task_index=$((task_index + 1))
-    done < "$METRICS_LOG"
+    done <<< "$work_data"
 
     # Success rate
     local success_rate=0
     [ "$total_tasks" -gt 0 ] && success_rate=$((completed * 100 / total_tasks))
 
-    # Trend calculation: last 3 completed vs previous 3
+    # Trend calculation: last 3 completed vs previous 3 (within working dataset)
     local trend_arrow="" trend_label=""
     if [ "$valid" -ge 6 ]; then
         local dur_array=($all_durations)
@@ -532,23 +534,28 @@ _render_history() {
         fi
     fi
 
-    # Today / this week counts
+    # Today / this week counts (within working dataset)
     local today_count=0 week_count=0
     local today_str=$(date +"%Y-%m-%d")
     local week_ago=$(date -v-7d +%s 2>/dev/null || date -d "7 days ago" +%s 2>/dev/null || echo 0)
 
     while IFS='|' read -r run_ts _rest; do
+        [ -z "$run_ts" ] && continue
         run_ts=$(echo "$run_ts" | tr -d '[:space:]')
         [ "$run_ts" -gt 0 ] 2>/dev/null || continue
         local run_date=$(date -r "$run_ts" +"%Y-%m-%d" 2>/dev/null || date -d "@$run_ts" +"%Y-%m-%d" 2>/dev/null || echo "")
         [ "$run_date" = "$today_str" ] && today_count=$((today_count + 1))
         [ "$run_ts" -ge "$week_ago" ] 2>/dev/null && week_count=$((week_count + 1))
-    done < "$METRICS_LOG"
+    done <<< "$work_data"
 
     # ── Render ──
     echo ""
     _box_top
-    _box_title "APD Pipeline History"
+    if [ "$HISTORY_LIMIT" -gt 0 ] 2>/dev/null && [ "$HISTORY_LIMIT" -lt "$total_all" ]; then
+        _box_title "APD History (last ${total_tasks})"
+    else
+        _box_title "APD Pipeline History"
+    fi
     _box_sep
 
     # Overview
@@ -610,22 +617,13 @@ _render_history() {
         fi
     fi
 
-    # ── Run list (newest first, optional limit) ──
+    # ── Run list (newest first) ──
     _box_sep
+    _box_line "  Runs" "  ${V}${B}Runs${R}"
 
-    # Reverse the log (newest first), apply limit
-    local run_data
-    if [ "$HISTORY_LIMIT" -gt 0 ] 2>/dev/null; then
-        run_data=$(tail -r "$METRICS_LOG" 2>/dev/null || tac "$METRICS_LOG" 2>/dev/null)
-        run_data=$(echo "$run_data" | head -n "$HISTORY_LIMIT")
-        local showing="$HISTORY_LIMIT"
-        [ "$HISTORY_LIMIT" -gt "$total_tasks" ] && showing="$total_tasks"
-        _box_line "  Last ${showing} of ${total_tasks} Runs" \
-                  "  ${V}${B}Last ${showing} of ${total_tasks} Runs${R}"
-    else
-        run_data=$(tail -r "$METRICS_LOG" 2>/dev/null || tac "$METRICS_LOG" 2>/dev/null)
-        _box_line "  Completed Runs" "  ${V}${B}Completed Runs${R}"
-    fi
+    # Reverse working dataset for display (newest first)
+    local run_display
+    run_display=$(echo "$work_data" | tail -r 2>/dev/null || echo "$work_data" | tac 2>/dev/null)
 
     while IFS='|' read -r run_ts task_name spec_ts _b _r verifier_ts status adv_t adv_a adv_d; do
         [ -z "$run_ts" ] && continue
@@ -651,7 +649,7 @@ _render_history() {
 
         _box_line "  x $(printf '%-22s' "$tname") ${dur}${adv_info}" \
                   "  ${icon} $(printf '%-22s' "$tname") ${D}${dur}${adv_info}${R}"
-    done <<< "$run_data"
+    done <<< "$run_display"
 
     _box_bottom
     echo ""
