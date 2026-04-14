@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.6.2 — 2026-04-14
+
+### Fixed
+- **History limit scopes all stats** — `--history N` now computes all statistics (avg, success rate, adversarial, session, trend) from the last N runs only, not the full log
+
+---
+
 ## v4.6.1 — 2026-04-14
 
 ### Added

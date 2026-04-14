@@ -9,7 +9,7 @@ Development of the APD framework itself. This is not an application that uses AP
 | Item | Value |
 |------|-------|
 | Type | Claude Code plugin (installable) |
-| Version | v4.6.1 |
+| Version | v4.6.2 |
 | Distribution | `/plugin install claude-apd` |
 | Core | 22 bash scripts + Go binaries, 8 skills, hook system |
 | Testing | `verify-apd` (98+ checks) |
