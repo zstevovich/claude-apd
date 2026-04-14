@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.7.4 — 2026-04-14
+
+### Fixed
+- **monitors.json** — correct schema: `name` (required), `description`, `command`. Removed `timeout_ms` (not in plugin manifest schema, only in Monitor tool schema).
+
+---
+
 ## v4.7.3 — 2026-04-14
 
 ### Fixed
