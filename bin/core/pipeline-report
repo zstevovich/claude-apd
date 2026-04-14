@@ -2,16 +2,34 @@
 # APD Pipeline Report — formatted recap of current or historical pipeline runs
 #
 # Usage:
-#   pipeline-report            Show current/last run report
-#   pipeline-report --history  Show all completed runs summary
+#   pipeline-report                Show current/last run report
+#   pipeline-report --history      Show all runs (desc, newest first)
+#   pipeline-report --history 5    Show last 5 runs
+#   pipeline-report --history=5    Show last 5 runs
 #
 # Called by apd-finish before presenting options, or standalone via:
-#   apd report [--history]
+#   apd report [--history [N]]
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
 
 MODE="${1:-current}"
+HISTORY_LIMIT=0  # 0 = show all
+
+# Parse --history / --history=N / --history N
+case "$1" in
+    --history=*|history=*)
+        MODE="history"
+        HISTORY_LIMIT="${1#*=}"
+        ;;
+    --history|history|-H)
+        MODE="history"
+        # Check if next arg is a number
+        if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+            HISTORY_LIMIT="$2"
+        fi
+        ;;
+esac
 
 # ── Box drawing helpers ──────────────────────────────────────────────
 # Stellar violet: violet borders, color-coded content
@@ -592,12 +610,25 @@ _render_history() {
         fi
     fi
 
-    # ── Run list ──
+    # ── Run list (newest first, optional limit) ──
     _box_sep
-    _box_line "  Completed Runs" "  ${V}${B}Completed Runs${R}"
 
-    local count=0
+    # Reverse the log (newest first), apply limit
+    local run_data
+    if [ "$HISTORY_LIMIT" -gt 0 ] 2>/dev/null; then
+        run_data=$(tail -r "$METRICS_LOG" 2>/dev/null || tac "$METRICS_LOG" 2>/dev/null)
+        run_data=$(echo "$run_data" | head -n "$HISTORY_LIMIT")
+        local showing="$HISTORY_LIMIT"
+        [ "$HISTORY_LIMIT" -gt "$total_tasks" ] && showing="$total_tasks"
+        _box_line "  Last ${showing} of ${total_tasks} Runs" \
+                  "  ${V}${B}Last ${showing} of ${total_tasks} Runs${R}"
+    else
+        run_data=$(tail -r "$METRICS_LOG" 2>/dev/null || tac "$METRICS_LOG" 2>/dev/null)
+        _box_line "  Completed Runs" "  ${V}${B}Completed Runs${R}"
+    fi
+
     while IFS='|' read -r run_ts task_name spec_ts _b _r verifier_ts status adv_t adv_a adv_d; do
+        [ -z "$run_ts" ] && continue
         verifier_ts=$(echo "$verifier_ts" | tr -d '[:space:]')
         spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
         status=$(echo "$status" | tr -d '[:space:]')
@@ -620,9 +651,7 @@ _render_history() {
 
         _box_line "  x $(printf '%-22s' "$tname") ${dur}${adv_info}" \
                   "  ${icon} $(printf '%-22s' "$tname") ${D}${dur}${adv_info}${R}"
-
-        count=$((count + 1))
-    done < "$METRICS_LOG"
+    done <<< "$run_data"
 
     _box_bottom
     echo ""
