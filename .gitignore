@@ -2,6 +2,7 @@
 CLAUDE.md
 .claude/
 .vscode/
+.apd/
 
 # Dev tools — local only
 bump-version
