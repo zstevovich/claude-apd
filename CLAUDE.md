@@ -91,7 +91,7 @@ apd-template/
 
 ## Versioning
 
-- Current version: v4.7.1
+- Current version: v4.7.2
 - CHANGELOG.md tracks all changes
 - Semantic versioning: major (breaking), minor (feature), patch (fix)
 

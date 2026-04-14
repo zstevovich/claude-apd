@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.7.2 — 2026-04-14
+
+### Updated
+- **Homepage** — plugin "Visit website" now links to `apd.run`
+
+---
+
 ## v4.7.1 — 2026-04-14
 
 ### Added

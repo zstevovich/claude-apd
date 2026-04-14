@@ -1,11 +1,11 @@
 {
   "name": "claude-apd",
   "description": "Agent Pipeline Development — enforced multi-agent pipelines with mechanical guardrails",
-  "version": "4.7.1",
+  "version": "4.7.2",
   "author": {
     "name": "Zoran Stevovic"
   },
-  "homepage": "https://github.com/zstevovich/claude-apd",
+  "homepage": "https://apd.run",
   "repository": "https://github.com/zstevovich/claude-apd",
   "license": "MIT",
   "monitors": "./monitors/monitors.json",
