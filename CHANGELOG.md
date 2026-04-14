@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.6.4 — 2026-04-14
+
+### Added
+- **Landing page** — `apd.run` homepage with hero, pipeline visualization, feature cards, stats, and install CTA
+- **CNAME** — custom domain configuration for `apd.run`
+
+---
+
 ## v4.6.3 — 2026-04-14
 
 ### Added

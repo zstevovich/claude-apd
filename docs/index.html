@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>APD — Agent Pipeline Development</title>
+<meta name="description" content="Enforced multi-agent pipelines with mechanical guardrails for AI-assisted software development. Claude Code plugin.">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0a0a12;
+    --surface: #12121e;
+    --border: #252538;
+    --text: #c0c0d0;
+    --text-dim: #5a5a70;
+    --text-bright: #e8e8f0;
+    --purple: #af8fff;
+    --purple-dim: rgba(175, 143, 255, 0.15);
+    --green: #66cc66;
+    --green-dim: rgba(102, 204, 102, 0.15);
+    --orange: #ff884d;
+    --blue: #4da6ff;
+    --glow-purple: 0 0 30px rgba(175, 143, 255, 0.2);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* --- Hero --- */
+  .hero {
+    text-align: center;
+    padding: 80px 24px 60px;
+    background: linear-gradient(180deg, rgba(175,143,255,0.06) 0%, transparent 60%);
+    position: relative;
+  }
+
+  .hero::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 10%; right: 10%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+  }
+
+  .hero .logo { margin-bottom: 32px; }
+
+  .hero h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 42px;
+    font-weight: 700;
+    color: var(--text-bright);
+    letter-spacing: -1px;
+    line-height: 1.2;
+    margin-bottom: 16px;
+  }
+
+  .hero h1 .highlight { color: var(--purple); }
+
+  .hero .subtitle {
+    font-size: 14px;
+    color: var(--text-dim);
+    max-width: 560px;
+    margin: 0 auto 36px;
+    line-height: 1.7;
+    letter-spacing: 0.3px;
+  }
+
+  .hero .install-box {
+    display: inline-block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 28px;
+    font-size: 13px;
+    color: var(--purple);
+    letter-spacing: 0.5px;
+    margin-bottom: 32px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+
+  .hero .install-box:hover {
+    border-color: var(--purple);
+    box-shadow: var(--glow-purple);
+  }
+
+  .hero .install-box .hint {
+    position: absolute;
+    top: -8px; right: -8px;
+    background: var(--purple);
+    color: var(--bg);
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 700;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .hero .install-box:hover .hint { opacity: 1; }
+
+  .hero .actions {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    padding: 10px 24px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.2s;
+    letter-spacing: 0.5px;
+    display: inline-block;
+  }
+
+  .btn:hover { border-color: var(--purple); color: var(--text-bright); }
+  .btn.primary { border-color: var(--purple); color: var(--purple); }
+  .btn.primary:hover { background: var(--purple); color: var(--bg); }
+
+  /* --- Pipeline --- */
+  .pipeline-section {
+    padding: 60px 24px;
+    text-align: center;
+  }
+
+  .pipeline-visual {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin: 32px auto;
+    max-width: 800px;
+    flex-wrap: wrap;
+  }
+
+  .pipeline-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .pipeline-step .step-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 700;
+    border: 1px solid;
+  }
+
+  .pipeline-step .step-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+  }
+
+  .step-icon.purple { background: var(--purple-dim); border-color: rgba(175,143,255,0.3); color: var(--purple); }
+  .step-icon.blue { background: rgba(77,166,255,0.1); border-color: rgba(77,166,255,0.3); color: var(--blue); }
+  .step-icon.orange { background: rgba(255,136,77,0.1); border-color: rgba(255,136,77,0.3); color: var(--orange); }
+  .step-icon.green { background: var(--green-dim); border-color: rgba(102,204,102,0.3); color: var(--green); }
+
+  .pipeline-arrow {
+    font-size: 18px;
+    color: var(--border);
+    padding: 0 12px;
+    margin-bottom: 20px;
+  }
+
+  /* --- Section headers --- */
+  .section-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 8px;
+  }
+
+  .section-sub {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 40px;
+  }
+
+  /* --- Features --- */
+  .features {
+    padding: 60px 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+
+  .feature-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px 24px;
+    transition: border-color 0.2s;
+  }
+
+  .feature-card:hover { border-color: rgba(175,143,255,0.3); }
+
+  .feature-card .icon {
+    font-size: 24px;
+    margin-bottom: 14px;
+  }
+
+  .feature-card h3 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 8px;
+  }
+
+  .feature-card p {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+
+  /* --- Stats --- */
+  .stats {
+    padding: 60px 24px;
+    text-align: center;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(175,143,255,0.02) 0%, transparent 100%);
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    max-width: 900px;
+    margin: 32px auto 0;
+  }
+
+  .stat-item .stat-value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--purple);
+  }
+
+  .stat-item .stat-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 4px;
+    letter-spacing: 0.5px;
+  }
+
+  /* --- CTA --- */
+  .cta {
+    padding: 80px 24px;
+    text-align: center;
+  }
+
+  .cta .install-cmd {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 32px;
+    display: inline-block;
+    margin: 24px 0 32px;
+    font-size: 13px;
+    line-height: 2;
+  }
+
+  .cta .install-cmd .comment { color: var(--text-dim); }
+  .cta .install-cmd .cmd { color: var(--purple); }
+
+  /* --- Footer --- */
+  .footer {
+    text-align: center;
+    padding: 32px;
+    border-top: 1px solid var(--border);
+  }
+
+  .footer a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+  }
+
+  .footer a:hover { color: var(--purple); }
+  .footer .sep { color: var(--border); margin: 0 12px; }
+
+  /* --- Responsive --- */
+  @media (max-width: 768px) {
+    .hero h1 { font-size: 28px; }
+    .features-grid { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .pipeline-arrow { padding: 0 6px; }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate { animation: fadeUp 0.5s ease-out forwards; opacity: 0; }
+  .d1 { animation-delay: 0.1s; }
+  .d2 { animation-delay: 0.2s; }
+  .d3 { animation-delay: 0.3s; }
+  .d4 { animation-delay: 0.4s; }
+  .d5 { animation-delay: 0.5s; }
+  .d6 { animation-delay: 0.6s; }
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="logo animate">
+    <img src="logo.svg" alt="APD" width="200">
+  </div>
+
+  <h1 class="animate d1">
+    <span class="highlight">Agent</span> Pipeline<br>Development
+  </h1>
+
+  <p class="subtitle animate d2">
+    Enforced multi-agent pipelines with mechanical guardrails
+    for AI-assisted software development. Distributed as a Claude Code plugin.
+  </p>
+
+  <div class="animate d3">
+    <div class="install-box" onclick="navigator.clipboard.writeText('/plugin install claude-apd@zstevovich-plugins')">
+      <span class="hint">click to copy</span>
+      /plugin install claude-apd@zstevovich-plugins
+    </div>
+  </div>
+
+  <div class="actions animate d4">
+    <a href="demo/" class="btn primary">Interactive Demo</a>
+    <a href="pipeline-runs/" class="btn">Pipeline Runs</a>
+    <a href="https://github.com/zstevovich/claude-apd/blob/main/GETTING-STARTED.md" class="btn">Getting Started</a>
+    <a href="https://github.com/zstevovich/claude-apd" class="btn">GitHub</a>
+  </div>
+</div>
+
+<!-- Pipeline -->
+<div class="pipeline-section">
+  <div class="section-title animate">The Pipeline</div>
+  <div class="section-sub animate d1">Every step mechanically enforced. No bypass from within Claude Code.</div>
+
+  <div class="pipeline-visual animate d2">
+    <div class="pipeline-step">
+      <div class="step-icon purple">S</div>
+      <div class="step-label">Spec</div>
+    </div>
+    <div class="pipeline-arrow">&rarr;</div>
+    <div class="pipeline-step">
+      <div class="step-icon purple">P</div>
+      <div class="step-label">Plan</div>
+    </div>
+    <div class="pipeline-arrow">&rarr;</div>
+    <div class="pipeline-step">
+      <div class="step-icon blue">B</div>
+      <div class="step-label">Builder</div>
+    </div>
+    <div class="pipeline-arrow">&rarr;</div>
+    <div class="pipeline-step">
+      <div class="step-icon orange">R</div>
+      <div class="step-label">Reviewer</div>
+    </div>
+    <div class="pipeline-arrow">&rarr;</div>
+    <div class="pipeline-step">
+      <div class="step-icon orange">A</div>
+      <div class="step-label">Adversarial</div>
+    </div>
+    <div class="pipeline-arrow">&rarr;</div>
+    <div class="pipeline-step">
+      <div class="step-icon green">V</div>
+      <div class="step-label">Verifier</div>
+    </div>
+    <div class="pipeline-arrow">&rarr;</div>
+    <div class="pipeline-step">
+      <div class="step-icon green">&check;</div>
+      <div class="step-label">Commit</div>
+    </div>
+  </div>
+</div>
+
+<!-- Features -->
+<div class="features">
+  <div style="text-align:center;">
+    <div class="section-title animate">Mechanical Enforcement</div>
+    <div class="section-sub animate d1">Every rule backed by a hook script that blocks violations.</div>
+  </div>
+
+  <div class="features-grid">
+    <div class="feature-card animate d1">
+      <div class="icon" style="color:var(--purple);">&#9632;</div>
+      <h3>Pipeline Gate</h3>
+      <p>Commits blocked without all 4 pipeline steps. Spec hash frozen mid-pipeline. Max 7 acceptance criteria.</p>
+    </div>
+    <div class="feature-card animate d2">
+      <div class="icon" style="color:var(--orange);">&#9888;</div>
+      <h3>Scope Guards</h3>
+      <p>Agents scoped to specific files. Orchestrator blocked from writing code. Bash writes to pipeline state blocked.</p>
+    </div>
+    <div class="feature-card animate d3">
+      <div class="icon" style="color:var(--green);">&#10003;</div>
+      <h3>Spec Traceability</h3>
+      <p>R* acceptance criteria traced to test files via @trace markers. Verifier blocks commit if any criterion untested.</p>
+    </div>
+    <div class="feature-card animate d4">
+      <div class="icon" style="color:var(--blue);">&#9733;</div>
+      <h3>Adversarial Review</h3>
+      <p>Context-free code review with zero spec knowledge. Finds what code-reviewer misses. Opt-out per task via spec-card.</p>
+    </div>
+    <div class="feature-card animate d5">
+      <div class="icon" style="color:var(--purple);">&#9881;</div>
+      <h3>HMAC-Signed State</h3>
+      <p>Pipeline .done files signed with compiled Go binary. Orchestrator cannot forge completion. Tamper-proof audit trail.</p>
+    </div>
+    <div class="feature-card animate d6">
+      <div class="icon" style="color:var(--green);">&#9776;</div>
+      <h3>Pipeline Report</h3>
+      <p>Full recap dashboard in CLI. Step timing, spec coverage bars, adversarial insights, trend analysis, session stats.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats">
+  <div class="section-title animate">Proven in Production</div>
+  <div class="section-sub animate d1">Real-world results across .NET and PHP projects</div>
+
+  <div class="stats-grid">
+    <div class="stat-item animate d1">
+      <div class="stat-value">50+</div>
+      <div class="stat-label">pipeline runs tracked</div>
+    </div>
+    <div class="stat-item animate d2">
+      <div class="stat-value">22</div>
+      <div class="stat-label">guard scripts</div>
+    </div>
+    <div class="stat-item animate d3">
+      <div class="stat-value">8</div>
+      <div class="stat-label">skills</div>
+    </div>
+    <div class="stat-item animate d4">
+      <div class="stat-value">100%</div>
+      <div class="stat-label">success rate (last 20)</div>
+    </div>
+  </div>
+</div>
+
+<!-- CTA -->
+<div class="cta">
+  <div class="section-title animate">Get Started in 60 Seconds</div>
+
+  <div class="install-cmd animate d1">
+    <span class="comment"># install the plugin</span><br>
+    <span class="cmd">/plugin marketplace add zstevovich/claude-apd</span><br>
+    <span class="cmd">/plugin install claude-apd@zstevovich-plugins</span><br>
+    <br>
+    <span class="comment"># configure your project</span><br>
+    <span class="cmd">/apd-setup</span><br>
+    <br>
+    <span class="comment"># verify</span><br>
+    <span class="cmd">bash .claude/bin/apd verify</span>
+  </div>
+
+  <div class="animate d2">
+    <a href="https://github.com/zstevovich/claude-apd/blob/main/GETTING-STARTED.md" class="btn primary">Full Walkthrough</a>
+  </div>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <a href="https://github.com/zstevovich/claude-apd">GitHub</a>
+  <span class="sep">&middot;</span>
+  <a href="demo/">Demo</a>
+  <span class="sep">&middot;</span>
+  <a href="pipeline-runs/">Pipeline Runs</a>
+  <span class="sep">&middot;</span>
+  <a href="https://github.com/zstevovich/claude-apd/blob/main/CHANGELOG.md">Changelog</a>
+  <span class="sep">&middot;</span>
+  <span style="color:var(--text-dim); font-size:11px;">Zoran Stevovic &middot; MIT</span>
+</div>
+
+</body>
+</html>
