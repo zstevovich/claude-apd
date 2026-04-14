@@ -1,5 +1,17 @@
 # Changelog
 
+## v4.7.1 — 2026-04-14
+
+### Added
+- **PreCompact guard** — `guard-compact` blocks compaction while pipeline is in progress (CC 2.1.105+). Prevents context loss mid-pipeline. Allows compaction when pipeline is idle or complete.
+
+### New enforcement
+| What is blocked | Guard |
+|----------------|-------|
+| Compaction during active pipeline | `guard-compact` (PreCompact hook) |
+
+---
+
 ## v4.7.0 — 2026-04-14
 
 Plugin monitors — reliable session context loading.

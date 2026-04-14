@@ -1,0 +1,38 @@
+#!/bin/bash
+# APD Guard — blocks compaction while pipeline is active
+#
+# PreCompact hook (CC 2.1.105+): exit 2 = BLOCK compaction
+# When pipeline has active steps, losing context mid-run causes
+# orchestrator to lose spec, plan, and dispatch state.
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
+
+# No active pipeline — allow compaction
+if [ ! -d "$PIPELINE_DIR" ] || ! ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
+    exit 0
+fi
+
+# Pipeline complete (all 4 steps) — allow compaction
+if [ -f "$PIPELINE_DIR/spec.done" ] && [ -f "$PIPELINE_DIR/builder.done" ] && \
+   [ -f "$PIPELINE_DIR/reviewer.done" ] && [ -f "$PIPELINE_DIR/verifier.done" ]; then
+    exit 0
+fi
+
+# Pipeline in progress — block compaction
+TASK="[unknown]"
+NEXT_STEP=""
+if [ -f "$PIPELINE_DIR/spec.done" ]; then
+    TASK=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f3 2>/dev/null)
+fi
+for s in spec builder reviewer verifier; do
+    if [ ! -f "$PIPELINE_DIR/$s.done" ]; then
+        NEXT_STEP="$s"
+        break
+    fi
+done
+
+echo "BLOCKED: Pipeline in progress — compaction would lose context." >&2
+echo "  Task: $TASK (next step: $NEXT_STEP)" >&2
+echo "  Finish the pipeline or run: bash .claude/bin/apd pipeline reset" >&2
+exit 2

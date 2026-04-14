@@ -11,7 +11,7 @@
         "repo": "zstevovich/claude-apd"
       },
       "description": "Agent Pipeline Development — enforced multi-agent pipelines with mechanical guardrails",
-      "version": "4.7.0",
+      "version": "4.7.1",
       "author": {
         "name": "Zoran Stevovic"
       },

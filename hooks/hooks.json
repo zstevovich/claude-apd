@@ -112,6 +112,17 @@
         ]
       }
     ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/guard-compact\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PostCompact": [
       {
         "hooks": [
