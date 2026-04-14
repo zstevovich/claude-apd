@@ -554,6 +554,7 @@ echo ""
 
 # Run verify-apd (skip in quick mode)
 if [ "$QUICK" = true ]; then
+    [ "$FIXES" -gt 0 ] && echo "  ${D}(quick mode: $FIXES fix(es) applied)${R}"
     exit 0
 fi
 echo "  Running verification..."

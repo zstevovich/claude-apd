@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.7.5 — 2026-04-14
+
+### Fixed
+- **session-start** — explicit `exit 0` at end prevents monitor from reporting false failure. `apd-init --quick` failure logged but does not propagate.
+- **apd-init** — quick mode reports fix count before exiting
+
+---
+
 ## v4.7.4 — 2026-04-14
 
 ### Fixed

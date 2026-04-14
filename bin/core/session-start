@@ -34,7 +34,7 @@ cd "$PROJECT_DIR" || { _ss_log "EXIT: cd failed"; exit 0; }
 
 # --- Auto gap-analysis on every session start (quick mode, no verify) ---
 if [ -x "$SCRIPT_DIR/apd-init" ]; then
-    bash "$SCRIPT_DIR/apd-init" --quick 2>&1
+    bash "$SCRIPT_DIR/apd-init" --quick 2>&1 || _ss_log "WARN: apd-init --quick exited $?"
 fi
 
 # ===== VERSION CHECK =====
@@ -248,3 +248,4 @@ if [ -f "$MEMORY_DIR/session-log.md" ]; then
   tail -20 "$MEMORY_DIR/session-log.md"
 fi
 _ss_log "END ok"
+exit 0
