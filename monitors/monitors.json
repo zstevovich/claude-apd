@@ -1,9 +1,7 @@
 [
   {
-    "name": "apd-session-context",
     "description": "Load APD project context and run self-healing checks",
     "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/session-start\"",
-    "timeout_ms": 10000,
-    "persistent": false
+    "timeout_ms": 10000
   }
 ]
