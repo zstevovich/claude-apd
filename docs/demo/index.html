@@ -215,6 +215,25 @@ function line(){
 
 function spacer(){var d=document.createElement('div');d.className='ln spacer';return d;}
 
+// Box drawing helpers for report scene (auto-pads to BW)
+var BW=44;
+function bx(){
+  var parts=Array.prototype.slice.call(arguments);
+  var len=0;
+  parts.forEach(function(p){len+=p[1].length;});
+  var pad=Math.max(0,BW-len);
+  var args=[mk('v','  \u2502')];
+  parts.forEach(function(p){args.push(mk(p[0],p[1]));});
+  if(pad>0)args.push(Array(pad+1).join(' '));
+  args.push(mk('v','\u2502'));
+  return line.apply(null,args);
+}
+function bxR(c){
+  var l=c==='t'?'\u256d':c==='b'?'\u2570':'\u251c';
+  var r=c==='t'?'\u256e':c==='b'?'\u256f':'\u2524';
+  return line(mk('v','  '+l+Array(BW+1).join('\u2500')+r));
+}
+
 var scenes=[
   {p:"Guards \u2014 mechanical enforcement",items:[
     function(){return line(mk('dim','\u2500\u2500 Agent tries to commit \u2500\u2500'));},
@@ -328,6 +347,44 @@ var scenes=[
     {d:200},
     function(){return line(mk('grn','  PASS: 24'),mk('w','  FAIL: 0  WARN: 0'));},
     {d:500},
+  ]},
+
+  {p:"Report \u2014 pipeline recap",items:[
+    {d:400},
+    function(){return line(mk('v','orchestrator $ '),mk('w','apd report'));},
+    {d:600},
+    function(){return bxR('t');},
+    function(){return bx(['w','            '],['vb','APD Pipeline Report']);},
+    function(){return bxR('m');},
+    {d:300},
+    function(){return bx(['dim','  Task:     '],['vb','Add user login']);},
+    function(){return bx(['dim','  Status:   '],['grn','complete']);},
+    function(){return bx(['dim','  Duration: '],['w','9m 20s']);},
+    function(){return bx(['dim','  Changed:  '],['w','4 files (src, tests)']);},
+    {d:400},
+    function(){return bxR('m');},
+    function(){return bx(['w','  '],['vb','Pipeline']);},
+    function(){return bx(['dim','  Progress: '],['grn','\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588'],['w',' 4/4']);},
+    {d:200},
+    function(){return bx(['w','  '],['v','\u2713'],['w',' spec         '],['dim','14:02:11']);},
+    function(){return bx(['w','  '],['blu','\u2713'],['w',' builder      '],['dim','4m 12s']);},
+    function(){return bx(['w','  '],['org','\u2713'],['w',' reviewer     '],['dim','2m 55s']);},
+    function(){return bx(['w','  '],['grn','\u2713'],['w',' verifier     '],['dim','2m 13s']);},
+    {d:400},
+    function(){return bxR('m');},
+    function(){return bx(['w','  '],['vb','Quality']);},
+    function(){return bx(['dim','  Spec:  '],['grn','\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588'],['w',' 3/3']);},
+    function(){return bx(['dim','  Adversarial:  '],['org','2'],['w',' findings (50% hit)']);},
+    function(){return bx(['w','    '],['grn','accepted: 1'],['dim','  dismissed: 1']);},
+    function(){return bx(['dim','  Guard blocks: '],['grn','0']);},
+    {d:400},
+    function(){return bxR('m');},
+    function(){return bx(['w','  '],['vb','Agents']);},
+    function(){return bx(['w','  '],['blu','backend-api       '],['dim',' 3m 58s']);},
+    function(){return bx(['w','  '],['org','code-reviewer     '],['dim',' 2m 44s']);},
+    function(){return bx(['w','  '],['org','adversarial       '],['dim',' 1m 12s']);},
+    function(){return bxR('b');},
+    {d:800},
   ]},
 ];
 

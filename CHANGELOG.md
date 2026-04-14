@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.6.3 — 2026-04-14
+
+### Added
+- **Interactive demo** — Report scene added to demo page with auto-padded box drawing
+- **Pipeline Runs reports view** — Dashboard/Reports tab toggle with side-by-side terminal reports for Bambi and MojOff (last 10 runs each, all stats: trend, session, adversarial insights)
+
+---
+
 ## v4.6.2 — 2026-04-14
 
 ### Fixed
