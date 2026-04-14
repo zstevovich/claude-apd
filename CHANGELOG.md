@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.6.1 — 2026-04-14
+
+### Added
+- **History limit** — `apd report --history 5` or `--history=5` shows last N runs
+- **Desc sort** — history runs listed newest-first
+
+---
+
 ## v4.6.0 — 2026-04-14
 
 Pipeline report command — full recap dashboard for CLI.
