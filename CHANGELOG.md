@@ -1,5 +1,18 @@
 # Changelog
 
+## v4.7.0 — 2026-04-14
+
+Plugin monitors — reliable session context loading.
+
+### Added
+- **Plugin monitors** — `monitors/monitors.json` with `apd-session-context` monitor that auto-arms on session start (CC 2.1.105+). Replaces unreliable SessionStart hook as primary context loader.
+- SessionStart hook kept as fallback for CC < 2.1.105. Both are idempotent.
+
+### Infrastructure
+- Scanned CC 2.1.105–2.1.107 for APD-relevant changes
+
+---
+
 ## v4.6.4 — 2026-04-14
 
 ### Added
