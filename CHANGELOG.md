@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.7.3 — 2026-04-14
+
+### Fixed
+- **monitors.json** — removed `name` and `persistent` keys not recognized by CC plugin system
+
+---
+
 ## v4.7.2 — 2026-04-14
 
 ### Updated
