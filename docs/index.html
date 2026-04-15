@@ -277,6 +277,82 @@
     letter-spacing: 0.5px;
   }
 
+  /* --- Case Study --- */
+  .case-study {
+    padding: 60px 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .case-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-top: 32px;
+  }
+
+  .case-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px 24px;
+  }
+
+  .case-card h3 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .case-card .model-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+  }
+
+  .model-badge.opus { background: var(--purple-dim); color: var(--purple); }
+  .model-badge.glm { background: rgba(255, 200, 50, 0.15); color: #ffc832; }
+
+  .case-metric {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(37, 37, 56, 0.5);
+    font-size: 12px;
+  }
+
+  .case-metric:last-child { border-bottom: none; }
+
+  .case-metric .label { color: var(--text-dim); }
+  .case-metric .val { color: var(--text-bright); font-weight: 500; }
+  .case-metric .val.green { color: var(--green); }
+  .case-metric .val.orange { color: var(--orange); }
+  .case-metric .val.purple { color: var(--purple); }
+
+  .case-insight {
+    margin-top: 20px;
+    padding: 16px;
+    background: rgba(175, 143, 255, 0.04);
+    border: 1px solid rgba(175, 143, 255, 0.1);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+
+  .case-insight strong { color: var(--text-bright); }
+
+  @media (max-width: 768px) {
+    .case-grid { grid-template-columns: 1fr; }
+  }
+
   /* --- CTA --- */
   .cta {
     padding: 80px 24px;
@@ -474,6 +550,44 @@
       <div class="stat-value">100%</div>
       <div class="stat-label">success rate (last 20)</div>
     </div>
+  </div>
+</div>
+
+<!-- Case Study -->
+<div class="case-study">
+  <div style="text-align:center;">
+    <div class="section-title animate">Model-Agnostic Enforcement</div>
+    <div class="section-sub animate d1">Same pipeline, same guards, different model. APD works as an exoskeleton for any LLM.</div>
+  </div>
+
+  <div class="case-grid">
+    <div class="case-card animate d2">
+      <h3><span class="model-badge opus">Claude Opus</span> Baseline</h3>
+      <div class="case-metric"><span class="label">Avg pipeline time</span><span class="val">~10 min</span></div>
+      <div class="case-metric"><span class="label">Completion rate</span><span class="val green">100%</span></div>
+      <div class="case-metric"><span class="label">Guard blocks per run</span><span class="val green">1-2</span></div>
+      <div class="case-metric"><span class="label">Spec coverage</span><span class="val green">7/7</span></div>
+      <div class="case-metric"><span class="label">Builder iterations</span><span class="val">0-1</span></div>
+      <div class="case-metric"><span class="label">Adversarial findings</span><span class="val">3-5 avg</span></div>
+    </div>
+    <div class="case-card animate d3">
+      <h3><span class="model-badge glm">GLM-5</span> First Run</h3>
+      <div class="case-metric"><span class="label">Pipeline time</span><span class="val">17m 13s</span></div>
+      <div class="case-metric"><span class="label">Completion rate</span><span class="val green">100%</span></div>
+      <div class="case-metric"><span class="label">Guard blocks</span><span class="val orange">52</span></div>
+      <div class="case-metric"><span class="label">Spec coverage</span><span class="val green">7/7</span></div>
+      <div class="case-metric"><span class="label">Builder iterations</span><span class="val orange">3+</span></div>
+      <div class="case-metric"><span class="label">Adversarial findings</span><span class="val">10 (3 accepted)</span></div>
+    </div>
+  </div>
+
+  <div class="case-insight animate d4">
+    <strong>Key finding:</strong> GLM-5 needed 25x more guard blocks than Claude Opus but still completed the pipeline
+    with full spec coverage. The model tried to write code directly (blocked by guard-orchestrator),
+    commit without pipeline steps (blocked by pipeline-gate), write to .agents file directly (blocked by guard-bash-scope),
+    and skip adversarial review (blocked by verifier). Every bypass attempt was mechanically stopped.
+    Final result: 99 files changed, 1349 insertions, 2208 deletions &mdash; a complete TinyMCE to TipTap migration
+    across 7 React components.
   </div>
 </div>
 

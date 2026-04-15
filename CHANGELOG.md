@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.7.6 — 2026-04-15
+
+### Added
+- **Case study** — GLM-5 vs Claude Opus comparison on `apd.run` landing page. First completed pipeline run on a non-Anthropic model: 17m 13s, 52 guard blocks, 7/7 spec coverage, 99 files changed.
+
+---
+
 ## v4.7.5 — 2026-04-14
 
 ### Fixed
