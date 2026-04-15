@@ -251,6 +251,7 @@
 
   .project-badge.net { background: var(--purple-dim); color: var(--purple); }
   .project-badge.php { background: var(--blue-dim); color: var(--blue); }
+  .project-badge.glm { background: rgba(255, 200, 50, 0.15); color: #ffc832; }
 
   .duration-bar {
     display: flex;
@@ -468,7 +469,7 @@
     <img src="../logo.svg" alt="APD" width="200" style="max-width:90%;">
   </div>
   <div class="subtitle">Pipeline Runs</div>
-  <div class="tagline">20 tracked runs across 3 projects &middot; April 9&ndash;13, 2026</div>
+  <div class="tagline">21 tracked runs across 4 projects &middot; April 9&ndash;15, 2026</div>
 </div>
 
 <div class="container">
@@ -483,8 +484,8 @@
   <div class="summary-grid">
     <div class="summary-card purple animate delay-1">
       <div class="label">Total Runs</div>
-      <div class="value">20</div>
-      <div class="detail">3 projects, 5 days</div>
+      <div class="value">21</div>
+      <div class="detail">4 projects, 7 days</div>
     </div>
     <div class="summary-card green animate delay-2">
       <div class="label">Avg Duration</div>
@@ -589,6 +590,7 @@ const runs = [
   { id: 18, name: "Bambi Audit 15", date: "2026-04-12", stack: "net", duration: 385, spec: "6/6", blocks: 0, adversarial: "4 (0/4)", advType: "real", note: "Fastest ever \u2014 5 zero-block streak" },
   { id: 19, name: "MojOff Security P1", date: "2026-04-13", stack: "net", duration: 875, spec: "5/5", blocks: 1, adversarial: "5 (0/5)", advType: "real", note: "First v4.5 run \u2014 7 security fixes, 4 parallel explorers", ver: "v4.5.0" },
   { id: 20, name: "MojOff Arch P2a", date: "2026-04-13", stack: "net", duration: 690, spec: "5/5", blocks: 1, adversarial: "5 (1/4)", advType: "real", note: "MediatR refactor \u2014 adversarial found 1 critical, guard blocked code-write" },
+  { id: 21, name: "TinyMCE \u2192 TipTap", date: "2026-04-15", stack: "glm", duration: 1033, spec: "7/7", blocks: 52, adversarial: "10 (3/7)", advType: "real", note: "GLM-5 model \u2014 first non-Anthropic run, 52 guard blocks, completed full pipeline", ver: "GLM-5" },
 ];
 
 // --- Render table using DOM methods ---
@@ -629,7 +631,7 @@ runs.forEach(function(r) {
   const tdProj = document.createElement('td');
   const spanProj = document.createElement('span');
   spanProj.className = 'project-badge ' + r.stack;
-  spanProj.textContent = r.stack === 'net' ? '.NET' : 'PHP';
+  spanProj.textContent = r.stack === 'net' ? '.NET' : r.stack === 'glm' ? 'GLM-5' : 'PHP';
   tdProj.appendChild(spanProj);
   tr.appendChild(tdProj);
 
