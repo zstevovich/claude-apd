@@ -98,7 +98,7 @@ Spec → Builder → Reviewer → Verifier → Commit → Finish
 | Role | Model | Effort |
 |------|-------|--------|
 | Orchestrator (you) | opus | max |
-| Builder agents | sonnet | high |
+| Builder agents | sonnet | xhigh |
 | Reviewer | opus | max |
 | Adversarial Reviewer | sonnet | max |
 

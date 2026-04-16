@@ -132,7 +132,7 @@ Generate with sections (ALL populated, NO placeholders):
 #### 4.2 Agents
 
 **Builder agents** — one per domain, from `${CLAUDE_PLUGIN_ROOT}/templates/agent-template.md`:
-- Frontmatter: name, description, tools (Read/Write/Edit/Glob/Grep/Bash), **model: sonnet**, **effort: high**, maxTurns: 20, permissionMode: bypassPermissions
+- Frontmatter: name, description, tools (Read/Write/Edit/Glob/Grep/Bash), **model: sonnet**, **effort: xhigh**, maxTurns: 20, permissionMode: bypassPermissions
 - **color:** assign per role — backend: `purple`, frontend: `blue`, testing: `green`, other: `cyan`
 - Hooks with `${CLAUDE_PLUGIN_ROOT}/bin/core/` paths
 - guard-scope and guard-bash-scope with exact SCOPE_PATHS

@@ -183,7 +183,7 @@ The orchestrator MUST write the spec card to `.apd/pipeline/spec-card.md` before
 | Role | Model | Effort | Why |
 |------|-------|--------|-----|
 | Orchestrator | opus | max | Decisions, planning, coordination — expensive to reverse |
-| Builder | sonnet | high | Implementation following clear spec — fast, focused |
+| Builder | sonnet | xhigh | Implementation following clear spec — deep reasoning for coding tasks |
 | Reviewer | opus | max | Finding bugs, security issues — must be thorough |
 | Adversarial Reviewer | sonnet | max | Fresh eyes, different model = different blind spots |
 | Verifier | — | — | Script, not a model — runs build + test |
@@ -297,13 +297,14 @@ When a task involves backend + frontend/mobile:
 | Role | Model | Effort | Dispatch example |
 |------|-------|--------|-----------------|
 | Orchestrator | opus | max | (main session — always opus max) |
-| Builder | sonnet | high | `dispatch backend-builder` (model: sonnet, effort: high in frontmatter) |
+| Builder | sonnet | xhigh | `dispatch backend-builder` (model: sonnet, effort: xhigh in frontmatter) |
 | Reviewer | opus | max | `dispatch code-reviewer` (model: opus, effort: max in frontmatter) |
 | Adversarial Reviewer | sonnet | max | `dispatch adversarial-reviewer` (model: sonnet, effort: max in frontmatter) |
 
 - **Never use sonnet for review** — it misses subtle bugs (exception: adversarial reviewer uses sonnet intentionally for perspective diversity)
 - **Never use opus for building** — it's slower and not needed for spec-driven work
-- **Never use effort: low or medium** — APD only uses high and max
+- **Never use effort: low or medium** — APD uses high, xhigh (builder), and max
+- **`effort: xhigh` on Sonnet 4.6** falls back to `high` automatically — it takes effect when Sonnet 4.7 is available. Forward-compatible configuration.
 
 ## 9. Mandatory skills
 

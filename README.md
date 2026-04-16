@@ -46,7 +46,7 @@ See [Getting Started](GETTING-STARTED.md) for the full walkthrough.
 | Role | Model | Effort | Responsibility |
 |------|-------|--------|----------------|
 | **Orchestrator** | opus | max | Coordinates pipeline, writes spec, dispatches agents, commits |
-| **Builder** | sonnet | high | Implements code per spec, scoped to specific files |
+| **Builder** | sonnet | xhigh | Implements code per spec, scoped to specific files |
 | **Reviewer** | opus | max | Finds bugs, security issues, edge cases (read-only) |
 | **Adversarial Reviewer** | sonnet | max | Context-free review — no spec knowledge, fresh perspective |
 | **Verifier** | — | — | Script: build + test + spec traceability check |

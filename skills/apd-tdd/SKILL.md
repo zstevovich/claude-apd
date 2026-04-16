@@ -1,7 +1,7 @@
 ---
 name: apd-tdd
 description: Use when implementing any feature or fixing any bug as a Builder agent. Write failing test first, then minimal code to pass. MANDATORY for all APD builder dispatches.
-effort: high
+effort: xhigh
 allowed-tools: Read Write Edit Glob Grep Bash
 ---
 

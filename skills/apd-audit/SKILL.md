@@ -49,7 +49,7 @@ For each agent in `.claude/agents/*.md`:
 
 **Frontmatter check:**
 - `model:` — builders must be `sonnet`, reviewer must be `opus`
-- `effort:` — builders must be `high`, reviewer must be `max`
+- `effort:` — builders must be `xhigh`, reviewer must be `max`
 - `color:` — should be set (purple/blue/green/cyan for builders, orange for reviewer)
 - `maxTurns:` — should be set (20 for builders, 15 for reviewer)
 - `permissionMode:` — builders `bypassPermissions`, reviewer `plan`

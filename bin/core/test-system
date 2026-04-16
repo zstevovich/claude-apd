@@ -16,7 +16,7 @@ mkdir -p "$TEST_DIR/.apd/pipeline" "$TEST_DIR/.claude/memory" "$TEST_DIR/.claude
 touch "$TEST_DIR/.claude/.apd-config" "$TEST_DIR/CLAUDE.md"
 
 # Fake agent files
-printf '%s\n' '---' 'name: backend-api' 'model: sonnet' 'effort: high' '---' > "$TEST_DIR/.claude/agents/backend-api.md"
+printf '%s\n' '---' 'name: backend-api' 'model: sonnet' 'effort: xhigh' '---' > "$TEST_DIR/.claude/agents/backend-api.md"
 printf '%s\n' '---' 'name: code-reviewer' 'model: opus' 'effort: max' '---' > "$TEST_DIR/.claude/agents/code-reviewer.md"
 printf '%s\n' '---' 'name: adversarial-reviewer' 'model: sonnet' 'memory: none' '---' > "$TEST_DIR/.claude/agents/adversarial-reviewer.md"
 

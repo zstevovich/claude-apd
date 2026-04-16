@@ -3,7 +3,7 @@ name: {{agent-name}}
 description: {{Short description — domain and responsibility}}
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
-effort: high
+effort: xhigh
 color: {{AGENT_COLOR}}
 maxTurns: 20
 permissionMode: bypassPermissions

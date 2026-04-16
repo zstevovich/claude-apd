@@ -1,5 +1,27 @@
 # Changelog
 
+## v4.7.7 — 2026-04-16
+
+Builder effort bumped to `xhigh` for Opus 4.7 / future Sonnet 4.7 coding gains.
+
+### Changed
+- **Builder effort: `high` → `xhigh`** — new Opus 4.7 effort tier is Anthropic's recommended default for coding and agentic tasks. Applied to:
+  - `templates/agent-template.md` — master builder frontmatter
+  - `skills/apd-tdd/SKILL.md` — TDD skill runs at xhigh
+  - `skills/apd-setup/SKILL.md` — setup generates new builders with xhigh
+  - `rules/workflow.md` — model/effort discipline tables
+  - `templates/CLAUDE.md.reference` — project template table
+  - `README.md` — Five roles table
+
+### Forward-compat note
+Sonnet 4.6 does not support `xhigh` and will transparently degrade to `high` (Claude Code graceful fallback). Real effect kicks in when Sonnet 4.7 lands. No token cost change on Sonnet 4.6.
+
+### Unchanged
+- Orchestrator, Reviewer, Adversarial Reviewer — still `max` (all valid on their respective models).
+- Builder model stays `sonnet` — we do not switch to Opus for implementation.
+
+---
+
 ## v4.7.6 — 2026-04-15
 
 ### Added
