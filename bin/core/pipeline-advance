@@ -190,7 +190,7 @@ case "$STEP" in
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.spec-hash"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files"
         create_done "spec" "$ARG"
         # Freeze spec-card.md — hash for tamper detection
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
@@ -373,6 +373,19 @@ case "$STEP" in
         BUILDER_TS=$(head -1 "$PIPELINE_DIR/builder.done" | cut -d'|' -f1)
         ELAPSED=$(format_duration $((NOW - BUILDER_TS)))
         create_done "reviewer"
+
+        # Capture authoritative file scope for reviewers (code-reviewer + adversarial-reviewer)
+        # Uncommitted tracked changes + untracked files belonging to current pipeline work.
+        # Prevents reviewers from drifting into previous commits when orchestrator
+        # mis-computes the diff base (e.g. `git diff HEAD~1` instead of `git diff HEAD`).
+        if command -v git >/dev/null 2>&1 && git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            {
+                git -C "$PROJECT_DIR" diff --name-only HEAD 2>/dev/null
+                git -C "$PROJECT_DIR" ls-files --others --exclude-standard 2>/dev/null
+            } | sort -u > "$PIPELINE_DIR/.reviewed-files"
+            REVIEWED_COUNT=$(wc -l < "$PIPELINE_DIR/.reviewed-files" | tr -d ' ')
+            [ "$REVIEWED_COUNT" -gt 0 ] && ok "Reviewed files scope: $REVIEWED_COUNT files → .apd/pipeline/.reviewed-files"
+        fi
 
         # Mark adversarial review as pending if agent exists
         if [ -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ]; then
@@ -682,7 +695,7 @@ EOF
         fi
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files"
         echo "Pipeline reset. Ready for new task."
         ;;
 
@@ -694,7 +707,7 @@ EOF
                 rm -f "$PIPELINE_DIR/$step.done"
                 # If verifier rolled back, also remove cache timestamp and trace summary
                 [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary"
-                [ "$step" = "reviewer" ] && rm -f "$PIPELINE_DIR/.adversarial-pending"
+                [ "$step" = "reviewer" ] && rm -f "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.reviewed-files"
                 # implementation-plan.md is NOT deleted on rollback — it's part of the frozen spec
                 apd_header "Rollback: $step"
                 show_pipeline "$step"

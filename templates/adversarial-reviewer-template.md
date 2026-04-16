@@ -31,7 +31,12 @@ You review code changes with **zero context** about the task or specification. Y
 
 ## What you receive
 
-The orchestrator gives you a list of changed files. Read each file in full.
+Read ONLY files listed in `.apd/pipeline/.reviewed-files`. This file is the authoritative scope for the current pipeline run — `pipeline-advance` writes it at the reviewer step from uncommitted working-tree changes plus untracked files.
+
+- Do NOT read files outside this list, even if they seem relevant or the orchestrator mentions them.
+- Previous commits are explicitly out of scope. Findings that reference files not in `.reviewed-files` will be dismissed as out-of-scope.
+- Read each listed file in full.
+- If `.reviewed-files` is empty or missing, report that back and stop — do not invent a scope.
 
 ## What to check
 
