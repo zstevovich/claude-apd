@@ -1,5 +1,14 @@
 # Changelog
 
+## v4.7.9 — 2026-04-16
+
+### Fixed
+- **verify-apd test harness** — "verifier passes with adversarial summary" test (lines 775–782) wrote `.adversarial-summary` without first injecting `|start|adversarial-reviewer|` into the agents log. `pipeline-advance` correctly hard-gates this (adversarial-summary-without-dispatch), so the test FAILed even on a healthy framework. The subsequent "adversarial ordering" test (lines 784–813) cascaded: rollback after the failed verifier removed `reviewer.done` instead of the never-created `verifier.done`, breaking setup.
+
+Fix: inject fake `adversarial-reviewer` start/stop entries before writing `.adversarial-summary`, matching the pattern used at lines 796–797 for the ordering test. Reported by an external orchestrator analysis.
+
+---
+
 ## v4.7.8 — 2026-04-16
 
 Pipeline report now distinguishes critical guard saves from routine enforcement blocks.

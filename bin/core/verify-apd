@@ -773,6 +773,12 @@ else
 fi
 
 # Verifier must PASS after .adversarial-summary is provided
+# Inject fake adversarial-reviewer dispatch (pipeline-advance hard-gates the
+# summary-without-dispatch case; ordering check requires ADV_STOP >= reviewer.done ts)
+_FAKE_ADV_START=$(date +"%Y-%m-%d %H:%M:%S")
+_FAKE_ADV_STOP=$(date +"%Y-%m-%d %H:%M:%S")
+echo "${_FAKE_ADV_START}|start|adversarial-reviewer|a0000000000000003" >> "$AGENTS_LOG"
+echo "${_FAKE_ADV_STOP}|stop|adversarial-reviewer|a0000000000000003" >> "$AGENTS_LOG"
 echo "ADVERSARIAL:3:2:1" > "$PIPELINE_DIR/.adversarial-summary"
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" verifier 2>&1)
 if echo "$RESULT" | grep -q "COMMIT ALLOWED"; then
