@@ -263,6 +263,14 @@ if [ "$MODE" = "update" ]; then
             fix "code-reviewer: fixed model to opus"
             FIXES=$((FIXES + 1))
         fi
+        # Check scope directive (v4.7.10+) — regenerate if missing
+        if ! grep -q 'reviewed-files' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null; then
+            if [ -f "$APD_PLUGIN_ROOT/templates/reviewer-template.md" ]; then
+                sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/reviewer-template.md" > "$CLAUDE_DIR/agents/code-reviewer.md"
+                fix "code-reviewer: refreshed from template (added .reviewed-files scope directive)"
+                FIXES=$((FIXES + 1))
+            fi
+        fi
     else
         if [ -f "$APD_PLUGIN_ROOT/templates/reviewer-template.md" ]; then
             sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/reviewer-template.md" > "$CLAUDE_DIR/agents/code-reviewer.md"
@@ -280,10 +288,29 @@ if [ "$MODE" = "update" ]; then
             fix "adversarial-reviewer: fixed model to sonnet"
             FIXES=$((FIXES + 1))
         fi
+        # Check scope directive (v4.7.10+) — regenerate if missing
+        if ! grep -q 'reviewed-files' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null; then
+            if [ -f "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" ]; then
+                sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" > "$CLAUDE_DIR/agents/adversarial-reviewer.md"
+                fix "adversarial-reviewer: refreshed from template (added .reviewed-files scope directive)"
+                FIXES=$((FIXES + 1))
+            fi
+        fi
     else
         if [ -f "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" ]; then
             sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" > "$CLAUDE_DIR/agents/adversarial-reviewer.md"
             fix "Created adversarial-reviewer.md (sonnet/max, context-free review)"
+            FIXES=$((FIXES + 1))
+        fi
+    fi
+
+    # --- Clean APD-VERIFY pollution from pipeline-metrics.log (one-time) ---
+    if [ -f "$MEMORY_DIR/pipeline-metrics.log" ]; then
+        if grep -q '^[0-9]*|APD-VERIFY-' "$MEMORY_DIR/pipeline-metrics.log" 2>/dev/null; then
+            POLLUTED=$(grep -c '^[0-9]*|APD-VERIFY-' "$MEMORY_DIR/pipeline-metrics.log" 2>/dev/null || echo 0)
+            grep -v '^[0-9]*|APD-VERIFY-' "$MEMORY_DIR/pipeline-metrics.log" > "$MEMORY_DIR/pipeline-metrics.log.tmp" && \
+                mv "$MEMORY_DIR/pipeline-metrics.log.tmp" "$MEMORY_DIR/pipeline-metrics.log"
+            fix "pipeline-metrics.log: removed $POLLUTED APD-VERIFY test pollution entries"
             FIXES=$((FIXES + 1))
         fi
     fi

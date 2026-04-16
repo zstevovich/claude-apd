@@ -1,5 +1,23 @@
 # Changelog
 
+## v4.7.11 — 2026-04-17
+
+Follow-up to v4.7.10 — auto-refresh existing reviewer agents + stop `apd verify` from polluting metrics.
+
+### Fixed
+- **`pipeline-metrics.log` pollution** — `apd verify` creates synthetic APD-VERIFY-TEST / APD-VERIFY-OPT-OUT pipelines to exercise pipeline-advance. Those were being logged as real runs, showing up in `apd report --history` as "…" partial entries. Now `pipeline-advance` skips metrics writes when task name matches `APD-VERIFY-*`.
+
+### Changed
+- **`apd-init` auto-refreshes reviewer agents** — detects missing `.reviewed-files` directive (added in v4.7.10) in `code-reviewer.md` / `adversarial-reviewer.md` and regenerates from the current plugin templates. Lets existing projects adopt the scope fix without re-running `/apd-setup`.
+- **`apd-init` cleans existing pollution** — one-time pass that strips `APD-VERIFY-*` entries from `pipeline-metrics.log` if present.
+
+### Migration
+Run `bash .claude/bin/apd init --quick` on any existing project to:
+1. Refresh reviewer templates with the `.reviewed-files` scope directive
+2. Clean historical APD-VERIFY pollution from metrics log
+
+---
+
 ## v4.7.10 — 2026-04-17
 
 ### Fixed

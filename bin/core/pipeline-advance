@@ -546,7 +546,16 @@ case "$STEP" in
                 IFS=: read -r _prefix ADV_T ADV_A ADV_D < "$PIPELINE_DIR/.adversarial-summary" 2>/dev/null || true
                 ADV_T=${ADV_T:-0}; ADV_A=${ADV_A:-0}; ADV_D=${ADV_D:-0}
             fi
-            echo "${NOW}|${TASK_NAME}|${SPEC_TS_V}|${BUILDER_TS_V}|${REVIEWER_TS_V}|${VERIFIER_TS_V}|${STATUS}|${ADV_T}|${ADV_A}|${ADV_D}" >> "$METRICS_LOG"
+            # Skip metrics write for verify-apd test harness runs (task names APD-VERIFY-*)
+            # These are synthetic pipelines from `apd verify` and pollute real run history.
+            case "$TASK_NAME" in
+                APD-VERIFY-*)
+                    : # skip metrics write
+                    ;;
+                *)
+                    echo "${NOW}|${TASK_NAME}|${SPEC_TS_V}|${BUILDER_TS_V}|${REVIEWER_TS_V}|${VERIFIER_TS_V}|${STATUS}|${ADV_T}|${ADV_A}|${ADV_D}" >> "$METRICS_LOG"
+                    ;;
+            esac
 
             SESSION_LOG="$MEMORY_DIR/session-log.md"
             if [ -f "$SESSION_LOG" ] && [ -n "$TASK_NAME" ]; then
