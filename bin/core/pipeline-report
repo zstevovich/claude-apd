@@ -327,20 +327,38 @@ _render_current() {
         _box_line "  Adversarial:    N/A" "  ${D}Adversarial:${R}    ${D}N/A${R}"
     fi
 
-    # Guard blocks
+    # Guard blocks (with severity breakdown)
     GUARD_BLOCKS=0
     AUDIT_LOG="$MEMORY_DIR/guard-audit.log"
+    local reason_tmp=""
     if [ -f "$AUDIT_LOG" ] && [ "$SPEC_TS" -gt 0 ] 2>/dev/null; then
+        reason_tmp=$(mktemp)
         while IFS='|' read -r log_ts _type _agent _reason _cmd; do
             LOG_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$log_ts" +%s 2>/dev/null || date -d "$log_ts" +%s 2>/dev/null || echo 0)
-            [ "$LOG_EPOCH" -ge "$SPEC_TS" ] 2>/dev/null && GUARD_BLOCKS=$((GUARD_BLOCKS + 1))
+            if [ "$LOG_EPOCH" -ge "$SPEC_TS" ] 2>/dev/null; then
+                GUARD_BLOCKS=$((GUARD_BLOCKS + 1))
+                echo "$_reason" >> "$reason_tmp"
+            fi
         done < "$AUDIT_LOG"
     fi
     if [ "$GUARD_BLOCKS" -gt 0 ]; then
         _box_line "  Guard blocks:   ${GUARD_BLOCKS}" "  ${D}Guard blocks:${R}   ${RED}${GUARD_BLOCKS}${R}"
+        if [ -n "$reason_tmp" ] && [ -s "$reason_tmp" ]; then
+            # Group by reason, sort by count desc
+            sort "$reason_tmp" | uniq -c | sort -rn | while read -r count reason; do
+                local mark="·" mcolor="$D"
+                case "$reason" in
+                    destructive-git|force-push|--no-verify|secret-access|out-of-scope-write|out-of-scope-bash-write|lockfile-write|orchestrator-code-write|mass-staging)
+                        mark="!" mcolor="$Y"
+                        ;;
+                esac
+                _box_line "    ${mark} ${reason} (${count})" "    ${mcolor}${mark}${R} ${D}${reason}${R} ${D}(${count})${R}"
+            done
+        fi
     else
         _box_line "  Guard blocks:   0" "  ${D}Guard blocks:${R}   ${G}0${R}"
     fi
+    [ -n "$reason_tmp" ] && rm -f "$reason_tmp"
 
     # ── Agents ──
     if [ -n "$AGENTS_DATA" ]; then

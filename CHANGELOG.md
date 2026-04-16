@@ -1,5 +1,23 @@
 # Changelog
 
+## v4.7.8 — 2026-04-16
+
+Pipeline report now distinguishes critical guard saves from routine enforcement blocks.
+
+### Changed
+- **`apd report` — guard block breakdown** — the Quality section now lists each triggered guard reason with its count, marked `!` (critical save) or `·` (routine enforcement). Previously reports showed only a total count, which treated `destructive-git (2)` the same as `commit-no-prefix (1)`.
+
+### Critical reasons (`!` yellow)
+`destructive-git`, `force-push`, `--no-verify`, `secret-access`, `out-of-scope-write`, `out-of-scope-bash-write`, `lockfile-write`, `orchestrator-code-write`, `mass-staging` — these would have caused real damage if allowed through.
+
+### Routine reasons (`·` dim)
+`commit-no-prefix`, `push-no-prefix`, `adversarial-before-reviewer`, `pipeline-state-write`, `adversarial-summary-without-dispatch`, `pipeline-incomplete` — framework enforcing ordering/process, not damage prevention.
+
+### Motivation
+Real-world run (BambiProject "Verifikacija emaila #31") fired 3 guard blocks — two were `destructive-git` saves (builder tried `git stash drop`, orchestrator tried `git checkout -- . && git clean -fd` on 22 modified files), one was `orchestrator-code-write`. Previous report showed `Guard blocks: 3` with no indication that the framework had just prevented data loss.
+
+---
+
 ## v4.7.7 — 2026-04-16
 
 Builder effort bumped to `xhigh` for Opus 4.7 / future Sonnet 4.7 coding gains.
