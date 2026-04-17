@@ -1,5 +1,20 @@
 # Changelog
 
+## v4.7.18 — 2026-04-18
+
+Deep audit bundle 5 — docs and nits. Closes out the audit cycle.
+
+### Fixed
+- **L2. `rotate-session-log` inconsistent echo/printf.** Line 72 used `printf '%s\n'`, line 74 used plain `echo` — the latter drops a trailing newline when the final line of kept content has none. Normalized to `printf '%s\n'` in both branches.
+
+### Added
+- **`docs/plans/README.md` + `docs/specs/README.md`** — archival markers explaining that dated planning/design documents reflect the state at time of writing and are not updated as the framework evolves. Points readers to authoritative current sources (CHANGELOG, templates, rules) and flags the specific drifts the audit found (`.claude/.pipeline/` → `.apd/pipeline/` in v4.3.4; `maxTurns` bumped in v4.7.13). Addresses L3 + L4 without editing every historical line — the docs remain as-written for context.
+
+### Not applicable
+- **L1** (`adapter/cc/guard-scope` missing scope paths) was a false positive. The adapter receives scope paths via `"$@"` from the per-agent hook template definition (`bash .../guard-scope {{SCOPE_PATHS}}`), which expands to `src/ tests/`-style positional args at template instantiation. Audit assumed hooks don't forward args — but this adapter is only called from template-generated agent frontmatter, not from `hooks/hooks.json`, so the args path works as designed.
+
+---
+
 ## v4.7.17 — 2026-04-18
 
 Deep audit bundle 4 — medium cleanup. Seven fixes across guards, init, reset, and test harness.

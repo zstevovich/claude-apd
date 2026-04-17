@@ -71,7 +71,7 @@ TMPFILE="$LOG_FILE.tmp"
 if [ -n "$HEADER" ]; then
     printf '%s\n%s\n' "$HEADER" "$KEEP_CONTENT" > "$TMPFILE" && mv "$TMPFILE" "$LOG_FILE"
 else
-    echo "$KEEP_CONTENT" > "$TMPFILE" && mv "$TMPFILE" "$LOG_FILE"
+    printf '%s\n' "$KEEP_CONTENT" > "$TMPFILE" && mv "$TMPFILE" "$LOG_FILE"
 fi
 
 echo "Rotated: $TO_ARCHIVE entries archived, $MAX_ENTRIES kept." >&2
