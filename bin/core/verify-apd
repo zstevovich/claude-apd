@@ -584,13 +584,17 @@ section "8. Pipeline end-to-end test"
 CREATED_BUILDER=false
 CREATED_REVIEWER=false
 CREATED_ADVERSARIAL=false
+# Per-run backup dir (mktemp) — isolates concurrent verify-apd runs from each
+# other and guarantees stale leftovers never restore stale .done files into a
+# live pipeline. Created below only if we actually need to back up state.
+BACKUP_DIR=""
 
 restore_pipeline_state() {
-    if [ "$HAD_EXISTING_PIPELINE" = true ] && [ -d /tmp/apd-verify-backup ]; then
+    if [ "$HAD_EXISTING_PIPELINE" = true ] && [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ]; then
         mkdir -p "$PIPELINE_DIR"
-        cp /tmp/apd-verify-backup/*.done "$PIPELINE_DIR/" 2>/dev/null
-        rm -rf /tmp/apd-verify-backup
+        cp "$BACKUP_DIR"/*.done "$PIPELINE_DIR/" 2>/dev/null
     fi
+    [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ] && rm -rf "$BACKUP_DIR"
     if [ -n "${SESSION_LOG_BACKUP:-}" ] && [ -f "${SESSION_LOG_BACKUP:-}" ]; then
         cp "$SESSION_LOG_BACKUP" "$CLAUDE_DIR/memory/session-log.md"
         rm -f "$SESSION_LOG_BACKUP"
@@ -607,8 +611,8 @@ trap restore_pipeline_state EXIT INT TERM
 HAD_EXISTING_PIPELINE=false
 if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
     HAD_EXISTING_PIPELINE=true
-    mkdir -p /tmp/apd-verify-backup
-    cp "$PIPELINE_DIR"/*.done /tmp/apd-verify-backup/ 2>/dev/null
+    BACKUP_DIR=$(mktemp -d -t apd-verify-backup.XXXXXX)
+    cp "$PIPELINE_DIR"/*.done "$BACKUP_DIR/" 2>/dev/null
 fi
 
 # Save session-log and temporarily remove [fill in] entries
@@ -905,10 +909,11 @@ if [ -f "$CLAUDE_DIR/memory/session-log.md" ]; then
 fi
 
 # Restore previous pipeline state
-if [ "$HAD_EXISTING_PIPELINE" = true ]; then
+if [ "$HAD_EXISTING_PIPELINE" = true ] && [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ]; then
     mkdir -p "$PIPELINE_DIR"
-    cp /tmp/apd-verify-backup/*.done "$PIPELINE_DIR/" 2>/dev/null
-    rm -rf /tmp/apd-verify-backup
+    cp "$BACKUP_DIR"/*.done "$PIPELINE_DIR/" 2>/dev/null
+    rm -rf "$BACKUP_DIR"
+    BACKUP_DIR=""
 fi
 
 # Restore session-log from backup

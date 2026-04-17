@@ -16,19 +16,25 @@ LOCK_DIR="$PIPELINE_DIR/.lock"
 # Clean up legacy lock file (from old flock-based implementation)
 [ -f "$LOCK_DIR" ] && rm -f "$LOCK_DIR"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-    # Check if lock is stale (>5 minutes old)
-    if [ -d "$LOCK_DIR" ]; then
-        LOCK_AGE=0
-        LOCK_MTIME=$(stat -f %m "$LOCK_DIR" 2>/dev/null || stat -c %Y "$LOCK_DIR" 2>/dev/null || echo 0)
-        [ "$LOCK_MTIME" -gt 0 ] 2>/dev/null && LOCK_AGE=$(( $(date +%s) - LOCK_MTIME ))
-        if [ "$LOCK_AGE" -gt 300 ]; then
-            rmdir "$LOCK_DIR" 2>/dev/null
-            mkdir "$LOCK_DIR" 2>/dev/null || true
-        else
-            echo "BLOCKED: Pipeline is locked by another session." >&2
-            echo "  Wait for the other session to finish or: rmdir .apd/pipeline/.lock" >&2
+    # Lock already held. Decide between "stale" (>5 min — reclaim) and "active"
+    # (someone else is running — bail out). The reclaim path must re-check the
+    # mkdir return code so two concurrent stale-detecting processes can't both
+    # think they own the lock.
+    LOCK_AGE=0
+    LOCK_MTIME=$(stat -f %m "$LOCK_DIR" 2>/dev/null || stat -c %Y "$LOCK_DIR" 2>/dev/null || echo 0)
+    [ "$LOCK_MTIME" -gt 0 ] 2>/dev/null && LOCK_AGE=$(( $(date +%s) - LOCK_MTIME ))
+
+    if [ "$LOCK_AGE" -gt 300 ]; then
+        rmdir "$LOCK_DIR" 2>/dev/null
+        if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+            echo "BLOCKED: Pipeline lock reclaimed by another session during stale cleanup." >&2
+            echo "  Retry in a few seconds, or: rmdir .apd/pipeline/.lock" >&2
             exit 1
         fi
+    else
+        echo "BLOCKED: Pipeline is locked by another session." >&2
+        echo "  Wait for the other session to finish or: rmdir .apd/pipeline/.lock" >&2
+        exit 1
     fi
 fi
 # Auto-remove lock on exit
@@ -551,6 +557,14 @@ case "$STEP" in
             if [ -f "$PIPELINE_DIR/.agents" ]; then
                 source "$SCRIPT_DIR/../lib/agents-parse.sh"
                 read -r AGENTS_T AGENTS_X < <(parse_agents_log "$PIPELINE_DIR/.agents")
+                # Archive .agents NOW (before the metrics/session-log writes that
+                # can crash halfway through). The agent log is the richest and
+                # least-reconstructible record of the run — metrics can be
+                # rebuilt from .done files, agent history cannot.
+                case "$TASK_NAME" in
+                    APD-VERIFY-*) : ;; # skip archive for synthetic test runs
+                    *)            cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log" ;;
+                esac
             fi
             # Skip metrics write for verify-apd test harness runs (task names APD-VERIFY-*)
             # These are synthetic pipelines from `apd verify` and pollute real run history.
@@ -704,10 +718,7 @@ EOF
                 echo "Session log updated (auto-summary): $TASK_NAME" >&2
             fi
         fi
-        # Archive agent log before clearing
-        if [ -f "$PIPELINE_DIR/.agents" ]; then
-            cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
-        fi
+        # .agents was already archived above (before metrics write).
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
         rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files"

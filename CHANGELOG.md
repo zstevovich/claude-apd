@@ -1,5 +1,19 @@
 # Changelog
 
+## v4.7.15 — 2026-04-18
+
+Deep audit bundle 2 — lock handling and atomicity fixes.
+
+### Fixed
+- **Stale-lock reclaim race in `pipeline-advance`.** When two processes concurrently detected a stale lock (>5min), both could run `rmdir` + `mkdir` and both thought they owned the lock. The fallback `mkdir` return code is now checked, and a loser bails out with a clear "reclaimed by another session" message.
+- **`verify-apd` backup directory collision.** Backup of live `.done` files went to a fixed `/tmp/apd-verify-backup/`, so concurrent runs or a stale leftover could silently restore wrong state into a live pipeline. Backup now uses `mktemp -d` (per-run unique path) and the cleanup restore clears it explicitly.
+- **`pipeline-advance reset` agent-log atomicity.** The sequence was: parse `.agents` for metrics → write metrics → write session log → archive `.agents`. A crash between metrics write and archive lost the agent log permanently. Archive now happens immediately after parse, before any other write — the least-reconstructible record is safe first.
+
+### Why it matters
+All three issues were invisible under normal operation but guaranteed data loss on specific failure paths: concurrent dispatch (already observed in MEMORY), interrupted verify-apd runs, and Claude-Code timeouts mid-reset. None were reproducible in day-to-day use, hence the need for an audit to find them.
+
+---
+
 ## v4.7.14 — 2026-04-18
 
 Deep audit bundle 1 — three quick-win fixes surfaced by the v4.7.13 framework audit.
