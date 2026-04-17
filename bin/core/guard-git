@@ -47,7 +47,10 @@ if echo "$RAW_COMMAND" | grep -qE '(^| )--no-verify( |$)'; then
 fi
 
 # Block mass staging
-if echo "$NORMALIZED_GIT" | grep -qE "git add[[:space:]]+(\.([[:space:]]|$)|-[AuU]([[:space:]]|$)|--all([[:space:]]|$)|\*)"; then
+# Trailing char class includes `=` so `git add --all=...` also trips; that form
+# isn't accepted by git but we'd rather over-block than let a long-flag-with-
+# equals variant slip past.
+if echo "$NORMALIZED_GIT" | grep -qE "git add[[:space:]]+(\.([[:space:]]|$)|-[AuU]([[:space:]=]|$)|--all([[:space:]=]|$)|\*)"; then
   echo "BLOCKED: git add . / git add -A / git add --all is not allowed." >&2
   echo "Use: git add <file1> <file2> ..." >&2
   log_block "mass-staging"

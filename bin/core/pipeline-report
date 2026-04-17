@@ -336,6 +336,10 @@ _render_current() {
         reason_tmp=$(mktemp)
         while IFS='|' read -r log_ts _type _agent _reason _cmd; do
             LOG_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$log_ts" +%s 2>/dev/null || date -d "$log_ts" +%s 2>/dev/null || echo 0)
+            if [ "$LOG_EPOCH" -eq 0 ] 2>/dev/null && [ -n "$log_ts" ]; then
+                echo "WARN: guard-audit.log timestamp unparseable, skipped: '$log_ts'" >&2
+                continue
+            fi
             if [ "$LOG_EPOCH" -ge "$SPEC_TS" ] 2>/dev/null; then
                 GUARD_BLOCKS=$((GUARD_BLOCKS + 1))
                 echo "$_reason" >> "$reason_tmp"

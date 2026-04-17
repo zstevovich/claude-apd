@@ -77,12 +77,21 @@ validate_agent_entry() {
         return 0
     fi
 
-    # Fallback: basic check if binary not available
+    # Binary not available. The compiled validator is the tamper-proof path;
+    # the bash fallback is trivially satisfied by writing one forged line into
+    # .agents. Fail closed by default. A user on an unsupported platform can
+    # set APD_ALLOW_UNVALIDATED_AGENTS=1 to opt into the weaker bash check.
+    if [ "${APD_ALLOW_UNVALIDATED_AGENTS:-0}" != "1" ]; then
+        echo "  ${MARK_FAIL} validate-agent binary not found for ${os_name}-${arch_name}" >&2
+        echo "  Expected: $validator" >&2
+        echo "  Workaround (weak fallback): APD_ALLOW_UNVALIDATED_AGENTS=1 apd pipeline $STEP" >&2
+        return 1
+    fi
     if ! grep -q "|${look_for_evt}|${agent_name}|" "$log_file" 2>/dev/null; then
         echo "  ${MARK_FAIL} $agent_name: no ${look_for_evt} entry found" >&2
         return 1
     fi
-    # Binary absent: skip verification for backward compat with unsigned .done files
+    echo "  WARN: using unvalidated bash fallback (APD_ALLOW_UNVALIDATED_AGENTS=1)" >&2
     return 0
 }
 
@@ -461,7 +470,17 @@ case "$STEP" in
             ADV_STOP=$(grep "|stop|adversarial-reviewer|" "$AGENTS_LOG" 2>/dev/null | tail -1 | cut -d'|' -f1)
             if [ -n "$ADV_STOP" ] && [ -n "$REVIEWER_TS" ]; then
                 ADV_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$ADV_STOP" +%s 2>/dev/null || date -d "$ADV_STOP" +%s 2>/dev/null || echo 0)
-                if [ "$ADV_EPOCH" -gt 0 ] && [ "$ADV_EPOCH" -lt "$REVIEWER_TS" ] 2>/dev/null; then
+                # Fail-closed: if the timestamp can't be parsed the .agents log is
+                # tampered or format-drifted; the ordering check cannot be trusted,
+                # so block rather than silently skip enforcement.
+                if [ "$ADV_EPOCH" -le 0 ] 2>/dev/null; then
+                    echo "BLOCKED: adversarial-reviewer timestamp unparseable ('$ADV_STOP')." >&2
+                    echo "  .agents log may be corrupted or tampered. Inspect:" >&2
+                    echo "    $PIPELINE_DIR/.agents" >&2
+                    log_block "adversarial-timestamp-unparseable" "adversarial-reviewer"
+                    exit 1
+                fi
+                if [ "$ADV_EPOCH" -lt "$REVIEWER_TS" ] 2>/dev/null; then
                     echo "BLOCKED: Adversarial reviewer ran BEFORE reviewer step completed." >&2
                     echo "" >&2
                     echo "  Pipeline flow: builder → reviewer → fix → adversarial" >&2
@@ -613,6 +632,10 @@ case "$STEP" in
                         BLOCK_REASONS=""
                         while IFS='|' read -r log_ts log_type log_agent log_reason log_cmd; do
                             LOG_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$log_ts" +%s 2>/dev/null || date -d "$log_ts" +%s 2>/dev/null || echo 0)
+                            if [ "$LOG_EPOCH" -eq 0 ] 2>/dev/null && [ -n "$log_ts" ]; then
+                                echo "WARN: guard-audit.log timestamp unparseable, skipped: '$log_ts'" >&2
+                                continue
+                            fi
                             if [ "$LOG_EPOCH" -ge "$SPEC_TS" ] 2>/dev/null; then
                                 BLOCKS=$((BLOCKS + 1))
                                 BLOCK_REASONS="${BLOCK_REASONS}${log_reason}\n"

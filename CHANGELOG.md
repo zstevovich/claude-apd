@@ -1,5 +1,21 @@
 # Changelog
 
+## v4.7.16 — 2026-04-18
+
+Deep audit bundle 3 — security hardening across guards and timestamp parsing.
+
+### Fixed
+- **`guard-scope` path traversal.** `${FILE_PATH#"$PROJECT_DIR"/}` does not normalize paths, so `src/../../escape/foo` could slip past a prefix match on `src/`. Added canonicalization via `realpath` with a `cd + pwd -P` fallback, plus a defensive `..`-substring check that blocks any unresolved traversal even if normalization failed.
+- **Adversarial-ordering check silent skip.** When the `.agents` timestamp couldn't be parsed by either `date -j -f` (BSD) or `date -d` (GNU), `ADV_EPOCH` became 0 and the whole ordering check was bypassed. Now fail-closed: unparseable timestamp → block with `adversarial-timestamp-unparseable` reason.
+- **`guard-audit.log` silent skip.** Same pattern in `pipeline-advance` session-log enrichment and `pipeline-report` guard-blocks count — unparseable log timestamps were silently dropped from the count. Now emit a `WARN: … timestamp unparseable …` line before continuing, so the gap is visible.
+- **`guard-git` mass-staging regex missed `--all=` long-form.** Expanded trailing character class to include `=`, so `git add --all=anything` and `git add -A=anything` also trip the block.
+- **`validate_agent_entry` bash fallback was a single grep.** When the Go binary was missing (unsupported platform, corrupted install), enforcement silently degraded to `grep -q "|evt|name|"` — trivially satisfied by writing one forged line. Now fail-closed by default; users on unsupported platforms can opt in with `APD_ALLOW_UNVALIDATED_AGENTS=1`, which also prints a WARN every run.
+
+### Note
+H6 (`eval` with unsanitized `$ts` in `pipeline-report`) was already eliminated in v4.7.14 when the per-agent duration block was refactored — no longer applicable.
+
+---
+
 ## v4.7.15 — 2026-04-18
 
 Deep audit bundle 2 — lock handling and atomicity fixes.
