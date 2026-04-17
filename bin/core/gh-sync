@@ -74,20 +74,15 @@ _APD Pipeline Task_" \
         ;;
 
     builder|reviewer|verifier)
+        # Side-effect only: add a comment to the GitHub issue. The pipeline
+        # step itself is driven by pipeline-advance, which invokes gh-sync at
+        # the end of each step — calling pipeline-advance back from here would
+        # re-advance the pipeline.
         ISSUE=$(get_issue)
-        case "$STEP" in
-            builder)  COLUMN="In Progress" ;;
-            reviewer) COLUMN="Review" ;;
-            verifier) COLUMN="Testing" ;;
-        esac
-
         if [ -n "$ISSUE" ]; then
             gh issue comment "$ISSUE" --body "Pipeline: **$STEP** completed ($(date +%Y-%m-%d\ %H:%M:%S))" 2>/dev/null
             echo "GitHub issue #$ISSUE: comment added ($STEP)"
         fi
-
-        # Run pipeline step
-        bash "$SCRIPT_DIR/pipeline-advance" "$STEP"
         ;;
 
     done)

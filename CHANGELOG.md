@@ -1,5 +1,19 @@
 # Changelog
 
+## v4.7.14 — 2026-04-18
+
+Deep audit bundle 1 — three quick-win fixes surfaced by the v4.7.13 framework audit.
+
+### Fixed
+- **`pipeline-report` per-agent duration was dead code.** The Agents box compared the event field against `"START"`/`"STOP"` (uppercase) while `track-agent` writes lowercase `start`/`stop`, so durations never materialized. The `eval`-based bash parsing also treated the timestamp as an epoch integer when it is actually a human-readable string. Rewrote to lowercase match + `date -j`/`date -d` epoch conversion + tmp-file start/stop pairing (no `eval`).
+- **`apd report --history` on Linux silently rendered an empty runs list.** The reverse-display used `tail -r || tac`, but `tail -r` is BSD-only and `tac` is GNU-only — fine on macOS, fine on most Linux distros, but the chain could still fail silently on setups missing both. Replaced with portable `awk` reverse.
+- **`gh-sync builder|reviewer|verifier` recursively re-ran the pipeline step.** It added a GitHub comment and then called `pipeline-advance "$STEP"`, but `pipeline-advance` already invokes `gh-sync` at the end of each step — any direct call to `gh-sync builder` double-advanced. Removed the self-referential pipeline-advance call; gh-sync is now strictly side-effects (issue comment).
+
+### Migration
+Zero-effort. The per-agent duration section will now populate in `apd report`; the history list renders correctly on all platforms; any existing automation that used `gh-sync builder` directly no longer double-advances the pipeline.
+
+---
+
 ## v4.7.13 — 2026-04-18
 
 Follow-up to v4.7.12 (maxTurn metric). The metric revealed that default `maxTurns` values baked into templates were the actual cause of silent agent exhaust — builders capped at 20, reviewers at 15, both too tight for realistic tasks.

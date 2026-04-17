@@ -366,21 +366,34 @@ _render_current() {
         _box_sep
         _box_line "  Agents" "  ${V}${B}Agents${R}"
 
-        local agent_tmp
+        # track-agent writes "YYYY-MM-DD HH:MM:SS|start|<type>|<id>" — event is
+        # lowercase, ts is a human-readable string (not epoch). Pair start/stop
+        # by agent_id, convert each ts to epoch, sum durations per agent_type.
+        local agent_tmp starts_tmp
         agent_tmp=$(mktemp)
+        starts_tmp=$(mktemp)
         while IFS='|' read -r ts event agent_type agent_id; do
-            event=$(echo "$event" | tr -d '[:space:]')
-            agent_type=$(echo "$agent_type" | tr -d '[:space:]')
+            event="${event// /}"
+            agent_type="${agent_type// /}"
+            agent_id="${agent_id// /}"
             [ -z "$agent_type" ] && continue
-            local safe_name="${agent_type//[^a-zA-Z0-9_]/_}"
-            if [ "$event" = "START" ]; then
-                eval "_start_${safe_name}=$ts"
-            elif [ "$event" = "STOP" ]; then
-                eval "local start_ts=\${_start_${safe_name}:-0}"
-                if [ "$start_ts" -gt 0 ] 2>/dev/null; then
-                    echo "$agent_type $((ts - start_ts))" >> "$agent_tmp"
-                fi
-            fi
+            ts_epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$ts" +%s 2>/dev/null \
+                     || date -d "$ts" +%s 2>/dev/null \
+                     || echo 0)
+            [ "$ts_epoch" -eq 0 ] 2>/dev/null && continue
+            case "$event" in
+                start)
+                    echo "${agent_id}|${agent_type}|${ts_epoch}" >> "$starts_tmp"
+                    ;;
+                stop)
+                    local start_line start_epoch dur
+                    start_line=$(grep "^${agent_id}|" "$starts_tmp" 2>/dev/null | tail -1)
+                    [ -z "$start_line" ] && continue
+                    start_epoch=$(echo "$start_line" | cut -d'|' -f3)
+                    dur=$((ts_epoch - start_epoch))
+                    [ "$dur" -gt 0 ] && echo "$agent_type $dur" >> "$agent_tmp"
+                    ;;
+            esac
         done <<< "$AGENTS_DATA"
 
         if [ -s "$agent_tmp" ]; then
@@ -391,7 +404,7 @@ _render_current() {
                           "  ${ac}$(printf '%-18s' "$agent")${R} ${D}${dur_str}${R}"
             done
         fi
-        rm -f "$agent_tmp"
+        rm -f "$agent_tmp" "$starts_tmp"
 
         # MaxTurn exhaust: start without matching stop (only meaningful after verifier)
         local at ax
@@ -684,9 +697,10 @@ _render_history() {
     _box_sep
     _box_line "  Runs" "  ${V}${B}Runs${R}"
 
-    # Reverse working dataset for display (newest first)
+    # Reverse working dataset for display (newest first).
+    # Portable across macOS/Linux — tail -r (BSD) and tac (GNU) are not both present.
     local run_display
-    run_display=$(echo "$work_data" | tail -r 2>/dev/null || echo "$work_data" | tac 2>/dev/null)
+    run_display=$(printf '%s\n' "$work_data" | awk '{a[NR]=$0} END {for(i=NR;i>=1;i--) print a[i]}')
 
     while IFS='|' read -r run_ts task_name spec_ts _b _r verifier_ts status adv_t adv_a adv_d agents_t agents_x; do
         [ -z "$run_ts" ] && continue
