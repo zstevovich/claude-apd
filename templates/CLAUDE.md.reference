@@ -166,4 +166,8 @@ After EVERY task → append to .claude/memory/session-log.md
 ❌ Agent writes outside its scope      → ✅ guard-scope blocks
 ❌ git add . / git add -A              → ✅ Explicit per-file staging
 ❌ --no-verify                         → ✅ Hooks must pass
+❌ /ultrareview as APD reviewer step   → ✅ Dispatch Agent({ subagent_type: "code-reviewer" })
+❌ superpowers:code-reviewer           → ✅ APD project reviewer via Agent()
 ```
+
+**Why `/ultrareview` does not count as APD reviewer:** It is a Claude Code skill (not a subagent), so it does not trigger `SubagentStart`/`SubagentStop` hooks. APD's `pipeline-advance reviewer` requires a `code-reviewer` entry in `.apd/pipeline/.agents` — without it the commit gate stays closed. You can still run `/ultrareview` as an extra layer *before* dispatching the APD reviewer, but it cannot replace the APD step.
