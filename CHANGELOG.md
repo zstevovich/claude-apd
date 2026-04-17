@@ -1,5 +1,24 @@
 # Changelog
 
+## v4.7.13 — 2026-04-18
+
+Follow-up to v4.7.12 (maxTurn metric). The metric revealed that default `maxTurns` values baked into templates were the actual cause of silent agent exhaust — builders capped at 20, reviewers at 15, both too tight for realistic tasks.
+
+### Changed
+- **`templates/agent-template.md`** — builder `maxTurns: 20` → `40`
+- **`templates/reviewer-template.md`** — `maxTurns: 15` → `30`
+- **`templates/adversarial-reviewer-template.md`** — `maxTurns: 15` → `30`
+- **`examples/nodejs-react/.claude/agents/*`** — bumped to match new defaults
+- **`skills/apd-setup/SKILL.md`** + **`skills/apd-audit/SKILL.md`** — documented new values
+
+### Auto-migration
+`apd init` (or `/apd-setup` gap analysis) now detects legacy `maxTurns: 20` on builders and `maxTurns: 15` on reviewers, bumps them to the new defaults, and reports `bumped maxTurns 20 → 40`. User-set values (anything other than the exact legacy numbers) are left untouched.
+
+### How to customize
+If you want a different limit on any agent, edit `.claude/agents/<name>.md` directly — the auto-migration only rewrites the exact legacy values.
+
+---
+
 ## v4.7.12 — 2026-04-18
 
 Real-world signal surfaced from BambiProject run #24: agents that exhaust maxTurn never fire `SubagentStop`, so the pipeline looked healthy in `apd report` even when 2/4 agents silently hit the budget wall.

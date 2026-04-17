@@ -4,7 +4,7 @@ description: Reviews code changes for bugs, security issues, edge cases, and cro
 tools: Read, Glob, Grep, Bash
 model: opus
 effort: max
-maxTurns: 15
+maxTurns: 30
 permissionMode: plan
 memory: project
 hooks:

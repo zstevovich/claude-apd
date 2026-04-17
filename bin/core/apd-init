@@ -315,18 +315,35 @@ if [ "$MODE" = "update" ]; then
         fi
     fi
 
-    # --- maxTurns in builder agents ---
+    # --- maxTurns in agents ---
+    # Current targets (v4.7.13): builders 40, reviewers 30. Older projects may
+    # still carry the previous 20/15 defaults which caused silent maxTurn exhaust
+    # in real pipeline runs — bump those on refresh.
     for agent_file in "$CLAUDE_DIR/agents"/*.md; do
         [ -f "$agent_file" ] || continue
         AGENT_NAME=$(basename "$agent_file" .md)
-        [ "$AGENT_NAME" = "code-reviewer" ] && continue
-        [ "$AGENT_NAME" = "adversarial-reviewer" ] && continue
-        if grep -q 'maxTurns' "$agent_file" 2>/dev/null; then
-            ok "$AGENT_NAME: maxTurns set"
+        case "$AGENT_NAME" in
+            code-reviewer|adversarial-reviewer) TARGET=30 ;;
+            *)                                  TARGET=40 ;;
+        esac
+        if grep -q '^maxTurns:' "$agent_file" 2>/dev/null; then
+            CURRENT_MT=$(grep '^maxTurns:' "$agent_file" | head -1 | awk '{print $2}')
+            # Bump only legacy low defaults (20/15) — leave user overrides alone
+            if [ "$CURRENT_MT" = "20" ] && [ "$TARGET" = "40" ]; then
+                sed -i.bak "s/^maxTurns: 20$/maxTurns: 40/" "$agent_file" && rm -f "$agent_file.bak"
+                fix "$AGENT_NAME: bumped maxTurns 20 → 40"
+                FIXES=$((FIXES + 1))
+            elif [ "$CURRENT_MT" = "15" ] && [ "$TARGET" = "30" ]; then
+                sed -i.bak "s/^maxTurns: 15$/maxTurns: 30/" "$agent_file" && rm -f "$agent_file.bak"
+                fix "$AGENT_NAME: bumped maxTurns 15 → 30"
+                FIXES=$((FIXES + 1))
+            else
+                ok "$AGENT_NAME: maxTurns set ($CURRENT_MT)"
+            fi
         else
-            sed -i.bak '/^effort:/a\
-maxTurns: 20' "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
-            fix "$AGENT_NAME: added maxTurns: 20"
+            sed -i.bak "/^effort:/a\\
+maxTurns: $TARGET" "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
+            fix "$AGENT_NAME: added maxTurns: $TARGET"
             FIXES=$((FIXES + 1))
         fi
     done

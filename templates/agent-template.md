@@ -5,7 +5,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
 effort: xhigh
 color: {{AGENT_COLOR}}
-maxTurns: 20
+maxTurns: 40
 permissionMode: bypassPermissions
 memory: project
 # {{SCOPE_PATHS}} — paths this agent is allowed to modify, separated by spaces

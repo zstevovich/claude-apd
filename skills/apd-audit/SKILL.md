@@ -51,7 +51,7 @@ For each agent in `.claude/agents/*.md`:
 - `model:` — builders must be `sonnet`, reviewer must be `opus`
 - `effort:` — builders must be `xhigh`, reviewer must be `max`
 - `color:` — should be set (purple/blue/green/cyan for builders, orange for reviewer)
-- `maxTurns:` — should be set (20 for builders, 15 for reviewer)
+- `maxTurns:` — should be set (40 for builders, 30 for reviewers); legacy 20/15 auto-bumped by `apd init`
 - `permissionMode:` — builders `bypassPermissions`, reviewer `plan`
 - `memory: project` — should be set
 

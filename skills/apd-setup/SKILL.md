@@ -55,7 +55,7 @@ Check whether `.claude/` or `CLAUDE.md` already exists:
 | Check | File | If missing |
 |-------|------|------------|
 | Reviewer agent | `.claude/agents/code-reviewer.md` | Generate from `${CLAUDE_PLUGIN_ROOT}/templates/reviewer-template.md` |
-| Builder maxTurns | `.claude/agents/*.md` frontmatter | Add `maxTurns: 20` to each builder agent |
+| Builder maxTurns | `.claude/agents/*.md` frontmatter | Add `maxTurns: 40` (builders) / `30` (reviewers) — bumps legacy 20/15 defaults |
 | Reviewer model | `code-reviewer.md` frontmatter | Must be `model: opus`, `effort: max`, `permissionMode: plan` |
 | Workflow rules | `.claude/rules/workflow.md` | Copy from `${CLAUDE_PLUGIN_ROOT}/rules/workflow.md` |
 | Principles | `.claude/rules/principles.md` | Generate from template |
@@ -71,7 +71,7 @@ APD gap analysis:
   ✓ CLAUDE.md exists
   ✓ 3 builder agents
   ✗ code-reviewer.md MISSING — will generate (opus/max/read-only)
-  ✗ maxTurns missing in builder agents — will add (20)
+  ✗ maxTurns missing in builder agents — will add (40 builders / 30 reviewers)
   ✓ workflow.md exists
   ✓ verify-all.sh configured
   ✓ Memory files (4/4)
@@ -132,14 +132,14 @@ Generate with sections (ALL populated, NO placeholders):
 #### 4.2 Agents
 
 **Builder agents** — one per domain, from `${CLAUDE_PLUGIN_ROOT}/templates/agent-template.md`:
-- Frontmatter: name, description, tools (Read/Write/Edit/Glob/Grep/Bash), **model: sonnet**, **effort: xhigh**, maxTurns: 20, permissionMode: bypassPermissions
+- Frontmatter: name, description, tools (Read/Write/Edit/Glob/Grep/Bash), **model: sonnet**, **effort: xhigh**, maxTurns: 40, permissionMode: bypassPermissions
 - **color:** assign per role — backend: `purple`, frontend: `blue`, testing: `green`, other: `cyan`
 - Hooks with `${CLAUDE_PLUGIN_ROOT}/bin/core/` paths
 - guard-scope and guard-bash-scope with exact SCOPE_PATHS
 - Body: role, stack, workflow, FORBIDDEN
 
 **Reviewer agent** — ALWAYS generated, from `${CLAUDE_PLUGIN_ROOT}/templates/reviewer-template.md`:
-- Frontmatter: name: code-reviewer, tools (Read/Glob/Grep/Bash — **NO Write/Edit**), **model: opus**, **effort: max**, maxTurns: 15, **permissionMode: plan** (read-only), **color: orange**
+- Frontmatter: name: code-reviewer, tools (Read/Glob/Grep/Bash — **NO Write/Edit**), **model: opus**, **effort: max**, maxTurns: 30, **permissionMode: plan** (read-only), **color: orange**
 - NO guard-scope (reviewer reads everything, writes nothing)
 - Body: review checklist, output format, verdict
 
