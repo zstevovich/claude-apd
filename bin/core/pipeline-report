@@ -12,6 +12,7 @@
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
+source "$(dirname "$0")/../lib/agents-parse.sh"
 
 MODE="${1:-current}"
 HISTORY_LIMIT=0  # 0 = show all
@@ -391,6 +392,16 @@ _render_current() {
             done
         fi
         rm -f "$agent_tmp"
+
+        # MaxTurn exhaust: start without matching stop (only meaningful after verifier)
+        local at ax
+        read -r at ax < <(parse_agents_log "$PIPELINE_DIR/.agents")
+        if [ "$ax" -gt 0 ] 2>/dev/null; then
+            local label="MaxTurn exhaust: ${ax}/${at}"
+            local color="$Y"
+            [ "$VERIFIER_TS" -gt 0 ] 2>/dev/null && color="$RED"
+            _box_line "  ${label}" "  ${color}${label}${R}"
+        fi
     fi
 
     _box_bottom
@@ -402,7 +413,7 @@ _render_current() {
 _render_last_from_metrics() {
     local last_line
     last_line=$(tail -1 "$METRICS_LOG")
-    IFS='|' read -r _ts task_name spec_ts builder_ts reviewer_ts verifier_ts status adv_t adv_a adv_d <<< "$last_line"
+    IFS='|' read -r _ts task_name spec_ts builder_ts reviewer_ts verifier_ts status adv_t adv_a adv_d agents_t agents_x <<< "$last_line"
 
     spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
     builder_ts=$(echo "$builder_ts" | tr -d '[:space:]')
@@ -412,6 +423,8 @@ _render_last_from_metrics() {
     adv_t=$(echo "${adv_t:-0}" | tr -d '[:space:]')
     adv_a=$(echo "${adv_a:-0}" | tr -d '[:space:]')
     adv_d=$(echo "${adv_d:-0}" | tr -d '[:space:]')
+    agents_t=$(echo "${agents_t:-0}" | tr -d '[:space:]')
+    agents_x=$(echo "${agents_x:-0}" | tr -d '[:space:]')
 
     local dur="N/A"
     if [ "$verifier_ts" -gt 0 ] 2>/dev/null && [ "$spec_ts" -gt 0 ] 2>/dev/null; then
@@ -450,15 +463,21 @@ _render_last_from_metrics() {
         fi
     done
 
-    # Adversarial
-    if [ "$adv_t" -gt 0 ] 2>/dev/null; then
+    # Adversarial + MaxTurn
+    if [ "$adv_t" -gt 0 ] 2>/dev/null || [ "$agents_x" -gt 0 ] 2>/dev/null; then
         _box_sep
         _box_line "  Quality" "  ${V}${B}Quality${R}"
-        local hr=$((adv_a * 100 / adv_t))
-        _box_line "  Adversarial:    ${adv_t} findings (${hr}% hit)" \
-                  "  ${D}Adversarial:${R}    ${ORG}${adv_t}${R} findings (${hr}% hit)"
-        _box_line "    accepted: ${adv_a}  dismissed: ${adv_d}" \
-                  "    ${G}accepted: ${adv_a}${R}  ${D}dismissed: ${adv_d}${R}"
+        if [ "$adv_t" -gt 0 ] 2>/dev/null; then
+            local hr=$((adv_a * 100 / adv_t))
+            _box_line "  Adversarial:    ${adv_t} findings (${hr}% hit)" \
+                      "  ${D}Adversarial:${R}    ${ORG}${adv_t}${R} findings (${hr}% hit)"
+            _box_line "    accepted: ${adv_a}  dismissed: ${adv_d}" \
+                      "    ${G}accepted: ${adv_a}${R}  ${D}dismissed: ${adv_d}${R}"
+        fi
+        if [ "$agents_x" -gt 0 ] 2>/dev/null; then
+            _box_line "  MaxTurn exhaust: ${agents_x}/${agents_t} agents" \
+                      "  ${D}MaxTurn exhaust:${R} ${RED}${agents_x}${R}/${agents_t} agents"
+        fi
     fi
 
     _box_bottom
@@ -496,13 +515,24 @@ _render_history() {
     local best_adv_task="" best_adv_count=0
     local worst_adv_task="" worst_adv_rate=101
     local all_durations=""
+    local exhaust_runs=0 exhaust_total_x=0 exhaust_total_t=0 exhaust_tracked=0
 
-    while IFS='|' read -r _ts task_name spec_ts _b _r verifier_ts status adv_t adv_a adv_d; do
+    while IFS='|' read -r _ts task_name spec_ts _b _r verifier_ts status adv_t adv_a adv_d agents_t agents_x; do
         [ -z "$_ts" ] && continue
         verifier_ts=$(echo "$verifier_ts" | tr -d '[:space:]')
         spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
         adv_t=$(echo "${adv_t:-0}" | tr -d '[:space:]')
         adv_a=$(echo "${adv_a:-0}" | tr -d '[:space:]')
+        agents_t=$(echo "${agents_t:-0}" | tr -d '[:space:]')
+        agents_x=$(echo "${agents_x:-0}" | tr -d '[:space:]')
+
+        # MaxTurn exhaust aggregation — only count runs where tracking data is present
+        if [ "$agents_t" -gt 0 ] 2>/dev/null; then
+            exhaust_tracked=$((exhaust_tracked + 1))
+            exhaust_total_t=$((exhaust_total_t + agents_t))
+            exhaust_total_x=$((exhaust_total_x + agents_x))
+            [ "$agents_x" -gt 0 ] 2>/dev/null && exhaust_runs=$((exhaust_runs + 1))
+        fi
 
         if [ "$verifier_ts" -gt 0 ] 2>/dev/null && [ "$spec_ts" -gt 0 ] 2>/dev/null; then
             local d=$((verifier_ts - spec_ts))
@@ -635,6 +665,21 @@ _render_history() {
         fi
     fi
 
+    # MaxTurn exhaust summary
+    if [ "$exhaust_tracked" -gt 0 ]; then
+        _box_sep
+        _box_line "  MaxTurn Exhaust" "  ${V}${B}MaxTurn Exhaust${R}"
+        local xr=0
+        [ "$exhaust_total_t" -gt 0 ] && xr=$((exhaust_total_x * 100 / exhaust_total_t))
+        local xcolor="$GRN"
+        [ "$xr" -gt 10 ] && xcolor="$Y"
+        [ "$xr" -gt 25 ] && xcolor="$RED"
+        _box_line "  Rate: ${xr}% (${exhaust_total_x}/${exhaust_total_t} agents)" \
+                  "  ${D}Rate:${R} ${xcolor}${xr}%${R} (${exhaust_total_x}/${exhaust_total_t} agents)"
+        _box_line "  Runs affected: ${exhaust_runs}/${exhaust_tracked}" \
+                  "  ${D}Runs affected:${R} ${exhaust_runs}/${exhaust_tracked}"
+    fi
+
     # ── Run list (newest first) ──
     _box_sep
     _box_line "  Runs" "  ${V}${B}Runs${R}"
@@ -643,13 +688,14 @@ _render_history() {
     local run_display
     run_display=$(echo "$work_data" | tail -r 2>/dev/null || echo "$work_data" | tac 2>/dev/null)
 
-    while IFS='|' read -r run_ts task_name spec_ts _b _r verifier_ts status adv_t adv_a adv_d; do
+    while IFS='|' read -r run_ts task_name spec_ts _b _r verifier_ts status adv_t adv_a adv_d agents_t agents_x; do
         [ -z "$run_ts" ] && continue
         verifier_ts=$(echo "$verifier_ts" | tr -d '[:space:]')
         spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
         status=$(echo "$status" | tr -d '[:space:]')
         adv_t=$(echo "${adv_t:-0}" | tr -d '[:space:]')
         adv_a=$(echo "${adv_a:-0}" | tr -d '[:space:]')
+        agents_x=$(echo "${agents_x:-0}" | tr -d '[:space:]')
 
         local dur="N/A"
         if [ "$verifier_ts" -gt 0 ] 2>/dev/null && [ "$spec_ts" -gt 0 ] 2>/dev/null; then
@@ -661,12 +707,14 @@ _render_history() {
 
         local adv_info=""
         [ "$adv_t" -gt 0 ] 2>/dev/null && adv_info=" adv:${adv_a}/${adv_t}"
+        local mx_info=""
+        [ "$agents_x" -gt 0 ] 2>/dev/null && mx_info=" mx:${agents_x}"
 
         local tname="$task_name"
         [ ${#tname} -gt 22 ] && tname="${tname:0:19}..."
 
-        _box_line "  x $(printf '%-22s' "$tname") ${dur}${adv_info}" \
-                  "  ${icon} $(printf '%-22s' "$tname") ${D}${dur}${adv_info}${R}"
+        _box_line "  x $(printf '%-22s' "$tname") ${dur}${adv_info}${mx_info}" \
+                  "  ${icon} $(printf '%-22s' "$tname") ${D}${dur}${adv_info}${mx_info}${R}"
     done <<< "$run_display"
 
     _box_bottom
