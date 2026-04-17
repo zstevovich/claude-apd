@@ -1,5 +1,23 @@
 # Changelog
 
+## v4.7.17 — 2026-04-18
+
+Deep audit bundle 4 — medium cleanup. Seven fixes across guards, init, reset, and test harness.
+
+### Fixed
+- **M1. `verify-contracts` file listing broke on spaces.** `for file in $file_list` word-split filenames that contain spaces, silently skipping them. Replaced with NUL-delimited `find -print0 | while read -r -d ''` and inline filtering for `node_modules`/`bin`/`obj`/`.d.ts`.
+- **M2. `apd-init` stale-path migration left `.bak` leaks.** Four consecutive `sed -i.bak` calls on the same file each overwrote the previous `.bak`, and any intermediate failure left the file partially patched. Collapsed into one `sed -i.bak -e … -e … -e … -e …` invocation plus a post-loop `rm -f agents/*.bak` safety net.
+- **M3. `pipeline-post-commit` regex was fragile to whitespace.** Now tolerant of leading whitespace and multiple spaces between the env var prefix and `git commit`, so CC payload formatters that collapse spaces no longer silently skip the post-commit reset.
+- **M4. `verify-apd` session-log cleanup missed `APD-VERIFY-OPT-OUT`.** Only matched `APD-VERIFY-TEST`, so every run leaked one opt-out entry into the permanent log. Now matches any `APD-VERIFY-` prefix (TEST, OPT-OUT, and any future variants).
+- **M6. `guard-bash-scope` whitelist was substring match, not prefix.** An allowed path of `src/` matched `other-project/src/foo` because `"src/"` appears as a substring. Now prefix-match after normalizing leading `./` and `~/`.
+- **M7. `session-start` → `apd-init --quick` timeout risk.** On projects with many agents and legacy frontmatter, the sed loops inside could approach the 5s hook budget on every new session. Cached: re-runs at most once per hour (stored in `.apd/pipeline/.last-init-check`).
+- **M8. Half-done reset left no breadcrumb.** A killed `pipeline-advance reset` released the lock on EXIT but left the pipeline dir in a partial state with no indication. Now marks `.reset-in-progress` at reset start, removes it only on clean completion, and emits a `WARN: previous pipeline reset did not complete cleanly` on the next `pipeline-advance` call so the user can inspect.
+
+### Not applicable
+- **M5** (spec step deletes `implementation-plan.md` without atomic replace) was already fixed in a prior cleanup — spec-step `rm -f` no longer lists `implementation-plan.md`. Audit caught a false positive from an older source snapshot.
+
+---
+
 ## v4.7.16 — 2026-04-18
 
 Deep audit bundle 3 — security hardening across guards and timestamp parsing.

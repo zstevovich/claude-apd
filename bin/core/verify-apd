@@ -892,12 +892,11 @@ fi
 # Cleanup
 bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
 
-# Remove test entry from session-log
+# Remove test entries from session-log. Matches any APD-VERIFY-* task name
+# (TEST, OPT-OUT, and any future variants), not just APD-VERIFY-TEST.
 if [ -f "$CLAUDE_DIR/memory/session-log.md" ]; then
-    # Remove last entry if it's APD-VERIFY-TEST
-    if grep -q "APD-VERIFY-TEST" "$CLAUDE_DIR/memory/session-log.md" 2>/dev/null; then
-        # Find the line where the test entry starts and delete to end
-        FIRST_TEST_LINE=$(grep -n "APD-VERIFY-TEST" "$CLAUDE_DIR/memory/session-log.md" | head -1 | cut -d: -f1)
+    if grep -q "APD-VERIFY-" "$CLAUDE_DIR/memory/session-log.md" 2>/dev/null; then
+        FIRST_TEST_LINE=$(grep -n "APD-VERIFY-" "$CLAUDE_DIR/memory/session-log.md" | head -1 | cut -d: -f1)
         if [ -n "$FIRST_TEST_LINE" ]; then
             # Entry starts 1 line before (## [date]) and we add 1 for the blank line above
             START=$((FIRST_TEST_LINE - 2))

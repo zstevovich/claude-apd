@@ -152,14 +152,22 @@ if [ "$HAS_WRITE_OP" = false ]; then
 fi
 
 # --- Check if paths in the command fall within the allowed scope ---
+# Prefix-match, not substring: an allowed path of `src/` must not match
+# `other-project/src/foo` just because "src/" appears somewhere in the string.
 PATHS_IN_CMD=$(echo "$COMMAND" | grep -oE '([~/./]?[a-zA-Z0-9_./-]{2,})' 2>/dev/null || true)
 
-for allowed in "${ALLOWED_PATHS[@]}"; do
-  allowed="${allowed%/}/"
-  if echo "$PATHS_IN_CMD" | grep -qF "$allowed" 2>/dev/null; then
-    exit 0
-  fi
-done
+while IFS= read -r path; do
+  [ -z "$path" ] && continue
+  # Normalize leading ./ and ~/ so they don't break prefix match.
+  clean="${path#./}"
+  clean="${clean#~/}"
+  for allowed in "${ALLOWED_PATHS[@]}"; do
+    allowed="${allowed%/}/"
+    case "$clean/" in
+      "$allowed"*) exit 0 ;;
+    esac
+  done
+done <<< "$PATHS_IN_CMD"
 
 if [ "$WRITE_TYPE" = "shell" ]; then
   echo "BLOCKED: Bash command writes outside the allowed scope." >&2

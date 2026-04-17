@@ -354,14 +354,23 @@ maxTurns: $TARGET" "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
         AGENT_NAME=$(basename "$agent_file" .md)
         if grep -q 'bin/core/guard-scope\|bin/core/guard-bash-scope\|bin/core/guard-git\|bin/core/guard-secrets' "$agent_file" 2>/dev/null; then
             echo "  ${YELLOW}${B}STALE PATH:${R} $AGENT_NAME references bin/core/ guard paths — updating to bin/adapter/cc/" >&2
-            sed -i.bak 's|bin/core/guard-scope|bin/adapter/cc/guard-scope|g' "$agent_file" && rm -f "${agent_file}.bak"
-            sed -i.bak 's|bin/core/guard-bash-scope|bin/adapter/cc/guard-bash-scope|g' "$agent_file" && rm -f "${agent_file}.bak"
-            sed -i.bak 's|bin/core/guard-git|bin/adapter/cc/guard-git|g' "$agent_file" && rm -f "${agent_file}.bak"
-            sed -i.bak 's|bin/core/guard-secrets|bin/adapter/cc/guard-secrets|g' "$agent_file" && rm -f "${agent_file}.bak"
+            # Single sed invocation with all four substitutions — one .bak to clean up,
+            # atomic per-file (either all four apply or none).
+            sed -i.bak \
+                -e 's|bin/core/guard-scope|bin/adapter/cc/guard-scope|g' \
+                -e 's|bin/core/guard-bash-scope|bin/adapter/cc/guard-bash-scope|g' \
+                -e 's|bin/core/guard-git|bin/adapter/cc/guard-git|g' \
+                -e 's|bin/core/guard-secrets|bin/adapter/cc/guard-secrets|g' \
+                "$agent_file" && rm -f "${agent_file}.bak"
             fix "$AGENT_NAME: updated stale guard paths (core/ → adapter/cc/)"
             FIXES=$((FIXES + 1))
         fi
     done
+
+    # Safety net: any leftover .bak files from interrupted sed runs in this or
+    # a prior apd-init session. sed on macOS requires -i.bak so a partial failure
+    # can leave these; clean them now.
+    rm -f "$CLAUDE_DIR/agents"/*.bak 2>/dev/null || true
 
     # --- workflow.md ---
     if [ -f "$CLAUDE_DIR/rules/workflow.md" ]; then

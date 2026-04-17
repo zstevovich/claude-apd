@@ -33,8 +33,24 @@ source "$(dirname "$0")/../lib/style.sh"
 cd "$PROJECT_DIR" || { _ss_log "EXIT: cd failed"; exit 0; }
 
 # --- Auto gap-analysis on every session start (quick mode, no verify) ---
+# Cached: apd-init --quick runs at most once per hour. With many agents and
+# legacy frontmatter, the sed loops inside can approach the 5s hook timeout —
+# the cache keeps typical session starts well under that.
 if [ -x "$SCRIPT_DIR/apd-init" ]; then
-    bash "$SCRIPT_DIR/apd-init" --quick 2>&1 || _ss_log "WARN: apd-init --quick exited $?"
+    LAST_CHECK_FILE="$PIPELINE_DIR/.last-init-check"
+    RUN_CHECK=true
+    if [ -f "$LAST_CHECK_FILE" ]; then
+        LAST_TS=$(cat "$LAST_CHECK_FILE" 2>/dev/null)
+        NOW_TS=$(date +%s)
+        if [ -n "$LAST_TS" ] && [ $((NOW_TS - LAST_TS)) -lt 3600 ] 2>/dev/null; then
+            RUN_CHECK=false
+        fi
+    fi
+    if [ "$RUN_CHECK" = true ]; then
+        bash "$SCRIPT_DIR/apd-init" --quick 2>&1 || _ss_log "WARN: apd-init --quick exited $?"
+        mkdir -p "$PIPELINE_DIR" 2>/dev/null
+        date +%s > "$LAST_CHECK_FILE" 2>/dev/null || true
+    fi
 fi
 
 # ===== VERSION CHECK =====

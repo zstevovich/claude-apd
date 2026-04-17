@@ -24,8 +24,11 @@ if [ -z "$COMMAND" ]; then
   exit 0
 fi
 
-# Only react to successful APD commits
-if echo "$COMMAND" | grep -qE "^APD_ORCHESTRATOR_COMMIT=1 " && echo "$COMMAND" | grep -qiE "git commit"; then
+# Only react to successful APD commits. The prefix is tolerant of leading
+# whitespace and of multiple spaces between env var and the command, which
+# some hook payload formatters introduce.
+if echo "$COMMAND" | grep -qE "^[[:space:]]*APD_ORCHESTRATOR_COMMIT=1[[:space:]]+" \
+   && echo "$COMMAND" | grep -qiE "git[[:space:]]+commit"; then
   # Check if pipeline exists (it may already be reset)
   if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
     bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1

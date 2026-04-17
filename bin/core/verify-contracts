@@ -47,10 +47,11 @@ extract_ts_types() {
     local dir="$1"
     local types_file=$(mktemp)
 
-    local file_list
-    file_list=$(find "$dir" -name "*.ts" -o -name "*.tsx" 2>/dev/null | grep -v node_modules | grep -v '.d.ts')
-
-    for file in $file_list; do
+    # NUL-delimited filenames — safe on paths containing spaces or newlines.
+    while IFS= read -r -d '' file; do
+        case "$file" in
+            */node_modules/*|*.d.ts) continue ;;
+        esac
         local current_type=""
         local in_block=0
         local brace_count=0
@@ -92,7 +93,7 @@ extract_ts_types() {
                 fi
             fi
         done < "$file"
-    done
+    done < <(find "$dir" \( -name "*.ts" -o -name "*.tsx" \) -print0 2>/dev/null)
 
     echo "$types_file"
 }
@@ -104,10 +105,10 @@ extract_cs_types() {
     local dir="$1"
     local types_file=$(mktemp)
 
-    local file_list
-    file_list=$(find "$dir" -name "*.cs" 2>/dev/null | grep -v bin | grep -v obj)
-
-    for file in $file_list; do
+    while IFS= read -r -d '' file; do
+        case "$file" in
+            */bin/*|*/obj/*) continue ;;
+        esac
         local current_type=""
         local in_block=0
         local brace_count=0
@@ -148,7 +149,7 @@ extract_cs_types() {
                 fi
             fi
         done < "$file"
-    done
+    done < <(find "$dir" -name "*.cs" -print0 2>/dev/null)
 
     echo "$types_file"
 }

@@ -40,6 +40,13 @@ fi
 # Auto-remove lock on exit
 trap 'rmdir "$LOCK_DIR" 2>/dev/null; exit' EXIT INT TERM
 
+# Breadcrumb from a prior killed reset — let the user see it once.
+if [ -f "$PIPELINE_DIR/.reset-in-progress" ]; then
+    echo "WARN: previous pipeline reset did not complete cleanly." >&2
+    echo "  Inspect: ls -la $PIPELINE_DIR" >&2
+    echo "  If the contents look fine, clear: rm $PIPELINE_DIR/.reset-in-progress" >&2
+fi
+
 STEP="$1"
 ARG="$2"
 NOW=$(date +%s)
@@ -548,6 +555,10 @@ case "$STEP" in
         ;;
 
     reset)
+        # Mark reset as in progress so a killed process leaves a breadcrumb the
+        # next `pipeline-advance` call can warn about. The EXIT trap does not
+        # remove this marker — only successful completion does.
+        touch "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
         # Auto-append to session-log before clearing flags
         if [ -f "$PIPELINE_DIR/spec.done" ]; then
             TASK_NAME=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f3 2>/dev/null)
@@ -745,6 +756,8 @@ EOF
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
         rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files"
+        # Reset completed cleanly — drop the in-progress marker.
+        rm -f "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
         echo "Pipeline reset. Ready for new task."
         ;;
 
