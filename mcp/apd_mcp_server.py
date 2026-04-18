@@ -61,7 +61,11 @@ def _run_core(script: str, *args: str, timeout: int = 30) -> dict:
 
 
 def _project_dir() -> Path:
-    """Resolve the active project directory the same way resolve-project.sh does."""
+    """Resolve the active project directory the same way resolve-project.sh does.
+
+    Priority: APD_PROJECT_DIR env → git toplevel (if .claude/ lives there) →
+    walk up from cwd looking for .claude/ or CLAUDE.md → cwd.
+    """
     env = os.environ.get("APD_PROJECT_DIR")
     if env:
         return Path(env)
@@ -76,7 +80,11 @@ def _project_dir() -> Path:
                 return root
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
-    return Path(os.getcwd())
+    cwd = Path(os.getcwd()).resolve()
+    for candidate in [cwd, *cwd.parents]:
+        if (candidate / ".claude").is_dir() or (candidate / "CLAUDE.md").is_file():
+            return candidate
+    return cwd
 
 
 @mcp.tool()
