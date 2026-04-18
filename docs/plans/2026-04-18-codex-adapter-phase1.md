@@ -148,3 +148,49 @@ Phase 1 is done when:
 - Any blocking gaps documented as follow-up tasks for Phase 2
 
 Total estimated scope: ~400 LOC across shims + manifests + 1 config shim in `resolve-project.sh`. One focused session.
+
+---
+
+## 2026-04-18 POC findings (addendum)
+
+**Status after first scaffolding session:** Manifest, hooks.codex.json, and `guard-bash-scope` adapter shim committed on `feature/codex-adapter`. End-to-end smoke test **blocked**.
+
+### What worked
+
+- `.codex-plugin/plugin.json` parsed by Codex 0.121.0 without manifest warnings
+- Plugin cache layout confirmed: `~/.codex/plugins/cache/<marketplace>/<plugin>/<version>/` (requires version subdir — flat structure rejected)
+- Hook schema extracted from `codex app-server generate-ts`: 5 events (`preToolUse`, `postToolUse`, `sessionStart`, `userPromptSubmit`, `stop`), config uses PascalCase matchers, schema matches CC pattern
+- `codex marketplace add <local-dir>` registers marketplace in `~/.codex/config.toml` under `[marketplaces.<name>]`
+- `codex features enable codex_hooks` activates the hook subsystem (confirmed `CodexHooks` in runtime feature list)
+
+### Blocking discovery
+
+**Hooks do not fire in `codex exec` non-interactive mode.** Verified via:
+- Hook probe script wired into `SessionStart` and `PreToolUse` hooks
+- Plugin loaded cleanly (no manifest warnings at any log level)
+- `RUST_LOG=trace` output contains zero hook-loading or hook-firing entries
+- Probe log file never written after multiple runs
+
+Likely root cause: `codex_hooks` is still under-development in 0.121.0, and hook execution is only wired into TUI / app-server code paths, not `codex exec`. This is a Codex limitation, not an APD bug.
+
+### Distribution adjustment
+
+`.agents/plugins/marketplace.json` removed from the repo — the committed structure pointed `path: "./"` which Codex rejects (needs `./plugins/<name>/` subdir). APD can't be its own marketplace root without restructuring. End-user distribution plan:
+
+- **Git-based (target for end users):** `codex marketplace add zstevovich/claude-apd --ref feature/codex-adapter`
+- **Local dev testing:** create scratch marketplace dir with symlinked plugin, e.g. `/tmp/apd-marketplace/plugins/apd -> /path/to/apd-template`
+
+### Revised Phase 1 exit gate
+
+Replace original Task 6 smoke-test criteria with:
+
+- [ ] User manually verifies `SessionStart` hook fires in Codex TUI interactive mode (probe script writes to log)
+- [ ] User manually verifies `PreToolUse` Bash hook fires in TUI (probe script captures command)
+- [ ] If both pass: proceed with Task 7 (tag `v4.8.0-alpha.1`)
+- [ ] If either fails: open issue against Codex; pivot Phase 2 plan — possibly switch APD enforcement surface from hooks to MCP server (`codex mcp-server`)
+
+### Memory written during POC
+
+- `feedback-codex-hooks-exec-mode-blocked.md` — this blocker, what was tested, what's next
+- `reference-codex-hook-schema.md` — authoritative hook event names + hooks.json format from TS schema
+- `project-codex-plugin-structure-verified.md` — plugin layout corrections vs earlier research assumptions
