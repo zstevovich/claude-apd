@@ -221,6 +221,152 @@ def _parse_agent_frontmatter(path: Path) -> dict:
     return result
 
 
+def _read_done(done: Path) -> dict:
+    """Parse a .done file produced by the validator.
+
+    Line 1 is `<epoch>|<human-time>[|<task>]`; line 2 is the HMAC
+    signature (ignored here — verification is pipeline-advance's job).
+    """
+    if not done.is_file():
+        return {"done": False}
+    try:
+        first = done.read_text().splitlines()[0]
+    except OSError:
+        return {"done": False}
+    parts = first.split("|", 2)
+    out = {"done": True}
+    if parts:
+        try:
+            out["ts"] = int(parts[0])
+        except ValueError:
+            out["ts"] = 0
+    if len(parts) > 1:
+        out["time"] = parts[1]
+    if len(parts) > 2:
+        out["task"] = parts[2]
+    return out
+
+
+@mcp.tool()
+def apd_pipeline_state() -> dict:
+    """Return structured pipeline state for the active project.
+
+    Reads `<project>/.apd/pipeline/` and returns a JSON-friendly
+    snapshot the orchestrator can branch on without parsing the text
+    output of `apd_advance_pipeline('status')`.
+
+    Shape:
+      {
+        "ok": True,
+        "project_dir": "...",
+        "pipeline_dir": "...",
+        "steps": {
+          "spec":     {"done": bool, "ts": int, "time": str, "task": str?},
+          "builder":  {"done": bool, "ts": int, "time": str},
+          "reviewer": {"done": bool, "ts": int, "time": str},
+          "verifier": {"done": bool, "ts": int, "time": str}
+        },
+        "spec_card":           {"exists": bool, "criteria_count": int, "hash_frozen": bool},
+        "implementation_plan": {"exists": bool},
+        "adversarial":         {"pending": bool, "total": int, "accepted": int, "dismissed": int} | null,
+        "reviewed_files":      int,
+        "verified_cache":      {"ts": int, "age": int, "fresh": bool} | null,
+        "next_step":           "spec" | "builder" | "reviewer" | "verifier" | "commit" | None
+      }
+    """
+    project = _project_dir()
+    pipeline_dir = project / ".apd" / "pipeline"
+    state: dict = {
+        "ok": True,
+        "project_dir": str(project),
+        "pipeline_dir": str(pipeline_dir),
+        "steps": {},
+        "spec_card": {"exists": False, "criteria_count": 0, "hash_frozen": False},
+        "implementation_plan": {"exists": False},
+        "adversarial": None,
+        "reviewed_files": 0,
+        "verified_cache": None,
+        "next_step": "spec",
+    }
+    if not pipeline_dir.is_dir():
+        return state
+
+    # Step .done files
+    for step in ("spec", "builder", "reviewer", "verifier"):
+        state["steps"][step] = _read_done(pipeline_dir / f"{step}.done")
+
+    # Next step to advance — first step that isn't done; "commit" if all done
+    order = ("spec", "builder", "reviewer", "verifier")
+    nxt: str | None = "commit"
+    for step in order:
+        if not state["steps"][step].get("done"):
+            nxt = step
+            break
+    state["next_step"] = nxt
+
+    # spec-card.md
+    spec_card = pipeline_dir / "spec-card.md"
+    if spec_card.is_file():
+        try:
+            text = spec_card.read_text()
+            # Count R* lines only inside Acceptance criteria section
+            import re
+            ac_match = re.search(r"Acceptance criteria.*?(?=\n\*\*[A-Z]|\Z)", text, re.S)
+            block = ac_match.group(0) if ac_match else text
+            criteria = len(re.findall(r"^\s*-\s+R\d+\s*:", block, re.M))
+        except OSError:
+            criteria = 0
+        state["spec_card"] = {
+            "exists": True,
+            "criteria_count": criteria,
+            "hash_frozen": (pipeline_dir / ".spec-hash").is_file(),
+        }
+
+    # implementation-plan.md
+    if (pipeline_dir / "implementation-plan.md").is_file():
+        state["implementation_plan"] = {"exists": True}
+
+    # Adversarial
+    adv_summary = pipeline_dir / ".adversarial-summary"
+    adv_pending = pipeline_dir / ".adversarial-pending"
+    if adv_summary.is_file():
+        try:
+            line = adv_summary.read_text().strip()
+            parts = line.removeprefix("ADVERSARIAL:").split(":")
+            if len(parts) == 3:
+                state["adversarial"] = {
+                    "pending": False,
+                    "total": int(parts[0]),
+                    "accepted": int(parts[1]),
+                    "dismissed": int(parts[2]),
+                }
+        except (OSError, ValueError):
+            state["adversarial"] = {"pending": False, "total": 0, "accepted": 0, "dismissed": 0}
+    elif adv_pending.is_file():
+        state["adversarial"] = {"pending": True, "total": 0, "accepted": 0, "dismissed": 0}
+
+    # Reviewed files scope captured by the reviewer step
+    reviewed = pipeline_dir / ".reviewed-files"
+    if reviewed.is_file():
+        try:
+            state["reviewed_files"] = sum(1 for _ in reviewed.read_text().splitlines() if _.strip())
+        except OSError:
+            pass
+
+    # Verifier cache timestamp
+    vts = pipeline_dir / "verified.timestamp"
+    if vts.is_file():
+        try:
+            ts = int(vts.read_text().strip())
+            import time as _t
+            age = int(_t.time()) - ts
+            state["verified_cache"] = {"ts": ts, "age": age, "fresh": age < 120}
+        except (OSError, ValueError):
+            pass
+
+    return state
+
+
 @mcp.tool()
 def apd_list_agents() -> dict:
     """List all agent definitions in the active project's registry.

@@ -22,6 +22,7 @@ these tools:
 | `apd_verify_step()` | Run project `.codex/bin/verify-all.sh` (or framework fallback) |
 | `apd_adversarial_pass(total, accepted, dismissed)` | Record adversarial review outcome |
 | `apd_list_agents()` | List every agent definition in `.apd/agents/` with scope, model, maxTurns — call once, cache, pass each role's scope into `apd_guard_write` |
+| `apd_pipeline_state()` | Structured snapshot of the current pipeline: which `.done` files exist, spec-card criteria count + freeze hash, implementation-plan presence, adversarial summary, reviewed-files count, verifier cache age, and the next step to advance |
 
 ## Order of operations for a task
 

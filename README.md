@@ -292,7 +292,7 @@ Allowed paths: src/ tests/
 | `apd cdx doctor` | Runtime-aware audit of the pure-Codex setup |
 | `apd cdx test` | E2E smoke test (~75 checks, runs without Codex CLI) |
 
-Codex uses an MCP server (`mcp/apd_mcp_server.py`) that exposes the pipeline as 7 MCP tools: `apd_ping`, `apd_doctor`, `apd_advance_pipeline`, `apd_guard_write`, `apd_verify_step`, `apd_adversarial_pass`, `apd_list_agents`. The orchestrator on Codex plays all roles inline — there is no sub-agent dispatch like on CC — and scope enforcement happens through `apd_guard_write` (with scopes sourced from `apd_list_agents()`) instead of per-agent hook files.
+Codex uses an MCP server (`mcp/apd_mcp_server.py`) that exposes the pipeline as 8 MCP tools: `apd_ping`, `apd_doctor`, `apd_advance_pipeline`, `apd_guard_write`, `apd_verify_step`, `apd_adversarial_pass`, `apd_list_agents`, `apd_pipeline_state`. The orchestrator on Codex plays all roles inline — there is no sub-agent dispatch like on CC — and scope enforcement happens through `apd_guard_write` (with scopes sourced from `apd_list_agents()`) instead of per-agent hook files.
 
 ## Real-world results
 

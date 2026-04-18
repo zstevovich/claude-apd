@@ -39,6 +39,7 @@ Restart `codex`. The `apd_ping` tool should appear in the model's tool list.
 - `apd_verify_step()` — runs project `.codex/bin/verify-all.sh` if present (or legacy `.claude/bin/verify-all.sh`; otherwise framework `bin/core/verify-all`)
 - `apd_adversarial_pass(total, accepted, dismissed)` — writes `.adversarial-summary` for session log
 - `apd_list_agents()` — returns every agent definition in `.apd/agents/` (or `.claude/agents/` on hybrid) with parsed frontmatter (name, scope, model, maxTurns, readonly)
+- `apd_pipeline_state()` — structured snapshot of the pipeline: step `.done` files with timestamps, spec-card criteria count and freeze state, implementation-plan presence, adversarial summary, reviewed-files count, verifier cache, and the next step to advance
 
 ## Coming later
 

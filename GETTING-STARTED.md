@@ -387,7 +387,7 @@ The flow mirrors Part A's Step 5 exactly, but commands go through MCP tools inst
 | `apd cdx test` | E2E smoke test (no Codex CLI required) |
 | `apd cdx help` | Full help with prerequisites + typical flow |
 
-Via MCP inside a Codex session: `apd_ping`, `apd_doctor`, `apd_advance_pipeline(step, arg?)`, `apd_guard_write(path, allowed_paths)`, `apd_verify_step()`, `apd_adversarial_pass(total, accepted, dismissed)`, `apd_list_agents()`.
+Via MCP inside a Codex session: `apd_ping`, `apd_doctor`, `apd_advance_pipeline(step, arg?)`, `apd_guard_write(path, allowed_paths)`, `apd_verify_step()`, `apd_adversarial_pass(total, accepted, dismissed)`, `apd_list_agents()`, `apd_pipeline_state()`.
 
 ---
 

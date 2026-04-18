@@ -60,7 +60,7 @@ section "1. MCP server"
 _check "apd_mcp_server.py exists" test -f "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
 _check "Python syntax valid" python3 -m py_compile "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
 
-EXPECTED_TOOLS=(apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass apd_list_agents)
+EXPECTED_TOOLS=(apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state)
 for tool in "${EXPECTED_TOOLS[@]}"; do
     _check_file_contains "tool '$tool' registered" "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py" "^def $tool\b"
 done
@@ -913,6 +913,99 @@ else
 fi
 
 rm -rf "$LA"
+
+# -----------------------------------------------------------
+# 20. apd_pipeline_state
+# -----------------------------------------------------------
+section "20. apd_pipeline_state"
+
+if [ ! -x "$VALIDATOR" ]; then
+    warn "validator not available — skipping apd_pipeline_state dynamic test"
+else
+    PS="$(mktemp -d -t apd-ps.XXXXXX)"
+    mkdir -p "$PS/.apd/pipeline" "$PS/.codex"
+    "$VALIDATOR" advance -step spec -task "state-test" -pipeline-dir "$PS/.apd/pipeline" >/dev/null 2>&1
+    "$VALIDATOR" advance -step builder -pipeline-dir "$PS/.apd/pipeline" >/dev/null 2>&1
+    cat > "$PS/.apd/pipeline/spec-card.md" <<'EOF'
+# Test
+**Acceptance criteria:**
+- R1: alpha
+- R2: beta
+- R3: gamma
+EOF
+    echo "plan" > "$PS/.apd/pipeline/implementation-plan.md"
+    echo "spechash" > "$PS/.apd/pipeline/.spec-hash"
+    echo "ADVERSARIAL:4:3:1" > "$PS/.apd/pipeline/.adversarial-summary"
+    printf "src/a\nsrc/b\nsrc/c\n" > "$PS/.apd/pipeline/.reviewed-files"
+
+    HARNESS="$PS/ps_harness.py"
+    cat > "$HARNESS" <<PY
+import json, re, os, subprocess
+from pathlib import Path
+src = Path("$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py").read_text()
+globs = {
+    "Path": Path, "os": os, "subprocess": subprocess, "json": json,
+    "_PROJECT_MARKERS": (".codex", "AGENTS.md", ".claude", "CLAUDE.md"),
+}
+def _ex(fn):
+    m = re.search(r"(^def " + fn + r"\(.*?)(?=^def |^@mcp|\Z)", src, re.M | re.S)
+    return m.group(1) if m else ""
+
+code = "\n".join([_ex(n) for n in ("_read_done", "_is_project_root", "_project_dir")])
+ps = re.search(r"@mcp\.tool\(\)\n(def apd_pipeline_state.*?)(?=\n@mcp|\nclass |\Z)", src, re.S)
+code += "\n" + ps.group(1)
+exec(compile(code, "<ps>", "exec"), globs)
+print(json.dumps(globs["apd_pipeline_state"]()))
+PY
+
+    OUT=$(APD_PROJECT_DIR="$PS" python3 "$HARNESS" 2>&1)
+
+    # Check each expected field
+    if echo "$OUT" | grep -q '"ok": true'; then
+        pass "apd_pipeline_state returns ok=true"
+        PASSES=$((PASSES + 1))
+    else
+        fail "apd_pipeline_state missing ok=true: $OUT"; FAILS=$((FAILS + 1))
+    fi
+    if echo "$OUT" | grep -q '"next_step": "reviewer"'; then
+        pass "next_step correctly identified as 'reviewer'"
+        PASSES=$((PASSES + 1))
+    else
+        fail "wrong next_step: $OUT"; FAILS=$((FAILS + 1))
+    fi
+    if echo "$OUT" | grep -q '"task": "state-test"'; then
+        pass "task name extracted from spec.done"
+        PASSES=$((PASSES + 1))
+    else
+        fail "task name missing: $OUT"; FAILS=$((FAILS + 1))
+    fi
+    if echo "$OUT" | grep -q '"criteria_count": 3'; then
+        pass "spec-card criteria_count = 3"
+        PASSES=$((PASSES + 1))
+    else
+        fail "criteria_count wrong: $OUT"; FAILS=$((FAILS + 1))
+    fi
+    if echo "$OUT" | grep -q '"hash_frozen": true'; then
+        pass "spec-card hash_frozen detected"
+        PASSES=$((PASSES + 1))
+    else
+        fail "hash_frozen missing: $OUT"; FAILS=$((FAILS + 1))
+    fi
+    if echo "$OUT" | grep -q '"total": 4' && echo "$OUT" | grep -q '"accepted": 3' && echo "$OUT" | grep -q '"dismissed": 1'; then
+        pass "adversarial summary parsed (4/3/1)"
+        PASSES=$((PASSES + 1))
+    else
+        fail "adversarial summary wrong: $OUT"; FAILS=$((FAILS + 1))
+    fi
+    if echo "$OUT" | grep -q '"reviewed_files": 3'; then
+        pass "reviewed_files count = 3"
+        PASSES=$((PASSES + 1))
+    else
+        fail "reviewed_files wrong: $OUT"; FAILS=$((FAILS + 1))
+    fi
+
+    rm -rf "$PS"
+fi
 
 # -----------------------------------------------------------
 # Summary
