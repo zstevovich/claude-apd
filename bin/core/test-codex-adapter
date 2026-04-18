@@ -212,9 +212,49 @@ else
 fi
 
 # -----------------------------------------------------------
-# 8. Negative path — apd-init on project WITHOUT .codex/ skips adapter
+# 8. MCP bootstrap creates shortcut automatically on server start
 # -----------------------------------------------------------
-section "8. Negative path"
+section "8. MCP bootstrap shortcut"
+
+BOOT_DIR="$(mktemp -d -t apd-boot.XXXXXX)"
+mkdir -p "$BOOT_DIR/.claude"
+if command -v uv &>/dev/null; then
+    (cd "$BOOT_DIR" && uv run --with mcp python -c "
+import sys; sys.path.insert(0, '$APD_PLUGIN_ROOT/mcp')
+import apd_mcp_server as m
+m._bootstrap_shortcut()
+" >/dev/null 2>&1)
+    if [ -x "$BOOT_DIR/.claude/bin/apd" ]; then
+        pass "bootstrap creates .claude/bin/apd when .claude/ exists"
+        PASSES=$((PASSES + 1))
+    else
+        fail "bootstrap did not create shortcut"
+        FAILS=$((FAILS + 1))
+    fi
+
+    NOCLAUDE="$(mktemp -d -t apd-noclaude.XXXXXX)"
+    (cd "$NOCLAUDE" && uv run --with mcp python -c "
+import sys; sys.path.insert(0, '$APD_PLUGIN_ROOT/mcp')
+import apd_mcp_server as m
+m._bootstrap_shortcut()
+" >/dev/null 2>&1)
+    if [ ! -e "$NOCLAUDE/.claude" ]; then
+        pass "bootstrap skips dirs without .claude/"
+        PASSES=$((PASSES + 1))
+    else
+        fail "bootstrap created .claude/ in a non-APD dir"
+        FAILS=$((FAILS + 1))
+    fi
+    rm -rf "$NOCLAUDE"
+else
+    warn "uv not installed — skipping bootstrap checks"
+fi
+rm -rf "$BOOT_DIR"
+
+# -----------------------------------------------------------
+# 9. Negative path — apd-init on project WITHOUT .codex/ skips adapter
+# -----------------------------------------------------------
+section "9. Negative path"
 
 NEG="$(mktemp -d -t apd-neg.XXXXXX)"
 mkdir -p "$NEG/.claude"
