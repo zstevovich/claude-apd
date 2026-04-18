@@ -30,15 +30,15 @@ args = ["run", "--with", "mcp", "python", "/absolute/path/to/apd-template/mcp/ap
 
 Restart `codex`. The `apd_ping` tool should appear in the model's tool list.
 
-## Tools (Phase 2 walking skeleton)
+## Tools
 
-- `apd_ping` — health check; returns version + plugin root
-- `apd_doctor` — runs `bin/core/pipeline-doctor` and returns output
+- `apd_ping` — health check; returns version, plugin root, project dir
+- `apd_doctor` — runs `bin/core/pipeline-doctor`
+- `apd_advance_pipeline(step, arg="")` — wraps `pipeline-advance spec|builder|reviewer|verifier|init|status|stats|metrics|reset|rollback`
+- `apd_guard_write(file_path, allowed_paths)` — wraps `guard-scope`; exit 2 = BLOCK
+- `apd_verify_step()` — runs project `.claude/bin/verify-all.sh` (or framework `bin/core/verify-all`)
+- `apd_adversarial_pass(total, accepted, dismissed)` — writes `.adversarial-summary` for session log
 
-## Coming in Phase 2
+## Coming later
 
-- `apd_advance_pipeline(from_step, to_step, evidence)`
-- `apd_dispatch_agent(agent_name, task)`
-- `apd_guard_write(path, content_preview)`
-- `apd_adversarial_pass(pipeline_id)`
-- `apd_verify_step(step_name)`
+- `apd_dispatch_agent(agent_name, task)` — depends on Codex agent-dispatch semantics
