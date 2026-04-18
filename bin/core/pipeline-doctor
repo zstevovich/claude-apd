@@ -267,10 +267,12 @@ fi
 # ============================================================
 section "Shortcut"
 
-if [ -f "$CLAUDE_DIR/bin/apd" ]; then
+if [ -f "$PROJECT_DIR/.codex/bin/apd" ]; then
+    pass "apd shortcut exists (.codex/bin/apd)"
+elif [ -f "$CLAUDE_DIR/bin/apd" ]; then
     pass "apd shortcut exists (.claude/bin/apd)"
 else
-    warn "apd shortcut missing — run session-start to create"
+    warn "apd shortcut missing — run session-start (CC) or \`apd cdx init\` (Codex) to create"
 fi
 
 # ============================================================
@@ -292,7 +294,7 @@ done
 for check_file in "$CLAUDE_DIR/rules/workflow.md" "$PROJECT_DIR/CLAUDE.md" "$CLAUDE_DIR/memory/MEMORY.md"; do
     if [ -f "$check_file" ] && grep -qE 'pipeline-advance\.sh|scripts/pipeline-advance|bin/core/pipeline-advance' "$check_file" 2>/dev/null; then
         warn "Stale path reference in $(basename "$check_file")"
-        echo "    ${D}Correct command: bash .claude/bin/apd pipeline <command>${R}"
+        echo "    ${D}Correct command: bash $APD_SHORTCUT_DISPLAY pipeline <command>${R}"
     fi
 done
 

@@ -139,7 +139,7 @@ verify_done() {
             echo "BLOCKED: $result" >&2
             echo "" >&2
             echo "  The ${step}.done file was not created by pipeline-advance." >&2
-            echo "  Use: bash .claude/bin/apd pipeline ${step}" >&2
+            echo "  Use: bash $APD_SHORTCUT_DISPLAY pipeline ${step}" >&2
             log_block "forged-done-file" "${step}.done"
             return 1
         fi
@@ -538,7 +538,7 @@ case "$STEP" in
                 echo "" >&2
                 echo "$VERIFY_OUT" | tail -20 >&2
                 echo "" >&2
-                echo "  Fix the errors and re-run: bash .claude/bin/apd pipeline verifier" >&2
+                echo "  Fix the errors and re-run: bash $APD_SHORTCUT_DISPLAY pipeline verifier" >&2
                 exit 1
             fi
             echo "  ${MARK_PASS} Build + tests passed" >&2
@@ -972,8 +972,10 @@ EOF
             exit 1
         fi
 
-        # Init only allowed if no previous commits with APD (first setup)
-        APD_COMMIT_COUNT=$(git -C "$PROJECT_DIR" log --oneline --all -- .claude/ 2>/dev/null | wc -l | tr -d ' ')
+        # Init only allowed if no previous commits with APD (first setup).
+        # Count commits touching any APD-owned dir — .claude/ for CC,
+        # .codex/ for Codex, .apd/ for runtime-neutral state.
+        APD_COMMIT_COUNT=$(git -C "$PROJECT_DIR" log --oneline --all -- .claude/ .codex/ .apd/ 2>/dev/null | wc -l | tr -d ' ')
         if [ "$APD_COMMIT_COUNT" -gt 2 ] && [ "${APD_FORCE_INIT:-}" != "1" ]; then
             echo "BLOCKED: Init is only for first project setup." >&2
             echo "" >&2
@@ -981,7 +983,7 @@ EOF
             echo "  Use the full pipeline: spec → builder → reviewer → verifier → commit" >&2
             echo "" >&2
             echo "  If this is truly a re-initialization, run:" >&2
-            echo "    APD_FORCE_INIT=1 bash .claude/bin/apd pipeline init \"$ARG\"" >&2
+            echo "    APD_FORCE_INIT=1 bash $APD_SHORTCUT_DISPLAY pipeline init \"$ARG\"" >&2
             exit 1
         fi
 

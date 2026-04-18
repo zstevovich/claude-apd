@@ -68,3 +68,26 @@ else
     APD_CONFIG_FILE=""
     APD_ACTIVE=false
 fi
+
+# --- Shortcut path for user-facing messages ---
+# Prefer the Codex-namespaced shortcut when the project has .codex/, so
+# Codex users see `.codex/bin/apd ...` in help and error messages. Fall
+# back to the CC shortcut, then the absolute plugin entry point.
+if [ -f "$PROJECT_DIR/.codex/bin/apd" ]; then
+    APD_SHORTCUT="$PROJECT_DIR/.codex/bin/apd"
+elif [ -f "$CLAUDE_DIR/bin/apd" ]; then
+    APD_SHORTCUT="$CLAUDE_DIR/bin/apd"
+else
+    APD_SHORTCUT="$APD_PLUGIN_ROOT/bin/apd"
+fi
+
+# Display-friendly path: relative-from-project when shortcut lives inside
+# the project, absolute otherwise. Used in help/error text.
+case "$APD_SHORTCUT" in
+    "$PROJECT_DIR/"*)
+        APD_SHORTCUT_DISPLAY="${APD_SHORTCUT#"$PROJECT_DIR"/}"
+        ;;
+    *)
+        APD_SHORTCUT_DISPLAY="$APD_SHORTCUT"
+        ;;
+esac
