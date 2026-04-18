@@ -43,7 +43,7 @@ if [ ${#MISSING[@]} -gt 0 ] || [ ${#FORGED[@]} -gt 0 ]; then
     done
 
     echo "" >&2
-    echo "    Use: bash .claude/bin/apd pipeline <step>" >&2
+    echo "    Use: bash $APD_SHORTCUT_DISPLAY pipeline <step>" >&2
     exit 2
 fi
 

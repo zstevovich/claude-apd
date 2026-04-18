@@ -37,7 +37,7 @@ case "$REL_PATH" in
                 echo "BLOCKED: Direct write to pipeline state file: $FILENAME" >&2
                 echo "" >&2
                 echo "  Pipeline state is managed by pipeline-advance — do not write directly." >&2
-                echo "  Use: bash .claude/bin/apd pipeline <command>" >&2
+                echo "  Use: bash $APD_SHORTCUT_DISPLAY pipeline <command>" >&2
                 log_block "pipeline-state-direct-write" "$FILENAME"
                 exit 2
                 ;;

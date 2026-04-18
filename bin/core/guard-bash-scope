@@ -70,7 +70,7 @@ for ppath in "${PROTECTED_PIPELINE[@]}"; do
         echo "BLOCKED: Bash write to protected pipeline state directory." >&2
         echo "" >&2
         echo "  Do not write directly to .apd/pipeline/ — use the apd command instead." >&2
-        echo "  Allowed: bash .claude/bin/apd pipeline <command>" >&2
+        echo "  Allowed: bash $APD_SHORTCUT_DISPLAY pipeline <command>" >&2
         log_block "pipeline-state-write" "${COMMAND:0:100}"
         exit 2
       fi

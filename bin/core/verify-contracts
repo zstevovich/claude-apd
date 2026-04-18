@@ -267,7 +267,7 @@ if [ "${1:-}" = "--changed" ]; then
     fi
 
     printf '%s\n' "${YELLOW}Changes detected in type files — run full verification:${NC}"
-    echo "  bash .claude/bin/apd verify-contracts <backend_types_dir> <frontend_types_dir>"
+    echo "  bash $APD_SHORTCUT_DISPLAY verify-contracts <backend_types_dir> <frontend_types_dir>"
     exit 0
 fi
 

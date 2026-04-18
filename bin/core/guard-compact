@@ -34,5 +34,5 @@ done
 
 echo "BLOCKED: Pipeline in progress — compaction would lose context." >&2
 echo "  Task: $TASK (next step: $NEXT_STEP)" >&2
-echo "  Finish the pipeline or run: bash .claude/bin/apd pipeline reset" >&2
+echo "  Finish the pipeline or run: bash $APD_SHORTCUT_DISPLAY pipeline reset" >&2
 exit 2
