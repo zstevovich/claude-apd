@@ -125,11 +125,11 @@ fi
 # ============================================================
 section "Agent Registry"
 
-if [ -d "$CLAUDE_DIR/agents" ]; then
+if [ -d "$APD_AGENTS_DIR" ]; then
     AGENT_COUNT=0
     HAS_REVIEWER=false
     HAS_ADVERSARIAL=false
-    for f in "$CLAUDE_DIR/agents"/*.md; do
+    for f in "$APD_AGENTS_DIR"/*.md; do
         [ -f "$f" ] || continue
         NAME=$(basename "$f" .md)
         MODEL=$(grep -m1 '^model:' "$f" 2>/dev/null | sed 's/model:[[:space:]]*//')
@@ -147,8 +147,8 @@ if [ -d "$CLAUDE_DIR/agents" ]; then
     if [ "$HAS_ADVERSARIAL" = false ]; then
         warn "No adversarial-reviewer agent — run /apd-setup (CC) to create"
     fi
-elif [ -d "$PROJECT_DIR/.codex" ] && [ ! -d "$CLAUDE_DIR" ]; then
-    warn "No agent registry — pure-Codex projects rely on AGENTS.md + MCP apd_guard_write for scope"
+elif [ -d "$PROJECT_DIR/.codex" ] && [ ! -d "$CLAUDE_DIR/agents" ]; then
+    warn "No agent registry — pure-Codex projects rely on AGENTS.md + MCP apd_guard_write for scope (populate .apd/agents/ if you want APD agent-awareness)"
 else
     fail "No agents directory — run /apd-setup (CC) to create"
 fi
@@ -220,7 +220,7 @@ if [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
     ADV_D=$(echo "$ADV_LINE" | cut -d: -f4)
     pass "Summary: $ADV_T findings ($ADV_A accepted, $ADV_D dismissed)"
 else
-    if [ -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ]; then
+    if [ -f "$APD_AGENTS_DIR/adversarial-reviewer.md" ]; then
         if [ -f "$PIPELINE_DIR/reviewer.done" ]; then
             warn "Adversarial reviewer configured but not used this task"
         else
@@ -291,7 +291,7 @@ for old_dir in "$CLAUDE_DIR/scripts.old" "$CLAUDE_DIR/scripts"; do
 done
 
 # Stale pipeline-advance references
-for check_file in "$CLAUDE_DIR/rules/workflow.md" "$PROJECT_DIR/CLAUDE.md" "$CLAUDE_DIR/memory/MEMORY.md"; do
+for check_file in "$APD_RULES_DIR/workflow.md" "$PROJECT_DIR/CLAUDE.md" "$APD_MEMORY_DIR/MEMORY.md"; do
     if [ -f "$check_file" ] && grep -qE 'pipeline-advance\.sh|scripts/pipeline-advance|bin/core/pipeline-advance' "$check_file" 2>/dev/null; then
         warn "Stale path reference in $(basename "$check_file")"
         echo "    ${D}Correct command: bash $APD_SHORTCUT_DISPLAY pipeline <command>${R}"

@@ -289,7 +289,7 @@ EOF
     "$VALIDATOR" advance -step spec -task pc-smoke -pipeline-dir "$PC/.apd/pipeline" >/dev/null 2>&1
     echo "# plan" > "$PC/.apd/pipeline/implementation-plan.md"
 
-    PC_BUILDER_OUT="$(APD_PROJECT_DIR="$PC" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder 2>&1)"
+    PC_BUILDER_OUT="$(APD_PROJECT_DIR="$PC" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder 2>&1)"
     PC_BUILDER_EXIT=$?
 
     if [ "$PC_BUILDER_EXIT" -eq 0 ] && [ -f "$PC/.apd/pipeline/builder.done" ]; then
@@ -313,6 +313,57 @@ EOF
 else
     warn "validator binary not found — skipping pure-Codex pipeline test"
 fi
+
+# -----------------------------------------------------------
+# 11. Framework resolves agents from .apd/agents/ (runtime-neutral)
+# -----------------------------------------------------------
+section "11. Runtime-neutral agent registry"
+
+NT="$(mktemp -d -t apd-nt.XXXXXX)"
+mkdir -p "$NT/.codex" "$NT/.apd/agents"
+cat > "$NT/.apd/config" <<EOF
+PROJECT_NAME=nt
+APD_VERSION=test
+STACK=test
+EOF
+cat > "$NT/.apd/agents/backend-builder.md" <<'EOF'
+---
+name: backend-builder
+model: sonnet
+---
+# SCOPE_PATHS: src/
+EOF
+cat > "$NT/.apd/agents/code-reviewer.md" <<'EOF'
+---
+name: code-reviewer
+model: opus
+---
+# read-only
+EOF
+
+# Probe resolver directly — APD_AGENTS_DIR should point to .apd/agents/ on a
+# project with no .claude/ tree.
+RESOLVED_AGENTS="$(APD_PROJECT_DIR="$NT" bash -c "source $APD_PLUGIN_ROOT/bin/lib/resolve-project.sh; echo \$APD_AGENTS_DIR")"
+EXPECTED_AGENTS="$NT/.apd/agents"
+if [ "$RESOLVED_AGENTS" = "$EXPECTED_AGENTS" ]; then
+    pass "APD_AGENTS_DIR resolves to .apd/agents/ on pure-Codex"
+    PASSES=$((PASSES + 1))
+else
+    fail "APD_AGENTS_DIR expected $EXPECTED_AGENTS, got $RESOLVED_AGENTS"
+    FAILS=$((FAILS + 1))
+fi
+
+# pipeline-doctor should list agents from .apd/agents/
+DOC_OUT="$(APD_PROJECT_DIR="$NT" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-doctor" 2>&1)"
+if echo "$DOC_OUT" | grep -qE "backend-builder.*sonnet"; then
+    pass "pipeline-doctor lists agents from .apd/agents/"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-doctor did not find .apd/agents/backend-builder.md"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$NT"
 
 # -----------------------------------------------------------
 # Summary

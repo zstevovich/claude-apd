@@ -71,9 +71,42 @@ fi
 
 # --- Derived paths ---
 CLAUDE_DIR="$PROJECT_DIR/.claude"
-MEMORY_DIR="$CLAUDE_DIR/memory"
 PIPELINE_DIR="$PROJECT_DIR/.apd/pipeline"
 SCRIPT_DIR="$APD_PLUGIN_ROOT/bin/core"
+
+# --- Runtime-neutral APD directories (v5.0) ---
+# CC-native projects keep content under .claude/<sub> (CC expects it there for
+# its Task tool and @-imports). Pure-Codex projects place content under
+# .apd/<sub>. Resolver picks the CC-native path whenever .claude/ exists so
+# hybrid projects keep working; otherwise it falls back to .apd/<sub>.
+_pick_apd_dir() {
+    local sub="$1" cc_sub="$2"
+    if [ -d "$CLAUDE_DIR/$cc_sub" ]; then
+        printf '%s' "$CLAUDE_DIR/$cc_sub"
+    elif [ -d "$PROJECT_DIR/.apd/$sub" ]; then
+        printf '%s' "$PROJECT_DIR/.apd/$sub"
+    elif [ -d "$CLAUDE_DIR" ]; then
+        # CC project but sub-dir not created yet — stay CC-native for writes
+        printf '%s' "$CLAUDE_DIR/$cc_sub"
+    else
+        # No CC project — default to runtime-neutral
+        printf '%s' "$PROJECT_DIR/.apd/$sub"
+    fi
+}
+
+APD_AGENTS_DIR="$(_pick_apd_dir agents agents)"
+APD_MEMORY_DIR="$(_pick_apd_dir memory memory)"
+APD_RULES_DIR="$(_pick_apd_dir rules rules)"
+
+# Backward-compat alias — some older code still references MEMORY_DIR
+MEMORY_DIR="$APD_MEMORY_DIR"
+
+# Project-level version tag (informational copy of APD version)
+if [ -f "$PROJECT_DIR/.apd/.apd-version" ]; then
+    APD_VERSION_FILE_PROJECT="$PROJECT_DIR/.apd/.apd-version"
+else
+    APD_VERSION_FILE_PROJECT="$CLAUDE_DIR/.apd-version"
+fi
 
 # --- Activation marker ---
 # APD activates on presence of a config file. Two valid locations:

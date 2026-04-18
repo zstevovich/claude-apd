@@ -42,6 +42,18 @@ def _read_version() -> str:
     return "unknown"
 
 
+def _codex_env() -> dict:
+    """Environment overlay that marks the subprocess as Codex-initiated.
+
+    Framework scripts check APD_RUNTIME to decide whether to apply
+    Codex-specific behavior (e.g. skipping sub-agent dispatch checks in
+    pipeline-advance, since Codex has no Task tool).
+    """
+    env = os.environ.copy()
+    env["APD_RUNTIME"] = "codex"
+    return env
+
+
 def _run_core(script: str, *args: str, timeout: int = 30) -> dict:
     """Run a bin/core/* script and return a structured result.
 
@@ -59,6 +71,7 @@ def _run_core(script: str, *args: str, timeout: int = 30) -> dict:
             text=True,
             timeout=timeout,
             cwd=os.getcwd(),
+            env=_codex_env(),
         )
         return {
             "ok": result.returncode == 0,
@@ -189,6 +202,7 @@ def apd_verify_step() -> dict:
             result = subprocess.run(
                 ["bash", str(project_verify)],
                 capture_output=True, text=True, timeout=300, cwd=str(project),
+                env=_codex_env(),
             )
             return {
                 "ok": result.returncode == 0,

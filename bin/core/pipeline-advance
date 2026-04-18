@@ -264,7 +264,7 @@ case "$STEP" in
                     continue
                 fi
                 # Accept project-defined agents (with validation)
-                if [ -f "$CLAUDE_DIR/agents/${agent_type}.md" ]; then
+                if [ -f "$APD_AGENTS_DIR/${agent_type}.md" ]; then
                     if validate_agent_entry "stop" "$agent_type" "$AGENTS_LOG"; then
                         BUILDER_RAN="$agent_type"
                     else
@@ -274,9 +274,10 @@ case "$STEP" in
             done < "$AGENTS_LOG"
         fi
         # Codex runtime has no sub-agent dispatch — the orchestrator IS the
-        # builder. Skip the agent-presence check on pure-Codex projects.
-        # Verifier step still enforces build + tests at the end of the flow.
-        if [ -z "${BUILDER_RAN:-}" ] && [ -d "$PROJECT_DIR/.codex" ] && [ ! -d "$CLAUDE_DIR/agents" ]; then
+        # builder. Skip the agent-presence check when the caller is Codex
+        # (MCP server sets APD_RUNTIME=codex). Verifier step still enforces
+        # build + tests at the end of the flow.
+        if [ -z "${BUILDER_RAN:-}" ] && [ "${APD_RUNTIME:-}" = "codex" ]; then
             BUILDER_RAN="codex-orchestrator"
         fi
         if [ -z "${BUILDER_RAN:-}" ]; then
@@ -299,8 +300,8 @@ case "$STEP" in
             echo "  NEVER use superpowers: or feature-dev: agents — pipeline will BLOCK." >&2
             echo "" >&2
             echo "  Project agents:" >&2
-            if [ -d "$CLAUDE_DIR/agents" ]; then
-                for f in "$CLAUDE_DIR/agents"/*.md; do
+            if [ -d "$APD_AGENTS_DIR" ]; then
+                for f in "$APD_AGENTS_DIR"/*.md; do
                     [ -f "$f" ] || continue
                     echo "    - $(basename "$f" .md)" >&2
                 done
@@ -367,7 +368,7 @@ case "$STEP" in
                     continue
                 fi
                 # Accept reviewer if defined in project (with validation)
-                if [ -f "$CLAUDE_DIR/agents/${agent_type}.md" ] && echo "$agent_type" | grep -qiE 'review'; then
+                if [ -f "$APD_AGENTS_DIR/${agent_type}.md" ] && echo "$agent_type" | grep -qiE 'review'; then
                     if validate_agent_entry "stop" "$agent_type" "$AGENTS_LOG"; then
                         REVIEWER_RAN="$agent_type"
                     else
@@ -377,7 +378,7 @@ case "$STEP" in
             done < "$AGENTS_LOG"
         fi
         # Codex runtime: orchestrator performs the review inline.
-        if [ -z "${REVIEWER_RAN:-}" ] && [ -d "$PROJECT_DIR/.codex" ] && [ ! -d "$CLAUDE_DIR/agents" ]; then
+        if [ -z "${REVIEWER_RAN:-}" ] && [ "${APD_RUNTIME:-}" = "codex" ]; then
             REVIEWER_RAN="codex-orchestrator"
         fi
         if [ -z "${REVIEWER_RAN:-}" ]; then
@@ -420,7 +421,7 @@ case "$STEP" in
         fi
 
         # Mark adversarial review as pending if agent exists
-        if [ -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ]; then
+        if [ -f "$APD_AGENTS_DIR/adversarial-reviewer.md" ]; then
             # Check for opt-out in spec-card — only allowed for small tasks (<=2 criteria)
             ADV_OPT_OUT=false
             if [ -f "$PIPELINE_DIR/spec-card.md" ] && grep -qi '^adversarial:.*skip' "$PIPELINE_DIR/spec-card.md" 2>/dev/null; then

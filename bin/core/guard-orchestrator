@@ -71,8 +71,8 @@ if echo "$REL_PATH" | grep -qE "\.(${CODE_EXT})$"; then
   echo "  Dispatch the appropriate Builder agent instead." >&2
   echo "" >&2
   echo "  Available agents:" >&2
-  if [ -d "$CLAUDE_DIR/agents" ]; then
-    for agent_file in "$CLAUDE_DIR/agents"/*.md; do
+  if [ -d "$APD_AGENTS_DIR" ]; then
+    for agent_file in "$APD_AGENTS_DIR"/*.md; do
       [ -f "$agent_file" ] || continue
       AGENT_NAME=$(basename "$agent_file" .md)
       echo "    - $AGENT_NAME" >&2
