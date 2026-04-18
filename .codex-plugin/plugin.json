@@ -12,7 +12,6 @@
   "license": "MIT",
   "keywords": ["pipeline", "agents", "enforcement", "tdd", "code-review"],
   "skills": "./skills/",
-  "hooks": "./hooks/hooks.codex.json",
   "interface": {
     "displayName": "APD",
     "shortDescription": "Enforced multi-agent pipelines",
