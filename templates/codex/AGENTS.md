@@ -21,6 +21,7 @@ these tools:
 | `apd_guard_write(path, allowed_paths)` | MUST call before every file write — exit 2 = BLOCK |
 | `apd_verify_step()` | Run project `.codex/bin/verify-all.sh` (or framework fallback) |
 | `apd_adversarial_pass(total, accepted, dismissed)` | Record adversarial review outcome |
+| `apd_list_agents()` | List every agent definition in `.apd/agents/` with scope, model, maxTurns — call once, cache, pass each role's scope into `apd_guard_write` |
 
 ## Order of operations for a task
 
@@ -73,6 +74,9 @@ scope:
 ```
 
 Pass that list as `allowed_paths` to `apd_guard_write` before each write.
+The easiest way: call `apd_list_agents()` once at the start of the pipeline,
+index the returned list by `name`, and reuse the cached `scope` for every
+write in that role.
 
 ## Project context
 

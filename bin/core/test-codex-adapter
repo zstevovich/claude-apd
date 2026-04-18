@@ -559,7 +559,7 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-for label in "uv installed" "apd_mcp_server.py present" "all 6 MCP tools registered" "config.toml has \[mcp_servers.apd\]" "hooks.json wires PreToolUse" "AGENTS.md at project root"; do
+for label in "uv installed" "apd_mcp_server.py present" "MCP tools registered" "config.toml has \[mcp_servers.apd\]" "hooks.json wires PreToolUse" "AGENTS.md at project root"; do
     if echo "$DOC_OUT" | grep -qE "$label"; then
         pass "doctor checks '$label'"
         PASSES=$((PASSES + 1))

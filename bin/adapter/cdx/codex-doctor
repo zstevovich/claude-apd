@@ -196,13 +196,16 @@ if [ -f "$MCP_PY" ]; then
     fi
 
     MISSING=""
-    for tool in apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass; do
+    EXPECTED_TOOLS="apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass apd_list_agents"
+    TOOL_COUNT=0
+    for tool in $EXPECTED_TOOLS; do
+        TOOL_COUNT=$((TOOL_COUNT + 1))
         if ! grep -qE "^def $tool\\b" "$MCP_PY"; then
             MISSING="${MISSING}${tool}, "
         fi
     done
     if [ -z "$MISSING" ]; then
-        _ok "all 6 MCP tools registered"
+        _ok "all $TOOL_COUNT MCP tools registered"
     else
         _bad "MCP tools missing: ${MISSING%, }"
     fi

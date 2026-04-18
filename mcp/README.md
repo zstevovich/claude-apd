@@ -38,6 +38,7 @@ Restart `codex`. The `apd_ping` tool should appear in the model's tool list.
 - `apd_guard_write(file_path, allowed_paths)` — wraps `guard-scope`; exit 2 = BLOCK
 - `apd_verify_step()` — runs project `.codex/bin/verify-all.sh` if present (or legacy `.claude/bin/verify-all.sh`; otherwise framework `bin/core/verify-all`)
 - `apd_adversarial_pass(total, accepted, dismissed)` — writes `.adversarial-summary` for session log
+- `apd_list_agents()` — returns every agent definition in `.apd/agents/` (or `.claude/agents/` on hybrid) with parsed frontmatter (name, scope, model, maxTurns, readonly)
 
 ## Coming later
 
