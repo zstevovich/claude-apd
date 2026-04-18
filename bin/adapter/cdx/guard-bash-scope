@@ -1,0 +1,21 @@
+#!/bin/bash
+# Codex adapter shim for guard-bash-scope
+# Reads Codex hook stdin JSON, passes normalized args to core
+#
+# Phase 1 POC: field names assumed CC-compatible (tool_input.command).
+# Verify in real Codex test; adjust if schema differs.
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CORE_DIR="$SCRIPT_DIR/../../core"
+
+if ! command -v jq &>/dev/null; then
+  echo "ERROR: jq is not installed." >&2
+  exit 2
+fi
+
+INPUT=$(cat)
+# Try common field paths; Codex stdin schema not yet authoritatively documented.
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // .toolInput.command // .command // empty' 2>/dev/null)
+
+exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" "$@"
