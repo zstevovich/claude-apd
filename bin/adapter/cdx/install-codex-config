@@ -1,0 +1,58 @@
+#!/bin/bash
+# Codex adapter — install APD entries into <project>/.codex/config.toml
+#
+# Phase 2 helper. Writes [mcp_servers.apd] entry so Codex TUI loads APD's
+# MCP server. Idempotent: if the section already exists, the script leaves
+# it alone. Future Codex variant of `apd init` will absorb this + sandbox
+# profile generation + hooks.json writing.
+#
+# Usage: install-codex-config [project-dir]
+#   project-dir defaults to current working directory
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APD_PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+PROJECT_DIR="${1:-$(pwd)}"
+if [ ! -d "$PROJECT_DIR" ]; then
+    echo "ERROR: project-dir does not exist: $PROJECT_DIR" >&2
+    exit 1
+fi
+
+CODEX_DIR="$PROJECT_DIR/.codex"
+CONFIG_FILE="$CODEX_DIR/config.toml"
+MCP_SERVER="$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
+
+if [ ! -f "$MCP_SERVER" ]; then
+    echo "ERROR: APD MCP server not found at $MCP_SERVER" >&2
+    echo "       plugin root resolved to: $APD_PLUGIN_ROOT" >&2
+    exit 2
+fi
+
+if ! command -v uv &>/dev/null; then
+    echo "ERROR: \`uv\` is not installed. Install with: brew install uv" >&2
+    exit 3
+fi
+
+mkdir -p "$CODEX_DIR"
+
+if [ -f "$CONFIG_FILE" ] && grep -q "^\[mcp_servers\.apd\]" "$CONFIG_FILE"; then
+    echo "APD MCP server already registered in $CONFIG_FILE — no changes."
+    exit 0
+fi
+
+if [ -f "$CONFIG_FILE" ]; then
+    cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
+    echo "Backed up existing config to ${CONFIG_FILE}.bak"
+fi
+
+cat >> "$CONFIG_FILE" <<EOF
+
+[mcp_servers.apd]
+command = "uv"
+args = ["run", "--with", "mcp", "python", "$MCP_SERVER"]
+EOF
+
+echo "Wrote [mcp_servers.apd] to $CONFIG_FILE"
+echo "Next: cd \"$PROJECT_DIR\" && codex    # APD tools should appear in the model's tool list"

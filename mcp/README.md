@@ -12,12 +12,20 @@ uvx --from mcp --with-requirements mcp/requirements.txt python mcp/apd_mcp_serve
 
 ## Wire into Codex
 
-Add to `<repo>/.codex/config.toml`:
+Run the installer helper from your project directory:
+
+```bash
+/path/to/apd-template/bin/adapter/cdx/install-codex-config
+```
+
+This writes `<project>/.codex/config.toml` with the APD MCP entry. Idempotent — safe to re-run. Use `uv run --with mcp` so no system-wide Python changes are needed (`brew install uv` is the only prereq).
+
+Manual alternative (if you prefer):
 
 ```toml
 [mcp_servers.apd]
-command = "python3"
-args = ["/absolute/path/to/apd-template/mcp/apd_mcp_server.py"]
+command = "uv"
+args = ["run", "--with", "mcp", "python", "/absolute/path/to/apd-template/mcp/apd_mcp_server.py"]
 ```
 
 Restart `codex`. The `apd_ping` tool should appear in the model's tool list.
