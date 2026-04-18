@@ -136,7 +136,6 @@ def apd_ping() -> dict:
         "plugin_root": str(APD_PLUGIN_ROOT),
         "project_dir": str(_project_dir()),
         "runtime": "codex",
-        "phase": "2-beta",
     }
 
 
