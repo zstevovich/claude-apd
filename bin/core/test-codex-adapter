@@ -104,12 +104,11 @@ FIRST_EXIT=$?
 [ "$FIRST_EXIT" -eq 0 ] && pass "exit code 0" && PASSES=$((PASSES + 1)) || { fail "exit code was $FIRST_EXIT"; FAILS=$((FAILS + 1)); }
 
 echo "$FIRST_OUT" | grep -q "\[wrote\] \[mcp_servers.apd\]" && pass "wrote MCP block" && PASSES=$((PASSES + 1)) || { fail "did not write MCP block"; FAILS=$((FAILS + 1)); }
-echo "$FIRST_OUT" | grep -q "permissions.apd-backend-builder" && pass "wrote backend-builder profile" && PASSES=$((PASSES + 1)) || { fail "no backend-builder profile"; FAILS=$((FAILS + 1)); }
-echo "$FIRST_OUT" | grep -q "permissions.apd-frontend-builder" && pass "wrote frontend-builder profile" && PASSES=$((PASSES + 1)) || { fail "no frontend-builder profile"; FAILS=$((FAILS + 1)); }
-echo "$FIRST_OUT" | grep -q "code-reviewer — no SCOPE_PATHS declared" && pass "skipped read-only reviewer" && PASSES=$((PASSES + 1)) || { fail "reviewer not correctly skipped"; FAILS=$((FAILS + 1)); }
+echo "$FIRST_OUT" | grep -q "per-agent sandbox profiles skipped" && pass "sandbox profiles deferred (schema pending)" && PASSES=$((PASSES + 1)) || { fail "sandbox skip notice missing"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "PreToolUse Bash hook" && pass "wrote hooks.json" && PASSES=$((PASSES + 1)) || { fail "no hooks.json written"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "\.claude/bin/apd shortcut" && pass "wrote .claude/bin/apd shortcut" && PASSES=$((PASSES + 1)) || { fail "no apd shortcut created"; FAILS=$((FAILS + 1)); }
 _check ".claude/bin/apd is executable" test -x "$SCRATCH/.claude/bin/apd"
+! grep -q "^\[permissions\." "$SCRATCH/.codex/config.toml" && pass "no broken [permissions.*] blocks emitted" && PASSES=$((PASSES + 1)) || { fail "broken permissions blocks present"; FAILS=$((FAILS + 1)); }
 
 # -----------------------------------------------------------
 # 4. Generated file content
@@ -120,8 +119,6 @@ CFG="$SCRATCH/.codex/config.toml"
 HOOKS="$SCRATCH/.codex/hooks.json"
 
 _check_file_contains "config.toml has [mcp_servers.apd]" "$CFG" '^\[mcp_servers\.apd\]'
-_check_file_contains "config.toml has backend-builder perms" "$CFG" '^\[permissions\.apd-backend-builder\]'
-_check_file_contains "config.toml has writable_roots for src/" "$CFG" 'writable_roots.*src/'
 _check_file_contains "hooks.json has PreToolUse" "$HOOKS" 'PreToolUse'
 _check_file_contains "hooks.json routes to guard-bash-scope" "$HOOKS" 'guard-bash-scope'
 

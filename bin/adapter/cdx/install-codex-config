@@ -60,56 +60,15 @@ EOF
 fi
 
 # -----------------------------------------------------------
-# 2. Per-agent sandbox profiles
-#    Reads `# SCOPE_PATHS: ...` comment from each agent .md file,
-#    emits [permissions.apd-<agent>] block with writable_roots.
+# 2. Per-agent sandbox profiles — DISABLED
+#    Codex 0.121.0 rejects `[permissions.<name>]` with
+#    `default`/`filesystem.writable_roots` — the exact TOML schema
+#    is not documented publicly and the runtime Rust schema
+#    (FilesystemPermissionToml) doesn't match our earlier guess.
+#    Leaving this as a placeholder until the schema is pinned down.
+#    Tracker: per-agent sandbox via .apd-config → codex_hooks.
 # -----------------------------------------------------------
-if [ -d "$AGENTS_DIR" ]; then
-    for agent_file in "$AGENTS_DIR"/*.md; do
-        [ -f "$agent_file" ] || continue
-        agent_name=$(basename "$agent_file" .md)
-        profile_marker="[permissions.apd-${agent_name}]"
-
-        scope_line=$(grep -m1 -E '^#[[:space:]]*SCOPE_PATHS[[:space:]]*:' "$agent_file" 2>/dev/null | sed -E 's/^#[[:space:]]*SCOPE_PATHS[[:space:]]*:[[:space:]]*//' || true)
-        if [ -z "$scope_line" ]; then
-            echo "[skip] $agent_name — no SCOPE_PATHS declared"
-            continue
-        fi
-
-        if grep -qF "$profile_marker" "$CONFIG_FILE" 2>/dev/null; then
-            echo "[skip] $profile_marker already present"
-            continue
-        fi
-
-        # Build writable_roots TOML array: ./src ./config → ["./src", "./config"]
-        roots=""
-        for p in $scope_line; do
-            # Prefix with ./ if relative and not already prefixed
-            case "$p" in
-                /*|./*) ;;
-                *) p="./$p" ;;
-            esac
-            if [ -z "$roots" ]; then
-                roots="\"$p\""
-            else
-                roots="$roots, \"$p\""
-            fi
-        done
-
-        cat >> "$CONFIG_FILE" <<EOF
-
-$profile_marker
-default = "workspace-write"
-
-[permissions.apd-${agent_name}.filesystem]
-writable_roots = [$roots]
-EOF
-        echo "[wrote] $profile_marker → writable_roots=[$roots]"
-        CHANGES=$((CHANGES + 1))
-    done
-else
-    echo "[skip] no .claude/agents dir — per-agent sandbox profiles not generated"
-fi
+echo "[info] per-agent sandbox profiles skipped — Codex TOML schema pending"
 
 # -----------------------------------------------------------
 # 3. .claude/bin/apd shortcut — parity with CC session-start
