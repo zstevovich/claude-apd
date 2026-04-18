@@ -126,6 +126,54 @@ else
 fi
 
 # -----------------------------------------------------------
+# 4b. .apd/ scaffold (pure-Codex projects only)
+#     Skipped entirely when .claude/ exists — that project is CC-native
+#     or hybrid and its content already lives under .claude/.
+# -----------------------------------------------------------
+if [ ! -d "$PROJECT_DIR/.claude" ]; then
+    APD_VER="$(tr -d '[:space:]' < "$APD_PLUGIN_ROOT/VERSION" 2>/dev/null)"
+    [ -z "$APD_VER" ] && APD_VER=$(grep '"version"' "$APD_PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+
+    # Workflow rules (orchestrator must follow these)
+    if [ ! -f "$PROJECT_DIR/.apd/rules/workflow.md" ] && [ -f "$APD_PLUGIN_ROOT/rules/workflow.md" ]; then
+        mkdir -p "$PROJECT_DIR/.apd/rules"
+        cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$PROJECT_DIR/.apd/rules/workflow.md"
+        echo "[wrote] .apd/rules/workflow.md"
+        CHANGES=$((CHANGES + 1))
+    fi
+
+    # Memory tree — MEMORY index, status, session-log
+    if [ ! -d "$PROJECT_DIR/.apd/memory" ]; then
+        mkdir -p "$PROJECT_DIR/.apd/memory"
+        for f in MEMORY.md status.md session-log.md; do
+            if [ -f "$APD_PLUGIN_ROOT/templates/memory/$f" ]; then
+                cp "$APD_PLUGIN_ROOT/templates/memory/$f" "$PROJECT_DIR/.apd/memory/$f"
+            else
+                touch "$PROJECT_DIR/.apd/memory/$f"
+            fi
+        done
+        echo "[wrote] .apd/memory/{MEMORY,status,session-log}.md"
+        CHANGES=$((CHANGES + 1))
+    fi
+
+    # Plugin version tag (informational, used by session-start banners)
+    if [ ! -f "$PROJECT_DIR/.apd/.apd-version" ] && [ -n "${APD_VER:-}" ]; then
+        echo "$APD_VER" > "$PROJECT_DIR/.apd/.apd-version"
+        echo "[wrote] .apd/.apd-version ($APD_VER)"
+        CHANGES=$((CHANGES + 1))
+    fi
+
+    # Empty agents/ placeholder so pipeline-doctor resolves to it
+    if [ ! -d "$PROJECT_DIR/.apd/agents" ]; then
+        mkdir -p "$PROJECT_DIR/.apd/agents"
+        echo "[wrote] .apd/agents/ (populate with <name>.md definitions)"
+        CHANGES=$((CHANGES + 1))
+    fi
+else
+    echo "[skip] .claude/ present — treating as CC/hybrid project; .apd/ scaffold not needed"
+fi
+
+# -----------------------------------------------------------
 # 5. Repo-level hooks.json — PreToolUse Bash → guard-bash-scope
 # -----------------------------------------------------------
 if [ -f "$HOOKS_FILE" ] && grep -qF "$GUARD_BASH" "$HOOKS_FILE"; then

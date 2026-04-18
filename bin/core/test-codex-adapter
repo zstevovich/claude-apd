@@ -93,6 +93,12 @@ _check ".codex/bin/apd is executable" test -x "$SCRATCH/.codex/bin/apd"
 echo "$FIRST_OUT" | grep -q "\.apd/config seed" && pass "seeded .apd/config (pure-Codex activation)" && PASSES=$((PASSES + 1)) || { fail "no .apd/config seed emitted"; FAILS=$((FAILS + 1)); }
 _check ".apd/config exists" test -f "$SCRATCH/.apd/config"
 _check "did NOT create .claude/ anywhere" test ! -e "$SCRATCH/.claude"
+_check ".apd/rules/workflow.md scaffolded" test -f "$SCRATCH/.apd/rules/workflow.md"
+_check ".apd/memory/MEMORY.md scaffolded" test -f "$SCRATCH/.apd/memory/MEMORY.md"
+_check ".apd/memory/status.md scaffolded" test -f "$SCRATCH/.apd/memory/status.md"
+_check ".apd/memory/session-log.md scaffolded" test -f "$SCRATCH/.apd/memory/session-log.md"
+_check ".apd/agents/ scaffolded" test -d "$SCRATCH/.apd/agents"
+_check ".apd/.apd-version scaffolded" test -f "$SCRATCH/.apd/.apd-version"
 ! grep -q "^\[permissions\." "$SCRATCH/.codex/config.toml" && pass "no broken [permissions.*] blocks emitted" && PASSES=$((PASSES + 1)) || { fail "broken permissions blocks present"; FAILS=$((FAILS + 1)); }
 
 # -----------------------------------------------------------
@@ -364,6 +370,49 @@ else
 fi
 
 rm -rf "$NT"
+
+# -----------------------------------------------------------
+# 12. Hybrid project: scaffold SKIPPED when .claude/ exists
+# -----------------------------------------------------------
+section "12. Hybrid: no .apd/ scaffold leak"
+
+HY="$(mktemp -d -t apd-hy.XXXXXX)"
+mkdir -p "$HY/.codex" "$HY/.claude/memory" "$HY/.claude/rules" "$HY/.claude/agents"
+# Simulate CC project with its own memory and rules already populated
+echo "# CC memory" > "$HY/.claude/memory/MEMORY.md"
+echo "# CC workflow" > "$HY/.claude/rules/workflow.md"
+echo "PROJECT_NAME=hy" > "$HY/.claude/.apd-config"
+
+HY_OUT="$(bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$HY" 2>&1)"
+
+if echo "$HY_OUT" | grep -q "\.claude/ present — treating as CC/hybrid"; then
+    pass "installer recognized hybrid project and skipped .apd/ scaffold"
+    PASSES=$((PASSES + 1))
+else
+    fail "installer did not print hybrid-skip notice"
+    FAILS=$((FAILS + 1))
+fi
+
+if [ ! -d "$HY/.apd/rules" ] && [ ! -d "$HY/.apd/memory" ] && [ ! -d "$HY/.apd/agents" ]; then
+    pass "no .apd/rules/ .apd/memory/ .apd/agents/ created on hybrid"
+    PASSES=$((PASSES + 1))
+else
+    fail "scaffold leaked .apd/ dirs on a hybrid project"
+    FAILS=$((FAILS + 1))
+fi
+
+# .apd/config still gets seeded (needed for activation even on hybrid that
+# hasn't migrated) — but only if .claude/.apd-config doesn't exist. This
+# hybrid has the legacy config, so .apd/config should NOT be created.
+if [ ! -f "$HY/.apd/config" ]; then
+    pass "hybrid with legacy .claude/.apd-config did not also get .apd/config"
+    PASSES=$((PASSES + 1))
+else
+    fail "scaffold wrote .apd/config despite legacy CC config being present"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$HY"
 
 # -----------------------------------------------------------
 # Summary
