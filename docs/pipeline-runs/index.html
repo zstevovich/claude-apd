@@ -593,6 +593,7 @@ const runs = [
   { id: 21, name: "TinyMCE \u2192 TipTap", date: "2026-04-15", stack: "glm", duration: 1033, spec: "7/7", blocks: 52, adversarial: "10 (3/7)", advType: "real", note: "GLM-5 model \u2014 first non-Anthropic run, 52 guard blocks, completed full pipeline", ver: "GLM-5" },
   { id: 22, name: "Email templates \u2014 integration", date: "2026-04-16", stack: "net", duration: 1443, spec: "6/6", blocks: 3, adversarial: "6 (0/6)", advType: "real", note: "Builder #1 burned maxTurns without implementing \u2014 required 2 retries; parallel reviewer+adversarial dispatch caught" },
   { id: 23, name: "Email verification at registration", date: "2026-04-16", stack: "net", duration: 1645, spec: "7/7", blocks: 1, adversarial: "7 (0/7)", advType: "real", note: "Chaotic run \u2014 destructive-git blocked git checkout -- . && git clean -fd on 22 modified files; framework saved the work, pipeline still completed", ver: "v4.7.8" },
+  { id: 24, name: "Dark mode: OTP bubble as CID attachment", date: "2026-04-18", stack: "net", duration: 1573, spec: "5/5", blocks: 1, adversarial: "5 (0/5)", advType: "real", note: "Complex feature: 13 files (OtpImageGenerator + EmailAttachment + PostmarkTransport + Scriban template wiring). code-reviewer hit maxTurn 45 \u2014 orchestrator WebFetch\u2019ed Postmark API docs to verify a HIGH finding on ContentId format, dismissed as hallucinated. Pattern captured as v4.7.20 workflow rule \u2018evidence-based dismissal\u2019.", ver: "v4.7.13" },
 ];
 
 // --- Render table using DOM methods ---
