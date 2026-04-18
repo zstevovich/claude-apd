@@ -66,32 +66,14 @@ for tool in "${EXPECTED_TOOLS[@]}"; do
 done
 
 # -----------------------------------------------------------
-# 2. Scaffold a scratch project
+# 2. Scaffold a PURE-CODEX scratch project (no .claude/)
 # -----------------------------------------------------------
-section "2. Scratch project scaffold"
+section "2. Scratch project scaffold (pure Codex)"
 
-mkdir -p "$SCRATCH/.claude/agents" "$SCRATCH/.codex"
-cat > "$SCRATCH/.claude/agents/backend-builder.md" <<'EOF'
----
-name: backend-builder
----
-# SCOPE_PATHS: src/ config/
-EOF
-cat > "$SCRATCH/.claude/agents/frontend-builder.md" <<'EOF'
----
-name: frontend-builder
----
-# SCOPE_PATHS: assets/ templates/
-EOF
-cat > "$SCRATCH/.claude/agents/code-reviewer.md" <<'EOF'
----
-name: code-reviewer
----
-# read-only agent, no SCOPE_PATHS
-EOF
+mkdir -p "$SCRATCH/.codex"
 
-_check "scratch dir has .claude/agents" test -d "$SCRATCH/.claude/agents"
 _check "scratch dir has .codex" test -d "$SCRATCH/.codex"
+_check "scratch dir has NO .claude/" test ! -e "$SCRATCH/.claude"
 
 # -----------------------------------------------------------
 # 3. First install-codex-config run — writes everything
@@ -108,7 +90,9 @@ echo "$FIRST_OUT" | grep -q "per-agent sandbox profiles skipped" && pass "sandbo
 echo "$FIRST_OUT" | grep -q "PreToolUse Bash hook" && pass "wrote hooks.json" && PASSES=$((PASSES + 1)) || { fail "no hooks.json written"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "\.codex/bin/apd shortcut" && pass "wrote .codex/bin/apd shortcut" && PASSES=$((PASSES + 1)) || { fail "no apd shortcut created"; FAILS=$((FAILS + 1)); }
 _check ".codex/bin/apd is executable" test -x "$SCRATCH/.codex/bin/apd"
-_check "did NOT write .claude/bin/apd" test ! -e "$SCRATCH/.claude/bin/apd"
+echo "$FIRST_OUT" | grep -q "\.apd/config seed" && pass "seeded .apd/config (pure-Codex activation)" && PASSES=$((PASSES + 1)) || { fail "no .apd/config seed emitted"; FAILS=$((FAILS + 1)); }
+_check ".apd/config exists" test -f "$SCRATCH/.apd/config"
+_check "did NOT create .claude/ anywhere" test ! -e "$SCRATCH/.claude"
 ! grep -q "^\[permissions\." "$SCRATCH/.codex/config.toml" && pass "no broken [permissions.*] blocks emitted" && PASSES=$((PASSES + 1)) || { fail "broken permissions blocks present"; FAILS=$((FAILS + 1)); }
 
 # -----------------------------------------------------------
@@ -122,6 +106,7 @@ HOOKS="$SCRATCH/.codex/hooks.json"
 _check_file_contains "config.toml has [mcp_servers.apd]" "$CFG" '^\[mcp_servers\.apd\]'
 _check_file_contains "hooks.json has PreToolUse" "$HOOKS" 'PreToolUse'
 _check_file_contains "hooks.json routes to guard-bash-scope" "$HOOKS" 'guard-bash-scope'
+_check_file_contains ".apd/config has PROJECT_NAME" "$SCRATCH/.apd/config" '^PROJECT_NAME='
 
 if command -v python3 &>/dev/null; then
     _check "TOML parses cleanly" python3 -c "import tomllib; tomllib.load(open('$CFG','rb'))"
@@ -158,6 +143,8 @@ fi
 # -----------------------------------------------------------
 section "6. guard-scope enforcement"
 
+# APD activation relies on .apd/config, which the installer seeded above.
+# No need to touch .claude/ for a pure-Codex project.
 if (cd "$SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/guard-scope" --file-path "src/foo.ts" "src/" >/dev/null 2>&1); then
     pass "ALLOW: src/foo.ts with allowed=src/"
     PASSES=$((PASSES + 1))
@@ -165,13 +152,6 @@ else
     fail "src/foo.ts should have been allowed"
     FAILS=$((FAILS + 1))
 fi
-
-# APD is dormant if no .apd-config file exists. Add stub so guard runs.
-cat > "$SCRATCH/.claude/.apd-config" <<EOF
-PROJECT_NAME=smoke
-APD_VERSION=test
-STACK=test
-EOF
 
 (cd "$SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/guard-scope" --file-path "/tmp/escape.ts" "src/" >/dev/null 2>&1)
 case $? in
@@ -265,8 +245,8 @@ rm -rf "$BOOT_DIR"
 section "9. Negative path"
 
 NEG="$(mktemp -d -t apd-neg.XXXXXX)"
-mkdir -p "$NEG/.claude"
-cat > "$NEG/.claude/.apd-config" <<EOF
+mkdir -p "$NEG/.apd"
+cat > "$NEG/.apd/config" <<EOF
 PROJECT_NAME=neg
 APD_VERSION=test
 STACK=test

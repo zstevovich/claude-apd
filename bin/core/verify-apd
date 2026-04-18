@@ -44,17 +44,16 @@ else
     exit 1
 fi
 
-# .apd-config
-APD_CONFIG="$CLAUDE_DIR/.apd-config"
-if [ -f "$APD_CONFIG" ]; then
-    if grep -q '^PROJECT_NAME=' "$APD_CONFIG" 2>/dev/null; then
-        pass ".apd-config exists and has PROJECT_NAME"
-        SUM_PROJECT=$(grep '^PROJECT_NAME=' "$APD_CONFIG" 2>/dev/null | cut -d= -f2-)
+# APD config file (either .apd/config or legacy .claude/.apd-config)
+if [ -n "$APD_CONFIG_FILE" ] && [ -f "$APD_CONFIG_FILE" ]; then
+    if grep -q '^PROJECT_NAME=' "$APD_CONFIG_FILE" 2>/dev/null; then
+        pass "APD config ($APD_CONFIG_FILE) exists and has PROJECT_NAME"
+        SUM_PROJECT=$(grep '^PROJECT_NAME=' "$APD_CONFIG_FILE" 2>/dev/null | cut -d= -f2-)
     else
-        fail ".apd-config exists but has no PROJECT_NAME"
+        fail "APD config ($APD_CONFIG_FILE) exists but has no PROJECT_NAME"
     fi
 else
-    warn ".apd-config DOES NOT EXIST — created during /apd-setup"
+    warn "APD config DOES NOT EXIST (.apd/config or .claude/.apd-config) — created during /apd-setup"
 fi
 
 # .apd-version
@@ -331,11 +330,11 @@ if [ "$ALL_CLEAN" = true ]; then
     pass "All placeholders replaced"
 fi
 
-# .apd-config and .apd-version existence
-if [ -f "$CLAUDE_DIR/.apd-config" ]; then
-    pass ".apd-config exists"
+# APD config existence
+if [ -n "$APD_CONFIG_FILE" ] && [ -f "$APD_CONFIG_FILE" ]; then
+    pass "APD config exists ($APD_CONFIG_FILE)"
 else
-    fail ".apd-config DOES NOT EXIST — created during /apd-setup"
+    fail "APD config DOES NOT EXIST (.apd/config or .claude/.apd-config) — created during /apd-setup"
 fi
 
 if [ -f "$APD_PLUGIN_ROOT/.apd-version" ]; then

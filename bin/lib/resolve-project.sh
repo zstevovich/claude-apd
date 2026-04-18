@@ -52,11 +52,19 @@ MEMORY_DIR="$CLAUDE_DIR/memory"
 PIPELINE_DIR="$PROJECT_DIR/.apd/pipeline"
 SCRIPT_DIR="$APD_PLUGIN_ROOT/bin/core"
 
-# --- Activation check ---
-# APD is dormant unless .apd-config exists (created by /apd-setup)
-# Scripts source this file and check APD_ACTIVE before doing work
-if [ -f "$CLAUDE_DIR/.apd-config" ]; then
+# --- Activation marker ---
+# APD activates on presence of a config file. Two valid locations:
+#   1. $PROJECT_DIR/.apd/config       — runtime-neutral (Codex & hybrid projects)
+#   2. $CLAUDE_DIR/.apd-config        — legacy CC-native path
+# Pure-Codex projects never need to create .claude/; the neutral path is
+# checked first so new installs can stay out of the Claude namespace.
+if [ -f "$PROJECT_DIR/.apd/config" ]; then
+    APD_CONFIG_FILE="$PROJECT_DIR/.apd/config"
+    APD_ACTIVE=true
+elif [ -f "$CLAUDE_DIR/.apd-config" ]; then
+    APD_CONFIG_FILE="$CLAUDE_DIR/.apd-config"
     APD_ACTIVE=true
 else
+    APD_CONFIG_FILE=""
     APD_ACTIVE=false
 fi

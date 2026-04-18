@@ -40,9 +40,9 @@ case "$REL_PATH" in
     ;;
 esac
 
-# Determine code extensions based on stack (from userConfig or .apd-config)
+# Determine code extensions based on stack (from userConfig or APD config)
 STACK="${CLAUDE_PLUGIN_OPTION_STACK:-}"
-[ -z "$STACK" ] && STACK=$(grep '^STACK=' "$CLAUDE_DIR/.apd-config" 2>/dev/null | cut -d= -f2-)
+[ -z "$STACK" ] && [ -n "$APD_CONFIG_FILE" ] && STACK=$(grep '^STACK=' "$APD_CONFIG_FILE" 2>/dev/null | cut -d= -f2-)
 
 case "${STACK:-}" in
   php)

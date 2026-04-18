@@ -34,8 +34,14 @@ Generate project-specific files that the script cannot create (they require anal
 | `.claude/memory/session-log.md` | Session log (empty) |
 | `.claude/memory/pipeline-skip-log.md` | Skip log (empty) |
 | `.claude/settings.json` | Minimal hooks (Notification) + env + attribution |
-| `.claude/.apd-config` | PROJECT_NAME, APD_VERSION, STACK |
+| `.claude/.apd-config` | PROJECT_NAME, APD_VERSION, STACK (CC-native activation marker) |
 | `.claude/.apd-version` | APD plugin version |
+
+> **Dual activation paths.** APD recognizes two locations for the config file:
+> - `.claude/.apd-config` — CC-native (what this skill generates; used on all CC-enabled projects)
+> - `.apd/config` — runtime-neutral, used on pure-Codex projects that never create `.claude/` (auto-seeded by `apd cdx init`)
+>
+> The framework reads either; write to whichever matches the host runtime. Hybrid projects work with either.
 
 ## What does NOT get generated (lives in the plugin)
 

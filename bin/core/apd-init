@@ -37,11 +37,11 @@ echo ""
 # ===========================================================
 # DETECT MODE
 # ===========================================================
-if [ -f "$CLAUDE_DIR/.apd-config" ]; then
+if [ -n "$APD_CONFIG_FILE" ] && [ -f "$APD_CONFIG_FILE" ]; then
     MODE="update"
-    echo "  Mode: ${B}Update${R} (existing APD project)"
-    PROJECT_NAME=$(grep '^PROJECT_NAME=' "$CLAUDE_DIR/.apd-config" 2>/dev/null | cut -d= -f2-)
-    STACK=$(grep '^STACK=' "$CLAUDE_DIR/.apd-config" 2>/dev/null | cut -d= -f2-)
+    echo "  Mode: ${B}Update${R} (existing APD project at $APD_CONFIG_FILE)"
+    PROJECT_NAME=$(grep '^PROJECT_NAME=' "$APD_CONFIG_FILE" 2>/dev/null | cut -d= -f2-)
+    STACK=$(grep '^STACK=' "$APD_CONFIG_FILE" 2>/dev/null | cut -d= -f2-)
 else
     MODE="new"
     echo "  Mode: ${B}New project${R}"

@@ -103,7 +103,29 @@ EOF
 fi
 
 # -----------------------------------------------------------
-# 4. Repo-level hooks.json — PreToolUse Bash → guard-bash-scope
+# 4. .apd/config seed (pure-Codex activation marker)
+#    Only seed if neither the neutral .apd/config nor the legacy
+#    CC .claude/.apd-config exists. Ensures a Codex-only user never
+#    has to create anything under .claude/ to activate APD.
+# -----------------------------------------------------------
+APD_CONFIG_NEUTRAL="$PROJECT_DIR/.apd/config"
+APD_CONFIG_LEGACY="$PROJECT_DIR/.claude/.apd-config"
+if [ ! -f "$APD_CONFIG_NEUTRAL" ] && [ ! -f "$APD_CONFIG_LEGACY" ]; then
+    mkdir -p "$PROJECT_DIR/.apd"
+    APD_VER=$(grep '"version"' "$APD_PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    cat > "$APD_CONFIG_NEUTRAL" <<EOF
+PROJECT_NAME=$(basename "$PROJECT_DIR")
+APD_VERSION=${APD_VER:-unknown}
+STACK=
+EOF
+    echo "[wrote] .apd/config seed (PROJECT_NAME=$(basename "$PROJECT_DIR"))"
+    CHANGES=$((CHANGES + 1))
+else
+    echo "[skip] APD config already present — leaving alone"
+fi
+
+# -----------------------------------------------------------
+# 5. Repo-level hooks.json — PreToolUse Bash → guard-bash-scope
 # -----------------------------------------------------------
 if [ -f "$HOOKS_FILE" ] && grep -qF "$GUARD_BASH" "$HOOKS_FILE"; then
     echo "[skip] PreToolUse guard-bash-scope already wired in $HOOKS_FILE"
