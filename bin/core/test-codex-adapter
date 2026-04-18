@@ -108,6 +108,8 @@ echo "$FIRST_OUT" | grep -q "permissions.apd-backend-builder" && pass "wrote bac
 echo "$FIRST_OUT" | grep -q "permissions.apd-frontend-builder" && pass "wrote frontend-builder profile" && PASSES=$((PASSES + 1)) || { fail "no frontend-builder profile"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "code-reviewer — no SCOPE_PATHS declared" && pass "skipped read-only reviewer" && PASSES=$((PASSES + 1)) || { fail "reviewer not correctly skipped"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "PreToolUse Bash hook" && pass "wrote hooks.json" && PASSES=$((PASSES + 1)) || { fail "no hooks.json written"; FAILS=$((FAILS + 1)); }
+echo "$FIRST_OUT" | grep -q "\.claude/bin/apd shortcut" && pass "wrote .claude/bin/apd shortcut" && PASSES=$((PASSES + 1)) || { fail "no apd shortcut created"; FAILS=$((FAILS + 1)); }
+_check ".claude/bin/apd is executable" test -x "$SCRATCH/.claude/bin/apd"
 
 # -----------------------------------------------------------
 # 4. Generated file content

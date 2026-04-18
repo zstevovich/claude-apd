@@ -50,6 +50,35 @@ case "$CMD" in
     test-system|system-test)
         exec bash "$CORE_DIR/test-system" "$@"
         ;;
+    cdx|codex)
+        CDX_SUB="${1:-help}"
+        shift 2>/dev/null || true
+        CDX_DIR="$(cd "$(dirname "$0")/adapter/cdx" && pwd)"
+        case "$CDX_SUB" in
+            init|setup)
+                exec bash "$CDX_DIR/install-codex-config" "$@"
+                ;;
+            test)
+                exec bash "$CORE_DIR/test-codex-adapter" "$@"
+                ;;
+            help|--help|-h|"")
+                source "$(dirname "$0")/lib/style.sh"
+                echo ""
+                echo "  ${V}apd cdx${R} — Codex runtime adapter commands"
+                echo ""
+                echo "  Subcommands:"
+                echo "    init [project-dir]  Install APD entries into <project>/.codex/"
+                echo "                        (config.toml, sandbox profiles, hooks.json)"
+                echo "    test                Run E2E smoke test for the Codex adapter"
+                echo ""
+                ;;
+            *)
+                echo "Unknown cdx subcommand: $CDX_SUB" >&2
+                echo "Run: apd cdx help" >&2
+                exit 1
+                ;;
+        esac
+        ;;
     version|--version|-v)
         APD_VER=$(grep '"version"' "$(dirname "$0")/../.claude-plugin/plugin.json" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         echo "APD v${APD_VER:-unknown}"
@@ -72,7 +101,8 @@ case "$CMD" in
         echo "    contracts         Check cross-layer type contracts"
         echo "    gh <step>         GitHub sync"
         echo "    report            Pipeline run report (--history [N] for history)"
-    echo "    test              Quick static hook test"
+        echo "    test              Quick static hook test"
+        echo "    cdx <sub>         Codex runtime adapter (init|test) — see 'apd cdx help'"
         echo ""
         ;;
     *)
