@@ -592,6 +592,36 @@ fi
 rm -rf "$HYD"
 
 # -----------------------------------------------------------
+# 16. install-codex-config prereq checks
+# -----------------------------------------------------------
+section "16. Installer prerequisites"
+
+# Static check: installer has the python3 prereq block with clear error
+INSTALLER="$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config"
+if grep -qE 'command -v python3 &>/dev/null' "$INSTALLER" && \
+   grep -qE 'python3.*not on PATH' "$INSTALLER" && \
+   grep -qE 'exit 4' "$INSTALLER"; then
+    pass "installer has python3 prereq check with clear error + exit 4"
+    PASSES=$((PASSES + 1))
+else
+    fail "python3 prereq check missing or malformed in installer"
+    FAILS=$((FAILS + 1))
+fi
+
+# Dynamic check: installer exits 0 on a host where python3 IS present
+# (sanity — we shouldn't regress the happy path while adding a new gate).
+PR="$(mktemp -d -t apd-prereq.XXXXXX)"
+mkdir -p "$PR/.codex"
+if bash "$INSTALLER" "$PR" >/dev/null 2>&1; then
+    pass "installer happy path still exits 0 when python3 is on PATH"
+    PASSES=$((PASSES + 1))
+else
+    fail "installer happy path broke after prereq addition"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$PR"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

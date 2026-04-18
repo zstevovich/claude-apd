@@ -41,6 +41,13 @@ if ! command -v uv &>/dev/null; then
     echo "ERROR: \`uv\` is not installed. Install with: brew install uv" >&2
     exit 3
 fi
+if ! command -v python3 &>/dev/null; then
+    echo "ERROR: \`python3\` is not on PATH. The MCP server and APD helpers" >&2
+    echo "       (agents-scaffold, codex-doctor) require Python 3." >&2
+    echo "       macOS:  xcode-select --install   (or brew install python3)" >&2
+    echo "       Linux:  install python3 from your distro's package manager" >&2
+    exit 4
+fi
 
 mkdir -p "$CODEX_DIR"
 CHANGES=0
