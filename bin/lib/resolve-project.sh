@@ -11,6 +11,25 @@
 #   PIPELINE_DIR  — $PROJECT_DIR/.apd/pipeline
 #   SCRIPT_DIR    — $APD_PLUGIN_ROOT/scripts
 
+# --- APD version (runtime-neutral read) ---
+# Primary source: VERSION at plugin root. Fallback: CC plugin manifest.
+# Kept here so any sourced script can echo $APD_VERSION without duplicating
+# the grep/sed dance.
+_read_apd_version() {
+    local root="$1"
+    if [ -f "$root/VERSION" ]; then
+        local v
+        v="$(tr -d '[:space:]' < "$root/VERSION")"
+        if [ -n "$v" ]; then
+            printf '%s' "$v"
+            return 0
+        fi
+    fi
+    if [ -f "$root/.claude-plugin/plugin.json" ]; then
+        grep '"version"' "$root/.claude-plugin/plugin.json" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1
+    fi
+}
+
 # --- Plugin root ---
 # ${CLAUDE_PLUGIN_ROOT} is set by Claude Code when executing plugin hooks
 if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
@@ -19,6 +38,10 @@ else
     # Fallback: resolve from script location (bin/lib/ → repo root)
     APD_PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fi
+
+# --- APD version ---
+APD_VERSION="$(_read_apd_version "$APD_PLUGIN_ROOT")"
+APD_VERSION="${APD_VERSION:-unknown}"
 
 # --- Project root ---
 # Claude Code hook commands execute with cwd = project directory

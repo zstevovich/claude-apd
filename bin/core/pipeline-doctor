@@ -252,10 +252,7 @@ fi
 # ============================================================
 section "Plugin"
 
-PLUGIN_VER="unknown"
-if [ -f "$APD_PLUGIN_ROOT/.claude-plugin/plugin.json" ]; then
-    PLUGIN_VER=$(grep '"version"' "$APD_PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-fi
+PLUGIN_VER="${APD_VERSION:-unknown}"
 ok "APD v$PLUGIN_VER (${APD_PLUGIN_ROOT})"
 
 # Check cache freshness

@@ -16,18 +16,28 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 APD_PLUGIN_ROOT = Path(__file__).resolve().parent.parent
-APD_PLUGIN_MANIFEST = APD_PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
+APD_VERSION_FILE = APD_PLUGIN_ROOT / "VERSION"
 CORE_DIR = APD_PLUGIN_ROOT / "bin" / "core"
 
 mcp = FastMCP("apd")
 
 
 def _read_version() -> str:
-    if APD_PLUGIN_MANIFEST.exists():
+    # Prefer the runtime-neutral VERSION file. Fall back to the CC plugin
+    # manifest only if the primary file is missing (older checkouts).
+    if APD_VERSION_FILE.exists():
         try:
-            data = json.loads(APD_PLUGIN_MANIFEST.read_text())
+            v = APD_VERSION_FILE.read_text().strip()
+            if v:
+                return v
+        except OSError:
+            pass
+    legacy = APD_PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
+    if legacy.exists():
+        try:
+            data = json.loads(legacy.read_text())
             return data.get("version", "unknown")
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, OSError):
             pass
     return "unknown"
 

@@ -10,9 +10,8 @@
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 
-# Read version from plugin.json (single source of truth)
-APD_VER=$(grep '"version"' "$APD_PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-APD_VER="${APD_VER:-0.0.0}"
+# APD version comes from the runtime-neutral VERSION file (resolve-project.sh)
+APD_VER="${APD_VERSION:-0.0.0}"
 
 # --version flag: show APD version and exit
 if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
