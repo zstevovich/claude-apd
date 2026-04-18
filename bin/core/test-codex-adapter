@@ -99,6 +99,9 @@ _check ".apd/memory/status.md scaffolded" test -f "$SCRATCH/.apd/memory/status.m
 _check ".apd/memory/session-log.md scaffolded" test -f "$SCRATCH/.apd/memory/session-log.md"
 _check ".apd/agents/ scaffolded" test -d "$SCRATCH/.apd/agents"
 _check ".apd/.apd-version scaffolded" test -f "$SCRATCH/.apd/.apd-version"
+_check "AGENTS.md scaffolded at project root" test -f "$SCRATCH/AGENTS.md"
+_check_file_contains "AGENTS.md references APD pipeline" "$SCRATCH/AGENTS.md" 'apd_advance_pipeline'
+_check_file_contains "AGENTS.md has project name substituted" "$SCRATCH/AGENTS.md" "^# $(basename "$SCRATCH")$"
 ! grep -q "^\[permissions\." "$SCRATCH/.codex/config.toml" && pass "no broken [permissions.*] blocks emitted" && PASSES=$((PASSES + 1)) || { fail "broken permissions blocks present"; FAILS=$((FAILS + 1)); }
 
 # -----------------------------------------------------------
@@ -401,6 +404,15 @@ else
     FAILS=$((FAILS + 1))
 fi
 
+# AGENTS.md must not be injected on hybrid — user already has CLAUDE.md
+if [ ! -f "$HY/AGENTS.md" ]; then
+    pass "no AGENTS.md created on hybrid (CLAUDE.md is authoritative)"
+    PASSES=$((PASSES + 1))
+else
+    fail "scaffold wrote AGENTS.md on a hybrid project"
+    FAILS=$((FAILS + 1))
+fi
+
 # .apd/config still gets seeded (needed for activation even on hybrid that
 # hasn't migrated) — but only if .claude/.apd-config doesn't exist. This
 # hybrid has the legacy config, so .apd/config should NOT be created.
@@ -488,6 +500,29 @@ else
 fi
 
 rm -rf "$AG"
+
+# -----------------------------------------------------------
+# 14. User-authored AGENTS.md is preserved
+# -----------------------------------------------------------
+section "14. AGENTS.md preservation"
+
+UA="$(mktemp -d -t apd-ua.XXXXXX)"
+mkdir -p "$UA/.codex"
+echo "# My custom context — do not touch" > "$UA/AGENTS.md"
+ORIG_SHA="$(shasum "$UA/AGENTS.md" | cut -d' ' -f1)"
+
+bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$UA" >/dev/null 2>&1
+
+NEW_SHA="$(shasum "$UA/AGENTS.md" | cut -d' ' -f1)"
+if [ "$ORIG_SHA" = "$NEW_SHA" ]; then
+    pass "existing AGENTS.md left untouched"
+    PASSES=$((PASSES + 1))
+else
+    fail "installer overwrote a user-authored AGENTS.md"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$UA"
 
 # -----------------------------------------------------------
 # Summary
