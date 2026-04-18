@@ -469,7 +469,7 @@
     <img src="../logo.svg" alt="APD" width="200" style="max-width:90%;">
   </div>
   <div class="subtitle">Pipeline Runs</div>
-  <div class="tagline">23 tracked runs across 4 projects &middot; April 9&ndash;16, 2026</div>
+  <div class="tagline" id="tagline">&hellip;</div>
 </div>
 
 <div class="container">
@@ -484,23 +484,23 @@
   <div class="summary-grid">
     <div class="summary-card purple animate delay-1">
       <div class="label">Total Runs</div>
-      <div class="value">23</div>
-      <div class="detail">4 projects, 8 days</div>
+      <div class="value" id="stat-total">&hellip;</div>
+      <div class="detail" id="stat-total-detail">&hellip;</div>
     </div>
     <div class="summary-card green animate delay-2">
       <div class="label">Avg Duration</div>
-      <div class="value">17m</div>
-      <div class="trend down">Last 5: 18m avg</div>
+      <div class="value" id="stat-avg-duration">&hellip;</div>
+      <div class="trend down" id="stat-avg-duration-detail">&hellip;</div>
     </div>
     <div class="summary-card orange animate delay-3">
       <div class="label">Guard Blocks</div>
-      <div class="value">32</div>
-      <div class="trend down">Last 5 runs: 6 blocks</div>
+      <div class="value" id="stat-blocks">&hellip;</div>
+      <div class="trend down" id="stat-blocks-detail">&hellip;</div>
     </div>
     <div class="summary-card blue animate delay-4">
       <div class="label">Fastest Run</div>
-      <div class="value">6:25</div>
-      <div class="detail">Bambi Batch 15 (#18)</div>
+      <div class="value" id="stat-fastest">&hellip;</div>
+      <div class="detail" id="stat-fastest-detail">&hellip;</div>
     </div>
   </div>
 
@@ -602,11 +602,54 @@ const runs = [
   { id: 30, name: "Fix password-reset subject + brand red", date: "2026-04-18", stack: "net", duration: 458, spec: "5/5", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "Quick subject + color fix \u2014 7-min cadence with raised maxTurns; 0/4 exhaust", ver: "v4.7.13" },
   { id: 31, name: "Fix duplicate emails on Wolverine retry", date: "2026-04-18", stack: "net", duration: 1400, spec: "4/4", blocks: 0, adversarial: "4 (2/2)", advType: "real", note: "Record adversarial hit-rate: 50% (2/4). Wolverine retry triggered duplicate password-reset and verification handler invocations; 11 agents dispatched, 0 exhaust", ver: "v4.7.13" },
   { id: 32, name: "Dark mode: OTP bubble as CID attachment", date: "2026-04-18", stack: "net", duration: 1573, spec: "5/5", blocks: 1, adversarial: "5 (0/5)", advType: "real", note: "Complex feature: 13 files (OtpImageGenerator + EmailAttachment + PostmarkTransport + Scriban template wiring). code-reviewer hit maxTurn 45 \u2014 orchestrator WebFetch\u2019ed Postmark API docs to verify a HIGH finding on ContentId format, dismissed as hallucinated. Pattern captured as v4.7.20 workflow rule \u2018evidence-based dismissal\u2019.", ver: "v4.7.13" },
+  { id: 33, name: "Bump MailKit 4.15.1 \u2192 4.16.0 for STARTTLS advisory", date: "2026-04-18", stack: "net", duration: 222, spec: "N/A", blocks: 0, adversarial: "N/A", advType: "na", note: "Security advisory bump \u2014 dependency-only change, fastest run on v4.7.13", ver: "v4.7.13" },
 ];
+
+// --- Auto-computed summary stats (single source of truth: runs[]) ---
+(function() {
+  if (!runs.length) return;
+  document.getElementById('stat-total').textContent = runs.length;
+
+  const dates = runs.map(function(r) { return r.date; });
+  const uniqueDates = Array.from(new Set(dates)).sort();
+  const firstDate = uniqueDates[0];
+  const lastDate = uniqueDates[uniqueDates.length - 1];
+  const spanDays = (new Date(lastDate) - new Date(firstDate)) / 86400000 + 1;
+
+  // Project list — manually curated; not derivable from data
+  const projects = ['PHP project', 'Loyalty Program', 'Backoffice/Hangfire', 'Bambi', 'MojOff', 'TinyMCE \u2192 TipTap'];
+  document.getElementById('stat-total-detail').textContent =
+    projects.length + ' projects, ' + spanDays + ' days';
+
+  const fmtDate = function(s) {
+    return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+  document.getElementById('tagline').textContent =
+    runs.length + ' tracked runs across ' + projects.length + ' projects \u00b7 ' +
+    fmtDate(firstDate) + '\u2013' + fmtDate(lastDate) + ', ' + new Date(lastDate).getFullYear();
+
+  const fmtMin = function(s) { return Math.round(s / 60) + 'm'; };
+  const avgAll = runs.reduce(function(a, r) { return a + r.duration; }, 0) / runs.length;
+  const last5 = runs.slice(-5);
+  const avgLast5 = last5.reduce(function(a, r) { return a + r.duration; }, 0) / last5.length;
+  document.getElementById('stat-avg-duration').textContent = fmtMin(avgAll);
+  document.getElementById('stat-avg-duration-detail').textContent = 'Last 5: ' + fmtMin(avgLast5) + ' avg';
+
+  const totalBlocks = runs.reduce(function(a, r) { return a + r.blocks; }, 0);
+  const last5Blocks = last5.reduce(function(a, r) { return a + r.blocks; }, 0);
+  document.getElementById('stat-blocks').textContent = totalBlocks;
+  document.getElementById('stat-blocks-detail').textContent = 'Last 5 runs: ' + last5Blocks + ' blocks';
+
+  const fastest = runs.reduce(function(min, r) { return r.duration < min.duration ? r : min; }, runs[0]);
+  const fmins = Math.floor(fastest.duration / 60);
+  const fsecs = fastest.duration % 60;
+  document.getElementById('stat-fastest').textContent = fmins + ':' + String(fsecs).padStart(2, '0');
+  document.getElementById('stat-fastest-detail').textContent = fastest.name + ' (#' + fastest.id + ')';
+})();
 
 // --- Render table using DOM methods ---
 const tbody = document.getElementById('runs-tbody');
-const maxDur = 2761;
+const maxDur = Math.max.apply(null, runs.map(function(r) { return r.duration; }));
 
 runs.forEach(function(r) {
   const mins = Math.floor(r.duration / 60);
@@ -805,15 +848,20 @@ function drawChart(containerId, data, color, maxVal, unit) {
 
 var durations = runs.map(function(r) { return r.duration / 60; });
 var blocks = runs.map(function(r) { return r.blocks; });
+// Round chart Y-axis to a friendly ceiling above the actual max so outliers
+// (e.g. the 52-block GLM-5 TinyMCE run) don't clip off the top.
+var ceilTo = function(v, step) { return Math.ceil(v / step) * step; };
+var durMax = ceilTo(Math.max.apply(null, durations), 10);
+var blocksMax = Math.max(8, ceilTo(Math.max.apply(null, blocks), 10));
 
 window.addEventListener('load', function() {
-  drawChart('duration-chart', durations, '#af8fff', 50, 'm');
-  drawChart('blocks-chart', blocks, '#ff884d', 8, '');
+  drawChart('duration-chart', durations, '#af8fff', durMax, 'm');
+  drawChart('blocks-chart', blocks, '#ff884d', blocksMax, '');
 });
 
 window.addEventListener('resize', function() {
-  drawChart('duration-chart', durations, '#af8fff', 50, 'm');
-  drawChart('blocks-chart', blocks, '#ff884d', 8, '');
+  drawChart('duration-chart', durations, '#af8fff', durMax, 'm');
+  drawChart('blocks-chart', blocks, '#ff884d', blocksMax, '');
 });
 
 // --- View Toggle ---
@@ -1009,16 +1057,16 @@ function renderReport(containerId, data) {
 }
 
 var bambiData = {runs:[
-  {name:"Batch 9 \u2014 Infra fixes",dur:331,st:"completed",advT:3,advA:0},
-  {name:"Hotfix \u2014 ModelSnapshot",dur:227,st:"completed",advT:2,advA:0},
-  {name:"Batch 10 \u2014 App Layer",dur:1043,st:"completed",advT:7,advA:0},
-  {name:"Batch 11 \u2014 External",dur:1143,st:"completed",advT:5,advA:0},
-  {name:"Batch 12 \u2014 Dist Lock",dur:700,st:"completed",advT:5,advA:0},
-  {name:"Batch 14 \u2014 Test Cov",dur:512,st:"completed",advT:3,advA:0},
-  {name:"Batch 15 \u2014 Partner CRUD",dur:385,st:"completed",advT:4,advA:0},
-  {name:"Batch 16 \u2014 EventInterc",dur:441,st:"completed",advT:4,advA:0},
-  {name:"Batch 17 \u2014 Social GDPR",dur:1034,st:"completed",advT:5,advA:0},
-  {name:"P8-MED-4: Token family",dur:627,st:"completed",advT:5,advA:0}
+  {name:"Email template rewrite Faza 1",dur:368,st:"completed",advT:3,advA:0},
+  {name:"Password-reset OTP migracija",dur:238,st:"completed",advT:9,advA:0},
+  {name:"Hotfix: short asset URLs (QP)",dur:530,st:"completed",advT:5,advA:0},
+  {name:"Fix broken email assets",dur:965,st:"completed",advT:8,advA:2},
+  {name:"Fix CI: RenderScript skip",dur:306,st:"completed",advT:5,advA:0},
+  {name:"Gmail dark mode fix",dur:1676,st:"completed",advT:5,advA:0},
+  {name:"Subject + brand red",dur:458,st:"completed",advT:5,advA:0},
+  {name:"Wolverine retry duplicate fix",dur:1400,st:"completed",advT:4,advA:2},
+  {name:"Dark mode: OTP bubble CID",dur:1573,st:"completed",advT:5,advA:0},
+  {name:"MailKit 4.15.1 \u2192 4.16.0 STARTTLS",dur:222,st:"completed",advT:0,advA:0}
 ]};
 
 var mojoffData = {runs:[
