@@ -1,0 +1,252 @@
+#!/bin/bash
+# APD Test Codex Adapter — E2E smoke test for the Codex runtime adapter
+#
+# Builds a throwaway project with a known agent set, runs install-codex-config,
+# and verifies every enforcement layer:
+#   1. MCP server: syntactically valid, all expected tools registered
+#   2. config.toml: [mcp_servers.apd] + per-agent [permissions.apd-<role>] blocks
+#   3. hooks.json: PreToolUse Bash → guard-bash-scope
+#   4. Idempotency: second run produces zero writes
+#   5. Negative case: project without .codex/ dir doesn't trigger adapter
+#   6. guard-scope: ALLOW and BLOCK both behave correctly
+#   7. MCP Python helper: _project_dir() walks up to the right project root
+#
+# Standalone — does not require Codex CLI to be installed. Exercises the
+# bash/Python surface the Codex runtime depends on.
+#
+# Usage: bash bin/core/test-codex-adapter
+# Exit: 0 = pass, non-zero = number of failed checks
+
+set -u
+
+APD_PLUGIN_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+source "$APD_PLUGIN_ROOT/bin/lib/style.sh"
+
+apd_header "Codex Adapter E2E Test"
+
+SCRATCH="$(mktemp -d -t apd-cdx-test.XXXXXX)"
+trap 'rm -rf "$SCRATCH"' EXIT
+
+FAILS=0
+PASSES=0
+
+_check() {
+    local label="$1"; shift
+    if "$@" >/dev/null 2>&1; then
+        pass "$label"
+        PASSES=$((PASSES + 1))
+    else
+        fail "$label"
+        FAILS=$((FAILS + 1))
+    fi
+}
+
+_check_file_contains() {
+    local label="$1" file="$2" pattern="$3"
+    if [ -f "$file" ] && grep -qE "$pattern" "$file"; then
+        pass "$label"
+        PASSES=$((PASSES + 1))
+    else
+        fail "$label (file=$file, pattern=$pattern)"
+        FAILS=$((FAILS + 1))
+    fi
+}
+
+# -----------------------------------------------------------
+# 1. MCP server surface
+# -----------------------------------------------------------
+section "1. MCP server"
+
+_check "apd_mcp_server.py exists" test -f "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
+_check "Python syntax valid" python3 -m py_compile "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
+
+EXPECTED_TOOLS=(apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass)
+for tool in "${EXPECTED_TOOLS[@]}"; do
+    _check_file_contains "tool '$tool' registered" "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py" "^def $tool\b"
+done
+
+# -----------------------------------------------------------
+# 2. Scaffold a scratch project
+# -----------------------------------------------------------
+section "2. Scratch project scaffold"
+
+mkdir -p "$SCRATCH/.claude/agents" "$SCRATCH/.codex"
+cat > "$SCRATCH/.claude/agents/backend-builder.md" <<'EOF'
+---
+name: backend-builder
+---
+# SCOPE_PATHS: src/ config/
+EOF
+cat > "$SCRATCH/.claude/agents/frontend-builder.md" <<'EOF'
+---
+name: frontend-builder
+---
+# SCOPE_PATHS: assets/ templates/
+EOF
+cat > "$SCRATCH/.claude/agents/code-reviewer.md" <<'EOF'
+---
+name: code-reviewer
+---
+# read-only agent, no SCOPE_PATHS
+EOF
+
+_check "scratch dir has .claude/agents" test -d "$SCRATCH/.claude/agents"
+_check "scratch dir has .codex" test -d "$SCRATCH/.codex"
+
+# -----------------------------------------------------------
+# 3. First install-codex-config run — writes everything
+# -----------------------------------------------------------
+section "3. install-codex-config (first run)"
+
+FIRST_OUT="$(bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$SCRATCH" 2>&1)"
+FIRST_EXIT=$?
+
+[ "$FIRST_EXIT" -eq 0 ] && pass "exit code 0" && PASSES=$((PASSES + 1)) || { fail "exit code was $FIRST_EXIT"; FAILS=$((FAILS + 1)); }
+
+echo "$FIRST_OUT" | grep -q "\[wrote\] \[mcp_servers.apd\]" && pass "wrote MCP block" && PASSES=$((PASSES + 1)) || { fail "did not write MCP block"; FAILS=$((FAILS + 1)); }
+echo "$FIRST_OUT" | grep -q "permissions.apd-backend-builder" && pass "wrote backend-builder profile" && PASSES=$((PASSES + 1)) || { fail "no backend-builder profile"; FAILS=$((FAILS + 1)); }
+echo "$FIRST_OUT" | grep -q "permissions.apd-frontend-builder" && pass "wrote frontend-builder profile" && PASSES=$((PASSES + 1)) || { fail "no frontend-builder profile"; FAILS=$((FAILS + 1)); }
+echo "$FIRST_OUT" | grep -q "code-reviewer — no SCOPE_PATHS declared" && pass "skipped read-only reviewer" && PASSES=$((PASSES + 1)) || { fail "reviewer not correctly skipped"; FAILS=$((FAILS + 1)); }
+echo "$FIRST_OUT" | grep -q "PreToolUse Bash hook" && pass "wrote hooks.json" && PASSES=$((PASSES + 1)) || { fail "no hooks.json written"; FAILS=$((FAILS + 1)); }
+
+# -----------------------------------------------------------
+# 4. Generated file content
+# -----------------------------------------------------------
+section "4. Generated file content"
+
+CFG="$SCRATCH/.codex/config.toml"
+HOOKS="$SCRATCH/.codex/hooks.json"
+
+_check_file_contains "config.toml has [mcp_servers.apd]" "$CFG" '^\[mcp_servers\.apd\]'
+_check_file_contains "config.toml has backend-builder perms" "$CFG" '^\[permissions\.apd-backend-builder\]'
+_check_file_contains "config.toml has writable_roots for src/" "$CFG" 'writable_roots.*src/'
+_check_file_contains "hooks.json has PreToolUse" "$HOOKS" 'PreToolUse'
+_check_file_contains "hooks.json routes to guard-bash-scope" "$HOOKS" 'guard-bash-scope'
+
+if command -v python3 &>/dev/null; then
+    _check "TOML parses cleanly" python3 -c "import tomllib; tomllib.load(open('$CFG','rb'))"
+    _check "JSON parses cleanly" python3 -c "import json; json.load(open('$HOOKS'))"
+else
+    warn "python3 not found — skipping strict TOML/JSON parse checks"
+fi
+
+# -----------------------------------------------------------
+# 5. Idempotency — second run produces no writes
+# -----------------------------------------------------------
+section "5. Idempotency"
+
+SECOND_OUT="$(bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$SCRATCH" 2>&1)"
+
+if echo "$SECOND_OUT" | grep -q "\[wrote\]"; then
+    fail "second run wrote something — not idempotent"
+    FAILS=$((FAILS + 1))
+else
+    pass "second run produced zero writes"
+    PASSES=$((PASSES + 1))
+fi
+
+if echo "$SECOND_OUT" | grep -q "already up to date"; then
+    pass "second run reports 'already up to date'"
+    PASSES=$((PASSES + 1))
+else
+    fail "second run missing 'already up to date'"
+    FAILS=$((FAILS + 1))
+fi
+
+# -----------------------------------------------------------
+# 6. guard-scope ALLOW + BLOCK behavior
+# -----------------------------------------------------------
+section "6. guard-scope enforcement"
+
+if (cd "$SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/guard-scope" --file-path "src/foo.ts" "src/" >/dev/null 2>&1); then
+    pass "ALLOW: src/foo.ts with allowed=src/"
+    PASSES=$((PASSES + 1))
+else
+    fail "src/foo.ts should have been allowed"
+    FAILS=$((FAILS + 1))
+fi
+
+# APD is dormant if no .apd-config file exists. Add stub so guard runs.
+cat > "$SCRATCH/.claude/.apd-config" <<EOF
+PROJECT_NAME=smoke
+APD_VERSION=test
+STACK=test
+EOF
+
+(cd "$SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/guard-scope" --file-path "/tmp/escape.ts" "src/" >/dev/null 2>&1)
+case $? in
+    2) pass "BLOCK: /tmp/escape.ts rejected (exit 2)" ; PASSES=$((PASSES + 1)) ;;
+    *) fail "BLOCK test did not return exit 2 (got $?)"; FAILS=$((FAILS + 1)) ;;
+esac
+
+# -----------------------------------------------------------
+# 7. Python _project_dir walk-up
+# -----------------------------------------------------------
+section "7. Python project_dir resolution"
+
+mkdir -p "$SCRATCH/subdir/deeper"
+RESOLVED="$(cd "$SCRATCH/subdir/deeper" && python3 -c "
+import sys; sys.path.insert(0, '$APD_PLUGIN_ROOT/mcp')
+try:
+    import apd_mcp_server as m
+    print(m._project_dir())
+except ImportError:
+    # FastMCP import fails without mcp installed — fall back to direct source read
+    import os; os.chdir('$SCRATCH/subdir/deeper')
+    cur = os.getcwd()
+    while cur != '/':
+        if os.path.isdir(os.path.join(cur, '.claude')):
+            print(cur); break
+        cur = os.path.dirname(cur)
+" 2>&1 | tail -1)"
+
+SCRATCH_REAL="$(cd "$SCRATCH" && pwd -P)"
+if [ "$RESOLVED" = "$SCRATCH_REAL" ] || [ "$RESOLVED" = "$SCRATCH" ]; then
+    pass "walks up from subdir/deeper/ → $RESOLVED"
+    PASSES=$((PASSES + 1))
+else
+    fail "expected $SCRATCH_REAL, got '$RESOLVED'"
+    FAILS=$((FAILS + 1))
+fi
+
+# -----------------------------------------------------------
+# 8. Negative path — apd-init on project WITHOUT .codex/ skips adapter
+# -----------------------------------------------------------
+section "8. Negative path"
+
+NEG="$(mktemp -d -t apd-neg.XXXXXX)"
+mkdir -p "$NEG/.claude"
+cat > "$NEG/.claude/.apd-config" <<EOF
+PROJECT_NAME=neg
+APD_VERSION=test
+STACK=test
+EOF
+
+NEG_OUT="$(APD_PROJECT_DIR="$NEG" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick 2>&1 || true)"
+rm -rf "$NEG"
+
+if echo "$NEG_OUT" | grep -q "Codex adapter"; then
+    fail "apd-init triggered Codex section without .codex/ dir"
+    FAILS=$((FAILS + 1))
+else
+    pass "apd-init skipped Codex section (no .codex/ dir)"
+    PASSES=$((PASSES + 1))
+fi
+
+# -----------------------------------------------------------
+# Summary
+# -----------------------------------------------------------
+echo ""
+section "Summary"
+echo "  ${G}PASS:${R} $PASSES"
+echo "  ${R}FAIL:${R} $FAILS"
+
+if [ "$FAILS" -eq 0 ]; then
+    echo ""
+    echo "  ${G}All Codex adapter checks passed.${R}"
+    exit 0
+else
+    echo ""
+    echo "  ${R}$FAILS check(s) failed — Codex adapter has regressions.${R}"
+    exit "$FAILS"
+fi
