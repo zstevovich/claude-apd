@@ -222,9 +222,20 @@ else
 fi
 echo ""
 echo "Next steps:"
-echo "  1. Enable Codex hooks feature flag (one-time, global):"
+STEP=1
+if [ ! -d "$PROJECT_DIR/.claude" ]; then
+    echo "  ${STEP}. Populate .apd/agents/ with roles you want APD to enforce:"
+    echo "       apd cdx agents add code-reviewer"
+    echo "       apd cdx agents add backend-builder src/ config/"
+    STEP=$((STEP + 1))
+    echo "  ${STEP}. Fill in AGENTS.md with your project context (stack, tests, conventions)."
+    STEP=$((STEP + 1))
+fi
+echo "  ${STEP}. Enable Codex hooks feature flag (one-time, global):"
 echo "       codex features enable codex_hooks"
-echo "  2. Start Codex from project root:"
+STEP=$((STEP + 1))
+echo "  ${STEP}. Start Codex from project root:"
 echo "       cd \"$PROJECT_DIR\" && codex"
-echo "  3. Verify APD tools appear in the model's tool list, then try:"
+STEP=$((STEP + 1))
+echo "  ${STEP}. Verify APD tools appear in the model's tool list, then try:"
 echo "       \"run apd_ping\""
