@@ -49,6 +49,12 @@ else
     _bad "python3 not found — required by MCP server"
 fi
 
+if command -v jq >/dev/null 2>&1; then
+    _ok "jq ($(jq --version 2>/dev/null))"
+else
+    _bad "jq not found — Codex hook shim cannot parse Bash payload. Install with: brew install jq"
+fi
+
 if command -v codex >/dev/null 2>&1; then
     _ok "codex CLI ($(codex --version 2>/dev/null | head -1 || echo 'version unknown'))"
 else

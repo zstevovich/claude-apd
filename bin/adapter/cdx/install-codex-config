@@ -48,6 +48,14 @@ if ! command -v python3 &>/dev/null; then
     echo "       Linux:  install python3 from your distro's package manager" >&2
     exit 4
 fi
+if ! command -v jq &>/dev/null; then
+    echo "ERROR: \`jq\` is not on PATH. The Codex PreToolUse hook shim" >&2
+    echo "       (bin/adapter/cdx/guard-bash-scope) uses jq to parse" >&2
+    echo "       the Bash payload coming from Codex." >&2
+    echo "       macOS:  brew install jq" >&2
+    echo "       Linux:  apt install jq   (or your distro equivalent)" >&2
+    exit 5
+fi
 
 mkdir -p "$CODEX_DIR"
 CHANGES=0

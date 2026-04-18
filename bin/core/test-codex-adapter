@@ -608,6 +608,17 @@ else
     FAILS=$((FAILS + 1))
 fi
 
+# Static check: installer has the jq prereq block
+if grep -qE 'command -v jq &>/dev/null' "$INSTALLER" && \
+   grep -qE 'jq.*not on PATH' "$INSTALLER" && \
+   grep -qE 'exit 5' "$INSTALLER"; then
+    pass "installer has jq prereq check with clear error + exit 5"
+    PASSES=$((PASSES + 1))
+else
+    fail "jq prereq check missing or malformed in installer"
+    FAILS=$((FAILS + 1))
+fi
+
 # Dynamic check: installer exits 0 on a host where python3 IS present
 # (sanity — we shouldn't regress the happy path while adding a new gate).
 PR="$(mktemp -d -t apd-prereq.XXXXXX)"

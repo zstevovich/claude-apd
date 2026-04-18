@@ -95,6 +95,7 @@ case "$CMD" in
                 echo "  ${V}Prerequisites${R}"
                 echo "    python3 on PATH                            (macOS: xcode-select --install)"
                 echo "    brew install uv                            (MCP server runner)"
+                echo "    brew install jq                            (Codex hook shim parses JSON stdin)"
                 echo "    codex features enable codex_hooks          (one-time, global)"
                 echo ""
                 echo "  ${V}Typical pure-Codex flow${R}"
