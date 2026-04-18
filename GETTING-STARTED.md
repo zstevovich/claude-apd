@@ -1,16 +1,29 @@
 # Getting Started with APD
 
-From zero to your first pipeline commit in 5 minutes.
+From zero to your first pipeline commit.
 
-## Prerequisites
+APD runs on two AI coding runtimes:
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) **v2.1.89+** recommended (v2.1.32+ minimum)
-- `jq` installed (`brew install jq` on macOS, `apt install jq` on Linux)
+- **Part A — Claude Code** (the original target; plugin-based install)
+- **Part B — OpenAI Codex** (dual-runtime support; MCP-based install)
+
+Pick the runtime you use. The pipeline semantics (spec → builder → reviewer → verifier → commit) are identical; only the adapter differs.
+
+## Shared prerequisites
+
+- `git` and `bash`
+- `jq` installed (`brew install jq` on macOS, `apt install jq` on Linux) — required by both runtimes
 - A git repository with some code in it
 
-> APD checks your Claude Code version automatically on session start. If it is below the recommended version, you will see a warning with instructions to update.
-
 ---
+
+# Part A — Claude Code
+
+## A-Prerequisites
+
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) **v2.1.89+** recommended (v2.1.32+ minimum)
+
+> APD checks your Claude Code version automatically on session start. If it is below the recommended version, you will see a warning with instructions to update.
 
 ## Step 1 — Add the marketplace (one time)
 
@@ -251,6 +264,130 @@ Shows: pipeline state, spec card validation, spec freeze hash, implementation pl
 | `apd init` | Initialize or update APD in a project |
 
 All commands: `bash .claude/bin/apd <command>`
+
+---
+
+---
+
+# Part B — OpenAI Codex
+
+APD runs on Codex through an MCP server. The orchestrator (main Codex model) plays all pipeline roles inline — there is no sub-agent dispatch — and APD enforces scope via the `apd_guard_write` MCP tool before every file write.
+
+## B-Prerequisites
+
+```bash
+# macOS
+brew install uv jq
+# make sure python3 is on PATH (xcode-select --install if not)
+codex features enable codex_hooks   # one-time, global
+```
+
+Linux: install `uv`, `python3`, `jq`, and `codex` through your distro's package manager. Codex CLI via `npm i -g @openai/codex` or the [upstream installer](https://github.com/openai/codex).
+
+## B-Step 1 — Install APD on your project
+
+From the project directory:
+
+```bash
+apd cdx init
+```
+
+This scaffolds:
+
+- `.codex/config.toml` — registers the APD MCP server with Codex
+- `.codex/hooks.json` — PreToolUse Bash hook routed to guard-bash-scope
+- `.codex/bin/apd` — shortcut wrapper
+- `.apd/config` — APD activation marker
+- `.apd/rules/workflow.md` — pipeline workflow rules (paths rewritten to `.codex/`)
+- `.apd/memory/{MEMORY,status,session-log}.md` — memory tree
+- `.apd/agents/` — empty; populate next
+- `AGENTS.md` — Codex project context (the analogue of CLAUDE.md)
+
+The installer is idempotent — safe to re-run. Hybrid projects that already have `.claude/` skip the `.apd/` scaffold.
+
+## B-Step 2 — Scaffold agent definitions
+
+Pick the roles you want APD to enforce scope for. Five templates ship:
+
+| Name | Default scope |
+|------|---------------|
+| `code-reviewer` | read-only |
+| `backend-builder` | `src/`, `config/` |
+| `frontend-builder` | `assets/`, `templates/` |
+| `testing` | `tests/` |
+| `adversarial-reviewer` | read-only |
+
+```bash
+apd cdx agents list                               # show available + installed
+apd cdx agents add code-reviewer
+apd cdx agents add backend-builder src/ config/   # override default scope
+apd cdx agents add testing tests/
+```
+
+Each `add` writes `.apd/agents/<name>.md` with Codex-native frontmatter (no CC `hooks:` field) and substitutes `{{PROJECT_NAME}}`. Refuses to overwrite existing files unless `--force` is passed.
+
+## B-Step 3 — Fill in `AGENTS.md`
+
+Open `AGENTS.md` and replace the `Project context` block with your stack, entry points, test commands, and conventions. The upper sections (pipeline model, APD tool table, order of operations, rules/memory pointers, scope enforcement) are already filled in — don't rewrite them.
+
+## B-Step 4 — Audit the setup
+
+```bash
+apd cdx doctor
+```
+
+Expected output: **PASS: N, FAIL: 0, WARN: M**. Doctor verifies prerequisites, global Codex config, `.codex/` wiring, `.apd/` content, AGENTS.md, and the MCP server (Python syntax + all 6 tools registered). Non-zero exit = number of failed checks.
+
+## B-Step 5 — Start a Codex session
+
+```bash
+cd /path/to/project
+codex
+```
+
+Inside the session:
+
+```
+run apd_ping
+```
+
+Expected response:
+```json
+{
+  "ok": true,
+  "version": "4.7.20",
+  "plugin_root": "/Users/you/.codex/...",
+  "project_dir": "/path/to/project",
+  "runtime": "codex"
+}
+```
+
+## B-Step 6 — Your first pipeline task on Codex
+
+The flow mirrors Part A's Step 5 exactly, but commands go through MCP tools instead of `Agent(...)` dispatch:
+
+1. Write `.apd/pipeline/spec-card.md` with `R*` acceptance criteria (max 7)
+2. Ask Codex: `run apd_advance_pipeline('spec', 'Add user login')`
+3. Write `.apd/pipeline/implementation-plan.md`
+4. Implement the changes yourself through Codex — before each file write the orchestrator must call `apd_guard_write('<path>', ['src/', 'config/'])`. Exit 2 = BLOCKED (out of scope).
+5. `run apd_advance_pipeline('builder')`
+6. Review the diff inline (orchestrator plays the reviewer role on Codex), then `run apd_advance_pipeline('reviewer')`
+7. `run apd_advance_pipeline('verifier')` — this invokes `apd_verify_step()` which runs `.codex/bin/verify-all.sh` (or the framework default) and blocks on failure
+8. Optional adversarial pass: `run apd_adversarial_pass(total=3, accepted=2, dismissed=1)`
+9. Commit normally — `APD_ORCHESTRATOR_COMMIT=1 git commit -m "..."` from a terminal outside Codex, since Codex does not ship a Git tool hook today
+
+## B-Quick reference (Codex adapter)
+
+| Command | What it does |
+|---------|-------------|
+| `apd cdx init` | Install APD into `.codex/` + scaffold `.apd/` on pure-Codex projects |
+| `apd cdx agents list` | Show templates and installed agents |
+| `apd cdx agents add <name> [scope ...]` | Scaffold an agent definition |
+| `apd cdx doctor` | Runtime-aware setup audit |
+| `apd cdx test` | E2E smoke test (no Codex CLI required) |
+| `apd cdx help` | Full help with prerequisites + typical flow |
+
+Via MCP inside a Codex session: `apd_ping`, `apd_doctor`, `apd_advance_pipeline(step, arg?)`, `apd_guard_write(path, allowed_paths)`, `apd_verify_step()`, `apd_adversarial_pass(total, accepted, dismissed)`.
 
 ---
 
