@@ -17,7 +17,8 @@ apd_header "Pipeline Doctor"
 section "Pipeline State"
 
 if [ ! -d "$PIPELINE_DIR" ]; then
-    fail "Pipeline directory does not exist: $PIPELINE_DIR"
+    # Auto-created on first pipeline-advance — not a hard failure for fresh installs
+    echo "    ${D}Pipeline directory not created yet (first run will make it)${R}"
 else
     ok "Pipeline directory: $PIPELINE_DIR"
 fi
@@ -144,10 +145,12 @@ if [ -d "$CLAUDE_DIR/agents" ]; then
         fail "No code-reviewer agent found — reviewer step will BLOCK"
     fi
     if [ "$HAS_ADVERSARIAL" = false ]; then
-        warn "No adversarial-reviewer agent — run /apd-setup to create"
+        warn "No adversarial-reviewer agent — run /apd-setup (CC) to create"
     fi
+elif [ -d "$PROJECT_DIR/.codex" ] && [ ! -d "$CLAUDE_DIR" ]; then
+    warn "No agent registry — pure-Codex projects rely on AGENTS.md + MCP apd_guard_write for scope"
 else
-    fail "No agents directory — run /apd-setup"
+    fail "No agents directory — run /apd-setup (CC) to create"
 fi
 
 # Dispatched agents in current pipeline
