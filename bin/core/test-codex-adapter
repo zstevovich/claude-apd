@@ -647,6 +647,100 @@ fi
 rm -rf "$PR"
 
 # -----------------------------------------------------------
+# 17. Hybrid CC+Codex coexistence
+# -----------------------------------------------------------
+section "17. Hybrid CC+Codex coexistence"
+
+HY="$(mktemp -d -t apd-hy-coex.XXXXXX)"
+mkdir -p "$HY/.claude/agents" "$HY/.claude/bin" "$HY/.codex/bin" "$HY/.apd/pipeline"
+echo "PROJECT_NAME=hycoex" > "$HY/.claude/.apd-config"
+printf '%s\n' '---' 'name: backend-builder' 'model: sonnet' '---' > "$HY/.claude/agents/backend-builder.md"
+# Real wrappers pointing at plugin apd
+cat > "$HY/.claude/bin/apd" <<SH
+#!/bin/bash
+exec bash "$APD_PLUGIN_ROOT/bin/apd" "\$@"
+SH
+cat > "$HY/.codex/bin/apd" <<SH
+#!/bin/bash
+exec bash "$APD_PLUGIN_ROOT/bin/apd" "\$@"
+SH
+chmod +x "$HY/.claude/bin/apd" "$HY/.codex/bin/apd"
+
+# Probe resolver in CC context (no APD_RUNTIME) — expect CC shortcut,
+# CC agents dir, CC-native activation marker
+CC_SHORTCUT=$(APD_PROJECT_DIR="$HY" bash -c "source $APD_PLUGIN_ROOT/bin/lib/resolve-project.sh; echo \$APD_SHORTCUT")
+CC_AGENTS=$(APD_PROJECT_DIR="$HY" bash -c "source $APD_PLUGIN_ROOT/bin/lib/resolve-project.sh; echo \$APD_AGENTS_DIR")
+CC_CONFIG=$(APD_PROJECT_DIR="$HY" bash -c "source $APD_PLUGIN_ROOT/bin/lib/resolve-project.sh; echo \$APD_CONFIG_FILE")
+
+if [ "$CC_SHORTCUT" = "$HY/.claude/bin/apd" ]; then
+    pass "hybrid CC context → APD_SHORTCUT=.claude/bin/apd"
+    PASSES=$((PASSES + 1))
+else
+    fail "hybrid CC shortcut expected .claude/bin/apd, got $CC_SHORTCUT"
+    FAILS=$((FAILS + 1))
+fi
+
+if [ "$CC_AGENTS" = "$HY/.claude/agents" ]; then
+    pass "hybrid CC context → APD_AGENTS_DIR=.claude/agents"
+    PASSES=$((PASSES + 1))
+else
+    fail "hybrid CC agents expected .claude/agents, got $CC_AGENTS"
+    FAILS=$((FAILS + 1))
+fi
+
+if [ "$CC_CONFIG" = "$HY/.claude/.apd-config" ]; then
+    pass "hybrid CC context → APD_CONFIG_FILE=.claude/.apd-config"
+    PASSES=$((PASSES + 1))
+else
+    fail "hybrid CC config expected .claude/.apd-config, got $CC_CONFIG"
+    FAILS=$((FAILS + 1))
+fi
+
+# Probe resolver in Codex context (APD_RUNTIME=codex) — expect Codex shortcut,
+# but agents + config stay on CC side (hybrid project's source of truth)
+CDX_SHORTCUT=$(APD_PROJECT_DIR="$HY" APD_RUNTIME=codex bash -c "source $APD_PLUGIN_ROOT/bin/lib/resolve-project.sh; echo \$APD_SHORTCUT")
+CDX_AGENTS=$(APD_PROJECT_DIR="$HY" APD_RUNTIME=codex bash -c "source $APD_PLUGIN_ROOT/bin/lib/resolve-project.sh; echo \$APD_AGENTS_DIR")
+
+if [ "$CDX_SHORTCUT" = "$HY/.codex/bin/apd" ]; then
+    pass "hybrid Codex context → APD_SHORTCUT=.codex/bin/apd"
+    PASSES=$((PASSES + 1))
+else
+    fail "hybrid Codex shortcut expected .codex/bin/apd, got $CDX_SHORTCUT"
+    FAILS=$((FAILS + 1))
+fi
+
+if [ "$CDX_AGENTS" = "$HY/.claude/agents" ]; then
+    pass "hybrid Codex context still uses .claude/agents (CC is source of truth)"
+    PASSES=$((PASSES + 1))
+else
+    fail "hybrid Codex agents drifted off .claude/agents: $CDX_AGENTS"
+    FAILS=$((FAILS + 1))
+fi
+
+# Shared pipeline state: CC-style advance seeds spec.done, Codex-style sees it
+if [ -x "$VALIDATOR" ]; then
+    "$VALIDATOR" advance -step spec -task hy-shared -pipeline-dir "$HY/.apd/pipeline" >/dev/null 2>&1
+    if [ -f "$HY/.apd/pipeline/spec.done" ]; then
+        # From "Codex" side, pipeline-advance status should see it too
+        STATUS_OUT=$(APD_PROJECT_DIR="$HY" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" status 2>&1)
+        # Strip ANSI then check for task header + filled spec marker
+        STATUS_CLEAN=$(printf '%s' "$STATUS_OUT" | sed $'s/\033\\[[0-9;]*m//g')
+        if echo "$STATUS_CLEAN" | grep -q "■ spec" && echo "$STATUS_CLEAN" | grep -q "hy-shared"; then
+            pass "shared .apd/pipeline/ state visible across both runtimes"
+            PASSES=$((PASSES + 1))
+        else
+            fail "Codex context did not see CC-seeded spec.done"
+            FAILS=$((FAILS + 1))
+        fi
+    else
+        fail "validator did not seed spec.done in hybrid fixture"
+        FAILS=$((FAILS + 1))
+    fi
+fi
+
+rm -rf "$HY"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

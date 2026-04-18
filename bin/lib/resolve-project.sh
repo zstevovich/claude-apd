@@ -126,13 +126,19 @@ else
 fi
 
 # --- Shortcut path for user-facing messages ---
-# Prefer the Codex-namespaced shortcut when the project has .codex/, so
-# Codex users see `.codex/bin/apd ...` in help and error messages. Fall
-# back to the CC shortcut, then the absolute plugin entry point.
-if [ -f "$PROJECT_DIR/.codex/bin/apd" ]; then
+# Pick the shortcut that matches the active runtime, so user-facing messages
+# (pipeline errors, doctor hints, etc.) render the path the user actually
+# types in their shell. Priority:
+#   1. If APD_RUNTIME=codex and .codex/bin/apd exists → Codex shortcut
+#   2. Else if .claude/bin/apd exists → CC shortcut (CC's default context)
+#   3. Else if .codex/bin/apd exists → Codex shortcut (pure-Codex project)
+#   4. Else → absolute plugin entry (no project shortcut anywhere)
+if [ "${APD_RUNTIME:-}" = "codex" ] && [ -f "$PROJECT_DIR/.codex/bin/apd" ]; then
     APD_SHORTCUT="$PROJECT_DIR/.codex/bin/apd"
 elif [ -f "$CLAUDE_DIR/bin/apd" ]; then
     APD_SHORTCUT="$CLAUDE_DIR/bin/apd"
+elif [ -f "$PROJECT_DIR/.codex/bin/apd" ]; then
+    APD_SHORTCUT="$PROJECT_DIR/.codex/bin/apd"
 else
     APD_SHORTCUT="$APD_PLUGIN_ROOT/bin/apd"
 fi
