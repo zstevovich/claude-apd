@@ -106,8 +106,9 @@ FIRST_EXIT=$?
 echo "$FIRST_OUT" | grep -q "\[wrote\] \[mcp_servers.apd\]" && pass "wrote MCP block" && PASSES=$((PASSES + 1)) || { fail "did not write MCP block"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "per-agent sandbox profiles skipped" && pass "sandbox profiles deferred (MCP guard-scope path)" && PASSES=$((PASSES + 1)) || { fail "sandbox skip notice missing"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "PreToolUse Bash hook" && pass "wrote hooks.json" && PASSES=$((PASSES + 1)) || { fail "no hooks.json written"; FAILS=$((FAILS + 1)); }
-echo "$FIRST_OUT" | grep -q "\.claude/bin/apd shortcut" && pass "wrote .claude/bin/apd shortcut" && PASSES=$((PASSES + 1)) || { fail "no apd shortcut created"; FAILS=$((FAILS + 1)); }
-_check ".claude/bin/apd is executable" test -x "$SCRATCH/.claude/bin/apd"
+echo "$FIRST_OUT" | grep -q "\.codex/bin/apd shortcut" && pass "wrote .codex/bin/apd shortcut" && PASSES=$((PASSES + 1)) || { fail "no apd shortcut created"; FAILS=$((FAILS + 1)); }
+_check ".codex/bin/apd is executable" test -x "$SCRATCH/.codex/bin/apd"
+_check "did NOT write .claude/bin/apd" test ! -e "$SCRATCH/.claude/bin/apd"
 ! grep -q "^\[permissions\." "$SCRATCH/.codex/config.toml" && pass "no broken [permissions.*] blocks emitted" && PASSES=$((PASSES + 1)) || { fail "broken permissions blocks present"; FAILS=$((FAILS + 1)); }
 
 # -----------------------------------------------------------
@@ -194,8 +195,10 @@ except ImportError:
     import os; os.chdir('$SCRATCH/subdir/deeper')
     cur = os.getcwd()
     while cur != '/':
-        if os.path.isdir(os.path.join(cur, '.claude')):
-            print(cur); break
+        for marker in ('.codex', 'AGENTS.md', '.claude', 'CLAUDE.md'):
+            p = os.path.join(cur, marker)
+            if os.path.isdir(p) or os.path.isfile(p):
+                print(cur); sys.exit(0)
         cur = os.path.dirname(cur)
 " 2>&1 | tail -1)"
 
@@ -214,35 +217,43 @@ fi
 section "8. MCP bootstrap shortcut"
 
 BOOT_DIR="$(mktemp -d -t apd-boot.XXXXXX)"
-mkdir -p "$BOOT_DIR/.claude"
+mkdir -p "$BOOT_DIR/.codex"
 if command -v uv &>/dev/null; then
     (cd "$BOOT_DIR" && uv run --with mcp python -c "
 import sys; sys.path.insert(0, '$APD_PLUGIN_ROOT/mcp')
 import apd_mcp_server as m
 m._bootstrap_shortcut()
 " >/dev/null 2>&1)
-    if [ -x "$BOOT_DIR/.claude/bin/apd" ]; then
-        pass "bootstrap creates .claude/bin/apd when .claude/ exists"
+    if [ -x "$BOOT_DIR/.codex/bin/apd" ]; then
+        pass "bootstrap creates .codex/bin/apd when .codex/ exists"
         PASSES=$((PASSES + 1))
     else
-        fail "bootstrap did not create shortcut"
+        fail "bootstrap did not create .codex/bin/apd"
         FAILS=$((FAILS + 1))
     fi
 
-    NOCLAUDE="$(mktemp -d -t apd-noclaude.XXXXXX)"
-    (cd "$NOCLAUDE" && uv run --with mcp python -c "
+    if [ ! -e "$BOOT_DIR/.claude" ]; then
+        pass "bootstrap did NOT create .claude/ in Codex project"
+        PASSES=$((PASSES + 1))
+    else
+        fail "bootstrap leaked .claude/ into Codex project"
+        FAILS=$((FAILS + 1))
+    fi
+
+    NOCDX="$(mktemp -d -t apd-nocdx.XXXXXX)"
+    (cd "$NOCDX" && uv run --with mcp python -c "
 import sys; sys.path.insert(0, '$APD_PLUGIN_ROOT/mcp')
 import apd_mcp_server as m
 m._bootstrap_shortcut()
 " >/dev/null 2>&1)
-    if [ ! -e "$NOCLAUDE/.claude" ]; then
-        pass "bootstrap skips dirs without .claude/"
+    if [ ! -e "$NOCDX/.codex" ] && [ ! -e "$NOCDX/.claude" ]; then
+        pass "bootstrap skips dirs without .codex/"
         PASSES=$((PASSES + 1))
     else
-        fail "bootstrap created .claude/ in a non-APD dir"
+        fail "bootstrap created a dir in a non-APD cwd"
         FAILS=$((FAILS + 1))
     fi
-    rm -rf "$NOCLAUDE"
+    rm -rf "$NOCDX"
 else
     warn "uv not installed — skipping bootstrap checks"
 fi

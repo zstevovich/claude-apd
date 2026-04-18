@@ -36,7 +36,7 @@ Restart `codex`. The `apd_ping` tool should appear in the model's tool list.
 - `apd_doctor` — runs `bin/core/pipeline-doctor`
 - `apd_advance_pipeline(step, arg="")` — wraps `pipeline-advance spec|builder|reviewer|verifier|init|status|stats|metrics|reset|rollback`
 - `apd_guard_write(file_path, allowed_paths)` — wraps `guard-scope`; exit 2 = BLOCK
-- `apd_verify_step()` — runs project `.claude/bin/verify-all.sh` (or framework `bin/core/verify-all`)
+- `apd_verify_step()` — runs project `.codex/bin/verify-all.sh` if present (or legacy `.claude/bin/verify-all.sh`; otherwise framework `bin/core/verify-all`)
 - `apd_adversarial_pass(total, accepted, dismissed)` — writes `.adversarial-summary` for session log
 
 ## Coming later

@@ -60,11 +60,24 @@ def _run_core(script: str, *args: str, timeout: int = 30) -> dict:
         return {"ok": False, "error": f"{script} timed out after {timeout}s"}
 
 
-def _project_dir() -> Path:
-    """Resolve the active project directory the same way resolve-project.sh does.
+_PROJECT_MARKERS = (".codex", "AGENTS.md", ".claude", "CLAUDE.md")
 
-    Priority: APD_PROJECT_DIR env → git toplevel (if .claude/ lives there) →
-    walk up from cwd looking for .claude/ or CLAUDE.md → cwd.
+
+def _is_project_root(path: Path) -> bool:
+    for marker in _PROJECT_MARKERS:
+        candidate = path / marker
+        if candidate.is_dir() or candidate.is_file():
+            return True
+    return False
+
+
+def _project_dir() -> Path:
+    """Resolve the active project directory.
+
+    Priority: APD_PROJECT_DIR env → git toplevel (if it carries a project
+    marker) → walk up from cwd looking for a marker → cwd. Codex-native
+    markers (.codex/, AGENTS.md) are checked alongside legacy CC markers
+    (.claude/, CLAUDE.md) so hybrid and pure-Codex projects both resolve.
     """
     env = os.environ.get("APD_PROJECT_DIR")
     if env:
@@ -76,13 +89,13 @@ def _project_dir() -> Path:
         )
         if out.returncode == 0:
             root = Path(out.stdout.strip())
-            if (root / ".claude").is_dir():
+            if _is_project_root(root):
                 return root
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
     cwd = Path(os.getcwd()).resolve()
     for candidate in [cwd, *cwd.parents]:
-        if (candidate / ".claude").is_dir() or (candidate / "CLAUDE.md").is_file():
+        if _is_project_root(candidate):
             return candidate
     return cwd
 
@@ -152,13 +165,16 @@ def apd_guard_write(file_path: str, allowed_paths: list[str]) -> dict:
 def apd_verify_step() -> dict:
     """Run the project-level verify-all script.
 
-    Delegates to `<project>/.claude/bin/verify-all.sh` if present (the per-project
-    verifier installed by /apd-setup). Falls back to `bin/core/verify-all`
-    (framework default).
+    Looks up a per-project verifier in Codex-native (.codex/bin/verify-all.sh)
+    first, then legacy CC (.claude/bin/verify-all.sh) as fallback for hybrid
+    setups. If neither exists, delegates to the framework default at
+    bin/core/verify-all.
     """
     project = _project_dir()
-    project_verify = project / ".claude" / "bin" / "verify-all.sh"
-    if project_verify.exists():
+    for rel in (".codex/bin/verify-all.sh", ".claude/bin/verify-all.sh"):
+        project_verify = project / rel
+        if not project_verify.exists():
+            continue
         try:
             result = subprocess.run(
                 ["bash", str(project_verify)],
@@ -172,7 +188,7 @@ def apd_verify_step() -> dict:
                 "source": "project",
             }
         except subprocess.TimeoutExpired:
-            return {"ok": False, "error": "verify-all.sh timed out after 300s"}
+            return {"ok": False, "error": f"{rel} timed out after 300s"}
     result = _run_core("verify-all", timeout=300)
     result["source"] = "framework"
     return result
@@ -203,18 +219,18 @@ def apd_adversarial_pass(total: int, accepted: int, dismissed: int) -> dict:
 
 
 def _bootstrap_shortcut() -> None:
-    """Create .claude/bin/apd shortcut on server start — mirrors CC session-start.
+    """Create .codex/bin/apd shortcut on server start.
 
     Codex has no reliable SessionStart hook, so the MCP server's own start
     doubles as the bootstrap moment. Only creates the shortcut when the
-    resolved project already has a .claude/ dir (i.e., it is a real APD
+    resolved project already has a .codex/ dir (i.e., it is a real Codex
     project) so we don't leak files into random cwds.
     """
     project = _project_dir()
-    if not (project / ".claude").is_dir():
+    if not (project / ".codex").is_dir():
         return
     plugin_apd = APD_PLUGIN_ROOT / "bin" / "apd"
-    shortcut = project / ".claude" / "bin" / "apd"
+    shortcut = project / ".codex" / "bin" / "apd"
     if shortcut.exists():
         try:
             if str(plugin_apd) in shortcut.read_text():
