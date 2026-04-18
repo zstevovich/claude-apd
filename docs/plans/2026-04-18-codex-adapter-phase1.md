@@ -184,10 +184,30 @@ Likely root cause: `codex_hooks` is still under-development in 0.121.0, and hook
 
 Replace original Task 6 smoke-test criteria with:
 
-- [ ] User manually verifies `SessionStart` hook fires in Codex TUI interactive mode (probe script writes to log)
-- [ ] User manually verifies `PreToolUse` Bash hook fires in TUI (probe script captures command)
-- [ ] If both pass: proceed with Task 7 (tag `v4.8.0-alpha.1`)
-- [ ] If either fails: open issue against Codex; pivot Phase 2 plan — possibly switch APD enforcement surface from hooks to MCP server (`codex mcp-server`)
+- [x] User manually verified `SessionStart` + `PreToolUse` + `PostToolUse` + `Stop` hooks in Codex TUI interactive mode — **FAILED**
+- [ ] ~Phase 1 completion~ — blocked on Codex hook implementation
+- [ ] Pivot Phase 2 plan to MCP server as enforcement surface
+
+### TUI test result (2026-04-18)
+
+Manual test performed by user in `~/Projects/Test/codex-apd-test/` with probe script wired into all 4 events across multiple cache layouts:
+
+1. `cache/apd/apd/` flat — Codex scans subdirs as plugin roots, logs `missing or invalid plugin.json` for `tests/`, `bin/`, etc.
+2. `cache/apd/apd/local/` with version subdir — Codex rejects with "plugin is not installed" (path mismatch)
+3. `cache/apd/apd/v1/` with version subdir + minimal content (only `.codex-plugin/plugin.json` + `hooks.json`) — plugin loads clean, no warnings
+4. Same as #3 but with hooks.json at plugin root (matching Figma plugin convention) — plugin loads clean, no warnings
+
+**In cases 3 and 4 (plugin loads successfully), hooks still do not fire.** `/tmp/apd-hook-probe.log` never created. `RUST_LOG=trace` output contains zero `HookStartedNotification` or `HookCompletedNotification` entries. Tool calls (`echo hi` via `exec_command`) execute normally without hook interception.
+
+One spurious `HOOK FIRED` log entry was observed early in testing, timestamp 15:55:44 — likely from a transient state before cache was properly configured. Could not be reproduced deterministically.
+
+### Conclusion
+
+`codex_hooks` is "under development" in 0.121.0 and appears non-functional for user-provided plugins in both `codex exec` and TUI modes. Phase 1 is paused. Next steps:
+
+1. **Track Codex releases** — reference memory `reference-cc-version-tracking.md` pattern; add `reference-codex-version-tracking.md`. Watch for `codex_hooks` promotion from under-development.
+2. **Pivot Phase 2 plan** — consider APD enforcement via Codex MCP server (`codex mcp-server`) instead of hooks. MCP tool use is a stable Codex feature; APD could expose `apd_guard_tool`, `apd_dispatch_agent`, etc. as MCP tools and integrate there.
+3. **Do not tag `v4.8.0-alpha.1`** — scaffolding is correct but non-functional; tagging implies usable artefact.
 
 ### Memory written during POC
 
