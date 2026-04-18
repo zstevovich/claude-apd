@@ -142,10 +142,20 @@ if [ -d "$APD_AGENTS_DIR" ]; then
     done
 
     if [ "$HAS_REVIEWER" = false ]; then
-        fail "No code-reviewer agent found — reviewer step will BLOCK"
+        if [ "${APD_RUNTIME:-}" = "codex" ]; then
+            # Codex orchestrator plays the reviewer role inline — pipeline-advance
+            # maps REVIEWER_RAN to "codex-orchestrator" automatically.
+            warn "No code-reviewer agent file — Codex orchestrator covers the reviewer role"
+        else
+            fail "No code-reviewer agent found — reviewer step will BLOCK"
+        fi
     fi
     if [ "$HAS_ADVERSARIAL" = false ]; then
-        warn "No adversarial-reviewer agent — run /apd-setup (CC) to create"
+        if [ "${APD_RUNTIME:-}" = "codex" ]; then
+            warn "No adversarial-reviewer agent — Codex runtime skips adversarial step unless populated"
+        else
+            warn "No adversarial-reviewer agent — run /apd-setup (CC) to create"
+        fi
     fi
 elif [ -d "$PROJECT_DIR/.codex" ] && [ ! -d "$CLAUDE_DIR/agents" ]; then
     warn "No agent registry — pure-Codex projects rely on AGENTS.md + MCP apd_guard_write for scope (populate .apd/agents/ if you want APD agent-awareness)"
