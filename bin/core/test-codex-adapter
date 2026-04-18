@@ -60,7 +60,7 @@ section "1. MCP server"
 _check "apd_mcp_server.py exists" test -f "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
 _check "Python syntax valid" python3 -m py_compile "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
 
-EXPECTED_TOOLS=(apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass)
+EXPECTED_TOOLS=(apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass apd_list_agents)
 for tool in "${EXPECTED_TOOLS[@]}"; do
     _check_file_contains "tool '$tool' registered" "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py" "^def $tool\b"
 done
@@ -806,6 +806,113 @@ else
 fi
 
 rm -rf "$VS"
+
+# -----------------------------------------------------------
+# 19. apd_list_agents — parser + registration
+# -----------------------------------------------------------
+section "19. apd_list_agents"
+
+# Static: tool is registered (already covered by section 1 EXPECTED_TOOLS
+# which now includes apd_list_agents). Also verify helper functions exist.
+MCP="$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
+for helper in _agents_dir _parse_agent_frontmatter; do
+    if grep -qE "^def $helper\\b" "$MCP"; then
+        pass "helper $helper defined in MCP server"
+        PASSES=$((PASSES + 1))
+    else
+        fail "MCP server missing helper: $helper"
+        FAILS=$((FAILS + 1))
+    fi
+done
+
+# Dynamic: write a small test harness that imports ONLY the helpers
+# (bypass FastMCP import) and parses two real agent files.
+LA="$(mktemp -d -t apd-la.XXXXXX)"
+mkdir -p "$LA/.apd/agents"
+cat > "$LA/.apd/agents/backend-builder.md" <<'EOF'
+---
+name: backend-builder
+description: Backend writes — src/ + config/
+model: sonnet
+maxTurns: 40
+scope:
+  - src/
+  - config/
+---
+Role body.
+EOF
+cat > "$LA/.apd/agents/code-reviewer.md" <<'EOF'
+---
+name: code-reviewer
+description: Read-only reviewer
+model: opus
+maxTurns: 30
+scope: []
+readonly: true
+---
+EOF
+
+HARNESS="$LA/run_parser.py"
+cat > "$HARNESS" <<PY
+import json, sys, re
+from pathlib import Path
+
+# Read the MCP server source and pull out the two helper functions by
+# regex (no import of FastMCP required so this runs on any box with python3).
+src = Path("$MCP").read_text()
+
+def _extract(fn):
+    m = re.search(r"(^def " + fn + r"\(.*?)(?=^def |^@mcp|\Z)", src, re.M | re.S)
+    return m.group(1) if m else ""
+
+globs: dict = {"Path": Path}
+compiled = compile(_extract("_parse_agent_frontmatter") + "\n" + _extract("_agents_dir"),
+                   "<mcp-helpers>", "exec")
+# Use exec only on known-trusted source we just read from disk
+exec(compiled, globs)  # noqa: S102 — loading our own source
+
+adir = globs["_agents_dir"](Path("$LA"))
+agents = []
+for md in sorted(adir.glob("*.md")):
+    fm = globs["_parse_agent_frontmatter"](md)
+    agents.append(fm)
+
+print(json.dumps({
+    "agents_dir": str(adir),
+    "count": len(agents),
+    "names": [a.get("name") for a in agents],
+    "scopes": [a.get("scope") for a in agents],
+    "readonly_flags": [a.get("readonly") for a in agents],
+}))
+PY
+
+OUT=$(python3 "$HARNESS" 2>&1)
+
+if echo "$OUT" | grep -q '"count": 2'; then
+    pass "helpers parse 2 agent files correctly"
+    PASSES=$((PASSES + 1))
+else
+    fail "agent parse count != 2: $OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$OUT" | grep -q "backend-builder" && echo "$OUT" | grep -q "code-reviewer"; then
+    pass "both agent names returned"
+    PASSES=$((PASSES + 1))
+else
+    fail "missing agent names: $OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$OUT" | grep -q '"src/"' && echo "$OUT" | grep -q '"config/"'; then
+    pass "scope list parsed (src/, config/)"
+    PASSES=$((PASSES + 1))
+else
+    fail "scope not parsed: $OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$LA"
 
 # -----------------------------------------------------------
 # Summary

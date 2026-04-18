@@ -149,6 +149,126 @@ def apd_doctor() -> dict:
     return _run_core("pipeline-doctor", timeout=10)
 
 
+def _agents_dir(project: Path) -> Path | None:
+    """Pick the agent registry dir the resolver would — .claude/agents first
+    (CC is source of truth on hybrid projects), .apd/agents fallback."""
+    cc = project / ".claude" / "agents"
+    if cc.is_dir():
+        return cc
+    neutral = project / ".apd" / "agents"
+    if neutral.is_dir():
+        return neutral
+    return None
+
+
+def _parse_agent_frontmatter(path: Path) -> dict:
+    """Extract YAML frontmatter fields without pulling a YAML dep.
+
+    Supports: name, description, model, effort, maxTurns, memory, color,
+    permissionMode, readonly (scalars) and scope (list). Scope items may be
+    `- foo/` entries in a list block or a flow-style `[a, b]`. Unknown
+    fields are preserved as strings.
+    """
+    try:
+        text = path.read_text()
+    except OSError:
+        return {}
+    if not text.startswith("---"):
+        return {}
+    # Extract frontmatter (between first two `---` lines)
+    parts = text.split("\n---", 2)
+    if len(parts) < 2:
+        return {}
+    body = parts[0].lstrip("-\n")
+    result: dict = {}
+    current_list_key: str | None = None
+    for raw in body.split("\n"):
+        line = raw.rstrip()
+        if not line:
+            current_list_key = None
+            continue
+        if current_list_key and line.startswith(("  - ", "    - ", "\t- ")):
+            item = line.lstrip(" \t-").strip()
+            result.setdefault(current_list_key, []).append(item)
+            continue
+        current_list_key = None
+        if ":" not in line:
+            continue
+        key, _, val = line.partition(":")
+        key = key.strip()
+        val = val.strip()
+        if val == "":
+            # Potentially a list block following
+            current_list_key = key
+            result.setdefault(key, [])
+        elif val.startswith("[") and val.endswith("]"):
+            inner = val[1:-1].strip()
+            items = [s.strip().strip('"').strip("'") for s in inner.split(",")] if inner else []
+            result[key] = items
+        else:
+            # Strip surrounding quotes
+            if (val.startswith('"') and val.endswith('"')) or \
+               (val.startswith("'") and val.endswith("'")):
+                val = val[1:-1]
+            result[key] = val
+    # Coerce numeric-ish fields
+    for numeric in ("maxTurns",):
+        if numeric in result and isinstance(result[numeric], str):
+            try:
+                result[numeric] = int(result[numeric])
+            except ValueError:
+                pass
+    return result
+
+
+@mcp.tool()
+def apd_list_agents() -> dict:
+    """List all agent definitions in the active project's registry.
+
+    Reads .claude/agents/ (CC and hybrid projects) or .apd/agents/ (pure
+    Codex), whichever exists — matches what the resolver picks at runtime.
+
+    Returns {"ok": True, "agents_dir": <path>, "agents": [...]}. Each agent
+    entry has name, description, model, effort, maxTurns, scope (list),
+    readonly (bool), plus any other frontmatter fields the template
+    carries.
+
+    Intended use: orchestrator calls this once per pipeline, caches the
+    result, and passes the matching `scope` list to apd_guard_write before
+    every write. That way scope boundaries stay coherent with the agent
+    files instead of being re-typed in each tool call.
+    """
+    project = _project_dir()
+    agents_dir = _agents_dir(project)
+    if agents_dir is None:
+        return {
+            "ok": True,
+            "agents_dir": None,
+            "agents": [],
+            "note": "no agent registry found — create .apd/agents/ or .claude/agents/",
+        }
+    agents: list[dict] = []
+    for md in sorted(agents_dir.glob("*.md")):
+        fm = _parse_agent_frontmatter(md)
+        if not fm:
+            continue
+        # Normalize: ensure name falls back to filename stem, scope is always a list
+        fm.setdefault("name", md.stem)
+        if "scope" in fm and not isinstance(fm["scope"], list):
+            fm["scope"] = []
+        fm.setdefault("scope", [])
+        # Coerce readonly to bool
+        if "readonly" in fm and isinstance(fm["readonly"], str):
+            fm["readonly"] = fm["readonly"].lower() in ("true", "yes", "1")
+        fm["file"] = str(md)
+        agents.append(fm)
+    return {
+        "ok": True,
+        "agents_dir": str(agents_dir),
+        "agents": agents,
+    }
+
+
 @mcp.tool()
 def apd_advance_pipeline(step: str, arg: str = "") -> dict:
     """Advance the APD pipeline by one step.
