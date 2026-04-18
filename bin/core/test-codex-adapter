@@ -741,6 +741,73 @@ fi
 rm -rf "$HY"
 
 # -----------------------------------------------------------
+# 18. apd cdx verify-setup
+# -----------------------------------------------------------
+section "18. apd cdx verify-setup"
+
+VS="$(mktemp -d -t apd-vs.XXXXXX)"
+mkdir -p "$VS/.codex"
+
+VS_LIST=$(APD_PROJECT_DIR="$VS" bash "$APD_PLUGIN_ROOT/bin/apd" cdx verify-setup list 2>&1)
+for stack in node php python go java dotnet; do
+    if echo "$VS_LIST" | grep -q "$stack"; then
+        pass "verify-setup list includes '$stack'"
+        PASSES=$((PASSES + 1))
+    else
+        fail "verify-setup list missing '$stack'"
+        FAILS=$((FAILS + 1))
+    fi
+done
+
+# Scaffold node stack
+APD_PROJECT_DIR="$VS" bash "$APD_PLUGIN_ROOT/bin/apd" cdx verify-setup node >/dev/null 2>&1
+_check "verify-all.sh created at .codex/bin/verify-all.sh" test -f "$VS/.codex/bin/verify-all.sh"
+_check "verify-all.sh is executable" test -x "$VS/.codex/bin/verify-all.sh"
+
+# Syntax must parse under bash -n
+if bash -n "$VS/.codex/bin/verify-all.sh" 2>/dev/null; then
+    pass "generated verify-all.sh parses cleanly (bash -n)"
+    PASSES=$((PASSES + 1))
+else
+    fail "generated verify-all.sh has syntax errors"
+    FAILS=$((FAILS + 1))
+fi
+
+# Must include the cache header and the ERRORS footer
+_check_file_contains "header has PROJECT_DIR" "$VS/.codex/bin/verify-all.sh" 'PROJECT_DIR='
+_check_file_contains "header has verified.timestamp cache" "$VS/.codex/bin/verify-all.sh" 'verified\.timestamp'
+_check_file_contains "footer exits on ERRORS" "$VS/.codex/bin/verify-all.sh" 'VERIFICATION FAILED'
+
+# Re-run without --force refused
+if APD_PROJECT_DIR="$VS" bash "$APD_PLUGIN_ROOT/bin/apd" cdx verify-setup node >/dev/null 2>&1; then
+    fail "verify-setup overwrote without --force"
+    FAILS=$((FAILS + 1))
+else
+    pass "verify-setup refuses to overwrite without --force"
+    PASSES=$((PASSES + 1))
+fi
+
+# --force allows overwrite
+if APD_PROJECT_DIR="$VS" bash "$APD_PLUGIN_ROOT/bin/apd" cdx verify-setup node --force >/dev/null 2>&1; then
+    pass "verify-setup --force permits overwrite"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-setup --force rejected"
+    FAILS=$((FAILS + 1))
+fi
+
+# Unknown stack fails
+if APD_PROJECT_DIR="$VS" bash "$APD_PLUGIN_ROOT/bin/apd" cdx verify-setup nonesuch >/dev/null 2>&1; then
+    fail "unknown stack did not error"
+    FAILS=$((FAILS + 1))
+else
+    pass "unknown stack rejected with nonzero exit"
+    PASSES=$((PASSES + 1))
+fi
+
+rm -rf "$VS"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
