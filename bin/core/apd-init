@@ -595,6 +595,28 @@ with open('$CLAUDE_DIR/settings.json', 'w') as f:
 fi
 
 # ===========================================================
+# CODEX ADAPTER — auto-run if .codex/ already exists
+# Users who run Codex alongside CC will have a .codex/ dir; we register
+# the MCP server + sandbox profiles + hooks.json for them here.
+# Absent .codex/, do nothing — users bootstrap manually via
+# `bash $APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config`
+# ===========================================================
+if [ -d "$PROJECT_DIR/.codex" ]; then
+    echo ""
+    section "Codex adapter"
+    CODEX_INIT="$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config"
+    if [ -x "$CODEX_INIT" ]; then
+        CODEX_OUT=$(bash "$CODEX_INIT" "$PROJECT_DIR" 2>&1 || true)
+        echo "$CODEX_OUT" | sed 's/^/  /'
+        if echo "$CODEX_OUT" | grep -qE '^\[wrote\]'; then
+            FIXES=$((FIXES + 1))
+        fi
+    else
+        warn "Codex init script missing at $CODEX_INIT"
+    fi
+fi
+
+# ===========================================================
 # SUMMARY
 # ===========================================================
 echo ""
