@@ -264,6 +264,57 @@ else
 fi
 
 # -----------------------------------------------------------
+# 10. Pipeline builder advances on pure-Codex (no sub-agents)
+# -----------------------------------------------------------
+section "10. Pipeline builder on pure-Codex"
+
+_os=$(uname -s | tr '[:upper:]' '[:lower:]')
+_arch=$(uname -m | tr '[:upper:]' '[:lower:]')
+[ "$_arch" = "x86_64" ] && _arch="amd64"
+[ "$_arch" = "aarch64" ] && _arch="arm64"
+VALIDATOR="$APD_PLUGIN_ROOT/bin/compiled/validate-agent-${_os}-${_arch}"
+
+if [ -x "$VALIDATOR" ]; then
+    PC="$(mktemp -d -t apd-pc-pipe.XXXXXX)"
+    mkdir -p "$PC/.codex/bin" "$PC/.apd/pipeline"
+    cat > "$PC/.apd/config" <<EOF
+PROJECT_NAME=pc-pipe
+APD_VERSION=test
+STACK=test
+EOF
+    ln -sf "$APD_PLUGIN_ROOT/bin/apd" "$PC/.codex/bin/apd"
+
+    # Seed a signed spec.done straight through the validator so the pipeline
+    # sees a valid spec step without having to craft a full spec-card.md.
+    "$VALIDATOR" advance -step spec -task pc-smoke -pipeline-dir "$PC/.apd/pipeline" >/dev/null 2>&1
+    echo "# plan" > "$PC/.apd/pipeline/implementation-plan.md"
+
+    PC_BUILDER_OUT="$(APD_PROJECT_DIR="$PC" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder 2>&1)"
+    PC_BUILDER_EXIT=$?
+
+    if [ "$PC_BUILDER_EXIT" -eq 0 ] && [ -f "$PC/.apd/pipeline/builder.done" ]; then
+        pass "builder advances without sub-agent dispatch on pure-Codex"
+        PASSES=$((PASSES + 1))
+    else
+        fail "builder did not advance (exit=$PC_BUILDER_EXIT)"
+        echo "    last line: $(echo "$PC_BUILDER_OUT" | tail -1)" >&2
+        FAILS=$((FAILS + 1))
+    fi
+
+    if echo "$PC_BUILDER_OUT" | grep -q "\.claude/"; then
+        fail "builder output leaked .claude/ path to Codex user"
+        FAILS=$((FAILS + 1))
+    else
+        pass "builder output contains no .claude/ references"
+        PASSES=$((PASSES + 1))
+    fi
+
+    rm -rf "$PC"
+else
+    warn "validator binary not found — skipping pure-Codex pipeline test"
+fi
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

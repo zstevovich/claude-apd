@@ -273,6 +273,12 @@ case "$STEP" in
                 fi
             done < "$AGENTS_LOG"
         fi
+        # Codex runtime has no sub-agent dispatch — the orchestrator IS the
+        # builder. Skip the agent-presence check on pure-Codex projects.
+        # Verifier step still enforces build + tests at the end of the flow.
+        if [ -z "${BUILDER_RAN:-}" ] && [ -d "$PROJECT_DIR/.codex" ] && [ ! -d "$CLAUDE_DIR/agents" ]; then
+            BUILDER_RAN="codex-orchestrator"
+        fi
         if [ -z "${BUILDER_RAN:-}" ]; then
             echo "BLOCKED: No project Builder agent was dispatched!" >&2
             echo "" >&2
@@ -369,6 +375,10 @@ case "$STEP" in
                     fi
                 fi
             done < "$AGENTS_LOG"
+        fi
+        # Codex runtime: orchestrator performs the review inline.
+        if [ -z "${REVIEWER_RAN:-}" ] && [ -d "$PROJECT_DIR/.codex" ] && [ ! -d "$CLAUDE_DIR/agents" ]; then
+            REVIEWER_RAN="codex-orchestrator"
         fi
         if [ -z "${REVIEWER_RAN:-}" ]; then
             echo "BLOCKED: No project Reviewer agent was dispatched!" >&2
@@ -526,9 +536,19 @@ case "$STEP" in
             fi
         fi
 
-        # Run build + tests (verify-all.sh lives in the PROJECT, not the plugin)
-        VERIFY_ALL="$CLAUDE_DIR/scripts/verify-all.sh"
-        if [ -x "$VERIFY_ALL" ]; then
+        # Run build + tests. verify-all.sh lives IN THE PROJECT, not the plugin.
+        # Search Codex-native location first, then legacy CC path, so pure-Codex
+        # projects can keep their verifier entirely under .codex/.
+        VERIFY_ALL=""
+        for candidate in \
+            "$PROJECT_DIR/.codex/bin/verify-all.sh" \
+            "$CLAUDE_DIR/scripts/verify-all.sh"; do
+            if [ -x "$candidate" ]; then
+                VERIFY_ALL="$candidate"
+                break
+            fi
+        done
+        if [ -n "$VERIFY_ALL" ]; then
             echo "" >&2
             echo "  Running build + tests..." >&2
             VERIFY_OUT=$(bash "$VERIFY_ALL" 2>&1)
