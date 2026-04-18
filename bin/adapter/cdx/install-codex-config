@@ -1,13 +1,16 @@
 #!/bin/bash
-# Codex adapter — install APD entries into <project>/.codex/config.toml
+# Codex adapter — initialize APD entries in <project>/.codex/
 #
-# Phase 2 helper. Writes [mcp_servers.apd] entry so Codex TUI loads APD's
-# MCP server. Idempotent: if the section already exists, the script leaves
-# it alone. Future Codex variant of `apd init` will absorb this + sandbox
-# profile generation + hooks.json writing.
+# Writes three things, idempotent for each:
+#   1. .codex/config.toml  → [mcp_servers.apd] (MCP server registration)
+#                          → [permissions.apd-<role>] (per-agent sandbox profiles)
+#   2. .codex/hooks.json   → PreToolUse Bash → guard-bash-scope
+#   3. Prints reminder to enable `codex_hooks` feature flag
 #
 # Usage: install-codex-config [project-dir]
 #   project-dir defaults to current working directory
+#
+# Phase 2 promotion: this is the Codex variant of `apd init`. Safe to re-run.
 
 set -euo pipefail
 
@@ -22,37 +25,135 @@ fi
 
 CODEX_DIR="$PROJECT_DIR/.codex"
 CONFIG_FILE="$CODEX_DIR/config.toml"
+HOOKS_FILE="$CODEX_DIR/hooks.json"
 MCP_SERVER="$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
+GUARD_BASH="$APD_PLUGIN_ROOT/bin/adapter/cdx/guard-bash-scope"
+AGENTS_DIR="$PROJECT_DIR/.claude/agents"
 
 if [ ! -f "$MCP_SERVER" ]; then
     echo "ERROR: APD MCP server not found at $MCP_SERVER" >&2
-    echo "       plugin root resolved to: $APD_PLUGIN_ROOT" >&2
     exit 2
 fi
-
 if ! command -v uv &>/dev/null; then
     echo "ERROR: \`uv\` is not installed. Install with: brew install uv" >&2
     exit 3
 fi
 
 mkdir -p "$CODEX_DIR"
+CHANGES=0
 
+# -----------------------------------------------------------
+# 1. MCP server registration
+# -----------------------------------------------------------
 if [ -f "$CONFIG_FILE" ] && grep -q "^\[mcp_servers\.apd\]" "$CONFIG_FILE"; then
-    echo "APD MCP server already registered in $CONFIG_FILE — no changes."
-    exit 0
-fi
-
-if [ -f "$CONFIG_FILE" ]; then
-    cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
-    echo "Backed up existing config to ${CONFIG_FILE}.bak"
-fi
-
-cat >> "$CONFIG_FILE" <<EOF
+    echo "[skip] [mcp_servers.apd] already present in $CONFIG_FILE"
+else
+    [ -f "$CONFIG_FILE" ] && cp "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%s)"
+    cat >> "$CONFIG_FILE" <<EOF
 
 [mcp_servers.apd]
 command = "uv"
 args = ["run", "--with", "mcp", "python", "$MCP_SERVER"]
 EOF
+    echo "[wrote] [mcp_servers.apd] → $CONFIG_FILE"
+    CHANGES=$((CHANGES + 1))
+fi
 
-echo "Wrote [mcp_servers.apd] to $CONFIG_FILE"
-echo "Next: cd \"$PROJECT_DIR\" && codex    # APD tools should appear in the model's tool list"
+# -----------------------------------------------------------
+# 2. Per-agent sandbox profiles
+#    Reads `# SCOPE_PATHS: ...` comment from each agent .md file,
+#    emits [permissions.apd-<agent>] block with writable_roots.
+# -----------------------------------------------------------
+if [ -d "$AGENTS_DIR" ]; then
+    for agent_file in "$AGENTS_DIR"/*.md; do
+        [ -f "$agent_file" ] || continue
+        agent_name=$(basename "$agent_file" .md)
+        profile_marker="[permissions.apd-${agent_name}]"
+
+        scope_line=$(grep -m1 -E '^#[[:space:]]*SCOPE_PATHS[[:space:]]*:' "$agent_file" 2>/dev/null | sed -E 's/^#[[:space:]]*SCOPE_PATHS[[:space:]]*:[[:space:]]*//' || true)
+        if [ -z "$scope_line" ]; then
+            echo "[skip] $agent_name — no SCOPE_PATHS declared"
+            continue
+        fi
+
+        if grep -qF "$profile_marker" "$CONFIG_FILE" 2>/dev/null; then
+            echo "[skip] $profile_marker already present"
+            continue
+        fi
+
+        # Build writable_roots TOML array: ./src ./config → ["./src", "./config"]
+        roots=""
+        for p in $scope_line; do
+            # Prefix with ./ if relative and not already prefixed
+            case "$p" in
+                /*|./*) ;;
+                *) p="./$p" ;;
+            esac
+            if [ -z "$roots" ]; then
+                roots="\"$p\""
+            else
+                roots="$roots, \"$p\""
+            fi
+        done
+
+        cat >> "$CONFIG_FILE" <<EOF
+
+$profile_marker
+default = "workspace-write"
+
+[permissions.apd-${agent_name}.filesystem]
+writable_roots = [$roots]
+EOF
+        echo "[wrote] $profile_marker → writable_roots=[$roots]"
+        CHANGES=$((CHANGES + 1))
+    done
+else
+    echo "[skip] no .claude/agents dir — per-agent sandbox profiles not generated"
+fi
+
+# -----------------------------------------------------------
+# 3. Repo-level hooks.json — PreToolUse Bash → guard-bash-scope
+# -----------------------------------------------------------
+if [ -f "$HOOKS_FILE" ] && grep -qF "$GUARD_BASH" "$HOOKS_FILE"; then
+    echo "[skip] PreToolUse guard-bash-scope already wired in $HOOKS_FILE"
+else
+    [ -f "$HOOKS_FILE" ] && cp "$HOOKS_FILE" "${HOOKS_FILE}.bak.$(date +%s)"
+    cat > "$HOOKS_FILE" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $GUARD_BASH",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+    echo "[wrote] PreToolUse Bash hook → $HOOKS_FILE"
+    CHANGES=$((CHANGES + 1))
+fi
+
+# -----------------------------------------------------------
+# Summary + next-steps
+# -----------------------------------------------------------
+echo ""
+if [ "$CHANGES" -eq 0 ]; then
+    echo "APD Codex config already up to date — no changes."
+else
+    echo "APD Codex init: $CHANGES change(s) written."
+fi
+echo ""
+echo "Next steps:"
+echo "  1. Enable Codex hooks feature flag (one-time, global):"
+echo "       codex features enable codex_hooks"
+echo "  2. Start Codex from project root:"
+echo "       cd \"$PROJECT_DIR\" && codex"
+echo "  3. Verify APD tools appear in the model's tool list, then try:"
+echo "       \"run apd_ping\""
