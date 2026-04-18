@@ -9,6 +9,7 @@ Requires: pip install 'mcp>=1.0' (or invoke via `uvx --from mcp ...`).
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -16,14 +17,18 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 APD_PLUGIN_ROOT = Path(__file__).resolve().parent.parent
-APD_VERSION_FILE = APD_PLUGIN_ROOT / ".apd-version"
+APD_PLUGIN_MANIFEST = APD_PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
 
 mcp = FastMCP("apd")
 
 
 def _read_version() -> str:
-    if APD_VERSION_FILE.exists():
-        return APD_VERSION_FILE.read_text().strip()
+    if APD_PLUGIN_MANIFEST.exists():
+        try:
+            data = json.loads(APD_PLUGIN_MANIFEST.read_text())
+            return data.get("version", "unknown")
+        except json.JSONDecodeError:
+            pass
     return "unknown"
 
 
