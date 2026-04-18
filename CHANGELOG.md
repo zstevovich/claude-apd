@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.7.19 — 2026-04-18
+
+### Added
+- **`rules/workflow.md`** — new "MaxTurn sizing" subsection under *Model and effort discipline*. Captures the counterintuitive but real finding from two consecutive BambiProject runs: raising `maxTurns` makes pipelines *faster*, not slower, because it eliminates re-dispatch overhead (new agent re-reading spec/plan/sources from scratch) and prevents the context discontinuity bugs that reviewers catch and force fix cycles for. Documents APD defaults (40 builders / 30 reviewers), per-project override path (edit `.claude/agents/<name>.md`, auto-migration preserves non-legacy values), and an anti-pattern warning against lowering maxTurns "to save tokens".
+
+---
+
 ## v4.7.18 — 2026-04-18
 
 Deep audit bundle 5 — docs and nits. Closes out the audit cycle.

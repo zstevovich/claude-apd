@@ -306,6 +306,19 @@ When a task involves backend + frontend/mobile:
 - **Never use effort: low or medium** — APD uses high, xhigh (builder), and max
 - **`effort: xhigh` on Sonnet 4.6** falls back to `high` automatically — it takes effect when Sonnet 4.7 is available. Forward-compatible configuration.
 
+### MaxTurn sizing — counterintuitive but important
+
+Raising `maxTurns` makes pipelines **faster**, not slower. When an agent hits the limit mid-work, the orchestrator dispatches a new agent — that agent re-reads the spec, plan, `.reviewed-files`, and source files from scratch, burning 10+ turns before doing new work. Context discontinuity between runs also produces test/implementation mismatches that the reviewer catches, forcing another fix cycle.
+
+APD defaults (v4.7.13+):
+- Builders (backend, frontend, mobile, database, devops, testing): **`maxTurns: 40`**
+- Code reviewer: **`maxTurns: 30`**
+- Adversarial reviewer: **`maxTurns: 30`**
+
+- Raise per-project if you see recurring exhaust in `apd report`. Edit `.claude/agents/<name>.md` frontmatter directly — `apd init --quick` only bumps the exact legacy defaults (20/15), custom values are preserved.
+- Real-world example: BambiProject runs builders at 60 and code-reviewer at 45, eliminated exhaust, dropped adversarial hit rate from 25 % to 0 % across two consecutive runs.
+- **Do NOT lower maxTurns to "save tokens".** Lower values cause more re-dispatches, which cost MORE tokens and produce WORSE code.
+
 ## 9. Mandatory skills
 
 These skills are NOT optional. They MUST be used at the specified points in the pipeline.
