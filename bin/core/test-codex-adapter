@@ -94,6 +94,20 @@ echo "$FIRST_OUT" | grep -q "\.apd/config seed" && pass "seeded .apd/config (pur
 _check ".apd/config exists" test -f "$SCRATCH/.apd/config"
 _check "did NOT create .claude/ anywhere" test ! -e "$SCRATCH/.claude"
 _check ".apd/rules/workflow.md scaffolded" test -f "$SCRATCH/.apd/rules/workflow.md"
+if [ -f "$SCRATCH/.apd/rules/workflow.md" ] && ! grep -q '\.claude/bin/apd' "$SCRATCH/.apd/rules/workflow.md"; then
+    pass "scaffolded workflow.md has no .claude/bin/apd references"
+    PASSES=$((PASSES + 1))
+else
+    fail "scaffolded workflow.md still references .claude/bin/apd"
+    FAILS=$((FAILS + 1))
+fi
+if grep -q '\.codex/bin/apd' "$SCRATCH/.apd/rules/workflow.md" 2>/dev/null; then
+    pass "scaffolded workflow.md uses .codex/bin/apd"
+    PASSES=$((PASSES + 1))
+else
+    fail "scaffolded workflow.md missing .codex/bin/apd references"
+    FAILS=$((FAILS + 1))
+fi
 _check ".apd/memory/MEMORY.md scaffolded" test -f "$SCRATCH/.apd/memory/MEMORY.md"
 _check ".apd/memory/status.md scaffolded" test -f "$SCRATCH/.apd/memory/status.md"
 _check ".apd/memory/session-log.md scaffolded" test -f "$SCRATCH/.apd/memory/session-log.md"

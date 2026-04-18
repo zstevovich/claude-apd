@@ -149,11 +149,15 @@ if [ ! -d "$PROJECT_DIR/.claude" ]; then
     APD_VER="$(tr -d '[:space:]' < "$APD_PLUGIN_ROOT/VERSION" 2>/dev/null)"
     [ -z "$APD_VER" ] && APD_VER=$(grep '"version"' "$APD_PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
-    # Workflow rules (orchestrator must follow these)
+    # Workflow rules (orchestrator must follow these).
+    # Rewrite CC-native shortcut paths to the Codex namespace so a pure-Codex
+    # user never sees ".claude/bin/apd ..." in their workflow rules.
     if [ ! -f "$PROJECT_DIR/.apd/rules/workflow.md" ] && [ -f "$APD_PLUGIN_ROOT/rules/workflow.md" ]; then
         mkdir -p "$PROJECT_DIR/.apd/rules"
-        cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$PROJECT_DIR/.apd/rules/workflow.md"
-        echo "[wrote] .apd/rules/workflow.md"
+        sed 's|\.claude/bin/apd|.codex/bin/apd|g' \
+            "$APD_PLUGIN_ROOT/rules/workflow.md" \
+            > "$PROJECT_DIR/.apd/rules/workflow.md"
+        echo "[wrote] .apd/rules/workflow.md (shortcut paths rewritten to .codex/)"
         CHANGES=$((CHANGES + 1))
     fi
 
