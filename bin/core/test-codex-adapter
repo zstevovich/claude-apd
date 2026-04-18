@@ -525,6 +525,73 @@ fi
 rm -rf "$UA"
 
 # -----------------------------------------------------------
+# 15. apd cdx doctor — Codex-native audit
+# -----------------------------------------------------------
+section "15. apd cdx doctor"
+
+# Fresh pure-Codex scaffold: expect exit 0 (all FAILs clear)
+DOC="$(mktemp -d -t apd-doc.XXXXXX)"
+mkdir -p "$DOC/.codex"
+bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$DOC" >/dev/null 2>&1
+
+DOC_OUT="$(APD_PROJECT_DIR="$DOC" bash "$APD_PLUGIN_ROOT/bin/apd" cdx doctor 2>&1)"
+DOC_EXIT=$?
+
+if [ "$DOC_EXIT" -eq 0 ]; then
+    pass "doctor exits 0 on fresh pure-Codex scaffold"
+    PASSES=$((PASSES + 1))
+else
+    fail "doctor exit $DOC_EXIT on scaffold (expected 0)"
+    FAILS=$((FAILS + 1))
+fi
+
+for label in "uv installed" "apd_mcp_server.py present" "all 6 MCP tools registered" "config.toml has \[mcp_servers.apd\]" "hooks.json wires PreToolUse" "AGENTS.md at project root"; do
+    if echo "$DOC_OUT" | grep -qE "$label"; then
+        pass "doctor checks '$label'"
+        PASSES=$((PASSES + 1))
+    else
+        fail "doctor missing check '$label'"
+        FAILS=$((FAILS + 1))
+    fi
+done
+
+if echo "$DOC_OUT" | grep -q "apd cdx agents add"; then
+    pass "doctor points to apd cdx agents when .apd/agents/ is empty"
+    PASSES=$((PASSES + 1))
+else
+    fail "empty agents/ hint missing"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$DOC"
+
+# Broken project: no .codex/ at all → doctor should exit nonzero
+BROKEN="$(mktemp -d -t apd-doc-broken.XXXXXX)"
+if APD_PROJECT_DIR="$BROKEN" bash "$APD_PLUGIN_ROOT/bin/apd" cdx doctor >/dev/null 2>&1; then
+    fail "doctor returned 0 on a project with no .codex/"
+    FAILS=$((FAILS + 1))
+else
+    pass "doctor exits nonzero on project with no .codex/"
+    PASSES=$((PASSES + 1))
+fi
+rm -rf "$BROKEN"
+
+# Hybrid project: .claude/ present → doctor should surface hybrid notice
+HYD="$(mktemp -d -t apd-doc-hy.XXXXXX)"
+mkdir -p "$HYD/.codex" "$HYD/.claude"
+echo "PROJECT_NAME=hyd" > "$HYD/.claude/.apd-config"
+bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$HYD" >/dev/null 2>&1
+HYD_OUT="$(APD_PROJECT_DIR="$HYD" bash "$APD_PLUGIN_ROOT/bin/apd" cdx doctor 2>&1)"
+if echo "$HYD_OUT" | grep -q "hybrid project"; then
+    pass "doctor identifies hybrid project and points to \`apd doctor\`"
+    PASSES=$((PASSES + 1))
+else
+    fail "doctor did not flag hybrid project"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$HYD"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

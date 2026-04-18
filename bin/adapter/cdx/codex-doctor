@@ -1,0 +1,221 @@
+#!/bin/bash
+# apd cdx doctor — Codex-native health check for a pure-Codex APD project.
+#
+# Runs a runtime-aware audit of everything the Codex adapter needs:
+#   - OS prerequisites (uv, python3, optional codex CLI)
+#   - Global Codex config (~/.codex/config.toml) + codex_hooks feature flag
+#   - Project-local .codex/ (config.toml, hooks.json, bin/apd shortcut)
+#   - .apd/ content (config, rules, memory, agents, .apd-version)
+#   - AGENTS.md at project root
+#   - MCP server parses and exposes all expected tools
+#
+# Exit codes:
+#   0  — no FAIL checks (may have WARN)
+#   N  — N failed checks
+
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APD_PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+source "$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh"
+source "$APD_PLUGIN_ROOT/bin/lib/style.sh"
+
+apd_header "Codex Runtime Doctor" "$PROJECT_DIR"
+
+PASSES=0
+FAILS=0
+WARNS=0
+
+_ok()   { pass "$1"; PASSES=$((PASSES + 1)); }
+_bad()  { fail "$1"; FAILS=$((FAILS + 1)); }
+_warn() { warn "$1"; WARNS=$((WARNS + 1)); }
+
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+
+# -----------------------------------------------------------
+# 1. Prerequisites
+# -----------------------------------------------------------
+section "Prerequisites"
+
+if command -v uv >/dev/null 2>&1; then
+    _ok "uv installed ($(uv --version 2>/dev/null | head -1))"
+else
+    _bad "uv not installed — MCP server cannot run. Install with: brew install uv"
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+    _ok "python3 ($(python3 --version 2>&1 | awk '{print $2}'))"
+else
+    _bad "python3 not found — required by MCP server"
+fi
+
+if command -v codex >/dev/null 2>&1; then
+    _ok "codex CLI ($(codex --version 2>/dev/null | head -1 || echo 'version unknown'))"
+else
+    _warn "codex CLI not on PATH — install to start sessions (framework works without it)"
+fi
+
+# -----------------------------------------------------------
+# 2. Global Codex config
+# -----------------------------------------------------------
+section "Global Codex config ($CODEX_HOME)"
+
+GLOBAL_CFG="$CODEX_HOME/config.toml"
+if [ -f "$GLOBAL_CFG" ]; then
+    _ok "global config.toml exists"
+    if grep -qE '^\s*codex_hooks\s*=\s*true' "$GLOBAL_CFG" 2>/dev/null; then
+        _ok "codex_hooks feature flag enabled"
+    else
+        _bad "codex_hooks feature flag NOT enabled — run: codex features enable codex_hooks"
+    fi
+else
+    _warn "$GLOBAL_CFG missing — Codex likely never started. First run: codex"
+fi
+
+# -----------------------------------------------------------
+# 3. Project-local .codex/
+# -----------------------------------------------------------
+section "Project Codex setup (.codex/)"
+
+CODEX_DIR="$PROJECT_DIR/.codex"
+if [ ! -d "$CODEX_DIR" ]; then
+    _bad ".codex/ missing — run: apd cdx init"
+else
+    _ok ".codex/ exists"
+
+    CFG="$CODEX_DIR/config.toml"
+    if [ -f "$CFG" ] && grep -q '^\[mcp_servers\.apd\]' "$CFG"; then
+        _ok "config.toml has [mcp_servers.apd]"
+        if grep -qF "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py" "$CFG"; then
+            _ok "MCP server path points to this plugin"
+        else
+            _warn "MCP server path in config.toml doesn't match plugin root ($APD_PLUGIN_ROOT) — another APD install may be registered"
+        fi
+    else
+        _bad "[mcp_servers.apd] block missing from $CFG — run: apd cdx init"
+    fi
+
+    HOOKS="$CODEX_DIR/hooks.json"
+    if [ -f "$HOOKS" ] && grep -q 'guard-bash-scope' "$HOOKS"; then
+        _ok "hooks.json wires PreToolUse Bash → guard-bash-scope"
+        if command -v python3 >/dev/null && ! python3 -c "import json; json.load(open('$HOOKS'))" 2>/dev/null; then
+            _bad "$HOOKS is not valid JSON"
+        fi
+    else
+        _bad "$HOOKS missing or not wired to guard-bash-scope"
+    fi
+
+    SHORTCUT="$CODEX_DIR/bin/apd"
+    if [ -x "$SHORTCUT" ] && grep -qF "$APD_PLUGIN_ROOT/bin/apd" "$SHORTCUT" 2>/dev/null; then
+        _ok ".codex/bin/apd shortcut points to plugin entry"
+    else
+        _warn ".codex/bin/apd shortcut missing or stale — run apd cdx init or restart Codex (MCP bootstrap creates it)"
+    fi
+fi
+
+# -----------------------------------------------------------
+# 4. APD content (.apd/)
+# -----------------------------------------------------------
+section "APD content (.apd/)"
+
+if [ -d "$CLAUDE_DIR" ]; then
+    _warn ".claude/ present — this is a hybrid project. For full CC+APD audit run: apd doctor"
+fi
+
+APD_CFG="$PROJECT_DIR/.apd/config"
+if [ -f "$APD_CFG" ]; then
+    PROJ=$(grep '^PROJECT_NAME=' "$APD_CFG" 2>/dev/null | cut -d= -f2-)
+    _ok ".apd/config (PROJECT_NAME=${PROJ:-?})"
+elif [ -f "$CLAUDE_DIR/.apd-config" ]; then
+    _ok ".claude/.apd-config (legacy CC activation marker)"
+else
+    _bad "no APD activation marker — run: apd cdx init"
+fi
+
+[ -f "$APD_RULES_DIR/workflow.md" ] && _ok "$APD_RULES_DIR/workflow.md" || _warn "$APD_RULES_DIR/workflow.md missing"
+
+for f in MEMORY.md status.md session-log.md; do
+    if [ -f "$APD_MEMORY_DIR/$f" ]; then
+        _ok "$APD_MEMORY_DIR/$f"
+    else
+        _warn "$APD_MEMORY_DIR/$f missing"
+    fi
+done
+
+if [ -d "$APD_AGENTS_DIR" ]; then
+    AGENT_COUNT=$(find "$APD_AGENTS_DIR" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$AGENT_COUNT" -gt 0 ]; then
+        _ok "$APD_AGENTS_DIR ($AGENT_COUNT agent file(s))"
+    else
+        _warn "$APD_AGENTS_DIR is empty — scaffold with: apd cdx agents add <name>"
+    fi
+else
+    _warn "$APD_AGENTS_DIR missing — run: apd cdx init"
+fi
+
+VER_FILE="$PROJECT_DIR/.apd/.apd-version"
+if [ -f "$VER_FILE" ]; then
+    _ok ".apd/.apd-version ($(tr -d '[:space:]' < "$VER_FILE"))"
+else
+    _warn ".apd/.apd-version missing (informational only)"
+fi
+
+# -----------------------------------------------------------
+# 5. Project context
+# -----------------------------------------------------------
+section "Project context"
+
+if [ -f "$PROJECT_DIR/AGENTS.md" ]; then
+    if grep -q "apd_advance_pipeline" "$PROJECT_DIR/AGENTS.md" 2>/dev/null; then
+        _ok "AGENTS.md at project root (references APD pipeline)"
+    else
+        _warn "AGENTS.md present but does not reference APD pipeline — orchestrator may miss the rules"
+    fi
+else
+    _bad "AGENTS.md missing — Codex orchestrator has no project context. Run: apd cdx init"
+fi
+
+# -----------------------------------------------------------
+# 6. MCP server
+# -----------------------------------------------------------
+section "MCP server"
+
+MCP_PY="$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
+if [ -f "$MCP_PY" ]; then
+    _ok "apd_mcp_server.py present"
+    if command -v python3 >/dev/null && python3 -m py_compile "$MCP_PY" 2>/dev/null; then
+        _ok "Python syntax parses cleanly"
+    else
+        _bad "apd_mcp_server.py does not parse — plugin install is corrupt"
+    fi
+
+    MISSING=""
+    for tool in apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass; do
+        if ! grep -qE "^def $tool\\b" "$MCP_PY"; then
+            MISSING="${MISSING}${tool}, "
+        fi
+    done
+    if [ -z "$MISSING" ]; then
+        _ok "all 6 MCP tools registered"
+    else
+        _bad "MCP tools missing: ${MISSING%, }"
+    fi
+else
+    _bad "apd_mcp_server.py not found at $MCP_PY"
+fi
+
+# -----------------------------------------------------------
+# Summary
+# -----------------------------------------------------------
+echo ""
+section "Summary"
+echo "    ${G}PASS:${R} $PASSES  ${R}FAIL:${R} $FAILS  ${Y}WARN:${R} $WARNS"
+echo ""
+
+if [ "$FAILS" -eq 0 ]; then
+    echo "  ${G}Codex adapter is ready.${R} Next: ${V}codex${R} (start a session and try \"run apd_ping\")."
+    exit 0
+else
+    echo "  ${R}Codex adapter has problems — fix FAIL items above.${R}"
+    exit "$FAILS"
+fi

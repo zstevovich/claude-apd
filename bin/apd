@@ -61,6 +61,9 @@ case "$CMD" in
             agents)
                 exec bash "$CDX_DIR/agents-scaffold" "$@"
                 ;;
+            doctor|dr)
+                exec bash "$CDX_DIR/codex-doctor" "$@"
+                ;;
             test)
                 exec bash "$CORE_DIR/test-codex-adapter" "$@"
                 ;;
@@ -86,6 +89,7 @@ case "$CMD" in
                 echo "               testing, adversarial-reviewer"
                 echo ""
                 echo "  ${V}Diagnostics${R}"
+                echo "    doctor                       Audit the pure-Codex setup (runtime-aware)"
                 echo "    test                         Run E2E smoke test (60+ checks, no Codex CLI)"
                 echo ""
                 echo "  ${V}Prerequisites${R}"
