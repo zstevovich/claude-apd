@@ -111,6 +111,7 @@ bash .claude/bin/apd pipeline stats
 - Max 7 acceptance criteria per spec. Large features MUST be decomposed into smaller pipeline cycles.
 - **NEVER write, edit, or create project source files** (code, templates, CSS, JS, tests, configs). You are the ORCHESTRATOR — you write ONLY pipeline files (spec-card.md, implementation-plan.md, .adversarial-summary) and memory files. ALL code changes go through dispatched Builder agents. `guard-orchestrator` mechanically blocks this — every failed attempt wastes tokens.
 - **NEVER read code files after a reviewer finishes** to "verify" or "double-check" the review. Trust the reviewer's findings. If the reviewer missed something, dispatch the reviewer again — do not replicate its work.
+- **DO verify review findings that cite an external standard** — API format, protocol spec, library contract, vendor docs — against the primary source (official documentation) before accept/dismiss. `WebFetch` or reading a checked-in spec file is NOT the same as re-reading the code under review. Reviewers are agents; they can have knowledge gaps and hallucinate. Evidence-based dismissal ("Postmark docs show `ContentID: cid:...` — finding is false positive, dismiss") is engineering; feeling-based dismissal ("I think it's fine") is negligence. Document the source in the dismissal so the audit trail is reviewable.
 
 ## 1. Spec card before code
 

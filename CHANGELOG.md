@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.7.20 — 2026-04-18
+
+### Added
+- **`rules/workflow.md`** — new orchestrator rule explicitly permitting evidence-based verification of review findings against primary external sources (API docs, protocol specs, library contracts). Clarifies the adjacent "NEVER re-read code" rule: `WebFetch`-ing official documentation to check a specific claim in a review finding is NOT the same as replicating review work. Captures real-world pattern from BambiProject where the orchestrator dismissed a `Postmark ContentId` format finding by consulting Postmark docs — reviewer had hallucinated the format requirement, docs confirmed our code was correct. Documents the `accept-with-evidence | dismiss-with-evidence` requirement so future orchestrators don't drift back to feeling-based dismissals.
+
+---
+
 ## v4.7.19 — 2026-04-18
 
 ### Added
