@@ -1,0 +1,186 @@
+#!/bin/bash
+# apd cdx agents — scaffold agent definitions into <project>/.apd/agents/
+#
+# Subcommands:
+#   list                         show available templates + currently installed agents
+#   add <name> [scope-path ...]  copy a template and optionally override its scope
+#
+# The templates live at ${APD_PLUGIN_ROOT}/templates/codex/agents/<name>.md
+# and are Codex-native: no CC-specific `hooks:` frontmatter field, scope is
+# a YAML list under `scope:`. Each scaffold run is idempotent for existing
+# agents — the script refuses to overwrite; use `--force` to replace.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APD_PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+source "$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh"
+source "$APD_PLUGIN_ROOT/bin/lib/style.sh"
+
+TEMPLATE_DIR="$APD_PLUGIN_ROOT/templates/codex/agents"
+
+if [ ! -d "$TEMPLATE_DIR" ]; then
+    echo "ERROR: template dir missing at $TEMPLATE_DIR" >&2
+    exit 2
+fi
+
+SUB="${1:-help}"
+shift 2>/dev/null || true
+
+_list_templates() {
+    for f in "$TEMPLATE_DIR"/*.md; do
+        [ -f "$f" ] || continue
+        local name desc
+        name=$(basename "$f" .md)
+        desc=$(grep -m1 '^description:' "$f" 2>/dev/null | sed 's/description:[[:space:]]*//')
+        printf "    %-22s %s\n" "$name" "$desc"
+    done
+}
+
+_list_installed() {
+    if [ -d "$APD_AGENTS_DIR" ]; then
+        local count=0
+        for f in "$APD_AGENTS_DIR"/*.md; do
+            [ -f "$f" ] || continue
+            local name
+            name=$(basename "$f" .md)
+            printf "    %-22s %s\n" "$name" "$f"
+            count=$((count + 1))
+        done
+        [ "$count" -eq 0 ] && echo "    (none)"
+    else
+        echo "    (agents directory does not exist at $APD_AGENTS_DIR)"
+    fi
+}
+
+case "$SUB" in
+    list|ls)
+        echo ""
+        echo "  ${V}Available templates${R} (${TEMPLATE_DIR}):"
+        echo ""
+        _list_templates
+        echo ""
+        echo "  ${V}Installed agents${R} (${APD_AGENTS_DIR}):"
+        echo ""
+        _list_installed
+        echo ""
+        ;;
+    add)
+        NAME="${1:-}"
+        if [ -z "$NAME" ]; then
+            echo "ERROR: agent name required. Run \`apd cdx agents list\` to see templates." >&2
+            exit 1
+        fi
+        shift
+
+        FORCE=0
+        SCOPE_ARGS=()
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                --force|-f) FORCE=1; shift ;;
+                --) shift; SCOPE_ARGS+=("$@"); break ;;
+                *)  SCOPE_ARGS+=("$1"); shift ;;
+            esac
+        done
+
+        TEMPLATE="$TEMPLATE_DIR/$NAME.md"
+        if [ ! -f "$TEMPLATE" ]; then
+            echo "ERROR: no template named '$NAME'. Available:" >&2
+            _list_templates >&2
+            exit 1
+        fi
+
+        mkdir -p "$APD_AGENTS_DIR"
+        TARGET="$APD_AGENTS_DIR/$NAME.md"
+        if [ -f "$TARGET" ] && [ "$FORCE" != "1" ]; then
+            echo "ERROR: $TARGET already exists (pass --force to overwrite)" >&2
+            exit 1
+        fi
+
+        # Project name for placeholder substitution
+        PROJECT_NAME="$(basename "$PROJECT_DIR")"
+        if [ -n "${APD_CONFIG_FILE:-}" ] && [ -f "$APD_CONFIG_FILE" ]; then
+            CONF_PROJ=$(grep '^PROJECT_NAME=' "$APD_CONFIG_FILE" 2>/dev/null | cut -d= -f2-)
+            [ -n "$CONF_PROJ" ] && PROJECT_NAME="$CONF_PROJ"
+        fi
+
+        # Copy template with {{PROJECT_NAME}} substituted
+        sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$TEMPLATE" > "$TARGET"
+
+        # Scope override: if caller passed scope paths, rewrite the scope: block
+        if [ "${#SCOPE_ARGS[@]}" -gt 0 ]; then
+            python3 - "$TARGET" "${SCOPE_ARGS[@]}" <<'PY'
+import sys
+path = sys.argv[1]
+scopes = sys.argv[2:]
+with open(path) as f:
+    text = f.read()
+lines = text.split("\n")
+out = []
+i = 0
+in_front = False
+replaced = False
+while i < len(lines):
+    line = lines[i]
+    if i == 0 and line.strip() == "---":
+        in_front = True
+        out.append(line); i += 1; continue
+    if in_front and line.strip() == "---":
+        in_front = False
+        out.append(line); i += 1; continue
+    if in_front and line.startswith("scope:"):
+        out.append("scope:")
+        for s in scopes:
+            out.append(f"  - {s}")
+        replaced = True
+        i += 1
+        # Skip existing scope list items
+        while i < len(lines) and lines[i].startswith("  - "):
+            i += 1
+        continue
+    out.append(line); i += 1
+# Insert scope: if not originally present
+if not replaced:
+    new_out = []
+    for line in out:
+        new_out.append(line)
+        if line.strip() == "---" and "scope:" not in text:
+            # Insert after first ---
+            break
+    # Fallback: just append
+with open(path, "w") as f:
+    f.write("\n".join(out))
+PY
+        fi
+
+        chmod 644 "$TARGET"
+        echo "  ${G}wrote${R}  $TARGET"
+        if [ "${#SCOPE_ARGS[@]}" -gt 0 ]; then
+            echo "  ${D}scope:${R} ${SCOPE_ARGS[*]}"
+        fi
+        echo ""
+        echo "  Next: open the file and refine role/model/maxTurns as needed."
+        ;;
+    help|--help|-h|"")
+        echo ""
+        echo "  ${V}apd cdx agents${R} — scaffold agent definitions into .apd/agents/"
+        echo ""
+        echo "  Subcommands:"
+        echo "    list                     show available templates and installed agents"
+        echo "    add <name> [scope ...]   copy a template into .apd/agents/<name>.md"
+        echo ""
+        echo "  Examples:"
+        echo "    apd cdx agents list"
+        echo "    apd cdx agents add code-reviewer"
+        echo "    apd cdx agents add backend-builder src/ config/"
+        echo "    apd cdx agents add testing tests/ src/test/"
+        echo ""
+        echo "  Pass --force to overwrite an existing agent file."
+        echo ""
+        ;;
+    *)
+        echo "Unknown subcommand: $SUB" >&2
+        echo "Run: apd cdx agents help" >&2
+        exit 1
+        ;;
+esac

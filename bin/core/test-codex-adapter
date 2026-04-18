@@ -415,6 +415,81 @@ fi
 rm -rf "$HY"
 
 # -----------------------------------------------------------
+# 13. apd cdx agents — list + add + scope override
+# -----------------------------------------------------------
+section "13. apd cdx agents scaffold"
+
+AG="$(mktemp -d -t apd-ag.XXXXXX)"
+mkdir -p "$AG/.codex"
+bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$AG" >/dev/null 2>&1
+
+# list prints templates
+AG_LIST_OUT="$(APD_PROJECT_DIR="$AG" bash "$APD_PLUGIN_ROOT/bin/apd" cdx agents list 2>&1)"
+if echo "$AG_LIST_OUT" | grep -q "code-reviewer" && echo "$AG_LIST_OUT" | grep -q "backend-builder"; then
+    pass "agents list shows core templates"
+    PASSES=$((PASSES + 1))
+else
+    fail "agents list missing expected templates"
+    FAILS=$((FAILS + 1))
+fi
+
+# add default template
+AG_ADD_OUT="$(APD_PROJECT_DIR="$AG" bash "$APD_PLUGIN_ROOT/bin/apd" cdx agents add code-reviewer 2>&1)"
+if [ -f "$AG/.apd/agents/code-reviewer.md" ]; then
+    pass "agents add code-reviewer created file"
+    PASSES=$((PASSES + 1))
+else
+    fail "code-reviewer.md not created"
+    FAILS=$((FAILS + 1))
+fi
+if grep -q '^name: code-reviewer$' "$AG/.apd/agents/code-reviewer.md" 2>/dev/null; then
+    pass "code-reviewer has expected frontmatter"
+    PASSES=$((PASSES + 1))
+else
+    fail "code-reviewer frontmatter missing name"
+    FAILS=$((FAILS + 1))
+fi
+
+# add with custom scope paths
+APD_PROJECT_DIR="$AG" bash "$APD_PLUGIN_ROOT/bin/apd" cdx agents add backend-builder src/ api/ >/dev/null 2>&1
+if grep -qE '^  - src/$' "$AG/.apd/agents/backend-builder.md" && grep -qE '^  - api/$' "$AG/.apd/agents/backend-builder.md"; then
+    pass "agents add honors custom scope paths"
+    PASSES=$((PASSES + 1))
+else
+    fail "custom scope paths did not land in scope: block"
+    FAILS=$((FAILS + 1))
+fi
+
+# re-add without --force should fail
+if APD_PROJECT_DIR="$AG" bash "$APD_PLUGIN_ROOT/bin/apd" cdx agents add code-reviewer >/dev/null 2>&1; then
+    fail "re-add without --force unexpectedly succeeded"
+    FAILS=$((FAILS + 1))
+else
+    pass "re-add without --force refused (idempotent guard)"
+    PASSES=$((PASSES + 1))
+fi
+
+# --force overwrites
+if APD_PROJECT_DIR="$AG" bash "$APD_PLUGIN_ROOT/bin/apd" cdx agents add code-reviewer --force >/dev/null 2>&1; then
+    pass "--force permits overwrite"
+    PASSES=$((PASSES + 1))
+else
+    fail "--force did not allow overwrite"
+    FAILS=$((FAILS + 1))
+fi
+
+# unknown template fails cleanly
+if APD_PROJECT_DIR="$AG" bash "$APD_PLUGIN_ROOT/bin/apd" cdx agents add nonsense-agent >/dev/null 2>&1; then
+    fail "unknown template did not error"
+    FAILS=$((FAILS + 1))
+else
+    pass "unknown template rejected with nonzero exit"
+    PASSES=$((PASSES + 1))
+fi
+
+rm -rf "$AG"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

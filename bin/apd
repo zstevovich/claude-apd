@@ -58,6 +58,9 @@ case "$CMD" in
             init|setup)
                 exec bash "$CDX_DIR/install-codex-config" "$@"
                 ;;
+            agents)
+                exec bash "$CDX_DIR/agents-scaffold" "$@"
+                ;;
             test)
                 exec bash "$CORE_DIR/test-codex-adapter" "$@"
                 ;;
@@ -69,6 +72,7 @@ case "$CMD" in
                 echo "  Subcommands:"
                 echo "    init [project-dir]  Install APD entries into <project>/.codex/"
                 echo "                        (config.toml, sandbox profiles, hooks.json)"
+                echo "    agents <sub>        Scaffold agent definitions (list | add)"
                 echo "    test                Run E2E smoke test for the Codex adapter"
                 echo ""
                 ;;
