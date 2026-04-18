@@ -60,15 +60,21 @@ EOF
 fi
 
 # -----------------------------------------------------------
-# 2. Per-agent sandbox profiles — DISABLED
-#    Codex 0.121.0 rejects `[permissions.<name>]` with
-#    `default`/`filesystem.writable_roots` — the exact TOML schema
-#    is not documented publicly and the runtime Rust schema
-#    (FilesystemPermissionToml) doesn't match our earlier guess.
-#    Leaving this as a placeholder until the schema is pinned down.
-#    Tracker: per-agent sandbox via .apd-config → codex_hooks.
+# 2. Per-agent sandbox profiles — INTENTIONALLY DISABLED
+#    Real schema (probed against Codex 0.121.0):
+#        [permissions.<name>.filesystem]
+#        ":workspace/src" = "write"
+#        ":workspace" = "read"
+#    Two blockers for APD's original plan:
+#      1. Codex 0.121.0 returns "not supported until the runtime
+#         enforces FileSystemSandboxPolicy directly" — write perms
+#         are parsed but not enforced at runtime yet.
+#      2. Only one profile is active per session via
+#         `default_permissions`. No dynamic per-agent switching.
+#    Per-agent enforcement stays in the MCP `apd_guard_write` tool.
+#    See memory: project-codex-permissions-schema-unknown.md
 # -----------------------------------------------------------
-echo "[info] per-agent sandbox profiles skipped — Codex TOML schema pending"
+echo "[info] per-agent sandbox profiles skipped — enforced via MCP apd_guard_write instead"
 
 # -----------------------------------------------------------
 # 3. .claude/bin/apd shortcut — parity with CC session-start
