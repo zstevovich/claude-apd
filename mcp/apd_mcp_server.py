@@ -385,10 +385,11 @@ def apd_list_agents() -> dict:
     readonly (bool), plus any other frontmatter fields the template
     carries.
 
-    Intended use: orchestrator calls this once per pipeline, caches the
-    result, and passes the matching `scope` list to apd_guard_write before
-    every write. That way scope boundaries stay coherent with the agent
-    files instead of being re-typed in each tool call.
+    Intended use: orchestrator calls this once per pipeline to discover
+    which roles exist and which is currently active. Scope enforcement on
+    writes happens inside apd_guard_write(role, file_path) — the server
+    re-reads scope from this same registry, so clients cannot widen it by
+    passing inflated path lists.
     """
     project = _project_dir()
     agents_dir = _agents_dir(project)
@@ -443,16 +444,63 @@ def apd_advance_pipeline(step: str, arg: str = "") -> dict:
 
 
 @mcp.tool()
-def apd_guard_write(file_path: str, allowed_paths: list[str]) -> dict:
-    """Check whether a Write/Edit target falls inside an agent's scope.
+def apd_guard_write(role: str, file_path: str) -> dict:
+    """Check whether a Write/Edit target falls inside `role`'s configured scope.
 
-    Wraps `bin/core/guard-scope`. Pass the path the model wants to write and
-    the list of allowed path prefixes for the active agent. Exit code 2 means
-    BLOCK (out of scope); exit 0 means ALLOW.
+    Scope is read from the server-side agent registry (.claude/agents/<role>.md
+    on CC/hybrid projects, .apd/agents/<role>.md on pure-Codex), NOT from
+    client arguments. This closes the earlier loophole where the orchestrator
+    could widen its own scope by passing inflated `allowed_paths`.
+
+    - role is required and must match a file in the agent registry.
+    - readonly agents (frontmatter `readonly: true`) always BLOCK.
+    - Agents with no `scope` list ALLOW all writes (unscoped role).
+
+    Wraps bin/core/guard-scope. Exit 2 = BLOCK, exit 0 = ALLOW.
     """
+    if not role:
+        return {"ok": False, "error": "role is required"}
     if not file_path:
         return {"ok": False, "error": "file_path is required"}
-    return _run_core("guard-scope", "--file-path", file_path, *allowed_paths, timeout=5)
+
+    project = _project_dir()
+    agents_dir = _agents_dir(project)
+    if agents_dir is None:
+        return {
+            "ok": False,
+            "error": "no agent registry found — create .apd/agents/ or .claude/agents/",
+        }
+
+    agent_file = agents_dir / f"{role}.md"
+    if not agent_file.exists():
+        return {
+            "ok": False,
+            "error": f"unknown role '{role}' — no file at {agent_file}",
+        }
+
+    fm = _parse_agent_frontmatter(agent_file)
+    if not fm:
+        return {
+            "ok": False,
+            "error": f"could not parse agent frontmatter at {agent_file}",
+        }
+
+    readonly = fm.get("readonly", False)
+    if isinstance(readonly, str):
+        readonly = readonly.lower() in ("true", "yes", "1")
+    if readonly:
+        return {
+            "ok": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"role '{role}' is read-only — writes blocked by registry",
+        }
+
+    scope = fm.get("scope", [])
+    if not isinstance(scope, list):
+        scope = []
+
+    return _run_core("guard-scope", "--file-path", file_path, *scope, timeout=5)
 
 
 @mcp.tool()

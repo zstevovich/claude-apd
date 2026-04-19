@@ -281,6 +281,142 @@ case $? in
 esac
 
 # -----------------------------------------------------------
+# 6b. apd_guard_write server-side registry enforcement
+#     (scope comes from .apd/agents/<role>.md, not from client args)
+# -----------------------------------------------------------
+section "6b. apd_guard_write registry"
+
+GUARD_SCRATCH="$(mktemp -d -t apd-guard.XXXXXX)"
+mkdir -p "$GUARD_SCRATCH/.apd/agents" "$GUARD_SCRATCH/.apd/pipeline" "$GUARD_SCRATCH/src"
+cat > "$GUARD_SCRATCH/.apd/config" <<'EOF'
+PROJECT_NAME=guard-registry
+APD_VERSION=test
+STACK=test
+EOF
+cat > "$GUARD_SCRATCH/.apd/agents/backend-builder.md" <<'EOF'
+---
+name: backend-builder
+description: Backend scope test
+scope:
+  - src/
+  - config/
+---
+Backend builder role body.
+EOF
+cat > "$GUARD_SCRATCH/.apd/agents/code-reviewer.md" <<'EOF'
+---
+name: code-reviewer
+description: Read-only reviewer
+readonly: true
+---
+Reviewer role body.
+EOF
+
+GUARD_OUT="$(cd "$GUARD_SCRATCH" && python3 - <<PY
+import sys, types, json
+mcp_mod = types.ModuleType("mcp")
+server_mod = types.ModuleType("mcp.server")
+fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+class DummyFastMCP:
+    def __init__(self,*_a,**_kw): pass
+    def tool(self,*_a,**_kw):
+        def d(fn): return fn
+        return d
+    def run(self): return None
+fastmcp_mod.FastMCP = DummyFastMCP
+server_mod.fastmcp = fastmcp_mod
+mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod
+sys.modules["mcp.server"] = server_mod
+sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
+import apd_mcp_server as m
+out = {
+    "allow_in_scope":   m.apd_guard_write("backend-builder", "src/api/users.py"),
+    "block_out_scope":  m.apd_guard_write("backend-builder", "/etc/passwd"),
+    "readonly_blocks":  m.apd_guard_write("code-reviewer", "src/api/users.py"),
+    "unknown_role":     m.apd_guard_write("does-not-exist", "src/foo.py"),
+    "missing_role":     m.apd_guard_write("", "src/foo.py"),
+}
+print(json.dumps({k: {"ok": v.get("ok"), "exit_code": v.get("exit_code"), "error": v.get("error")} for k,v in out.items()}))
+PY
+)"
+
+if echo "$GUARD_OUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); sys.exit(0 if d['allow_in_scope']['ok'] is True else 1)"; then
+    pass "registry ALLOW: scope from .apd/agents/backend-builder.md matches target"
+    PASSES=$((PASSES + 1))
+else
+    fail "registry ALLOW did not succeed for in-scope target"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$GUARD_OUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); sys.exit(0 if d['block_out_scope'].get('exit_code') == 2 else 1)"; then
+    pass "registry BLOCK: out-of-scope target rejected with exit 2"
+    PASSES=$((PASSES + 1))
+else
+    fail "registry BLOCK did not return exit 2 for /etc/passwd"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$GUARD_OUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); sys.exit(0 if d['readonly_blocks'].get('exit_code') == 2 else 1)"; then
+    pass "readonly role (code-reviewer) cannot write at all"
+    PASSES=$((PASSES + 1))
+else
+    fail "readonly role did not block writes"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$GUARD_OUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); sys.exit(0 if 'unknown role' in (d['unknown_role'].get('error') or '') else 1)"; then
+    pass "unknown role returns explicit error (no silent ALLOW)"
+    PASSES=$((PASSES + 1))
+else
+    fail "unknown role did not return 'unknown role' error"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$GUARD_OUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); sys.exit(0 if 'role is required' in (d['missing_role'].get('error') or '') else 1)"; then
+    pass "empty role rejected with 'role is required'"
+    PASSES=$((PASSES + 1))
+else
+    fail "empty role did not return required error"
+    FAILS=$((FAILS + 1))
+fi
+
+# Tool signature must be (role, file_path) — no allowed_paths parameter.
+# This is the load-bearing invariant: client cannot widen scope via arguments.
+SIG_OUT="$(python3 - <<PY
+import sys, types, inspect
+mcp_mod = types.ModuleType("mcp")
+server_mod = types.ModuleType("mcp.server")
+fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+class DummyFastMCP:
+    def __init__(self,*_a,**_kw): pass
+    def tool(self,*_a,**_kw):
+        def d(fn): return fn
+        return d
+    def run(self): return None
+fastmcp_mod.FastMCP = DummyFastMCP
+server_mod.fastmcp = fastmcp_mod
+mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod
+sys.modules["mcp.server"] = server_mod
+sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
+import apd_mcp_server as m
+print(",".join(inspect.signature(m.apd_guard_write).parameters.keys()))
+PY
+)"
+if [ "$SIG_OUT" = "role,file_path" ]; then
+    pass "apd_guard_write signature = (role, file_path) — no client-controlled scope"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd_guard_write signature drifted: got '$SIG_OUT' (expected 'role,file_path')"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$GUARD_SCRATCH"
+
+# -----------------------------------------------------------
 # 7. Python _project_dir walk-up
 # -----------------------------------------------------------
 section "7. Python project_dir resolution"

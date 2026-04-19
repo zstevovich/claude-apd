@@ -23,9 +23,10 @@ Your write scope is:
 - `src/`
 - `config/`
 
-Before every file write, call `apd_guard_write(file_path, allowed_paths)`
-with your scope paths. The tool exits 2 for paths outside the scope — the
-write will be blocked.
+Before every file write, call
+`apd_guard_write("backend-builder", file_path)`. The server reads your
+scope from this agent file itself — passing only the role and target
+means the scope cannot be widened from the call site. Exit 2 = BLOCK.
 
 ## Discipline
 

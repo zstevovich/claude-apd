@@ -1,6 +1,6 @@
 ---
 name: apd-tdd
-description: Use during the APD builder phase (between apd_advance_pipeline('spec', ...) and apd_advance_pipeline('builder')) whenever you're implementing a feature or fixing a bug. Write a FAILING test first, watch it fail, write minimal code to pass, refactor while green. Every file write must go through apd_guard_write with the matching agent scope from apd_list_agents.
+description: Use during the APD builder phase (between apd_advance_pipeline('spec', ...) and apd_advance_pipeline('builder')) whenever you're implementing a feature or fixing a bug. Write a FAILING test first, watch it fail, write minimal code to pass, refactor while green. Every file write must go through apd_guard_write(role, file_path) — scope is enforced server-side from .apd/agents/<role>.md.
 ---
 
 # APD Test-Driven Development (Codex)
@@ -26,9 +26,9 @@ Watch it fail.** If it passes on the first run, you are testing existing
 behavior — fix the test to actually describe the new requirement.
 
 Before each test-file write, call
-`apd_guard_write(path, allowed_paths)` with the scope for your current
-role. Scopes come from `apd_list_agents()` — call it once at the start of
-the pipeline, cache the result, reuse for every write.
+`apd_guard_write("<role>", "<path>")`. The server reads scope from
+`.apd/agents/<role>.md` on every call — you only pass the role name and
+target path. Use `apd_list_agents()` to discover which roles are defined.
 
 ### 2. GREEN — minimal code to pass
 
@@ -50,9 +50,10 @@ Pick the next behavior. Write the next failing test. Repeat.
 ## Scope enforcement on every write
 
 Builder scope is declared in the agent frontmatter
-(`.apd/agents/<role>.md`, `scope:` list). Use `apd_list_agents()` once,
-cache it, and pass the matching scope into `apd_guard_write(path, scope)`
-before every Write/Edit.
+(`.apd/agents/<role>.md`, `scope:` list). Call
+`apd_guard_write("<role>", "<path>")` before every Write/Edit — the server
+reads scope from the agent file itself, so the role name is the only
+handle you need (and can't widen).
 
 Do NOT bypass with direct Bash writes — `guard-bash-scope` blocks writes
 into `.apd/pipeline/` and reviewed-files scope, and the verifier will

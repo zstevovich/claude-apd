@@ -19,8 +19,8 @@ least one test that would fail without the builder's changes.
 
 Write scope is `tests/` (and common variants: `__tests__/`, `test/`,
 `src/test/` — adjust to the project). Before every write, call
-`apd_guard_write(file_path, allowed_paths)` with your scope. The tool exits 2
-for paths outside the scope.
+`apd_guard_write("testing", file_path)`. The server reads scope from this
+agent file itself — you only pass the role and target. Exit 2 = BLOCK.
 
 ## Discipline
 

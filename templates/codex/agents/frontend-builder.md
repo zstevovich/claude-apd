@@ -24,8 +24,9 @@ Default write scope is:
 
 Adjust this list to match the project's actual frontend layout (e.g.
 `client/`, `web/`, `apps/frontend/`). Before every write, call
-`apd_guard_write(file_path, allowed_paths)` with your scope. The tool exits 2
-for paths outside the scope.
+`apd_guard_write("frontend-builder", file_path)`. The server reads scope
+from this agent file itself — you only pass the role and target. Exit 2
+= BLOCK.
 
 ## Discipline
 

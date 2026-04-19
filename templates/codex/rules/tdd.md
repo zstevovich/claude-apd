@@ -39,9 +39,9 @@ test('deletes post by id', async () => {
 ```
 
 **Run it. Watch it fail.** Before every write, call
-`apd_guard_write(test_file_path, allowed_paths)` — the builder scope for
-the current role (from `apd_list_agents()`). Exit 2 means BLOCK; move the
-test to a path inside scope.
+`apd_guard_write("<builder-role>", test_file_path)`. The server reads the
+role's scope from `.apd/agents/<role>.md` itself — you only pass the role
+name and target. Exit 2 means BLOCK; move the test to a path inside scope.
 
 If the test passes on the first run, you are testing existing behavior —
 fix the test to actually describe the new requirement.
@@ -71,9 +71,11 @@ Pick the next behavior. Write the next failing test. Repeat.
 ## Scope enforcement on every write
 
 Builder scope is declared in the agent file's frontmatter
-(`.apd/agents/<role>.md`, `scope:` list). Use `apd_list_agents()` once at
-the start of the pipeline, cache the result, and pass each role's scope
-list into `apd_guard_write(path, allowed_paths)` before every Write/Edit.
+(`.apd/agents/<role>.md`, `scope:` list). Call
+`apd_guard_write("<role>", "<target-path>")` before every Write/Edit — the
+server reads scope from the agent file on every call, so you cannot widen
+it by manipulating arguments. Use `apd_list_agents()` once to discover
+which role names are defined.
 
 Do NOT bypass `apd_guard_write` with direct Bash writes — `guard-bash-scope`
 blocks writes into `.apd/pipeline/` and reviewed-files scope, and the
