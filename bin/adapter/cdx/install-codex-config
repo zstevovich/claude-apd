@@ -222,9 +222,47 @@ else
 fi
 
 # -----------------------------------------------------------
-# 4b. .apd/ scaffold (pure-Codex projects only)
-#     Skipped entirely when .claude/ exists — that project is CC-native
-#     or hybrid and its content already lives under .claude/.
+# 4a. Codex-native artifacts — ALWAYS written (pure AND hybrid projects)
+#     AGENTS.md and .apd/rules/{brainstorm,tdd,debug,finish}.md exist only
+#     for the Codex orchestrator. CC has no analogue (CC uses CLAUDE.md +
+#     skill system instead), so these must be installed even when .claude/
+#     is present — otherwise hybrid Codex sessions have no project context
+#     and no phase rules to read.
+# -----------------------------------------------------------
+
+# AGENTS.md — Codex-native project context (analogue of CLAUDE.md, but Codex
+# orchestrator reads it, not CC). Only written if missing — never overwrites
+# a user-authored file.
+AGENTS_TEMPLATE="$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"
+if [ ! -f "$PROJECT_DIR/AGENTS.md" ] && [ -f "$AGENTS_TEMPLATE" ]; then
+    sed "s/{{PROJECT_NAME}}/$(basename "$PROJECT_DIR")/g" "$AGENTS_TEMPLATE" > "$PROJECT_DIR/AGENTS.md"
+    echo "[wrote] AGENTS.md (APD pipeline rules for Codex orchestrator)"
+    CHANGES=$((CHANGES + 1))
+fi
+
+# Codex-native phase rules: brainstorm, tdd, debug, finish. The orchestrator
+# reads these inline because Codex has no slash commands / skills system the
+# way CC does. CC sessions don't read these — they invoke .claude/skills/
+# apd-* instead — so writing them on hybrids is harmless.
+CDX_RULES_SRC="$APD_PLUGIN_ROOT/templates/codex/rules"
+if [ -d "$CDX_RULES_SRC" ]; then
+    mkdir -p "$PROJECT_DIR/.apd/rules"
+    for rule in brainstorm tdd debug finish; do
+        src="$CDX_RULES_SRC/$rule.md"
+        dst="$PROJECT_DIR/.apd/rules/$rule.md"
+        if [ -f "$src" ] && [ ! -f "$dst" ]; then
+            cp "$src" "$dst"
+            echo "[wrote] .apd/rules/$rule.md"
+            CHANGES=$((CHANGES + 1))
+        fi
+    done
+fi
+
+# -----------------------------------------------------------
+# 4b. .apd/ scaffold — CC-native duplicates, pure-Codex projects ONLY
+#     Skipped when .claude/ exists because that project's content already
+#     lives under .claude/{rules,memory,agents}/ and the resolver picks
+#     CC-native paths first on hybrids.
 # -----------------------------------------------------------
 if [ ! -d "$PROJECT_DIR/.claude" ]; then
     APD_VER="$(tr -d '[:space:]' < "$APD_PLUGIN_ROOT/VERSION" 2>/dev/null)"
@@ -240,24 +278,6 @@ if [ ! -d "$PROJECT_DIR/.claude" ]; then
             > "$PROJECT_DIR/.apd/rules/workflow.md"
         echo "[wrote] .apd/rules/workflow.md (shortcut paths rewritten to .codex/)"
         CHANGES=$((CHANGES + 1))
-    fi
-
-    # Codex-native phase rules: brainstorm, tdd, debug, finish.
-    # These mirror the CC skill content but are written as inline rule files
-    # the orchestrator reads when entering each phase (Codex has no slash
-    # commands / skills system the way CC does).
-    CDX_RULES_SRC="$APD_PLUGIN_ROOT/templates/codex/rules"
-    if [ -d "$CDX_RULES_SRC" ]; then
-        mkdir -p "$PROJECT_DIR/.apd/rules"
-        for rule in brainstorm tdd debug finish; do
-            src="$CDX_RULES_SRC/$rule.md"
-            dst="$PROJECT_DIR/.apd/rules/$rule.md"
-            if [ -f "$src" ] && [ ! -f "$dst" ]; then
-                cp "$src" "$dst"
-                echo "[wrote] .apd/rules/$rule.md"
-                CHANGES=$((CHANGES + 1))
-            fi
-        done
     fi
 
     # Memory tree — MEMORY index, status, session-log
@@ -287,17 +307,8 @@ if [ ! -d "$PROJECT_DIR/.claude" ]; then
         echo "[wrote] .apd/agents/ (populate with \`apd cdx agents add <name>\`)"
         CHANGES=$((CHANGES + 1))
     fi
-
-    # AGENTS.md — Codex-native project context file (analogue of CLAUDE.md).
-    # Only written if missing — never overwrites a user-authored file.
-    AGENTS_TEMPLATE="$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"
-    if [ ! -f "$PROJECT_DIR/AGENTS.md" ] && [ -f "$AGENTS_TEMPLATE" ]; then
-        sed "s/{{PROJECT_NAME}}/$(basename "$PROJECT_DIR")/g" "$AGENTS_TEMPLATE" > "$PROJECT_DIR/AGENTS.md"
-        echo "[wrote] AGENTS.md (APD pipeline rules for Codex orchestrator)"
-        CHANGES=$((CHANGES + 1))
-    fi
 else
-    echo "[skip] .claude/ present — treating as CC/hybrid project; .apd/ scaffold not needed"
+    echo "[skip] .claude/ present — CC-native duplicates skipped (AGENTS.md + .apd/rules/{brainstorm,tdd,debug,finish}.md still installed above)"
 fi
 
 # -----------------------------------------------------------

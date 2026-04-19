@@ -237,6 +237,66 @@ fi
 rm -rf "$REPAIR"
 
 # -----------------------------------------------------------
+# 4c. Hybrid project install — Codex-native artifacts must still appear
+#     when .claude/ exists (AGENTS.md + .apd/rules/{brainstorm,tdd,debug,
+#     finish}.md), and CC-native duplicates must be skipped.
+# -----------------------------------------------------------
+section "4c. Hybrid project Codex-native artifacts"
+
+HYBRID="$(mktemp -d -t apd-hybrid.XXXXXX)"
+mkdir -p "$HYBRID/.claude/agents" "$HYBRID/.codex"
+echo '{"name":"existing"}' > "$HYBRID/.claude/agents/code-reviewer.md"
+bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$HYBRID" >/dev/null 2>&1
+
+if [ -f "$HYBRID/AGENTS.md" ]; then
+    pass "hybrid install writes AGENTS.md (Codex orchestrator context)"
+    PASSES=$((PASSES + 1))
+else
+    fail "hybrid install did NOT write AGENTS.md — Codex orchestrator left without project context"
+    FAILS=$((FAILS + 1))
+fi
+
+ALL_RULES=1
+for rule in brainstorm tdd debug finish; do
+    [ -f "$HYBRID/.apd/rules/$rule.md" ] || ALL_RULES=0
+done
+if [ "$ALL_RULES" -eq 1 ]; then
+    pass "hybrid install writes all 4 Codex-native phase rules"
+    PASSES=$((PASSES + 1))
+else
+    fail "hybrid install did NOT write all phase rules — Codex orchestrator can't enter phases"
+    FAILS=$((FAILS + 1))
+fi
+
+# CC-native duplicates must NOT be created on hybrid (CC owns those paths)
+if [ ! -e "$HYBRID/.apd/memory" ] && [ ! -e "$HYBRID/.apd/agents" ]; then
+    pass "hybrid install skips CC-native duplicates (.apd/memory, .apd/agents)"
+    PASSES=$((PASSES + 1))
+else
+    fail "hybrid install created CC-native duplicates that should live under .claude/"
+    FAILS=$((FAILS + 1))
+fi
+
+# Re-run must be idempotent (no double-writes)
+SECOND="$(bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$HYBRID" 2>&1)"
+if ! echo "$SECOND" | grep -q '\[wrote\] AGENTS.md'; then
+    pass "hybrid re-install does not overwrite existing AGENTS.md"
+    PASSES=$((PASSES + 1))
+else
+    fail "hybrid re-install overwrote AGENTS.md"
+    FAILS=$((FAILS + 1))
+fi
+if ! echo "$SECOND" | grep -qE '\[wrote\] \.apd/rules/(brainstorm|tdd|debug|finish)\.md'; then
+    pass "hybrid re-install does not rewrite existing phase rules"
+    PASSES=$((PASSES + 1))
+else
+    fail "hybrid re-install rewrote existing phase rules"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$HYBRID"
+
+# -----------------------------------------------------------
 # 5. Idempotency — second run produces no writes
 # -----------------------------------------------------------
 section "5. Idempotency"
@@ -798,9 +858,11 @@ fi
 rm -rf "$NT"
 
 # -----------------------------------------------------------
-# 12. Hybrid project: scaffold SKIPPED when .claude/ exists
+# 12. Hybrid project: only CC-native duplicates skipped, Codex-native
+#     artifacts (AGENTS.md + phase rules) still installed because the
+#     Codex orchestrator can't read CLAUDE.md or .claude/skills/.
 # -----------------------------------------------------------
-section "12. Hybrid: no .apd/ scaffold leak"
+section "12. Hybrid: skip CC duplicates, keep Codex-native artifacts"
 
 HY="$(mktemp -d -t apd-hy.XXXXXX)"
 mkdir -p "$HY/.codex" "$HY/.claude/memory" "$HY/.claude/rules" "$HY/.claude/agents"
@@ -811,28 +873,43 @@ echo "PROJECT_NAME=hy" > "$HY/.claude/.apd-config"
 
 HY_OUT="$(bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$HY" 2>&1)"
 
-if echo "$HY_OUT" | grep -q "\.claude/ present — treating as CC/hybrid"; then
-    pass "installer recognized hybrid project and skipped .apd/ scaffold"
+if echo "$HY_OUT" | grep -q "CC-native duplicates skipped"; then
+    pass "installer prints CC-native skip notice"
     PASSES=$((PASSES + 1))
 else
-    fail "installer did not print hybrid-skip notice"
+    fail "installer did not print CC-native skip notice"
     FAILS=$((FAILS + 1))
 fi
 
-if [ ! -d "$HY/.apd/rules" ] && [ ! -d "$HY/.apd/memory" ] && [ ! -d "$HY/.apd/agents" ]; then
-    pass "no .apd/rules/ .apd/memory/ .apd/agents/ created on hybrid"
+# CC-native paths owned by .claude/ must NOT be duplicated under .apd/
+if [ ! -d "$HY/.apd/memory" ] && [ ! -d "$HY/.apd/agents" ] && [ ! -f "$HY/.apd/rules/workflow.md" ]; then
+    pass "no .apd/memory/, .apd/agents/, .apd/rules/workflow.md created on hybrid"
     PASSES=$((PASSES + 1))
 else
-    fail "scaffold leaked .apd/ dirs on a hybrid project"
+    fail "CC-native scaffold leaked into .apd/ on a hybrid project"
     FAILS=$((FAILS + 1))
 fi
 
-# AGENTS.md must not be injected on hybrid — user already has CLAUDE.md
-if [ ! -f "$HY/AGENTS.md" ]; then
-    pass "no AGENTS.md created on hybrid (CLAUDE.md is authoritative)"
+# AGENTS.md MUST be injected on hybrid — Codex orchestrator can't read CLAUDE.md
+if [ -f "$HY/AGENTS.md" ]; then
+    pass "AGENTS.md created on hybrid (Codex orchestrator needs project context)"
     PASSES=$((PASSES + 1))
 else
-    fail "scaffold wrote AGENTS.md on a hybrid project"
+    fail "AGENTS.md missing on hybrid — Codex orchestrator left without project context"
+    FAILS=$((FAILS + 1))
+fi
+
+# Codex-native phase rules MUST be installed on hybrid — CC's skill system
+# is invisible to the Codex orchestrator, which reads .apd/rules/<phase>.md inline.
+HY_RULES_OK=1
+for rule in brainstorm tdd debug finish; do
+    [ -f "$HY/.apd/rules/$rule.md" ] || HY_RULES_OK=0
+done
+if [ "$HY_RULES_OK" -eq 1 ]; then
+    pass "all 4 Codex-native phase rules created on hybrid"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex-native phase rules missing on hybrid — orchestrator can't enter phases"
     FAILS=$((FAILS + 1))
 fi
 
