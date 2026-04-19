@@ -1039,13 +1039,23 @@ section "21. apd cdx skills"
 SK_HOME="$(mktemp -d -t apd-sk.XXXXXX)"
 SK_CODEX="$SK_HOME/.codex"
 
-# Template directory must exist with 4 skills
+# Template directory must exist with 4 skills — each having BOTH SKILL.md
+# and agents/openai.yaml (Codex requires the interface block to list the
+# skill in the slash menu).
 for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
-    if [ -f "$APD_PLUGIN_ROOT/templates/codex/skills/$name/SKILL.md" ]; then
-        pass "template present: $name"
+    base="$APD_PLUGIN_ROOT/templates/codex/skills/$name"
+    if [ -f "$base/SKILL.md" ]; then
+        pass "template present: $name (SKILL.md)"
         PASSES=$((PASSES + 1))
     else
-        fail "missing skill template: $name"
+        fail "missing SKILL.md: $name"
+        FAILS=$((FAILS + 1))
+    fi
+    if [ -f "$base/agents/openai.yaml" ] && grep -q '^interface:' "$base/agents/openai.yaml"; then
+        pass "template has agents/openai.yaml with interface block: $name"
+        PASSES=$((PASSES + 1))
+    else
+        fail "missing or malformed agents/openai.yaml: $name"
         FAILS=$((FAILS + 1))
     fi
 done

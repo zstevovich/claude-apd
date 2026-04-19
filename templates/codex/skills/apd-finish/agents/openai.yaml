@@ -1,0 +1,4 @@
+interface:
+  display_name: "APD Finish"
+  short_description: "Post-commit decision: push / PR / keep / discard"
+  default_prompt: "Use $apd-finish. The APD pipeline just closed with a commit (apd_pipeline_state() shows next_step='commit'). Iron law: NO push without user decision first. Step 1: run apd_verify_step() once more from a clean state — if it fails, loop into debug, do NOT offer finish options. Step 2: summarize the pipeline report for me (task name, steps with timing, spec criteria count, adversarial total/accepted/dismissed, reviewed files). Step 3: present four options verbatim: (1) push to remote, (2) push + create PR with the APD pipeline summary in the body, (3) keep local, (4) discard. Step 4: execute only the option I pick. Discard requires me to type the word 'discard' first."
