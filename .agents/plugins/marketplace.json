@@ -9,7 +9,7 @@
       "name": "apd",
       "source": {
         "source": "local",
-        "path": "./templates/codex/marketplace/plugins/apd"
+        "path": "./plugins/apd"
       },
       "policy": {
         "installation": "INSTALLED_BY_DEFAULT",

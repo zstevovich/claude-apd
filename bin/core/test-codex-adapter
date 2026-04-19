@@ -1627,22 +1627,22 @@ SK_CODEX="$SK_HOME/.codex"
 SK_BIN="$SK_HOME/bin"
 mkdir -p "$SK_CODEX" "$SK_BIN"
 
-# Canonical source lives under templates/codex/skills/ — every skill must have
-# SKILL.md + agents/openai.yaml (with interface: block) so Codex loads it.
+# Canonical plugin package lives at plugins/apd/. Both direct-drop and
+# marketplace install read from here — single physical source, no symlink layer.
 for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
-    src="$APD_PLUGIN_ROOT/templates/codex/skills/$name"
+    src="$APD_PLUGIN_ROOT/plugins/apd/skills/$name"
     if [ -f "$src/SKILL.md" ]; then
-        pass "source skill present: $name (SKILL.md)"
+        pass "canonical skill present: $name (SKILL.md)"
         PASSES=$((PASSES + 1))
     else
-        fail "missing source SKILL.md: $name"
+        fail "missing canonical SKILL.md: $name"
         FAILS=$((FAILS + 1))
     fi
     if [ -f "$src/agents/openai.yaml" ] && grep -q '^interface:' "$src/agents/openai.yaml"; then
-        pass "source has agents/openai.yaml with interface block: $name"
+        pass "canonical has agents/openai.yaml with interface block: $name"
         PASSES=$((PASSES + 1))
     else
-        fail "missing or malformed source agents/openai.yaml: $name"
+        fail "missing or malformed canonical agents/openai.yaml: $name"
         FAILS=$((FAILS + 1))
     fi
     # Prompt must not reference the old apd_guard_write signature — the skill
@@ -1657,22 +1657,16 @@ for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
             PASSES=$((PASSES + 1))
         fi
     fi
-    mp="$APD_PLUGIN_ROOT/templates/codex/marketplace/plugins/apd/skills/$name"
-    if [ -L "$mp" ]; then
-        tgt=$(readlink "$mp")
-        case "$tgt" in
-            *../../../../skills/$name|../../../../skills/$name)
-                pass "marketplace skill is symlink to canonical source: $name"
-                PASSES=$((PASSES + 1)) ;;
-            *)
-                fail "marketplace skill points elsewhere: $name → $tgt"
-                FAILS=$((FAILS + 1)) ;;
-        esac
-    else
-        fail "marketplace skill is not a symlink: $name (violates single-source rule)"
-        FAILS=$((FAILS + 1))
-    fi
 done
+
+# Plugin manifest must live under the canonical package
+if [ -f "$APD_PLUGIN_ROOT/plugins/apd/.codex-plugin/plugin.json" ]; then
+    pass "canonical plugin manifest at plugins/apd/.codex-plugin/plugin.json"
+    PASSES=$((PASSES + 1))
+else
+    fail "canonical plugin manifest missing at plugins/apd/.codex-plugin/plugin.json"
+    FAILS=$((FAILS + 1))
+fi
 
 # --- Direct-drop (default) ---
 STATUS_OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills status 2>&1)
@@ -1705,7 +1699,7 @@ else
 fi
 
 target=$(readlink "$SK_CODEX/skills/apd-tdd")
-if [ "$target" = "$APD_PLUGIN_ROOT/templates/codex/skills/apd-tdd" ]; then
+if [ "$target" = "$APD_PLUGIN_ROOT/plugins/apd/skills/apd-tdd" ]; then
     pass "apd-tdd symlink points to canonical source"
     PASSES=$((PASSES + 1))
 else
@@ -1806,12 +1800,12 @@ else
 fi
 CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills uninstall >/dev/null 2>&1
 
-# --- Guard against embedded .git in marketplace template (release blocker) ---
-if [ ! -e "$APD_PLUGIN_ROOT/templates/codex/marketplace/.git" ]; then
-    pass "marketplace template has no embedded .git (release-safe)"
+# --- Guard against embedded .git inside the canonical plugin (release blocker) ---
+if [ ! -e "$APD_PLUGIN_ROOT/plugins/apd/.git" ]; then
+    pass "canonical plugin package has no embedded .git (release-safe)"
     PASSES=$((PASSES + 1))
 else
-    fail "marketplace template contains embedded .git — would break git add as submodule"
+    fail "canonical plugin contains embedded .git — would break git add as submodule"
     FAILS=$((FAILS + 1))
 fi
 

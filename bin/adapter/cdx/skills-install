@@ -2,7 +2,7 @@
 # apd cdx skills — install APD skills into a Codex home
 #
 # Two install modes, both pointing at the same canonical source under
-# templates/codex/skills/ inside this plugin:
+# plugins/apd/ inside this plugin:
 #
 #   direct-drop (default)     symlinks into ~/.codex/skills/<name>/
 #     Works on Codex 0.121.0. Skills load into the <skills_instructions>
@@ -34,7 +34,10 @@ APD_PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 source "$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh"
 source "$APD_PLUGIN_ROOT/bin/lib/style.sh"
 
-SKILL_SRC_DIR="$APD_PLUGIN_ROOT/templates/codex/skills"
+# Canonical plugin package. Both install modes read from here; there is
+# no longer a separate templates/codex/skills/ source.
+PLUGIN_LAYOUT="$APD_PLUGIN_ROOT/plugins/apd"
+SKILL_SRC_DIR="$PLUGIN_LAYOUT/skills"
 # Marketplace root = plugin repo root. Codex looks for
 # .agents/plugins/marketplace.json there for both local and remote
 # (`codex marketplace add owner/repo`) installs — keeping these aligned
@@ -42,7 +45,6 @@ SKILL_SRC_DIR="$APD_PLUGIN_ROOT/templates/codex/skills"
 # remote install path.
 MARKETPLACE_DIR="$APD_PLUGIN_ROOT"
 MARKETPLACE_MANIFEST="$MARKETPLACE_DIR/.agents/plugins/marketplace.json"
-PLUGIN_LAYOUT="$APD_PLUGIN_ROOT/templates/codex/marketplace/plugins/apd"
 MARKETPLACE_NAME="codex-apd"
 PLUGIN_KEY="apd@$MARKETPLACE_NAME"
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
