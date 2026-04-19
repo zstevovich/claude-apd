@@ -11,12 +11,15 @@
 #     menu to plugin-scoped skills + .system/*).
 #
 #   marketplace (--marketplace, experimental)
-#     Registers templates/codex/marketplace/ as a local Codex marketplace
-#     and enables [plugins."apd@codex-apd"]. The plan is that `/` slash
-#     menu lists APD skills once Codex syncs local marketplaces into its
-#     plugin cache. On 0.121.0 the sync step is still broken — see
-#     openai/codex#18258. Only pick --marketplace if you want to test the
-#     future path; direct-drop is the supported flow today.
+#     Registers the plugin repo root as a local Codex marketplace and
+#     enables [plugins."apd@codex-apd"]. Codex reads the manifest at
+#     <repo-root>/.agents/plugins/marketplace.json (single source of
+#     truth — same file Codex would fetch from `codex marketplace add
+#     zstevovich/claude-apd`). The plan is that `/` slash menu lists APD
+#     skills once Codex syncs local marketplaces into its plugin cache.
+#     On 0.121.0 the sync step is still flaky — see openai/codex#18258.
+#     Pick --marketplace only to test the future path; direct-drop is
+#     the supported flow today.
 #
 # Subcommands:
 #   status                          show state of both install modes
@@ -32,7 +35,14 @@ source "$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh"
 source "$APD_PLUGIN_ROOT/bin/lib/style.sh"
 
 SKILL_SRC_DIR="$APD_PLUGIN_ROOT/templates/codex/skills"
-MARKETPLACE_DIR="$APD_PLUGIN_ROOT/templates/codex/marketplace"
+# Marketplace root = plugin repo root. Codex looks for
+# .agents/plugins/marketplace.json there for both local and remote
+# (`codex marketplace add owner/repo`) installs — keeping these aligned
+# is what makes the local --marketplace flag a true rehearsal of the
+# remote install path.
+MARKETPLACE_DIR="$APD_PLUGIN_ROOT"
+MARKETPLACE_MANIFEST="$MARKETPLACE_DIR/.agents/plugins/marketplace.json"
+PLUGIN_LAYOUT="$APD_PLUGIN_ROOT/templates/codex/marketplace/plugins/apd"
 MARKETPLACE_NAME="codex-apd"
 PLUGIN_KEY="apd@$MARKETPLACE_NAME"
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
@@ -199,12 +209,12 @@ case "$SUB" in
     install|add)
         if [ "$MODE" = "marketplace" ]; then
             # -------- Marketplace mode (experimental) --------
-            if [ ! -f "$MARKETPLACE_DIR/.agents/plugins/marketplace.json" ]; then
-                echo "ERROR: marketplace.json missing at $MARKETPLACE_DIR/.agents/plugins/marketplace.json" >&2
+            if [ ! -f "$MARKETPLACE_MANIFEST" ]; then
+                echo "ERROR: marketplace.json missing at $MARKETPLACE_MANIFEST" >&2
                 exit 2
             fi
-            if [ ! -f "$MARKETPLACE_DIR/plugins/apd/.codex-plugin/plugin.json" ]; then
-                echo "ERROR: plugin manifest missing at $MARKETPLACE_DIR/plugins/apd/.codex-plugin/plugin.json" >&2
+            if [ ! -f "$PLUGIN_LAYOUT/.codex-plugin/plugin.json" ]; then
+                echo "ERROR: plugin manifest missing at $PLUGIN_LAYOUT/.codex-plugin/plugin.json" >&2
                 exit 2
             fi
             if ! command -v codex >/dev/null 2>&1; then

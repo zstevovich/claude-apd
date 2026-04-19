@@ -2,14 +2,14 @@
   "name": "codex-apd",
   "interface": {
     "displayName": "APD",
-    "shortDescription": "Agent Pipeline Development \u2014 enforced multi-agent pipelines"
+    "shortDescription": "Agent Pipeline Development — enforced multi-agent pipelines"
   },
   "plugins": [
     {
       "name": "apd",
       "source": {
         "source": "local",
-        "path": "./plugins/apd"
+        "path": "./templates/codex/marketplace/plugins/apd"
       },
       "policy": {
         "installation": "INSTALLED_BY_DEFAULT",

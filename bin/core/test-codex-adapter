@@ -1815,6 +1815,40 @@ else
     FAILS=$((FAILS + 1))
 fi
 
+# --- Root-level marketplace.json for `codex marketplace add owner/repo` ---
+# Codex spec requires the manifest at <repo-root>/.agents/plugins/marketplace.json.
+# Without this file, remote install via GitHub shorthand fails the pre-install
+# validation step.
+ROOT_MANIFEST="$APD_PLUGIN_ROOT/.agents/plugins/marketplace.json"
+if [ -f "$ROOT_MANIFEST" ]; then
+    pass "root .agents/plugins/marketplace.json exists"
+    PASSES=$((PASSES + 1))
+else
+    fail "root .agents/plugins/marketplace.json missing — remote install blocked"
+    FAILS=$((FAILS + 1))
+fi
+
+if [ -f "$ROOT_MANIFEST" ] && python3 -c "import json; json.load(open('$ROOT_MANIFEST'))" >/dev/null 2>&1; then
+    pass "root marketplace.json is valid JSON"
+    PASSES=$((PASSES + 1))
+else
+    fail "root marketplace.json is not valid JSON"
+    FAILS=$((FAILS + 1))
+fi
+
+# Plugin path must resolve (Codex validates the target before install)
+if [ -f "$ROOT_MANIFEST" ]; then
+    PLUGIN_REL=$(python3 -c "import json; m=json.load(open('$ROOT_MANIFEST')); print(m['plugins'][0]['source']['path'])" 2>/dev/null)
+    PLUGIN_ABS="$APD_PLUGIN_ROOT/${PLUGIN_REL#./}"
+    if [ -f "$PLUGIN_ABS/.codex-plugin/plugin.json" ]; then
+        pass "root marketplace plugin path resolves to a real plugin manifest"
+        PASSES=$((PASSES + 1))
+    else
+        fail "root marketplace plugin path '$PLUGIN_REL' does not resolve to a plugin: $PLUGIN_ABS"
+        FAILS=$((FAILS + 1))
+    fi
+fi
+
 # --- Marketplace (--marketplace, experimental) ---
 cat > "$SK_BIN/codex" <<'EOF'
 #!/bin/bash
@@ -1843,11 +1877,11 @@ else
 fi
 
 if grep -q '^\[marketplaces\.codex-apd\]' "$SK_CODEX/config.toml" 2>/dev/null && \
-   grep -qF "source = \"$APD_PLUGIN_ROOT/templates/codex/marketplace\"" "$SK_CODEX/config.toml"; then
-    pass "--marketplace install registers codex-apd marketplace"
+   grep -qF "source = \"$APD_PLUGIN_ROOT\"" "$SK_CODEX/config.toml"; then
+    pass "--marketplace install registers codex-apd marketplace at repo root"
     PASSES=$((PASSES + 1))
 else
-    fail "--marketplace install did not register marketplace"
+    fail "--marketplace install did not register marketplace at repo root"
     FAILS=$((FAILS + 1))
 fi
 
