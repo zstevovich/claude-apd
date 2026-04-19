@@ -94,6 +94,10 @@ echo "$FIRST_OUT" | grep -q "\.apd/config seed" && pass "seeded .apd/config (pur
 _check ".apd/config exists" test -f "$SCRATCH/.apd/config"
 _check "did NOT create .claude/ anywhere" test ! -e "$SCRATCH/.claude"
 _check ".apd/rules/workflow.md scaffolded" test -f "$SCRATCH/.apd/rules/workflow.md"
+_check ".apd/rules/brainstorm.md scaffolded" test -f "$SCRATCH/.apd/rules/brainstorm.md"
+_check ".apd/rules/tdd.md scaffolded" test -f "$SCRATCH/.apd/rules/tdd.md"
+_check ".apd/rules/debug.md scaffolded" test -f "$SCRATCH/.apd/rules/debug.md"
+_check ".apd/rules/finish.md scaffolded" test -f "$SCRATCH/.apd/rules/finish.md"
 if [ -f "$SCRATCH/.apd/rules/workflow.md" ] && ! grep -q '\.claude/bin/apd' "$SCRATCH/.apd/rules/workflow.md"; then
     pass "scaffolded workflow.md has no .claude/bin/apd references"
     PASSES=$((PASSES + 1))

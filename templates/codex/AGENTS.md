@@ -50,8 +50,28 @@ these tools:
 
 ## Rules and memory
 
+### Workflow rules (always-on)
+
 - **`.apd/rules/workflow.md`** — authoritative workflow rules. Read before
   starting any task. If a rule conflicts with this file, `workflow.md` wins.
+
+### Phase-specific rules (read when entering each phase)
+
+On Codex the orchestrator plays every role, so it must pull in the rule
+file for the phase it is in:
+
+| Phase trigger | Read this |
+|---------------|-----------|
+| Task is vague, broad, or "improve X" style — before writing the spec card | **`.apd/rules/brainstorm.md`** |
+| About to implement or fix code — builder phase | **`.apd/rules/tdd.md`** |
+| Test failure, build failure, verifier block, critical review finding | **`.apd/rules/debug.md`** |
+| Pipeline cycle complete — before push/PR/keep decision | **`.apd/rules/finish.md`** |
+
+Load the matching file once per phase; keep its constraints in mind
+throughout that phase.
+
+### Memory (living context)
+
 - **`.apd/memory/MEMORY.md`** — index of cross-session learnings, references,
   anti-patterns. Consult before proposing an approach.
 - **`.apd/memory/status.md`** — current in-progress work.

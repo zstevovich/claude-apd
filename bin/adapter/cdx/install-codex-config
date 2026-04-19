@@ -161,6 +161,24 @@ if [ ! -d "$PROJECT_DIR/.claude" ]; then
         CHANGES=$((CHANGES + 1))
     fi
 
+    # Codex-native phase rules: brainstorm, tdd, debug, finish.
+    # These mirror the CC skill content but are written as inline rule files
+    # the orchestrator reads when entering each phase (Codex has no slash
+    # commands / skills system the way CC does).
+    CDX_RULES_SRC="$APD_PLUGIN_ROOT/templates/codex/rules"
+    if [ -d "$CDX_RULES_SRC" ]; then
+        mkdir -p "$PROJECT_DIR/.apd/rules"
+        for rule in brainstorm tdd debug finish; do
+            src="$CDX_RULES_SRC/$rule.md"
+            dst="$PROJECT_DIR/.apd/rules/$rule.md"
+            if [ -f "$src" ] && [ ! -f "$dst" ]; then
+                cp "$src" "$dst"
+                echo "[wrote] .apd/rules/$rule.md"
+                CHANGES=$((CHANGES + 1))
+            fi
+        done
+    fi
+
     # Memory tree — MEMORY index, status, session-log
     if [ ! -d "$PROJECT_DIR/.apd/memory" ]; then
         mkdir -p "$PROJECT_DIR/.apd/memory"
