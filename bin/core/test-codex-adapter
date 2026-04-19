@@ -143,6 +143,100 @@ else
 fi
 
 # -----------------------------------------------------------
+# 4b. Repair existing config + merge existing hooks
+# -----------------------------------------------------------
+section "4b. Repair + merge behavior"
+
+REPAIR="$(mktemp -d -t apd-cdx-repair.XXXXXX)"
+mkdir -p "$REPAIR/.codex"
+cat > "$REPAIR/.codex/config.toml" <<'EOF'
+[mcp_servers.apd]
+command = "uv"
+args = ["run", "--with", "mcp", "python", "/tmp/stale/apd_mcp_server.py"]
+EOF
+cat > "$REPAIR/.codex/hooks.json" <<'EOF'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /custom/other-hook",
+            "timeout": 9
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /custom/post-hook",
+            "timeout": 9
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+REPAIR_OUT="$(bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$REPAIR" 2>&1)"
+if echo "$REPAIR_OUT" | grep -q "\[updated\] \[mcp_servers.apd\]"; then
+    pass "installer repairs stale [mcp_servers.apd] path"
+    PASSES=$((PASSES + 1))
+else
+    fail "installer did not repair stale [mcp_servers.apd] block"
+    FAILS=$((FAILS + 1))
+fi
+
+if grep -qF "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py" "$REPAIR/.codex/config.toml" 2>/dev/null; then
+    pass "config.toml now points to current MCP server path"
+    PASSES=$((PASSES + 1))
+else
+    fail "config.toml still points to a stale MCP server path"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$REPAIR_OUT" | grep -q "\[updated\] PreToolUse Bash hook"; then
+    pass "installer merged APD hook into existing hooks.json"
+    PASSES=$((PASSES + 1))
+else
+    fail "installer did not report hooks.json merge"
+    FAILS=$((FAILS + 1))
+fi
+
+if grep -qF '/custom/other-hook' "$REPAIR/.codex/hooks.json" 2>/dev/null; then
+    pass "existing Bash hook preserved during merge"
+    PASSES=$((PASSES + 1))
+else
+    fail "existing Bash hook was lost during merge"
+    FAILS=$((FAILS + 1))
+fi
+
+if grep -qF '/custom/post-hook' "$REPAIR/.codex/hooks.json" 2>/dev/null; then
+    pass "non-PreToolUse hooks preserved during merge"
+    PASSES=$((PASSES + 1))
+else
+    fail "non-PreToolUse hooks were lost during merge"
+    FAILS=$((FAILS + 1))
+fi
+
+if grep -qF "$APD_PLUGIN_ROOT/bin/adapter/cdx/guard-bash-scope" "$REPAIR/.codex/hooks.json" 2>/dev/null; then
+    pass "APD Bash hook present after merge"
+    PASSES=$((PASSES + 1))
+else
+    fail "APD Bash hook missing after merge"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$REPAIR"
+
+# -----------------------------------------------------------
 # 5. Idempotency — second run produces no writes
 # -----------------------------------------------------------
 section "5. Idempotency"
@@ -218,6 +312,63 @@ else
     FAILS=$((FAILS + 1))
 fi
 
+SUBDIR_MCP="$(mktemp -d -t apd-mcp-subdir.XXXXXX)"
+mkdir -p "$SUBDIR_MCP/.codex" "$SUBDIR_MCP/.apd/pipeline" "$SUBDIR_MCP/sub/dir"
+cat > "$SUBDIR_MCP/.apd/config" <<EOF
+PROJECT_NAME=subdir-mcp
+APD_VERSION=test
+STACK=test
+EOF
+cat > "$SUBDIR_MCP/.apd/pipeline/spec-card.md" <<'EOF'
+## Subdir MCP smoke
+**Acceptance criteria:**
+- R1: spec advance works from a subdirectory
+EOF
+
+SUBDIR_OUT="$(cd "$SUBDIR_MCP/sub/dir" && python3 - <<PY
+import sys
+import types
+
+mcp_mod = types.ModuleType("mcp")
+server_mod = types.ModuleType("mcp.server")
+fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+
+class DummyFastMCP:
+    def __init__(self, *_args, **_kwargs):
+        pass
+    def tool(self, *_args, **_kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+    def run(self):
+        return None
+
+fastmcp_mod.FastMCP = DummyFastMCP
+server_mod.fastmcp = fastmcp_mod
+mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod
+sys.modules["mcp.server"] = server_mod
+sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
+import apd_mcp_server as m
+
+result = m.apd_advance_pipeline("spec", "subdir smoke")
+print(result.get("ok"))
+print(result.get("exit_code"))
+PY
+)"
+
+if [ -f "$SUBDIR_MCP/.apd/pipeline/spec.done" ] && echo "$SUBDIR_OUT" | grep -q '^True$'; then
+    pass "MCP tools pass resolved project root to core scripts from subdirs"
+    PASSES=$((PASSES + 1))
+else
+    fail "MCP tools still lose project root when called from a subdirectory"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$SUBDIR_MCP"
+
 # -----------------------------------------------------------
 # 8. MCP bootstrap creates shortcut automatically on server start
 # -----------------------------------------------------------
@@ -225,12 +376,37 @@ section "8. MCP bootstrap shortcut"
 
 BOOT_DIR="$(mktemp -d -t apd-boot.XXXXXX)"
 mkdir -p "$BOOT_DIR/.codex"
-if command -v uv &>/dev/null; then
-    (cd "$BOOT_DIR" && uv run --with mcp python -c "
-import sys; sys.path.insert(0, '$APD_PLUGIN_ROOT/mcp')
+if command -v python3 &>/dev/null; then
+    (cd "$BOOT_DIR" && python3 - <<PY >/dev/null 2>&1
+import sys
+import types
+
+mcp_mod = types.ModuleType("mcp")
+server_mod = types.ModuleType("mcp.server")
+fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+
+class DummyFastMCP:
+    def __init__(self, *_args, **_kwargs):
+        pass
+    def tool(self, *_args, **_kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+    def run(self):
+        return None
+
+fastmcp_mod.FastMCP = DummyFastMCP
+server_mod.fastmcp = fastmcp_mod
+mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod
+sys.modules["mcp.server"] = server_mod
+sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
 import apd_mcp_server as m
 m._bootstrap_shortcut()
-" >/dev/null 2>&1)
+PY
+)
     if [ -x "$BOOT_DIR/.codex/bin/apd" ]; then
         pass "bootstrap creates .codex/bin/apd when .codex/ exists"
         PASSES=$((PASSES + 1))
@@ -248,11 +424,36 @@ m._bootstrap_shortcut()
     fi
 
     NOCDX="$(mktemp -d -t apd-nocdx.XXXXXX)"
-    (cd "$NOCDX" && uv run --with mcp python -c "
-import sys; sys.path.insert(0, '$APD_PLUGIN_ROOT/mcp')
+    (cd "$NOCDX" && python3 - <<PY >/dev/null 2>&1
+import sys
+import types
+
+mcp_mod = types.ModuleType("mcp")
+server_mod = types.ModuleType("mcp.server")
+fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+
+class DummyFastMCP:
+    def __init__(self, *_args, **_kwargs):
+        pass
+    def tool(self, *_args, **_kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+    def run(self):
+        return None
+
+fastmcp_mod.FastMCP = DummyFastMCP
+server_mod.fastmcp = fastmcp_mod
+mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod
+sys.modules["mcp.server"] = server_mod
+sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
 import apd_mcp_server as m
 m._bootstrap_shortcut()
-" >/dev/null 2>&1)
+PY
+)
     if [ ! -e "$NOCDX/.codex" ] && [ ! -e "$NOCDX/.claude" ]; then
         pass "bootstrap skips dirs without .codex/"
         PASSES=$((PASSES + 1))
@@ -262,7 +463,7 @@ m._bootstrap_shortcut()
     fi
     rm -rf "$NOCDX"
 else
-    warn "uv not installed — skipping bootstrap checks"
+    warn "python3 not found — skipping bootstrap checks"
 fi
 rm -rf "$BOOT_DIR"
 
@@ -1032,89 +1233,123 @@ PY
 fi
 
 # -----------------------------------------------------------
-# 21. apd cdx skills install/uninstall (~/.codex/skills/)
+# 21. apd cdx skills — hybrid install (direct-drop default, marketplace experimental)
 # -----------------------------------------------------------
 section "21. apd cdx skills"
 
 SK_HOME="$(mktemp -d -t apd-sk.XXXXXX)"
 SK_CODEX="$SK_HOME/.codex"
+SK_BIN="$SK_HOME/bin"
+mkdir -p "$SK_CODEX" "$SK_BIN"
 
-# Template directory must exist with 4 skills — each having BOTH SKILL.md
-# and agents/openai.yaml (Codex requires the interface block to list the
-# skill in the slash menu).
+# Canonical source lives under templates/codex/skills/ — every skill must have
+# SKILL.md + agents/openai.yaml (with interface: block) so Codex loads it.
 for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
-    base="$APD_PLUGIN_ROOT/templates/codex/skills/$name"
-    if [ -f "$base/SKILL.md" ]; then
-        pass "template present: $name (SKILL.md)"
+    src="$APD_PLUGIN_ROOT/templates/codex/skills/$name"
+    if [ -f "$src/SKILL.md" ]; then
+        pass "source skill present: $name (SKILL.md)"
         PASSES=$((PASSES + 1))
     else
-        fail "missing SKILL.md: $name"
+        fail "missing source SKILL.md: $name"
         FAILS=$((FAILS + 1))
     fi
-    if [ -f "$base/agents/openai.yaml" ] && grep -q '^interface:' "$base/agents/openai.yaml"; then
-        pass "template has agents/openai.yaml with interface block: $name"
+    if [ -f "$src/agents/openai.yaml" ] && grep -q '^interface:' "$src/agents/openai.yaml"; then
+        pass "source has agents/openai.yaml with interface block: $name"
         PASSES=$((PASSES + 1))
     else
-        fail "missing or malformed agents/openai.yaml: $name"
+        fail "missing or malformed source agents/openai.yaml: $name"
+        FAILS=$((FAILS + 1))
+    fi
+    mp="$APD_PLUGIN_ROOT/templates/codex/marketplace/plugins/apd/skills/$name"
+    if [ -L "$mp" ]; then
+        tgt=$(readlink "$mp")
+        case "$tgt" in
+            *../../../../skills/$name|../../../../skills/$name)
+                pass "marketplace skill is symlink to canonical source: $name"
+                PASSES=$((PASSES + 1)) ;;
+            *)
+                fail "marketplace skill points elsewhere: $name → $tgt"
+                FAILS=$((FAILS + 1)) ;;
+        esac
+    else
+        fail "marketplace skill is not a symlink: $name (violates single-source rule)"
         FAILS=$((FAILS + 1))
     fi
 done
 
-# list before install
-LIST_OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills list 2>&1)
-if echo "$LIST_OUT" | grep -q "apd-brainstorm.*not installed"; then
-    pass "list reports 'not installed' before install"
+# --- Direct-drop (default) ---
+STATUS_OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills status 2>&1)
+if echo "$STATUS_OUT" | grep -q "Direct-drop"; then
+    pass "status shows Direct-drop section"
     PASSES=$((PASSES + 1))
 else
-    fail "list didn't show uninstalled state"
+    fail "status missing Direct-drop section"
+    FAILS=$((FAILS + 1))
+fi
+if echo "$STATUS_OUT" | grep -q "apd-brainstorm.*not installed"; then
+    pass "status reports apd-brainstorm not installed before install"
+    PASSES=$((PASSES + 1))
+else
+    fail "status did not report apd-brainstorm as uninstalled"
     FAILS=$((FAILS + 1))
 fi
 
-# install all
 CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install >/dev/null 2>&1
 ALL_LINKS=1
 for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
     [ -L "$SK_CODEX/skills/$name" ] || ALL_LINKS=0
 done
 if [ "$ALL_LINKS" -eq 1 ]; then
-    pass "install creates 4 symlinks in ~/.codex/skills/"
+    pass "default install creates 4 symlinks in ~/.codex/skills/"
     PASSES=$((PASSES + 1))
 else
-    fail "not all APD skill symlinks created"
+    fail "default install did not create all APD skill symlinks"
     FAILS=$((FAILS + 1))
 fi
 
-# symlinks resolve to plugin templates
 target=$(readlink "$SK_CODEX/skills/apd-tdd")
 if [ "$target" = "$APD_PLUGIN_ROOT/templates/codex/skills/apd-tdd" ]; then
-    pass "apd-tdd symlink points to plugin template"
+    pass "apd-tdd symlink points to canonical source"
     PASSES=$((PASSES + 1))
 else
     fail "apd-tdd symlink drifts: $target"
     FAILS=$((FAILS + 1))
 fi
 
-# SKILL.md reachable via symlink
 if [ -f "$SK_CODEX/skills/apd-brainstorm/SKILL.md" ] && \
    grep -q "^name: apd-brainstorm$" "$SK_CODEX/skills/apd-brainstorm/SKILL.md"; then
-    pass "SKILL.md readable through symlink with correct frontmatter name"
+    pass "SKILL.md reachable via symlink with correct frontmatter"
     PASSES=$((PASSES + 1))
 else
     fail "SKILL.md content not reachable via symlink"
     FAILS=$((FAILS + 1))
 fi
 
-# install --copy produces real directory
 CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install apd-debug --copy >/dev/null 2>&1
 if [ ! -L "$SK_CODEX/skills/apd-debug" ] && [ -d "$SK_CODEX/skills/apd-debug" ]; then
-    pass "install --copy replaces symlink with directory"
+    pass "install --copy replaces symlink with real directory"
     PASSES=$((PASSES + 1))
 else
-    fail "install --copy didn't switch to directory mode"
+    fail "install --copy did not switch to directory mode"
     FAILS=$((FAILS + 1))
 fi
 
-# uninstall all
+POST_STATUS=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills status 2>&1)
+if echo "$POST_STATUS" | grep -q "apd-brainstorm.*symlink"; then
+    pass "status reports symlinks after install"
+    PASSES=$((PASSES + 1))
+else
+    fail "status did not reflect symlink install"
+    FAILS=$((FAILS + 1))
+fi
+if echo "$POST_STATUS" | grep -q "apd-debug.*copy"; then
+    pass "status reports copy-mode install"
+    PASSES=$((PASSES + 1))
+else
+    fail "status did not reflect --copy install"
+    FAILS=$((FAILS + 1))
+fi
+
 CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills uninstall >/dev/null 2>&1
 ANY_LEFT=0
 for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
@@ -1128,15 +1363,179 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# uninstall refuses non-apd-* names
 mkdir -p "$SK_CODEX/skills/some-other-skill"
 touch "$SK_CODEX/skills/some-other-skill/SKILL.md"
-OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills uninstall some-other-skill 2>&1)
-if echo "$OUT" | grep -q "refuse" && [ -d "$SK_CODEX/skills/some-other-skill" ]; then
-    pass "uninstall refuses to delete non-apd-* skills"
+REFUSE_OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills uninstall some-other-skill 2>&1)
+if echo "$REFUSE_OUT" | grep -q "refuse"; then
+    pass "uninstall refuses non-apd-* names"
     PASSES=$((PASSES + 1))
 else
-    fail "uninstall did not protect non-apd-* skills"
+    fail "uninstall did not refuse non-apd-* name"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$SK_CODEX/skills/some-other-skill"
+
+# --- Overwrite protection: user-modified install is preserved without --force ---
+mkdir -p "$SK_CODEX/skills/apd-debug"
+cat > "$SK_CODEX/skills/apd-debug/SKILL.md" <<'EOF'
+---
+name: apd-debug
+description: USER CUSTOM VERSION
+---
+EOF
+OVW_OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install apd-debug --copy 2>&1)
+if echo "$OVW_OUT" | grep -q "refuse"; then
+    pass "install refuses to overwrite user-modified copy without --force"
+    PASSES=$((PASSES + 1))
+else
+    fail "install silently overwrote user-modified copy"
+    FAILS=$((FAILS + 1))
+fi
+if grep -q "USER CUSTOM VERSION" "$SK_CODEX/skills/apd-debug/SKILL.md" 2>/dev/null; then
+    pass "user content preserved after refused install"
+    PASSES=$((PASSES + 1))
+else
+    fail "user content lost even though install refused"
+    FAILS=$((FAILS + 1))
+fi
+CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install apd-debug --copy --force >/dev/null 2>&1
+if ! grep -q "USER CUSTOM VERSION" "$SK_CODEX/skills/apd-debug/SKILL.md" 2>/dev/null && \
+   grep -q "^name: apd-debug$" "$SK_CODEX/skills/apd-debug/SKILL.md"; then
+    pass "install --force overwrites user-modified copy with canonical"
+    PASSES=$((PASSES + 1))
+else
+    fail "install --force did not overwrite as expected"
+    FAILS=$((FAILS + 1))
+fi
+CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills uninstall >/dev/null 2>&1
+
+# --- Guard against embedded .git in marketplace template (release blocker) ---
+if [ ! -e "$APD_PLUGIN_ROOT/templates/codex/marketplace/.git" ]; then
+    pass "marketplace template has no embedded .git (release-safe)"
+    PASSES=$((PASSES + 1))
+else
+    fail "marketplace template contains embedded .git — would break git add as submodule"
+    FAILS=$((FAILS + 1))
+fi
+
+# --- Marketplace (--marketplace, experimental) ---
+cat > "$SK_BIN/codex" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+CFG="$CODEX_HOME/config.toml"
+mkdir -p "$CODEX_HOME"
+if [ "${1:-}" = "marketplace" ] && [ "${2:-}" = "add" ] && [ -n "${3:-}" ]; then
+  SRC="$3"
+  [ -f "$CFG" ] && grep -q '^\[marketplaces\.codex-apd\]' "$CFG" 2>/dev/null && exit 0
+  printf '\n[marketplaces.codex-apd]\nsource = "%s"\n' "$SRC" >> "$CFG"
+  exit 0
+fi
+echo "fake codex: unsupported args: $*" >&2
+exit 1
+EOF
+chmod +x "$SK_BIN/codex"
+
+MP_OUT=$(PATH="$SK_BIN:$PATH" CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install --marketplace 2>&1)
+if echo "$MP_OUT" | grep -q "EXPERIMENTAL"; then
+    pass "--marketplace install shows experimental warning"
+    PASSES=$((PASSES + 1))
+else
+    fail "--marketplace install missing experimental warning"
+    FAILS=$((FAILS + 1))
+fi
+
+if grep -q '^\[marketplaces\.codex-apd\]' "$SK_CODEX/config.toml" 2>/dev/null && \
+   grep -qF "source = \"$APD_PLUGIN_ROOT/templates/codex/marketplace\"" "$SK_CODEX/config.toml"; then
+    pass "--marketplace install registers codex-apd marketplace"
+    PASSES=$((PASSES + 1))
+else
+    fail "--marketplace install did not register marketplace"
+    FAILS=$((FAILS + 1))
+fi
+
+if grep -q '^\[plugins\."apd@codex-apd"\]' "$SK_CODEX/config.toml" 2>/dev/null && \
+   grep -q '^enabled = true$' "$SK_CODEX/config.toml" 2>/dev/null; then
+    pass "--marketplace install enables [plugins.\"apd@codex-apd\"]"
+    PASSES=$((PASSES + 1))
+else
+    fail "--marketplace install did not enable plugin block"
+    FAILS=$((FAILS + 1))
+fi
+
+REINSTALL_OUT=$(PATH="$SK_BIN:$PATH" CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install --marketplace 2>&1)
+if echo "$REINSTALL_OUT" | grep -q "already registered"; then
+    pass "--marketplace reinstall is idempotent when marketplace already matches"
+    PASSES=$((PASSES + 1))
+else
+    fail "--marketplace reinstall did not report already registered"
+    FAILS=$((FAILS + 1))
+fi
+
+python3 - "$SK_CODEX/config.toml" <<'PY'
+import re, sys
+path = sys.argv[1]
+text = open(path).read()
+text = re.sub(
+    r'(?ms)^\[plugins\."apd@codex-apd"\][^\[]*?(?=^\[|\Z)',
+    '[plugins."apd@codex-apd"]\nenabled = false\n\n',
+    text,
+)
+open(path, 'w').write(text)
+PY
+HEAL_OUT=$(PATH="$SK_BIN:$PATH" CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install --marketplace 2>&1)
+if grep -q '^enabled = true$' "$SK_CODEX/config.toml" 2>/dev/null; then
+    pass "--marketplace install self-heals disabled plugin block"
+    PASSES=$((PASSES + 1))
+else
+    fail "--marketplace install did not self-heal disabled plugin block"
+    FAILS=$((FAILS + 1))
+fi
+if echo "$HEAL_OUT" | grep -q 'updated'; then
+    pass "--marketplace self-heal reports plugin block update"
+    PASSES=$((PASSES + 1))
+else
+    fail "--marketplace self-heal did not report update"
+    FAILS=$((FAILS + 1))
+fi
+
+printf '\n[plugins."other@else"]\nenabled = true\n' >> "$SK_CODEX/config.toml"
+UNINSTALL_OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills uninstall --marketplace 2>&1)
+if ! grep -q '^\[marketplaces\.codex-apd\]' "$SK_CODEX/config.toml" 2>/dev/null; then
+    pass "uninstall --marketplace removes [marketplaces.codex-apd]"
+    PASSES=$((PASSES + 1))
+else
+    fail "uninstall --marketplace left [marketplaces.codex-apd] in config.toml"
+    FAILS=$((FAILS + 1))
+fi
+if ! grep -q '^\[plugins\."apd@codex-apd"\]' "$SK_CODEX/config.toml" 2>/dev/null; then
+    pass "uninstall --marketplace removes [plugins.\"apd@codex-apd\"]"
+    PASSES=$((PASSES + 1))
+else
+    fail "uninstall --marketplace left [plugins.\"apd@codex-apd\"] in config.toml"
+    FAILS=$((FAILS + 1))
+fi
+if grep -q '^\[plugins\."other@else"\]' "$SK_CODEX/config.toml" 2>/dev/null; then
+    pass "uninstall --marketplace preserves unrelated plugin blocks"
+    PASSES=$((PASSES + 1))
+else
+    fail "uninstall --marketplace removed an unrelated plugin block"
+    FAILS=$((FAILS + 1))
+fi
+
+FINAL_STATUS=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills status 2>&1)
+if echo "$FINAL_STATUS" | grep -q "Marketplace (experimental"; then
+    pass "status shows Marketplace (experimental) section"
+    PASSES=$((PASSES + 1))
+else
+    fail "status missing Marketplace (experimental) section"
+    FAILS=$((FAILS + 1))
+fi
+if echo "$FINAL_STATUS" | grep -q "marketplace:.*not registered"; then
+    pass "status reports marketplace unregistered after uninstall --marketplace"
+    PASSES=$((PASSES + 1))
+else
+    fail "status did not report marketplace unregistered"
     FAILS=$((FAILS + 1))
 fi
 

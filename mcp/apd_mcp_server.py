@@ -18,6 +18,7 @@ from mcp.server.fastmcp import FastMCP
 APD_PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 APD_VERSION_FILE = APD_PLUGIN_ROOT / "VERSION"
 CORE_DIR = APD_PLUGIN_ROOT / "bin" / "core"
+CDX_DIR = APD_PLUGIN_ROOT / "bin" / "adapter" / "cdx"
 
 mcp = FastMCP("apd")
 
@@ -42,7 +43,7 @@ def _read_version() -> str:
     return "unknown"
 
 
-def _codex_env() -> dict:
+def _codex_env(project_dir: Path | None = None) -> dict:
     """Environment overlay that marks the subprocess as Codex-initiated.
 
     Framework scripts check APD_RUNTIME to decide whether to apply
@@ -51,27 +52,27 @@ def _codex_env() -> dict:
     """
     env = os.environ.copy()
     env["APD_RUNTIME"] = "codex"
+    env["APD_PROJECT_DIR"] = str(project_dir or _project_dir())
     return env
 
 
-def _run_core(script: str, *args: str, timeout: int = 30) -> dict:
-    """Run a bin/core/* script and return a structured result.
+def _run_script(path: Path, *args: str, timeout: int = 30) -> dict:
+    """Run an APD script and return a structured result.
 
-    cwd is inherited from the MCP server process, which Codex launches from
-    the project directory — so resolve-project.sh resolves PROJECT_DIR
-    correctly without extra wiring.
+    Always pins both cwd and APD_PROJECT_DIR to the resolved project root so
+    pure-Codex projects also work when Codex is launched from a subdirectory.
     """
-    path = CORE_DIR / script
     if not path.exists():
-        return {"ok": False, "error": f"{script} not found at {path}"}
+        return {"ok": False, "error": f"{path.name} not found at {path}"}
+    project = _project_dir()
     try:
         result = subprocess.run(
             ["bash", str(path), *args],
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd=os.getcwd(),
-            env=_codex_env(),
+            cwd=str(project),
+            env=_codex_env(project),
         )
         return {
             "ok": result.returncode == 0,
@@ -80,7 +81,12 @@ def _run_core(script: str, *args: str, timeout: int = 30) -> dict:
             "stderr": result.stderr,
         }
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"{script} timed out after {timeout}s"}
+        return {"ok": False, "error": f"{path.name} timed out after {timeout}s"}
+
+
+def _run_core(script: str, *args: str, timeout: int = 30) -> dict:
+    """Run a bin/core/* script and return a structured result."""
+    return _run_script(CORE_DIR / script, *args, timeout=timeout)
 
 
 _PROJECT_MARKERS = (".codex", "AGENTS.md", ".claude", "CLAUDE.md")
@@ -141,12 +147,12 @@ def apd_ping() -> dict:
 
 @mcp.tool()
 def apd_doctor() -> dict:
-    """Run APD self-check — delegates to bin/core/pipeline-doctor.
+    """Run the Codex-specific APD self-check.
 
     Returns raw doctor output so the model can surface issues to the user
     before starting a pipeline.
     """
-    return _run_core("pipeline-doctor", timeout=10)
+    return _run_script(CDX_DIR / "codex-doctor", timeout=10)
 
 
 def _agents_dir(project: Path) -> Path | None:
@@ -467,7 +473,7 @@ def apd_verify_step() -> dict:
             result = subprocess.run(
                 ["bash", str(project_verify)],
                 capture_output=True, text=True, timeout=300, cwd=str(project),
-                env=_codex_env(),
+                env=_codex_env(project),
             )
             return {
                 "ok": result.returncode == 0,

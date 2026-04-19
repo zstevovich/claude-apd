@@ -1,15 +1,28 @@
 #!/bin/bash
-# apd cdx skills — install/uninstall APD skills into ~/.codex/skills/
+# apd cdx skills — install APD skills into a Codex home
+#
+# Two install modes, both pointing at the same canonical source under
+# templates/codex/skills/ inside this plugin:
+#
+#   direct-drop (default)     symlinks into ~/.codex/skills/<name>/
+#     Works on Codex 0.121.0. Skills load into the <skills_instructions>
+#     prompt block so the model can invoke them via $apd-brainstorm etc.
+#     Does NOT currently surface in the `/` slash menu (Codex limits that
+#     menu to plugin-scoped skills + .system/*).
+#
+#   marketplace (--marketplace, experimental)
+#     Registers templates/codex/marketplace/ as a local Codex marketplace
+#     and enables [plugins."apd@codex-apd"]. The plan is that `/` slash
+#     menu lists APD skills once Codex syncs local marketplaces into its
+#     plugin cache. On 0.121.0 the sync step is still broken — see
+#     openai/codex#18258. Only pick --marketplace if you want to test the
+#     future path; direct-drop is the supported flow today.
 #
 # Subcommands:
-#   list                  show available APD skills and which are installed
-#   install [<name>...]   install one or more (default: all four)
-#   uninstall [<name>...] uninstall one or more (default: all four)
-#   help                  usage
-#
-# Installs as SYMLINKS from ~/.codex/skills/<name>/ → templates/codex/skills/<name>/
-# so plugin updates flow through automatically. Pass --copy to install a
-# frozen copy instead.
+#   status                          show state of both install modes
+#   install [--marketplace]         install (default mode = direct-drop)
+#   uninstall [--marketplace]       uninstall whichever mode was installed
+#   help                            usage
 
 set -euo pipefail
 
@@ -19,15 +32,127 @@ source "$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh"
 source "$APD_PLUGIN_ROOT/bin/lib/style.sh"
 
 SKILL_SRC_DIR="$APD_PLUGIN_ROOT/templates/codex/skills"
-CODEX_SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"
+MARKETPLACE_DIR="$APD_PLUGIN_ROOT/templates/codex/marketplace"
+MARKETPLACE_NAME="codex-apd"
+PLUGIN_KEY="apd@$MARKETPLACE_NAME"
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+CODEX_CONFIG="$CODEX_HOME/config.toml"
+CODEX_SKILLS_DIR="$CODEX_HOME/skills"
 ALL_SKILLS=(apd-brainstorm apd-tdd apd-debug apd-finish)
 
 if [ ! -d "$SKILL_SRC_DIR" ]; then
-    echo "ERROR: APD skill templates not found at $SKILL_SRC_DIR" >&2
+    echo "ERROR: APD skill sources missing at $SKILL_SRC_DIR" >&2
     exit 2
 fi
+for name in "${ALL_SKILLS[@]}"; do
+    [ -f "$SKILL_SRC_DIR/$name/SKILL.md" ] || {
+        echo "ERROR: source skill missing: $SKILL_SRC_DIR/$name/SKILL.md" >&2
+        exit 2
+    }
+done
 
-_installed_status() {
+# -----------------------------------------------------------
+# Argument parsing: subcommand + optional --marketplace
+# -----------------------------------------------------------
+SUB="${1:-help}"
+shift 2>/dev/null || true
+MODE="direct"
+EXTRA_ARGS=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --marketplace|--experimental-marketplace) MODE="marketplace"; shift ;;
+        *) EXTRA_ARGS+=("$1"); shift ;;
+    esac
+done
+
+# -----------------------------------------------------------
+# Marketplace helpers (only used when MODE=marketplace)
+# -----------------------------------------------------------
+_registered() {
+    [ -f "$CODEX_CONFIG" ] && \
+        grep -qE "^\[marketplaces\.$MARKETPLACE_NAME\]" "$CODEX_CONFIG"
+}
+
+_registered_source() {
+    [ -f "$CODEX_CONFIG" ] || return 0
+    awk -v mp="$MARKETPLACE_NAME" '
+        $0 ~ "^\\[marketplaces\\." mp "\\]" { in_block = 1; next }
+        in_block && /^\[/ { in_block = 0 }
+        in_block && $1 == "source" { print; exit }
+    ' "$CODEX_CONFIG" | sed -E 's/source *= *"(.*)"/\1/'
+}
+
+_plugin_enabled() {
+    [ -f "$CODEX_CONFIG" ] || return 1
+    python3 - "$CODEX_CONFIG" "$PLUGIN_KEY" <<'PY'
+import re
+import sys
+
+cfg_path, plugin_key = sys.argv[1], sys.argv[2]
+text = open(cfg_path).read()
+pattern = re.compile(
+    r'(?ms)^\[plugins\."' + re.escape(plugin_key) + r'"\][^\[]*?(?=^\[|\Z)'
+)
+match = pattern.search(text)
+if not match:
+    raise SystemExit(1)
+block = match.group(0)
+raise SystemExit(0 if re.search(r'(?m)^\s*enabled\s*=\s*true\s*$', block) else 1)
+PY
+}
+
+_plugin_block_present() {
+    [ -f "$CODEX_CONFIG" ] || return 1
+    python3 - "$CODEX_CONFIG" "$PLUGIN_KEY" <<'PY'
+import re
+import sys
+
+cfg_path, plugin_key = sys.argv[1], sys.argv[2]
+text = open(cfg_path).read()
+pattern = re.compile(
+    r'(?ms)^\[plugins\."' + re.escape(plugin_key) + r'"\][^\[]*?(?=^\[|\Z)'
+)
+raise SystemExit(0 if pattern.search(text) else 1)
+PY
+}
+
+_ensure_plugin_enabled() {
+    python3 - "$CODEX_CONFIG" "$PLUGIN_KEY" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+cfg_path = Path(sys.argv[1])
+plugin_key = sys.argv[2]
+text = cfg_path.read_text() if cfg_path.exists() else ""
+desired = f'[plugins."{plugin_key}"]\nenabled = true\n'
+pattern = re.compile(
+    r'(?ms)^\[plugins\."' + re.escape(plugin_key) + r'"\][^\[]*?(?=^\[|\Z)'
+)
+match = pattern.search(text)
+if match:
+    if match.group(0).strip() == desired.strip():
+        print("skip")
+        raise SystemExit(0)
+    new_text = pattern.sub(desired.rstrip() + "\n\n", text, count=1).rstrip() + "\n"
+    cfg_path.write_text(new_text)
+    print("updated")
+    raise SystemExit(10)
+
+new_text = text.rstrip()
+if new_text:
+    new_text += "\n\n"
+new_text += desired
+cfg_path.write_text(new_text)
+print("wrote")
+raise SystemExit(10)
+PY
+}
+
+# -----------------------------------------------------------
+# Direct-drop helpers
+# -----------------------------------------------------------
+_direct_installed_status() {
     local name="$1"
     local tgt="$CODEX_SKILLS_DIR/$name"
     if [ -L "$tgt" ]; then
@@ -39,28 +164,115 @@ _installed_status() {
     fi
 }
 
-SUB="${1:-help}"
-shift 2>/dev/null || true
-
 case "$SUB" in
-    list|ls)
+    status|list|ls)
         echo ""
-        echo "  ${V}APD skills${R} (source: $SKILL_SRC_DIR)"
-        echo "  ${V}Install target:${R} $CODEX_SKILLS_DIR"
+        echo "  ${V}APD Codex skills — install status${R}"
         echo ""
+        echo "  ${V}Source${R}            $SKILL_SRC_DIR"
+        echo "  ${V}Codex home${R}        $CODEX_HOME"
+        echo ""
+        echo "  ${V}Direct-drop (default — ~/.codex/skills/)${R}"
         for s in "${ALL_SKILLS[@]}"; do
-            printf "    %-18s  %s\n" "$s" "$(_installed_status "$s")"
+            printf "    %-18s  %s\n" "$s" "$(_direct_installed_status "$s")"
         done
         echo ""
+        echo "  ${V}Marketplace (experimental — --marketplace)${R}"
+        if _registered; then
+            src=$(_registered_source)
+            printf "    %-18s  ${G}✓${R} registered (source: %s)\n" "marketplace:" "$src"
+            if [ "$src" = "$MARKETPLACE_DIR" ]; then
+                printf "    %-18s  ${G}✓${R} matches this plugin checkout\n" "alignment:"
+            else
+                printf "    %-18s  ${Y}!${R} points elsewhere\n" "alignment:"
+            fi
+        else
+            printf "    %-18s  ${D}—${R} not registered\n" "marketplace:"
+        fi
+        if _plugin_enabled; then
+            printf "    %-18s  ${G}✓${R} enabled\n" "plugin block:"
+        else
+            printf "    %-18s  ${D}—${R} not enabled\n" "plugin block:"
+        fi
+        echo ""
         ;;
-    install)
-        MODE="symlink"
+    install|add)
+        if [ "$MODE" = "marketplace" ]; then
+            # -------- Marketplace mode (experimental) --------
+            if [ ! -f "$MARKETPLACE_DIR/.agents/plugins/marketplace.json" ]; then
+                echo "ERROR: marketplace.json missing at $MARKETPLACE_DIR/.agents/plugins/marketplace.json" >&2
+                exit 2
+            fi
+            if [ ! -f "$MARKETPLACE_DIR/plugins/apd/.codex-plugin/plugin.json" ]; then
+                echo "ERROR: plugin manifest missing at $MARKETPLACE_DIR/plugins/apd/.codex-plugin/plugin.json" >&2
+                exit 2
+            fi
+            if ! command -v codex >/dev/null 2>&1; then
+                echo "ERROR: \`codex\` CLI not on PATH — install Codex first" >&2
+                exit 1
+            fi
+            echo ""
+            echo "  ${Y}! EXPERIMENTAL${R} — local-marketplace sync is broken on Codex 0.121.0."
+            echo "  ${Y}!${R} Skills may not appear in the / slash menu until the upstream fix"
+            echo "  ${Y}!${R} ships (see openai/codex#18258). Use the default direct-drop mode"
+            echo "  ${Y}!${R} (\`apd cdx skills install\`) for the supported path."
+            echo ""
+            if _registered; then
+                existing=$(_registered_source)
+                if [ "$existing" = "$MARKETPLACE_DIR" ]; then
+                    set +e
+                    ENSURE_OUT="$(_ensure_plugin_enabled 2>&1)"
+                    ENSURE_RC=$?
+                    set -e
+                    if [ "$ENSURE_RC" -eq 10 ]; then
+                        echo "  ${G}updated${R}  [plugins.\"$PLUGIN_KEY\"] in $CODEX_CONFIG"
+                    elif [ "$ENSURE_RC" -ne 0 ]; then
+                        echo "$ENSURE_OUT" >&2
+                        echo "ERROR: failed to enable [plugins.\"$PLUGIN_KEY\"] in $CODEX_CONFIG" >&2
+                        exit 1
+                    fi
+                    echo "  ${G}already registered${R}  $MARKETPLACE_NAME → $MARKETPLACE_DIR"
+                    exit 0
+                fi
+                echo "  ${Y}!${R} $MARKETPLACE_NAME marketplace already registered with a different source:"
+                echo "      $existing"
+                echo ""
+                echo "  Remove the existing [marketplaces.$MARKETPLACE_NAME] block from"
+                echo "  $CODEX_CONFIG and re-run with --marketplace."
+                exit 1
+            fi
+            if ! codex marketplace add "$MARKETPLACE_DIR" 2>&1; then
+                echo "ERROR: codex marketplace add failed" >&2
+                exit 1
+            fi
+            set +e
+            ENSURE_OUT="$(_ensure_plugin_enabled 2>&1)"
+            ENSURE_RC=$?
+            set -e
+            if [ "$ENSURE_RC" -eq 10 ]; then
+                echo "  ${G}enabled${R} [plugins.\"$PLUGIN_KEY\"] in $CODEX_CONFIG"
+            elif [ "$ENSURE_RC" -ne 0 ]; then
+                echo "$ENSURE_OUT" >&2
+                echo "ERROR: failed to enable [plugins.\"$PLUGIN_KEY\"] in $CODEX_CONFIG" >&2
+                exit 1
+            fi
+            echo ""
+            echo "  ${G}registered${R} $MARKETPLACE_NAME marketplace"
+            echo "  Restart Codex. If \`/\` menu still doesn't list APD skills, this is"
+            echo "  the upstream sync bug — fall back to \`apd cdx skills install\` (direct-drop)."
+            exit 0
+        fi
+
+        # -------- Direct-drop mode (default) --------
+        DIRECT_MODE="symlink"
+        FORCE="false"
         NAMES=()
-        while [ "$#" -gt 0 ]; do
-            case "$1" in
-                --copy) MODE="copy"; shift ;;
-                --symlink) MODE="symlink"; shift ;;
-                *) NAMES+=("$1"); shift ;;
+        for a in "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"; do
+            case "$a" in
+                --copy) DIRECT_MODE="copy" ;;
+                --symlink) DIRECT_MODE="symlink" ;;
+                --force|-f) FORCE="true" ;;
+                *) NAMES+=("$a") ;;
             esac
         done
         [ "${#NAMES[@]}" -eq 0 ] && NAMES=("${ALL_SKILLS[@]}")
@@ -70,13 +282,30 @@ case "$SUB" in
             src="$SKILL_SRC_DIR/$name"
             tgt="$CODEX_SKILLS_DIR/$name"
             if [ ! -d "$src" ]; then
-                echo "  ${RED}skip${R}  $name (no template at $src)"
+                echo "  ${RED}skip${R}  $name (no source at $src)"
                 continue
             fi
-            if [ -L "$tgt" ] || [ -d "$tgt" ]; then
-                rm -rf "$tgt"
+            # Overwrite protection: symlinks are APD-managed (safe to replace).
+            # Real dirs are replaced only if SKILL.md matches canonical (idempotent
+            # re-install) OR --force is passed. Otherwise refuse to preserve
+            # user-modified copies.
+            if [ -L "$tgt" ]; then
+                rm -f "$tgt"
+            elif [ -d "$tgt" ]; then
+                if [ "$FORCE" = "true" ]; then
+                    rm -rf "$tgt"
+                elif [ -f "$tgt/SKILL.md" ] && diff -q "$tgt/SKILL.md" "$src/SKILL.md" >/dev/null 2>&1; then
+                    rm -rf "$tgt"
+                else
+                    echo "  ${RED}refuse${R}  $tgt exists and differs from canonical source"
+                    echo "            pass --force to overwrite (or remove it manually first)"
+                    continue
+                fi
+            elif [ -e "$tgt" ]; then
+                echo "  ${RED}refuse${R}  $tgt exists and is neither symlink nor directory"
+                continue
             fi
-            if [ "$MODE" = "symlink" ]; then
+            if [ "$DIRECT_MODE" = "symlink" ]; then
                 ln -s "$src" "$tgt"
                 echo "  ${G}link${R}  $tgt → $src"
             else
@@ -86,15 +315,52 @@ case "$SUB" in
         done
         echo ""
         echo "  Restart Codex to pick up newly installed skills."
+        echo "  Skills load as \$apd-brainstorm / \$apd-tdd / \$apd-debug / \$apd-finish."
+        echo "  Note: direct-drop skills do NOT appear in the \`/\` slash menu —"
+        echo "  that surface is plugin-scoped only (see \`--marketplace\` for WIP path)."
         ;;
     uninstall|remove|rm)
-        NAMES=("$@")
+        if [ "$MODE" = "marketplace" ]; then
+            # -------- Marketplace mode uninstall --------
+            if [ ! -f "$CODEX_CONFIG" ]; then
+                echo "  ${D}—${R} $CODEX_CONFIG missing — nothing to remove"
+                exit 0
+            fi
+            if ! _registered && ! _plugin_block_present; then
+                echo "  ${D}—${R} $MARKETPLACE_NAME not registered and [plugins.\"$PLUGIN_KEY\"] missing — nothing to remove"
+                exit 0
+            fi
+            python3 - "$CODEX_CONFIG" "$MARKETPLACE_NAME" "$PLUGIN_KEY" <<'PY'
+import re, sys
+cfg_path, name, plugin_key = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(cfg_path) as f:
+    text = f.read()
+marketplace_pattern = re.compile(
+    r'(?ms)^\[marketplaces\.' + re.escape(name) + r'\][^\[]*?(?=^\[|\Z)'
+)
+plugin_pattern = re.compile(
+    r'(?ms)^\[plugins\."' + re.escape(plugin_key) + r'"\][^\[]*?(?=^\[|\Z)'
+)
+new = marketplace_pattern.sub('', text)
+new = plugin_pattern.sub('', new)
+new = re.sub(r'\n{3,}', '\n\n', new).rstrip() + '\n'
+with open(cfg_path, 'w') as f:
+    f.write(new)
+PY
+            echo "  ${G}removed${R} [marketplaces.$MARKETPLACE_NAME] from $CODEX_CONFIG"
+            echo "  ${G}removed${R} [plugins.\"$PLUGIN_KEY\"] from $CODEX_CONFIG"
+            echo ""
+            echo "  Plugin cache under $CODEX_HOME/plugins/cache/$MARKETPLACE_NAME/ stays"
+            echo "  until you delete it manually:"
+            echo "      rm -rf $CODEX_HOME/plugins/cache/$MARKETPLACE_NAME"
+            exit 0
+        fi
+
+        # -------- Direct-drop mode uninstall --------
+        NAMES=("${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}")
         [ "${#NAMES[@]}" -eq 0 ] && NAMES=("${ALL_SKILLS[@]}")
         for name in "${NAMES[@]}"; do
             tgt="$CODEX_SKILLS_DIR/$name"
-            # Safety: refuse to remove anything that doesn't look like an APD
-            # skill (prefix check + must be symlink pointing into plugin OR a
-            # directory with a SKILL.md naming apd-*).
             case "$name" in
                 apd-*) ;;
                 *) echo "  ${RED}refuse${R} to uninstall non-apd-* skill: $name"; continue ;;
@@ -114,23 +380,28 @@ case "$SUB" in
         ;;
     help|--help|-h|"")
         echo ""
-        echo "  ${V}apd cdx skills${R} — install APD skills into ~/.codex/skills/"
+        echo "  ${V}apd cdx skills${R} — install APD skills into Codex"
         echo ""
         echo "  Usage:"
-        echo "    apd cdx skills list                     show installed + available"
-        echo "    apd cdx skills install                  install all (symlink mode)"
-        echo "    apd cdx skills install <name> ...       install named"
-        echo "    apd cdx skills install --copy           copy instead of symlink"
-        echo "    apd cdx skills uninstall                uninstall all"
-        echo "    apd cdx skills uninstall <name> ...     uninstall named"
+        echo "    apd cdx skills status                       show install status (both modes)"
+        echo "    apd cdx skills install                      direct-drop (default, supported today)"
+        echo "    apd cdx skills install <name> ...           install named skills only"
+        echo "    apd cdx skills install --copy               copy instead of symlink"
+        echo "    apd cdx skills install --force              overwrite user-modified installs"
+        echo "    apd cdx skills install --marketplace        register local marketplace (EXPERIMENTAL)"
+        echo "    apd cdx skills uninstall                    remove direct-drop install"
+        echo "    apd cdx skills uninstall <name> ...         remove named only"
+        echo "    apd cdx skills uninstall --marketplace      unregister marketplace"
         echo ""
-        echo "  Skills:"
-        for s in "${ALL_SKILLS[@]}"; do
-            printf "    %s\n" "$s"
-        done
+        echo "  Default (direct-drop) installs symlinks into $CODEX_SKILLS_DIR/<name>/."
+        echo "  Skills load via \$apd-<name> references, do NOT appear in the / slash menu."
         echo ""
-        echo "  Default install mode is symlink (updates flow through on plugin changes)."
-        echo "  Use --copy for a frozen snapshot that won't change if the plugin moves."
+        echo "  --marketplace is experimental: local-marketplace sync is broken on Codex"
+        echo "  0.121.0 (openai/codex#18258). Use only to test the future \`/\` menu path."
+        echo ""
+        echo "  Source:            $SKILL_SRC_DIR"
+        echo "  Marketplace root:  $MARKETPLACE_DIR"
+        echo "  Codex config:      $CODEX_CONFIG"
         echo ""
         ;;
     *)

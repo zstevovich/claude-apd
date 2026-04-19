@@ -60,22 +60,103 @@ fi
 mkdir -p "$CODEX_DIR"
 CHANGES=0
 
-# -----------------------------------------------------------
-# 1. MCP server registration
-# -----------------------------------------------------------
-if [ -f "$CONFIG_FILE" ] && grep -q "^\[mcp_servers\.apd\]" "$CONFIG_FILE"; then
-    echo "[skip] [mcp_servers.apd] already present in $CONFIG_FILE"
-else
-    [ -f "$CONFIG_FILE" ] && cp "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%s)"
-    cat >> "$CONFIG_FILE" <<EOF
+_backup_if_exists() {
+    local path="$1"
+    [ -f "$path" ] && cp "$path" "${path}.bak.$(date +%s)"
+    return 0
+}
 
-[mcp_servers.apd]
-command = "uv"
-args = ["run", "--with", "mcp", "python", "$MCP_SERVER"]
-EOF
-    echo "[wrote] [mcp_servers.apd] → $CONFIG_FILE"
-    CHANGES=$((CHANGES + 1))
-fi
+# -----------------------------------------------------------
+# 1. MCP server registration / repair
+# -----------------------------------------------------------
+CFG_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-config.XXXXXX")"
+set +e
+CFG_STATUS="$(
+python3 - "$CONFIG_FILE" "$MCP_SERVER" "$CFG_TMP" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+cfg_path = Path(sys.argv[1])
+server = sys.argv[2]
+out_path = Path(sys.argv[3])
+
+text = cfg_path.read_text() if cfg_path.exists() else ""
+desired_block = [
+    "[mcp_servers.apd]",
+    'command = "uv"',
+    f'args = ["run", "--with", "mcp", "python", {json.dumps(server)}]',
+]
+
+def split_sections(raw: str) -> list[list[str]]:
+    lines = raw.splitlines()
+    if not lines:
+        return []
+    sections: list[list[str]] = []
+    current: list[str] = []
+    for line in lines:
+        if line.startswith("[") and current:
+            sections.append(current)
+            current = [line]
+        else:
+            current.append(line)
+    if current:
+        sections.append(current)
+    return sections
+
+sections = split_sections(text)
+current_blocks = [sec for sec in sections if sec and sec[0].strip() == "[mcp_servers.apd]"]
+if len(current_blocks) == 1 and [line.rstrip() for line in current_blocks[0] if line.strip()] == desired_block:
+    print("skip")
+    raise SystemExit(0)
+
+action = "updated" if current_blocks else "wrote"
+new_sections: list[list[str]] = []
+inserted = False
+for sec in sections:
+    if sec and sec[0].strip() == "[mcp_servers.apd]":
+        if not inserted:
+            new_sections.append(desired_block)
+            inserted = True
+        continue
+    new_sections.append(sec)
+if not inserted:
+    new_sections.append(desired_block)
+
+serialized = []
+for sec in new_sections:
+    block = "\n".join(line.rstrip() for line in sec).strip("\n")
+    if block:
+        serialized.append(block)
+
+out_path.write_text("\n\n".join(serialized).rstrip() + "\n")
+print(action)
+raise SystemExit(10)
+PY
+)"
+CFG_RC=$?
+set -e
+case "$CFG_RC" in
+    0)
+        rm -f "$CFG_TMP"
+        echo "[skip] [mcp_servers.apd] already points to this plugin in $CONFIG_FILE"
+        ;;
+    10)
+        _backup_if_exists "$CONFIG_FILE"
+        mv "$CFG_TMP" "$CONFIG_FILE"
+        if [ "$CFG_STATUS" = "updated" ]; then
+            echo "[updated] [mcp_servers.apd] → $CONFIG_FILE"
+        else
+            echo "[wrote] [mcp_servers.apd] → $CONFIG_FILE"
+        fi
+        CHANGES=$((CHANGES + 1))
+        ;;
+    *)
+        rm -f "$CFG_TMP"
+        echo "ERROR: failed to update $CONFIG_FILE" >&2
+        exit 6
+        ;;
+esac
 
 # -----------------------------------------------------------
 # 2. Per-agent sandbox profiles — INTENTIONALLY DISABLED
@@ -220,33 +301,118 @@ else
 fi
 
 # -----------------------------------------------------------
-# 5. Repo-level hooks.json — PreToolUse Bash → guard-bash-scope
+# 5. Repo-level hooks.json — merge PreToolUse Bash → guard-bash-scope
 # -----------------------------------------------------------
-if [ -f "$HOOKS_FILE" ] && grep -qF "$GUARD_BASH" "$HOOKS_FILE"; then
-    echo "[skip] PreToolUse guard-bash-scope already wired in $HOOKS_FILE"
-else
-    [ -f "$HOOKS_FILE" ] && cp "$HOOKS_FILE" "${HOOKS_FILE}.bak.$(date +%s)"
-    cat > "$HOOKS_FILE" <<EOF
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash $GUARD_BASH",
-            "timeout": 5
-          }
-        ]
-      }
-    ]
-  }
+HOOKS_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-hooks.XXXXXX")"
+set +e
+HOOKS_STATUS="$(
+python3 - "$HOOKS_FILE" "$GUARD_BASH" "$HOOKS_TMP" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+hooks_path = Path(sys.argv[1])
+guard_bash = sys.argv[2]
+out_path = Path(sys.argv[3])
+
+desired = {
+    "type": "command",
+    "command": f"bash {guard_bash}",
+    "timeout": 5,
 }
-EOF
-    echo "[wrote] PreToolUse Bash hook → $HOOKS_FILE"
-    CHANGES=$((CHANGES + 1))
-fi
+
+if hooks_path.exists():
+    try:
+        data = json.loads(hooks_path.read_text())
+    except json.JSONDecodeError as exc:
+        print(f"invalid JSON in {hooks_path}: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+else:
+    data = {}
+
+if not isinstance(data, dict):
+    print(f"{hooks_path} must contain a JSON object", file=sys.stderr)
+    raise SystemExit(1)
+
+hooks = data.setdefault("hooks", {})
+if not isinstance(hooks, dict):
+    print(f"{hooks_path}: top-level 'hooks' must be an object", file=sys.stderr)
+    raise SystemExit(1)
+
+pre = hooks.setdefault("PreToolUse", [])
+if not isinstance(pre, list):
+    print(f"{hooks_path}: hooks.PreToolUse must be an array", file=sys.stderr)
+    raise SystemExit(1)
+
+apd_marker = "guard-bash-scope"
+bash_entries = [entry for entry in pre if isinstance(entry, dict) and entry.get("matcher") == "Bash"]
+action = "skip"
+desired_present = False
+stale_slot = None
+
+for entry in bash_entries:
+    entry_hooks = entry.setdefault("hooks", [])
+    if not isinstance(entry_hooks, list):
+        print(f"{hooks_path}: Bash hook entry must contain a hooks array", file=sys.stderr)
+        raise SystemExit(1)
+    for idx, hook in enumerate(entry_hooks):
+        if not isinstance(hook, dict):
+            continue
+        command = hook.get("command", "")
+        if hook.get("type") == "command" and command == desired["command"]:
+            desired_present = True
+            if hook.get("timeout") != desired["timeout"]:
+                entry_hooks[idx] = desired
+                action = "updated"
+            break
+        if apd_marker in command:
+            stale_slot = (entry_hooks, idx)
+    if desired_present:
+        break
+
+if not desired_present:
+    if stale_slot is not None:
+        stale_slot[0][stale_slot[1]] = desired
+        action = "updated"
+    elif bash_entries:
+        bash_entries[0]["hooks"].append(desired)
+        action = "updated"
+    else:
+        pre.append({"matcher": "Bash", "hooks": [desired]})
+        action = "wrote"
+
+if action == "skip":
+    print("skip")
+    raise SystemExit(0)
+
+out_path.write_text(json.dumps(data, indent=2) + "\n")
+print(action)
+raise SystemExit(10)
+PY
+)"
+HOOKS_RC=$?
+set -e
+case "$HOOKS_RC" in
+    0)
+        rm -f "$HOOKS_TMP"
+        echo "[skip] PreToolUse guard-bash-scope already wired in $HOOKS_FILE"
+        ;;
+    10)
+        _backup_if_exists "$HOOKS_FILE"
+        mv "$HOOKS_TMP" "$HOOKS_FILE"
+        if [ "$HOOKS_STATUS" = "updated" ]; then
+            echo "[updated] PreToolUse Bash hook → $HOOKS_FILE"
+        else
+            echo "[wrote] PreToolUse Bash hook → $HOOKS_FILE"
+        fi
+        CHANGES=$((CHANGES + 1))
+        ;;
+    *)
+        rm -f "$HOOKS_TMP"
+        echo "ERROR: failed to merge APD hook into $HOOKS_FILE" >&2
+        exit 7
+        ;;
+esac
 
 # -----------------------------------------------------------
 # Summary + next-steps

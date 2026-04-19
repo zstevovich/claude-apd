@@ -1,0 +1,36 @@
+{
+  "name": "apd",
+  "version": "4.7.20",
+  "description": "Agent Pipeline Development — enforced multi-agent pipelines for Codex with mechanical guardrails for AI-assisted software development.",
+  "author": {
+    "name": "Zoran Stevovic",
+    "url": "https://github.com/zstevovich/claude-apd"
+  },
+  "homepage": "https://github.com/zstevovich/claude-apd",
+  "repository": "https://github.com/zstevovich/claude-apd",
+  "license": "MIT",
+  "keywords": [
+    "pipeline",
+    "tdd",
+    "code-review",
+    "spec",
+    "multi-agent",
+    "apd"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "APD",
+    "shortDescription": "Enforced spec → builder → reviewer → verifier pipeline",
+    "longDescription": "APD (Agent Pipeline Development) enforces a disciplined workflow: every change moves through spec, builder, reviewer, and verifier gates with mechanical enforcement. This plugin surfaces the four phase skills (brainstorm, tdd, debug, finish) in Codex's slash menu. The MCP server (apd_mcp_server.py) registered separately provides the pipeline-advance, guard-scope, and related enforcement tools.",
+    "developerName": "Zoran Stevovic",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/zstevovich/claude-apd",
+    "defaultPrompt": [
+      "Follow the APD pipeline: spec → builder → reviewer → verifier → commit. Use the matching skill for the current phase."
+    ]
+  }
+}
