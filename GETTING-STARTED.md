@@ -284,6 +284,21 @@ codex features enable codex_hooks   # one-time, global
 
 Linux: install `uv`, `python3`, `jq`, and `codex` through your distro's package manager. Codex CLI via `npm i -g @openai/codex` or the [upstream installer](https://github.com/openai/codex).
 
+## B-Step 0 — Get APD on your machine
+
+Codex 0.121.0 has no first-class plugin marketplace install for non-curated plugins (openai/codex#18258 — Codex registers + clones the marketplace but never completes the runtime install into `~/.codex/plugins/cache/`). Until that ships, the supported way to use APD on Codex is to clone the plugin repo and put `apd` on your PATH:
+
+```bash
+git clone https://github.com/zstevovich/claude-apd ~/apd
+export PATH="$HOME/apd/bin:$PATH"   # add to ~/.zshrc or ~/.bashrc to persist
+```
+
+> **Marketplace-style install (future-ready, not functional today):**
+> ```bash
+> codex marketplace add zstevovich/claude-apd
+> ```
+> The marketplace registers and Codex clones our manifest into `~/.codex/.tmp/marketplaces/codex-apd/`, but the plugin install step does NOT run on 0.121.0 — `~/.codex/plugins/cache/codex-apd/` stays empty and the `/` slash menu won't list APD skills. APD's manifest is correct (lives at `<repo-root>/.agents/plugins/marketplace.json` per Codex spec); the gap is upstream. Once #18258 is fixed, this single command will replace the git-clone above with no APD-side change.
+
 ## B-Step 1 — Install APD on your project
 
 From the project directory:
@@ -338,6 +353,17 @@ apd cdx doctor
 
 Expected output: **PASS: N, FAIL: 0, WARN: M**. Doctor verifies prerequisites, global Codex config, `.codex/` wiring, `.apd/` content, AGENTS.md, and the MCP server (Python syntax + all 6 tools registered). Non-zero exit = number of failed checks.
 
+## B-Step 4b — Install the four phase skills (optional but recommended)
+
+Codex doesn't have CC's slash-skill system, but APD ships four skill files (`apd-brainstorm`, `apd-tdd`, `apd-debug`, `apd-finish`) that the orchestrator can load by reference. Drop them into `~/.codex/skills/`:
+
+```bash
+apd cdx skills install                              # symlinks the four skills
+apd cdx skills status                               # show install state
+```
+
+In a Codex session the orchestrator can then invoke them as `$apd-tdd`, `$apd-brainstorm`, etc. Skills do NOT appear in the `/` slash menu on Codex 0.121.0 — that surface is plugin-scoped only and the plugin install path is currently blocked upstream (see B-Step 0). Direct-drop is the working flow today; once openai/codex#18258 ships, `apd cdx skills install --marketplace` will register the same skills via the plugin system and they will surface in `/`.
+
 ## B-Step 5 — Start a Codex session
 
 ```bash
@@ -383,6 +409,9 @@ The flow mirrors Part A's Step 5 exactly, but commands go through MCP tools inst
 | `apd cdx init` | Install APD into `.codex/` + scaffold `.apd/` on pure-Codex projects |
 | `apd cdx agents list` | Show templates and installed agents |
 | `apd cdx agents add <name> [scope ...]` | Scaffold an agent definition |
+| `apd cdx skills install` | Symlink phase skills (`apd-brainstorm/tdd/debug/finish`) into `~/.codex/skills/` (direct-drop, supported on 0.121.0) |
+| `apd cdx skills install --marketplace` | Register APD as a local Codex plugin marketplace — future-ready, blocked by openai/codex#18258 today |
+| `apd cdx skills status` | Show install state for both modes |
 | `apd cdx doctor` | Runtime-aware setup audit |
 | `apd cdx test` | E2E smoke test (no Codex CLI required) |
 | `apd cdx help` | Full help with prerequisites + typical flow |

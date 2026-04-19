@@ -47,12 +47,17 @@ bash .claude/bin/apd verify                            # check setup
 **Codex (OpenAI):**
 ```bash
 # Prerequisites: brew install uv jq   +   codex features enable codex_hooks
-apd cdx init                                           # scaffold .codex/ + .apd/
+git clone https://github.com/zstevovich/claude-apd ~/apd && \
+    export PATH="$HOME/apd/bin:$PATH"                  # one-time, until openai/codex#18258 ships
+apd cdx init                                           # scaffold .codex/ + .apd/ + AGENTS.md
 apd cdx agents add code-reviewer                       # populate agents
 apd cdx agents add backend-builder src/ config/
+apd cdx skills install                                 # symlink phase skills into ~/.codex/skills/
 apd cdx doctor                                         # audit setup
 codex                                                  # start session; "run apd_ping"
 ```
+
+> Codex 0.121.0 has no working plugin marketplace install for non-curated plugins (openai/codex#18258 — Codex registers the manifest but never completes the runtime install). APD's marketplace manifest is correct and ready (`<repo-root>/.agents/plugins/marketplace.json`); once the upstream fix ships, `codex marketplace add zstevovich/claude-apd` will replace the git-clone with no APD-side change.
 
 See [Getting Started](GETTING-STARTED.md) for both walkthroughs.
 

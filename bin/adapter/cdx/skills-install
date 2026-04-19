@@ -222,10 +222,16 @@ case "$SUB" in
                 exit 1
             fi
             echo ""
-            echo "  ${Y}! EXPERIMENTAL${R} — local-marketplace sync is broken on Codex 0.121.0."
-            echo "  ${Y}!${R} Skills may not appear in the / slash menu until the upstream fix"
-            echo "  ${Y}!${R} ships (see openai/codex#18258). Use the default direct-drop mode"
-            echo "  ${Y}!${R} (\`apd cdx skills install\`) for the supported path."
+            echo "  ${Y}! EXPERIMENTAL${R} — Codex 0.121.0 will register the marketplace and"
+            echo "  ${Y}!${R} clone the repo into ~/.codex/.tmp/marketplaces/, but the plugin"
+            echo "  ${Y}!${R} install step never completes (plugins/cache/codex-apd/ stays empty)."
+            echo "  ${Y}!${R} Codex log will show: \"plugin is not installed\" and \"skipping startup"
+            echo "  ${Y}!${R} remote plugin sync because curated marketplace is not ready\"."
+            echo "  ${Y}!${R} This is upstream openai/codex#18258 — APD's manifest is correct"
+            echo "  ${Y}!${R} and ready, but skills will NOT appear in the / slash menu until"
+            echo "  ${Y}!${R} the upstream fix ships."
+            echo "  ${Y}!${R}"
+            echo "  ${Y}!${R} Supported flow today: \`apd cdx skills install\` (direct-drop)."
             echo ""
             if _registered; then
                 existing=$(_registered_source)
@@ -268,8 +274,12 @@ case "$SUB" in
             fi
             echo ""
             echo "  ${G}registered${R} $MARKETPLACE_NAME marketplace"
-            echo "  Restart Codex. If \`/\` menu still doesn't list APD skills, this is"
-            echo "  the upstream sync bug — fall back to \`apd cdx skills install\` (direct-drop)."
+            echo ""
+            echo "  ${Y}Expected on Codex 0.121.0:${R} the / slash menu will NOT list APD"
+            echo "  skills yet. Codex log shows \"plugin is not installed\" because the"
+            echo "  upstream startup_sync step is broken (openai/codex#18258). Run"
+            echo "  \`apd cdx skills install\` (direct-drop) for the working flow today."
+            echo "  Once the upstream fix ships, this command alone will be enough."
             exit 0
         fi
 
@@ -405,9 +415,13 @@ PY
         echo ""
         echo "  Default (direct-drop) installs symlinks into $CODEX_SKILLS_DIR/<name>/."
         echo "  Skills load via \$apd-<name> references, do NOT appear in the / slash menu."
+        echo "  This is the SUPPORTED flow on Codex 0.121.0."
         echo ""
-        echo "  --marketplace is experimental: local-marketplace sync is broken on Codex"
-        echo "  0.121.0 (openai/codex#18258). Use only to test the future \`/\` menu path."
+        echo "  --marketplace is experimental and currently NON-FUNCTIONAL on 0.121.0:"
+        echo "  Codex registers the marketplace + clones the repo, but the plugin install"
+        echo "  step never runs (openai/codex#18258 — \"plugin is not installed\")."
+        echo "  Our manifest is correct and ready; pick this flag only to test what will"
+        echo "  work once the upstream fix ships. No code change needed on our side."
         echo ""
         echo "  Source:            $SKILL_SRC_DIR"
         echo "  Marketplace root:  $MARKETPLACE_DIR"
