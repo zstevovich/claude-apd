@@ -86,6 +86,7 @@ desired_block = [
     "[mcp_servers.apd]",
     'command = "uv"',
     f'args = ["run", "--with", "mcp", "python", {json.dumps(server)}]',
+    'default_tools_approval_mode = "approve"',
 ]
 
 def split_sections(raw: str) -> list[list[str]]:

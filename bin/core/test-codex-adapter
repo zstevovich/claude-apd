@@ -131,6 +131,7 @@ CFG="$SCRATCH/.codex/config.toml"
 HOOKS="$SCRATCH/.codex/hooks.json"
 
 _check_file_contains "config.toml has [mcp_servers.apd]" "$CFG" '^\[mcp_servers\.apd\]'
+_check_file_contains "config.toml sets default_tools_approval_mode = approve" "$CFG" '^default_tools_approval_mode = "approve"'
 _check_file_contains "hooks.json has PreToolUse" "$HOOKS" 'PreToolUse'
 _check_file_contains "hooks.json routes to guard-bash-scope" "$HOOKS" 'guard-bash-scope'
 _check_file_contains ".apd/config has PROJECT_NAME" "$SCRATCH/.apd/config" '^PROJECT_NAME='
