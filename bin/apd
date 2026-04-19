@@ -67,6 +67,9 @@ case "$CMD" in
             verify-setup)
                 exec bash "$CDX_DIR/verify-setup" "$@"
                 ;;
+            skills)
+                exec bash "$CDX_DIR/skills-install" "$@"
+                ;;
             test)
                 exec bash "$CORE_DIR/test-codex-adapter" "$@"
                 ;;
@@ -96,6 +99,14 @@ case "$CMD" in
                 echo "    verify-setup <stack>         Scaffold .codex/bin/verify-all.sh"
                 echo ""
                 echo "    Stacks: node, php, python, go, java, dotnet"
+                echo ""
+                echo "  ${V}Codex skills (user-level slash menu)${R}"
+                echo "    skills list                  Show APD skills + install status"
+                echo "    skills install               Symlink apd-* skills into ~/.codex/skills/"
+                echo "    skills install --copy        Copy instead of symlink"
+                echo "    skills uninstall             Remove APD skills"
+                echo ""
+                echo "    Skills: apd-brainstorm, apd-tdd, apd-debug, apd-finish"
                 echo ""
                 echo "  ${V}Diagnostics${R}"
                 echo "    doctor                       Audit the pure-Codex setup (runtime-aware)"

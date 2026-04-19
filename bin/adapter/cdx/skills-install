@@ -1,0 +1,141 @@
+#!/bin/bash
+# apd cdx skills — install/uninstall APD skills into ~/.codex/skills/
+#
+# Subcommands:
+#   list                  show available APD skills and which are installed
+#   install [<name>...]   install one or more (default: all four)
+#   uninstall [<name>...] uninstall one or more (default: all four)
+#   help                  usage
+#
+# Installs as SYMLINKS from ~/.codex/skills/<name>/ → templates/codex/skills/<name>/
+# so plugin updates flow through automatically. Pass --copy to install a
+# frozen copy instead.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APD_PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+source "$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh"
+source "$APD_PLUGIN_ROOT/bin/lib/style.sh"
+
+SKILL_SRC_DIR="$APD_PLUGIN_ROOT/templates/codex/skills"
+CODEX_SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"
+ALL_SKILLS=(apd-brainstorm apd-tdd apd-debug apd-finish)
+
+if [ ! -d "$SKILL_SRC_DIR" ]; then
+    echo "ERROR: APD skill templates not found at $SKILL_SRC_DIR" >&2
+    exit 2
+fi
+
+_installed_status() {
+    local name="$1"
+    local tgt="$CODEX_SKILLS_DIR/$name"
+    if [ -L "$tgt" ]; then
+        printf "${G}✓${R} symlink → %s" "$(readlink "$tgt")"
+    elif [ -d "$tgt" ]; then
+        printf "${G}✓${R} (copy)"
+    else
+        printf "${D}—${R} not installed"
+    fi
+}
+
+SUB="${1:-help}"
+shift 2>/dev/null || true
+
+case "$SUB" in
+    list|ls)
+        echo ""
+        echo "  ${V}APD skills${R} (source: $SKILL_SRC_DIR)"
+        echo "  ${V}Install target:${R} $CODEX_SKILLS_DIR"
+        echo ""
+        for s in "${ALL_SKILLS[@]}"; do
+            printf "    %-18s  %s\n" "$s" "$(_installed_status "$s")"
+        done
+        echo ""
+        ;;
+    install)
+        MODE="symlink"
+        NAMES=()
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                --copy) MODE="copy"; shift ;;
+                --symlink) MODE="symlink"; shift ;;
+                *) NAMES+=("$1"); shift ;;
+            esac
+        done
+        [ "${#NAMES[@]}" -eq 0 ] && NAMES=("${ALL_SKILLS[@]}")
+
+        mkdir -p "$CODEX_SKILLS_DIR"
+        for name in "${NAMES[@]}"; do
+            src="$SKILL_SRC_DIR/$name"
+            tgt="$CODEX_SKILLS_DIR/$name"
+            if [ ! -d "$src" ]; then
+                echo "  ${RED}skip${R}  $name (no template at $src)"
+                continue
+            fi
+            if [ -L "$tgt" ] || [ -d "$tgt" ]; then
+                rm -rf "$tgt"
+            fi
+            if [ "$MODE" = "symlink" ]; then
+                ln -s "$src" "$tgt"
+                echo "  ${G}link${R}  $tgt → $src"
+            else
+                cp -r "$src" "$tgt"
+                echo "  ${G}copy${R}  $tgt"
+            fi
+        done
+        echo ""
+        echo "  Restart Codex to pick up newly installed skills."
+        ;;
+    uninstall|remove|rm)
+        NAMES=("$@")
+        [ "${#NAMES[@]}" -eq 0 ] && NAMES=("${ALL_SKILLS[@]}")
+        for name in "${NAMES[@]}"; do
+            tgt="$CODEX_SKILLS_DIR/$name"
+            # Safety: refuse to remove anything that doesn't look like an APD
+            # skill (prefix check + must be symlink pointing into plugin OR a
+            # directory with a SKILL.md naming apd-*).
+            case "$name" in
+                apd-*) ;;
+                *) echo "  ${RED}refuse${R} to uninstall non-apd-* skill: $name"; continue ;;
+            esac
+            if [ -L "$tgt" ]; then
+                rm "$tgt"
+                echo "  ${G}removed${R}  $tgt (symlink)"
+            elif [ -d "$tgt" ] && [ -f "$tgt/SKILL.md" ] && grep -q "^name: $name$" "$tgt/SKILL.md"; then
+                rm -rf "$tgt"
+                echo "  ${G}removed${R}  $tgt (directory)"
+            elif [ -e "$tgt" ]; then
+                echo "  ${RED}skip${R}  $tgt — does not look like an APD-installed skill"
+            else
+                echo "  ${D}—${R}  $tgt (not installed)"
+            fi
+        done
+        ;;
+    help|--help|-h|"")
+        echo ""
+        echo "  ${V}apd cdx skills${R} — install APD skills into ~/.codex/skills/"
+        echo ""
+        echo "  Usage:"
+        echo "    apd cdx skills list                     show installed + available"
+        echo "    apd cdx skills install                  install all (symlink mode)"
+        echo "    apd cdx skills install <name> ...       install named"
+        echo "    apd cdx skills install --copy           copy instead of symlink"
+        echo "    apd cdx skills uninstall                uninstall all"
+        echo "    apd cdx skills uninstall <name> ...     uninstall named"
+        echo ""
+        echo "  Skills:"
+        for s in "${ALL_SKILLS[@]}"; do
+            printf "    %s\n" "$s"
+        done
+        echo ""
+        echo "  Default install mode is symlink (updates flow through on plugin changes)."
+        echo "  Use --copy for a frozen snapshot that won't change if the plugin moves."
+        echo ""
+        ;;
+    *)
+        echo "Unknown subcommand: $SUB" >&2
+        echo "Run: apd cdx skills help" >&2
+        exit 1
+        ;;
+esac

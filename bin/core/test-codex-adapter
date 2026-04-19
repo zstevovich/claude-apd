@@ -1032,6 +1032,107 @@ PY
 fi
 
 # -----------------------------------------------------------
+# 21. apd cdx skills install/uninstall (~/.codex/skills/)
+# -----------------------------------------------------------
+section "21. apd cdx skills"
+
+SK_HOME="$(mktemp -d -t apd-sk.XXXXXX)"
+SK_CODEX="$SK_HOME/.codex"
+
+# Template directory must exist with 4 skills
+for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
+    if [ -f "$APD_PLUGIN_ROOT/templates/codex/skills/$name/SKILL.md" ]; then
+        pass "template present: $name"
+        PASSES=$((PASSES + 1))
+    else
+        fail "missing skill template: $name"
+        FAILS=$((FAILS + 1))
+    fi
+done
+
+# list before install
+LIST_OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills list 2>&1)
+if echo "$LIST_OUT" | grep -q "apd-brainstorm.*not installed"; then
+    pass "list reports 'not installed' before install"
+    PASSES=$((PASSES + 1))
+else
+    fail "list didn't show uninstalled state"
+    FAILS=$((FAILS + 1))
+fi
+
+# install all
+CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install >/dev/null 2>&1
+ALL_LINKS=1
+for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
+    [ -L "$SK_CODEX/skills/$name" ] || ALL_LINKS=0
+done
+if [ "$ALL_LINKS" -eq 1 ]; then
+    pass "install creates 4 symlinks in ~/.codex/skills/"
+    PASSES=$((PASSES + 1))
+else
+    fail "not all APD skill symlinks created"
+    FAILS=$((FAILS + 1))
+fi
+
+# symlinks resolve to plugin templates
+target=$(readlink "$SK_CODEX/skills/apd-tdd")
+if [ "$target" = "$APD_PLUGIN_ROOT/templates/codex/skills/apd-tdd" ]; then
+    pass "apd-tdd symlink points to plugin template"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-tdd symlink drifts: $target"
+    FAILS=$((FAILS + 1))
+fi
+
+# SKILL.md reachable via symlink
+if [ -f "$SK_CODEX/skills/apd-brainstorm/SKILL.md" ] && \
+   grep -q "^name: apd-brainstorm$" "$SK_CODEX/skills/apd-brainstorm/SKILL.md"; then
+    pass "SKILL.md readable through symlink with correct frontmatter name"
+    PASSES=$((PASSES + 1))
+else
+    fail "SKILL.md content not reachable via symlink"
+    FAILS=$((FAILS + 1))
+fi
+
+# install --copy produces real directory
+CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install apd-debug --copy >/dev/null 2>&1
+if [ ! -L "$SK_CODEX/skills/apd-debug" ] && [ -d "$SK_CODEX/skills/apd-debug" ]; then
+    pass "install --copy replaces symlink with directory"
+    PASSES=$((PASSES + 1))
+else
+    fail "install --copy didn't switch to directory mode"
+    FAILS=$((FAILS + 1))
+fi
+
+# uninstall all
+CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills uninstall >/dev/null 2>&1
+ANY_LEFT=0
+for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
+    [ -e "$SK_CODEX/skills/$name" ] && ANY_LEFT=1
+done
+if [ "$ANY_LEFT" -eq 0 ]; then
+    pass "uninstall removes every apd-* skill"
+    PASSES=$((PASSES + 1))
+else
+    fail "some apd-* skills survived uninstall"
+    FAILS=$((FAILS + 1))
+fi
+
+# uninstall refuses non-apd-* names
+mkdir -p "$SK_CODEX/skills/some-other-skill"
+touch "$SK_CODEX/skills/some-other-skill/SKILL.md"
+OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills uninstall some-other-skill 2>&1)
+if echo "$OUT" | grep -q "refuse" && [ -d "$SK_CODEX/skills/some-other-skill" ]; then
+    pass "uninstall refuses to delete non-apd-* skills"
+    PASSES=$((PASSES + 1))
+else
+    fail "uninstall did not protect non-apd-* skills"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$SK_HOME"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
