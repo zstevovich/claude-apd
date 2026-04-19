@@ -53,15 +53,27 @@ these tools:
 
 ## Rules and memory
 
+> **Hybrid vs pure-Codex layout.** On a hybrid project (`.claude/` AND
+> `.codex/` present) the **CC-native paths under `.claude/` are
+> authoritative** for workflow rules and memory — APD doesn't duplicate
+> them. On a pure-Codex project (`.codex/` only) the same content lives
+> under `.apd/`. The phase rules below are Codex-native either way and
+> always live under `.apd/rules/` because CC reads them as slash-skills
+> instead of inline files.
+>
+> Resolution rule: if a path under `.claude/...` exists, prefer it.
+> Otherwise fall back to the matching `.apd/...` path.
+
 ### Workflow rules (always-on)
 
-- **`.apd/rules/workflow.md`** — authoritative workflow rules. Read before
-  starting any task. If a rule conflicts with this file, `workflow.md` wins.
+- **`.claude/rules/workflow.md`** (hybrid) **or** **`.apd/rules/workflow.md`**
+  (pure-Codex) — authoritative workflow rules. Read before starting any
+  task. If any rule conflicts with this file, `workflow.md` wins.
 
 ### Phase-specific rules (read when entering each phase)
 
 On Codex the orchestrator plays every role, so it must pull in the rule
-file for the phase it is in:
+file for the phase it is in. These always live under `.apd/rules/`:
 
 | Phase trigger | Read this |
 |---------------|-----------|
@@ -75,11 +87,14 @@ throughout that phase.
 
 ### Memory (living context)
 
-- **`.apd/memory/MEMORY.md`** — index of cross-session learnings, references,
+Same hybrid resolution as workflow rules — prefer `.claude/memory/` when
+it exists, otherwise `.apd/memory/`:
+
+- **`MEMORY.md`** — index of cross-session learnings, references,
   anti-patterns. Consult before proposing an approach.
-- **`.apd/memory/status.md`** — current in-progress work.
-- **`.apd/memory/session-log.md`** — append-only log. Fill in the previous
-  entry before starting the next task.
+- **`status.md`** — current in-progress work.
+- **`session-log.md`** — append-only log. Fill in the previous entry
+  before starting the next task.
 
 ## Agent scope
 
