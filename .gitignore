@@ -1,6 +1,7 @@
 # Claude Code — lokalni razvoj (ne ide u git)
 CLAUDE.md
 .claude/
+.codex/
 .vscode/
 .apd/
 
