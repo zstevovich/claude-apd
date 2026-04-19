@@ -131,7 +131,13 @@ CFG="$SCRATCH/.codex/config.toml"
 HOOKS="$SCRATCH/.codex/hooks.json"
 
 _check_file_contains "config.toml has [mcp_servers.apd]" "$CFG" '^\[mcp_servers\.apd\]'
-_check_file_contains "config.toml sets default_tools_approval_mode = approve" "$CFG" '^default_tools_approval_mode = "approve"'
+# Per-tool auto-approval — Codex 0.121.0 has no server-wide default,
+# every tool must be listed explicitly or the model gets a permission
+# prompt for the missing one
+for _t in apd_ping apd_doctor apd_advance_pipeline apd_guard_write \
+         apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state; do
+    _check_file_contains "config.toml auto-approves $_t" "$CFG" "^\\[mcp_servers\\.apd\\.tools\\.${_t}\\]"
+done
 _check_file_contains "hooks.json has PreToolUse" "$HOOKS" 'PreToolUse'
 _check_file_contains "hooks.json routes to guard-bash-scope" "$HOOKS" 'guard-bash-scope'
 _check_file_contains ".apd/config has PROJECT_NAME" "$SCRATCH/.apd/config" '^PROJECT_NAME='

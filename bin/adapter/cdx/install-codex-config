@@ -82,12 +82,35 @@ server = sys.argv[2]
 out_path = Path(sys.argv[3])
 
 text = cfg_path.read_text() if cfg_path.exists() else ""
-desired_block = [
-    "[mcp_servers.apd]",
-    'command = "uv"',
-    f'args = ["run", "--with", "mcp", "python", {json.dumps(server)}]',
-    'default_tools_approval_mode = "approve"',
+_APD_TOOLS = (
+    "apd_ping", "apd_doctor", "apd_advance_pipeline", "apd_guard_write",
+    "apd_verify_step", "apd_adversarial_pass", "apd_list_agents", "apd_pipeline_state",
+)
+# Each sub-list is one TOML section. Codex 0.121.0 has no server-wide
+# default_tools_approval_mode; auto-approval must be declared per-tool.
+# All APD tools are either read-only (ping, doctor, list_agents,
+# pipeline_state, verify_step) or write into apd-managed paths the guards
+# already police (advance_pipeline, guard_write, adversarial_pass), so
+# blanket approval is safe.
+desired_sections: list[list[str]] = [
+    [
+        "[mcp_servers.apd]",
+        'command = "uv"',
+        f'args = ["run", "--with", "mcp", "python", {json.dumps(server)}]',
+    ],
 ]
+for _tool in _APD_TOOLS:
+    desired_sections.append([
+        f"[mcp_servers.apd.tools.{_tool}]",
+        'approval_mode = "approve"',
+    ])
+
+# Every TOML header that this script owns. Anything matching is replaced
+# atomically; anything else (other MCP servers, plugins, projects) is left
+# untouched.
+APD_HEADERS = {"[mcp_servers.apd]"} | {
+    f"[mcp_servers.apd.tools.{t}]" for t in _APD_TOOLS
+}
 
 def split_sections(raw: str) -> list[list[str]]:
     lines = raw.splitlines()
@@ -105,24 +128,28 @@ def split_sections(raw: str) -> list[list[str]]:
         sections.append(current)
     return sections
 
+def normalize(sec: list[str]) -> list[str]:
+    return [line.rstrip() for line in sec if line.strip()]
+
 sections = split_sections(text)
-current_blocks = [sec for sec in sections if sec and sec[0].strip() == "[mcp_servers.apd]"]
-if len(current_blocks) == 1 and [line.rstrip() for line in current_blocks[0] if line.strip()] == desired_block:
+existing_apd = [sec for sec in sections if sec and sec[0].strip() in APD_HEADERS]
+
+if [normalize(sec) for sec in existing_apd] == desired_sections:
     print("skip")
     raise SystemExit(0)
 
-action = "updated" if current_blocks else "wrote"
+action = "updated" if existing_apd else "wrote"
 new_sections: list[list[str]] = []
 inserted = False
 for sec in sections:
-    if sec and sec[0].strip() == "[mcp_servers.apd]":
+    if sec and sec[0].strip() in APD_HEADERS:
         if not inserted:
-            new_sections.append(desired_block)
+            new_sections.extend(desired_sections)
             inserted = True
         continue
     new_sections.append(sec)
 if not inserted:
-    new_sections.append(desired_block)
+    new_sections.extend(desired_sections)
 
 serialized = []
 for sec in new_sections:
