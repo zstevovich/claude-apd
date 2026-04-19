@@ -33,7 +33,12 @@ file. Use the filesystem and Bash to inspect the diff and related code.
 For each finding report severity, file + line, the specific scenario that
 breaks it, and a one-line fix. End your review by calling:
 
-  apd_adversarial_pass(total=<N>, accepted=<M>, dismissed=<N-M>)
+  apd_adversarial_pass(total=<N>, accepted=<M>, dismissed=<N-M>, notes=<rationale>)
 
 `total` = findings you raised. `accepted` = findings the builder must act
 on. `dismissed` = findings the builder can justifiably skip with rationale.
+
+If `total=0`, `notes` is mandatory (>= 80 chars). Name the categories you
+actually examined — regressions, concurrency, edge cases, contract drift,
+security surface — and why none surfaced an issue. The server rejects
+empty 0/0/0 records to keep this gate honest.

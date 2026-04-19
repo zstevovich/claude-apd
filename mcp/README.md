@@ -37,7 +37,7 @@ Restart `codex`. The `apd_ping` tool should appear in the model's tool list.
 - `apd_advance_pipeline(step, arg="")` — wraps `pipeline-advance spec|builder|reviewer|verifier|init|status|stats|metrics|reset|rollback`
 - `apd_guard_write(role, file_path)` — scope is read from the agent registry (`.apd/agents/<role>.md` or `.claude/agents/<role>.md`), NOT client args. Readonly roles always BLOCK. Exit 2 = BLOCK, 0 = ALLOW.
 - `apd_verify_step()` — runs project `.codex/bin/verify-all.sh` if present (or legacy `.claude/bin/verify-all.sh`; otherwise framework `bin/core/verify-all`)
-- `apd_adversarial_pass(total, accepted, dismissed)` — writes `.adversarial-summary` for session log
+- `apd_adversarial_pass(total, accepted, dismissed, notes="")` — writes `.adversarial-summary` for session log. When `total=0`, `notes` is REQUIRED (>= 80 chars) so an empty 0/0/0 record cannot be a silent rubber-stamp.
 - `apd_list_agents()` — returns every agent definition in `.apd/agents/` (or `.claude/agents/` on hybrid) with parsed frontmatter (name, scope, model, maxTurns, readonly)
 - `apd_pipeline_state()` — structured snapshot of the pipeline: step `.done` files with timestamps, spec-card criteria count and freeze state, implementation-plan presence, adversarial summary, reviewed-files count, verifier cache, and the next step to advance
 

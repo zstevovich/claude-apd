@@ -20,7 +20,7 @@ these tools:
 | `apd_advance_pipeline(step, arg?)` | Move the pipeline forward one gate |
 | `apd_guard_write(role, file_path)` | MUST call before every file write — scope is read server-side from `.apd/agents/<role>.md`; exit 2 = BLOCK |
 | `apd_verify_step()` | Run project `.codex/bin/verify-all.sh` (or framework fallback) |
-| `apd_adversarial_pass(total, accepted, dismissed)` | Record adversarial review outcome |
+| `apd_adversarial_pass(total, accepted, dismissed, notes="")` | Record adversarial review outcome — `notes` is REQUIRED when `total=0` (>= 80 chars) so the server can tell a real "0 findings" pass from a rubber-stamp |
 | `apd_list_agents()` | List every agent definition in `.apd/agents/` with scope, model, maxTurns — call once to discover which roles exist; scope is enforced by `apd_guard_write` itself, not by re-sending it |
 | `apd_pipeline_state()` | Structured snapshot of the current pipeline: which `.done` files exist, spec-card criteria count + freeze hash, implementation-plan presence, adversarial summary, reviewed-files count, verifier cache age, and the next step to advance |
 
@@ -44,8 +44,11 @@ these tools:
 7. **Verify:** `apd_advance_pipeline("verifier")`. This runs
    `apd_verify_step()` internally, which blocks on build or test failure.
 8. **Adversarial pass (optional but recommended):** consider regressions,
-   concurrency, edge cases, contract drift. Record the outcome with
-   `apd_adversarial_pass(total, accepted, dismissed)`.
+   concurrency, edge cases, contract drift, security surface. Record the
+   outcome with `apd_adversarial_pass(total, accepted, dismissed, notes)`.
+   If you genuinely find nothing (`total=0`), `notes` becomes mandatory
+   (>= 80 chars) — write what categories you actually examined and why
+   they came up clean. The server rejects empty 0/0/0 records.
 9. **Commit** with a short, imperative-mood message in the repo's style.
 
 ## Rules and memory

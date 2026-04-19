@@ -373,7 +373,7 @@ The flow mirrors Part A's Step 5 exactly, but commands go through MCP tools inst
 5. `run apd_advance_pipeline('builder')`
 6. Review the diff inline (orchestrator plays the reviewer role on Codex), then `run apd_advance_pipeline('reviewer')`
 7. `run apd_advance_pipeline('verifier')` — this invokes `apd_verify_step()` which runs `.codex/bin/verify-all.sh` (or the framework default) and blocks on failure
-8. Optional adversarial pass: `run apd_adversarial_pass(total=3, accepted=2, dismissed=1)`
+8. Optional adversarial pass: `run apd_adversarial_pass(total=3, accepted=2, dismissed=1)`. When `total=0`, you must pass substantive `notes` describing what categories you examined and why nothing was flagged — empty 0/0/0 is rejected.
 9. Commit normally — `APD_ORCHESTRATOR_COMMIT=1 git commit -m "..."` from a terminal outside Codex, since Codex does not ship a Git tool hook today
 
 ## B-Quick reference (Codex adapter)
@@ -387,7 +387,7 @@ The flow mirrors Part A's Step 5 exactly, but commands go through MCP tools inst
 | `apd cdx test` | E2E smoke test (no Codex CLI required) |
 | `apd cdx help` | Full help with prerequisites + typical flow |
 
-Via MCP inside a Codex session: `apd_ping`, `apd_doctor`, `apd_advance_pipeline(step, arg?)`, `apd_guard_write(role, file_path)`, `apd_verify_step()`, `apd_adversarial_pass(total, accepted, dismissed)`, `apd_list_agents()`, `apd_pipeline_state()`.
+Via MCP inside a Codex session: `apd_ping`, `apd_doctor`, `apd_advance_pipeline(step, arg?)`, `apd_guard_write(role, file_path)`, `apd_verify_step()`, `apd_adversarial_pass(total, accepted, dismissed, notes="")`, `apd_list_agents()`, `apd_pipeline_state()`.
 
 ---
 

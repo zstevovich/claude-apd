@@ -558,8 +558,11 @@ def apd_verify_step() -> dict:
     return result
 
 
+_ADV_NOTES_MIN_CHARS = 80
+
+
 @mcp.tool()
-def apd_adversarial_pass(total: int, accepted: int, dismissed: int) -> dict:
+def apd_adversarial_pass(total: int, accepted: int, dismissed: int, notes: str = "") -> dict:
     """Record the result of an adversarial review pass.
 
     Writes `ADVERSARIAL:<total>:<accepted>:<dismissed>` to
@@ -569,17 +572,46 @@ def apd_adversarial_pass(total: int, accepted: int, dismissed: int) -> dict:
     total     — findings raised by the adversarial reviewer
     accepted  — findings the builder acted on
     dismissed — findings the builder rejected with rationale
+    notes     — free-text rationale. REQUIRED (>= 80 chars) when total == 0
+                so a "0 findings" pass cannot be a silent rubber-stamp.
+                Describe which categories were examined (regressions,
+                concurrency, edge cases, contract drift, security) and why
+                nothing was flagged. For total > 0 notes is informational.
+
+    On Codex there is no sub-agent dispatch log to verify the reviewer
+    actually ran, so the empty-pass loophole — writing ADVERSARIAL:0:0:0
+    without any review — is closed here at the recording step instead.
     """
     if total < 0 or accepted < 0 or dismissed < 0:
         return {"ok": False, "error": "counts must be non-negative"}
     if accepted + dismissed > total:
         return {"ok": False, "error": "accepted + dismissed cannot exceed total"}
+
+    notes = (notes or "").strip()
+    if total == 0 and len(notes) < _ADV_NOTES_MIN_CHARS:
+        return {
+            "ok": False,
+            "error": (
+                f"adversarial pass with 0 findings requires substantive notes "
+                f"(>= {_ADV_NOTES_MIN_CHARS} chars). Describe which categories "
+                "you examined — regressions, concurrency, edge cases, contract "
+                "drift, security — and why nothing was flagged. An empty "
+                "0/0/0 record is not accepted, and `notes` shorter than the "
+                "minimum reads as a rubber-stamp."
+            ),
+        }
+
     pipeline_dir = _project_dir() / ".apd" / "pipeline"
     if not pipeline_dir.is_dir():
         return {"ok": False, "error": f"pipeline dir does not exist: {pipeline_dir}"}
+
     summary = pipeline_dir / ".adversarial-summary"
-    summary.write_text(f"ADVERSARIAL:{total}:{accepted}:{dismissed}\n")
-    return {"ok": True, "path": str(summary), "line": f"ADVERSARIAL:{total}:{accepted}:{dismissed}"}
+    line = f"ADVERSARIAL:{total}:{accepted}:{dismissed}"
+    if notes:
+        summary.write_text(f"{line}\n\nNotes:\n{notes}\n")
+    else:
+        summary.write_text(f"{line}\n")
+    return {"ok": True, "path": str(summary), "line": line}
 
 
 def _bootstrap_shortcut() -> None:

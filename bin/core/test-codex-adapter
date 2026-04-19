@@ -1514,6 +1514,110 @@ PY
 fi
 
 # -----------------------------------------------------------
+# 20b. apd_adversarial_pass — close the empty-pass loophole on Codex
+#      Without sub-agent dispatch logs, ADVERSARIAL:0:0:0 was a free
+#      escape hatch. Server now requires substantive notes when total=0.
+# -----------------------------------------------------------
+section "20b. apd_adversarial_pass empty-pass guard"
+
+ADV_DIR="$(mktemp -d -t apd-adv.XXXXXX)"
+mkdir -p "$ADV_DIR/.apd/pipeline"
+cat > "$ADV_DIR/.apd/config" <<'EOF'
+PROJECT_NAME=adv-test
+EOF
+
+ADV_OUT="$(cd "$ADV_DIR" && python3 - <<PY
+import sys, types, json
+mcp_mod = types.ModuleType("mcp")
+server_mod = types.ModuleType("mcp.server")
+fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+class DummyFastMCP:
+    def __init__(self,*_a,**_kw): pass
+    def tool(self,*_a,**_kw):
+        def d(fn): return fn
+        return d
+    def run(self): return None
+fastmcp_mod.FastMCP = DummyFastMCP
+server_mod.fastmcp = fastmcp_mod
+mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod
+sys.modules["mcp.server"] = server_mod
+sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
+import apd_mcp_server as m
+
+LONG = "Reviewed regressions in router and templates, checked migration ordering and idempotency, traced concurrent write paths in NavigationRepository, examined SQL injection surface on filter inputs, considered HTML escaping in main-nav partial. Nothing flagged."
+
+results = {
+    "empty_no_notes": m.apd_adversarial_pass(0, 0, 0),
+    "empty_short_notes": m.apd_adversarial_pass(0, 0, 0, "looks fine"),
+    "empty_long_notes": m.apd_adversarial_pass(0, 0, 0, LONG),
+    "real_no_notes": m.apd_adversarial_pass(3, 2, 1),
+    "real_with_notes": m.apd_adversarial_pass(2, 1, 1, "Found N+1 query in nav loader; the deletion cascade is also racy under concurrent writes."),
+    "negative_count": m.apd_adversarial_pass(-1, 0, 0),
+    "imbalanced": m.apd_adversarial_pass(2, 5, 0),
+}
+print(json.dumps({k: {"ok": v.get("ok"), "error": v.get("error","")} for k,v in results.items()}))
+PY
+)"
+
+# Cases that MUST be rejected
+for case in empty_no_notes empty_short_notes negative_count imbalanced; do
+    if echo "$ADV_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+sys.exit(0 if d['$case']['ok'] is False else 1)
+"; then
+        pass "rejected: $case"
+        PASSES=$((PASSES + 1))
+    else
+        fail "$case was NOT rejected (would let bypass through)"
+        FAILS=$((FAILS + 1))
+    fi
+done
+
+# Cases that MUST be accepted
+for case in empty_long_notes real_no_notes real_with_notes; do
+    if echo "$ADV_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+sys.exit(0 if d['$case']['ok'] is True else 1)
+"; then
+        pass "accepted: $case"
+        PASSES=$((PASSES + 1))
+    else
+        fail "$case was rejected when it should have been accepted"
+        FAILS=$((FAILS + 1))
+    fi
+done
+
+# When notes provided, summary file must contain them so the audit trail survives
+SUMMARY_FILE="$ADV_DIR/.apd/pipeline/.adversarial-summary"
+if [ -f "$SUMMARY_FILE" ] && grep -q "^Notes:" "$SUMMARY_FILE" && grep -q "N+1 query" "$SUMMARY_FILE"; then
+    pass "notes are persisted into .adversarial-summary for audit"
+    PASSES=$((PASSES + 1))
+else
+    fail "notes missing from .adversarial-summary"
+    FAILS=$((FAILS + 1))
+fi
+
+# Error message must steer the model toward the right action
+if echo "$ADV_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+err = d['empty_no_notes']['error']
+sys.exit(0 if all(k in err for k in ['regressions', 'concurrency', 'rubber-stamp']) else 1)
+"; then
+    pass "rejection message names review categories + warns about rubber-stamp"
+    PASSES=$((PASSES + 1))
+else
+    fail "rejection message is too generic — would not steer the model"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$ADV_DIR"
+
+# -----------------------------------------------------------
 # 21. apd cdx skills — hybrid install (direct-drop default, marketplace experimental)
 # -----------------------------------------------------------
 section "21. apd cdx skills"
