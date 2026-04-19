@@ -583,6 +583,26 @@ fi
 
 rm -rf "$DOC"
 
+# Deprecated [features].collab in global config → doctor warns
+COLLAB_TEST="$(mktemp -d -t apd-doc-collab.XXXXXX)"
+mkdir -p "$COLLAB_TEST/.codex" "$COLLAB_TEST/fake-codex-home"
+bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$COLLAB_TEST" >/dev/null 2>&1
+cat > "$COLLAB_TEST/fake-codex-home/config.toml" <<'EOF'
+[features]
+codex_hooks = true
+collab = true
+EOF
+COLLAB_OUT="$(APD_PROJECT_DIR="$COLLAB_TEST" CODEX_HOME="$COLLAB_TEST/fake-codex-home" \
+    bash "$APD_PLUGIN_ROOT/bin/apd" cdx doctor 2>&1)"
+if echo "$COLLAB_OUT" | grep -qE '\[features\]\.collab is deprecated'; then
+    pass "doctor warns on deprecated [features].collab"
+    PASSES=$((PASSES + 1))
+else
+    fail "deprecation warning for collab missing"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$COLLAB_TEST"
+
 # Broken project: no .codex/ at all → doctor should exit nonzero
 BROKEN="$(mktemp -d -t apd-doc-broken.XXXXXX)"
 if APD_PROJECT_DIR="$BROKEN" bash "$APD_PLUGIN_ROOT/bin/apd" cdx doctor >/dev/null 2>&1; then

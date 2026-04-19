@@ -74,6 +74,11 @@ if [ -f "$GLOBAL_CFG" ]; then
     else
         _bad "codex_hooks feature flag NOT enabled — run: codex features enable codex_hooks"
     fi
+    # Codex deprecated [features].collab in favor of [features].multi_agent.
+    # Surface it so the user can silence the noisy startup warning.
+    if grep -qE '^\s*collab\s*=' "$GLOBAL_CFG" 2>/dev/null; then
+        _warn "[features].collab is deprecated — replace with multi_agent in $GLOBAL_CFG"
+    fi
 else
     _warn "$GLOBAL_CFG missing — Codex likely never started. First run: codex"
 fi
