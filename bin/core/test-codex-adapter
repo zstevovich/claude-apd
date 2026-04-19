@@ -382,6 +382,74 @@ else
     FAILS=$((FAILS + 1))
 fi
 
+# Path traversal attack — attacker places outside.md with scope:[/] and tries
+# to make apd_guard_write treat it as authoritative. Role must be a bare
+# identifier; parent refs, absolute paths, and slashes must all be rejected.
+mkdir -p "$GUARD_SCRATCH/.apd"
+cat > "$GUARD_SCRATCH/.apd/outside.md" <<'EOF'
+---
+name: outside
+scope:
+  - /
+---
+EOF
+cat > "$GUARD_SCRATCH/outside.md" <<'EOF'
+---
+name: outside
+scope:
+  - /
+---
+EOF
+TRAV_OUT="$(cd "$GUARD_SCRATCH" && python3 - <<PY
+import sys, types, json
+mcp_mod = types.ModuleType("mcp")
+server_mod = types.ModuleType("mcp.server")
+fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+class DummyFastMCP:
+    def __init__(self,*_a,**_kw): pass
+    def tool(self,*_a,**_kw):
+        def d(fn): return fn
+        return d
+    def run(self): return None
+fastmcp_mod.FastMCP = DummyFastMCP
+server_mod.fastmcp = fastmcp_mod
+mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod
+sys.modules["mcp.server"] = server_mod
+sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
+import apd_mcp_server as m
+tests = {
+    "parent":   m.apd_guard_write("../outside", "/etc/passwd"),
+    "deep":     m.apd_guard_write("../../outside", "/etc/passwd"),
+    "absolute": m.apd_guard_write("/outside", "/etc/passwd"),
+    "slash":    m.apd_guard_write("foo/bar", "/etc/passwd"),
+    "dotdot":   m.apd_guard_write("..", "/etc/passwd"),
+}
+print(json.dumps({k: {"ok": v.get("ok"), "error": v.get("error")} for k,v in tests.items()}))
+PY
+)"
+
+TRAV_BLOCKED=1
+for attack in parent deep absolute slash dotdot; do
+    if ! echo "$TRAV_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+e = d['$attack'].get('error') or ''
+ok = d['$attack'].get('ok')
+sys.exit(0 if ok is False and ('invalid role' in e or 'resolves outside' in e) else 1)
+"; then
+        TRAV_BLOCKED=0
+        fail "path traversal via role='$attack' NOT blocked"
+        FAILS=$((FAILS + 1))
+        break
+    fi
+done
+if [ "$TRAV_BLOCKED" -eq 1 ]; then
+    pass "role path traversal blocked (parent/deep/absolute/slash/dotdot)"
+    PASSES=$((PASSES + 1))
+fi
+
 # Tool signature must be (role, file_path) — no allowed_paths parameter.
 # This is the load-bearing invariant: client cannot widen scope via arguments.
 SIG_OUT="$(python3 - <<PY
@@ -1395,6 +1463,18 @@ for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
     else
         fail "missing or malformed source agents/openai.yaml: $name"
         FAILS=$((FAILS + 1))
+    fi
+    # Prompt must not reference the old apd_guard_write signature — the skill
+    # steers Codex, so stale wording would keep sending models down the wrong
+    # call pattern even after the tool itself was fixed.
+    if [ -f "$src/agents/openai.yaml" ]; then
+        if grep -qE "apd_guard_write\(path, scope\)|apd_guard_write\(path, allowed_paths\)|apd_guard_write\(file_path, allowed_paths\)|cache the builder scope|pass that scope list" "$src/agents/openai.yaml"; then
+            fail "agents/openai.yaml has stale apd_guard_write prompt: $name"
+            FAILS=$((FAILS + 1))
+        else
+            pass "agents/openai.yaml uses current apd_guard_write signature: $name"
+            PASSES=$((PASSES + 1))
+        fi
     fi
     mp="$APD_PLUGIN_ROOT/templates/codex/marketplace/plugins/apd/skills/$name"
     if [ -L "$mp" ]; then

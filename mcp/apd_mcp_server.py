@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -463,6 +464,12 @@ def apd_guard_write(role: str, file_path: str) -> dict:
     if not file_path:
         return {"ok": False, "error": "file_path is required"}
 
+    # role must be a bare identifier — reject any path separators, parent
+    # refs, or whitespace. Without this, a client could pass "../../outside"
+    # to make an attacker-placed outside.md (with scope: [/]) the authority.
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", role) or role in (".", ".."):
+        return {"ok": False, "error": f"invalid role '{role}' — must match [A-Za-z0-9_.-]+"}
+
     project = _project_dir()
     agents_dir = _agents_dir(project)
     if agents_dir is None:
@@ -472,6 +479,20 @@ def apd_guard_write(role: str, file_path: str) -> dict:
         }
 
     agent_file = agents_dir / f"{role}.md"
+    # Defense in depth: the resolved agent file must live directly inside
+    # agents_dir. If the basename whitelist ever misses something, this
+    # still confines registry lookups to the project-owned agents dir.
+    try:
+        agents_dir_resolved = agents_dir.resolve()
+        agent_file_resolved = agent_file.resolve()
+        if agent_file_resolved.parent != agents_dir_resolved:
+            raise ValueError("escapes agents dir")
+    except (OSError, ValueError):
+        return {
+            "ok": False,
+            "error": f"role '{role}' resolves outside {agents_dir}",
+        }
+
     if not agent_file.exists():
         return {
             "ok": False,
