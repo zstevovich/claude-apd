@@ -1,5 +1,12 @@
 # Codex Adapter — Phase 1 POC
 
+> **Status update 2026-04-20:** the root `.codex-plugin/plugin.json` referenced
+> throughout this plan was removed in commit `add11e5`. The canonical Codex
+> plugin manifest now lives at `plugins/apd/.codex-plugin/plugin.json` and is
+> referenced from the marketplace manifest at `.agents/plugins/marketplace.json`.
+> The repo root is no longer a plugin root. This document is kept as historical
+> design intent — it describes what we set out to build, not the current shape.
+
 **Goal:** Prove that APD can run under Codex CLI 0.121.0 by shipping a minimal `bin/adapter/cdx/` peer to the existing `bin/adapter/cc/`, with a working `.codex-plugin/plugin.json` and a per-plugin `hooks.json`. Scope is end-to-end smoke test, not feature parity.
 
 **Non-goals for Phase 1:**

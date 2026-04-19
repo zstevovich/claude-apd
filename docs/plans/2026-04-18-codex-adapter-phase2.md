@@ -1,5 +1,11 @@
 # Codex Adapter — Phase 2 Plan (Hybrid Enforcement)
 
+> **Status update 2026-04-20:** references to `.codex-plugin/plugin.json` at
+> the repo root are obsolete. The canonical Codex plugin manifest now lives at
+> `plugins/apd/.codex-plugin/plugin.json` (commit `86348ab` consolidated the
+> package; commit `add11e5` removed the drifting root manifest). Treat this
+> document as historical design intent.
+
 **Supersedes:** `2026-04-18-codex-adapter-phase1.md` for the enforcement model. Phase 1 scaffolding (plugin.json, adapter shim) is kept structurally but its hooks-only assumption is dropped.
 
 **Source of truth:** `.claude/memory/reference-codex-enforcement-layers.md`
