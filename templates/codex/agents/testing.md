@@ -19,8 +19,10 @@ least one test that would fail without the builder's changes.
 
 Write scope is `tests/` (and common variants: `__tests__/`, `test/`,
 `src/test/` — adjust to the project). Before every write, call
-`apd_guard_write("testing", file_path)`. The server reads scope from this
-agent file itself — you only pass the role and target. Exit 2 = BLOCK.
+`apd_guard_write(apd_role="testing", file_path=...)`. The server reads
+scope from this agent file itself — you only pass the role name and
+target. Exit 2 = BLOCK. (Argument name is `apd_role` not `role` to avoid
+Codex 0.121.0's multi_agent role-mismatch approval prompt.)
 
 ## Discipline
 

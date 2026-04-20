@@ -433,19 +433,19 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-if echo "$GUARD_OUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); sys.exit(0 if 'unknown role' in (d['unknown_role'].get('error') or '') else 1)"; then
-    pass "unknown role returns explicit error (no silent ALLOW)"
+if echo "$GUARD_OUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); sys.exit(0 if 'unknown apd_role' in (d['unknown_role'].get('error') or '') else 1)"; then
+    pass "unknown apd_role returns explicit error (no silent ALLOW)"
     PASSES=$((PASSES + 1))
 else
-    fail "unknown role did not return 'unknown role' error"
+    fail "unknown apd_role did not return 'unknown apd_role' error"
     FAILS=$((FAILS + 1))
 fi
 
-if echo "$GUARD_OUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); sys.exit(0 if 'role is required' in (d['missing_role'].get('error') or '') else 1)"; then
-    pass "empty role rejected with 'role is required'"
+if echo "$GUARD_OUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); sys.exit(0 if 'apd_role is required' in (d['missing_role'].get('error') or '') else 1)"; then
+    pass "empty apd_role rejected with 'apd_role is required'"
     PASSES=$((PASSES + 1))
 else
-    fail "empty role did not return required error"
+    fail "empty apd_role did not return required error"
     FAILS=$((FAILS + 1))
 fi
 
@@ -504,7 +504,7 @@ import sys, json
 d = json.loads(sys.stdin.read())
 e = d['$attack'].get('error') or ''
 ok = d['$attack'].get('ok')
-sys.exit(0 if ok is False and ('invalid role' in e or 'resolves outside' in e) else 1)
+sys.exit(0 if ok is False and ('invalid apd_role' in e or 'resolves outside' in e) else 1)
 "; then
         TRAV_BLOCKED=0
         fail "path traversal via role='$attack' NOT blocked"
@@ -541,11 +541,11 @@ import apd_mcp_server as m
 print(",".join(inspect.signature(m.apd_guard_write).parameters.keys()))
 PY
 )"
-if [ "$SIG_OUT" = "role,file_path" ]; then
-    pass "apd_guard_write signature = (role, file_path) — no client-controlled scope"
+if [ "$SIG_OUT" = "apd_role,file_path" ]; then
+    pass "apd_guard_write signature = (apd_role, file_path) — no client-controlled scope, no Codex role-mismatch trigger"
     PASSES=$((PASSES + 1))
 else
-    fail "apd_guard_write signature drifted: got '$SIG_OUT' (expected 'role,file_path')"
+    fail "apd_guard_write signature drifted: got '$SIG_OUT' (expected 'apd_role,file_path')"
     FAILS=$((FAILS + 1))
 fi
 
@@ -1656,7 +1656,7 @@ for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
     # steers Codex, so stale wording would keep sending models down the wrong
     # call pattern even after the tool itself was fixed.
     if [ -f "$src/agents/openai.yaml" ]; then
-        if grep -qE "apd_guard_write\(path, scope\)|apd_guard_write\(path, allowed_paths\)|apd_guard_write\(file_path, allowed_paths\)|cache the builder scope|pass that scope list" "$src/agents/openai.yaml"; then
+        if grep -qE "apd_guard_write\(path, scope\)|apd_guard_write\(path, allowed_paths\)|apd_guard_write\(file_path, allowed_paths\)|apd_guard_write\(role, file_path\)|apd_guard_write\(role,|cache the builder scope|pass that scope list" "$src/agents/openai.yaml"; then
             fail "agents/openai.yaml has stale apd_guard_write prompt: $name"
             FAILS=$((FAILS + 1))
         else

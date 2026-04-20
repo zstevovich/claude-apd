@@ -35,7 +35,7 @@ Restart `codex`. The `apd_ping` tool should appear in the model's tool list.
 - `apd_ping` — health check; returns version, plugin root, project dir
 - `apd_doctor` — runs `bin/core/pipeline-doctor`
 - `apd_advance_pipeline(step, arg="")` — wraps `pipeline-advance spec|builder|reviewer|verifier|init|status|stats|metrics|reset|rollback`
-- `apd_guard_write(role, file_path)` — scope is read from the agent registry (`.apd/agents/<role>.md` or `.claude/agents/<role>.md`), NOT client args. Readonly roles always BLOCK. Exit 2 = BLOCK, 0 = ALLOW.
+- `apd_guard_write(apd_role, file_path)` — scope is read from the agent registry (`.apd/agents/<apd_role>.md` or `.claude/agents/<apd_role>.md`), NOT client args. Readonly roles always BLOCK. Exit 2 = BLOCK, 0 = ALLOW. The argument is `apd_role` (not `role`) to dodge Codex 0.121.0's multi_agent role-mismatch approval prompt.
 - `apd_verify_step()` — runs project `.codex/bin/verify-all.sh` if present (or legacy `.claude/bin/verify-all.sh`; otherwise framework `bin/core/verify-all`)
 - `apd_adversarial_pass(total, accepted, dismissed, notes="")` — writes `.adversarial-summary` for session log. When `total=0`, `notes` is REQUIRED (>= 80 chars) so an empty 0/0/0 record cannot be a silent rubber-stamp.
 - `apd_list_agents()` — returns every agent definition in `.apd/agents/` (or `.claude/agents/` on hybrid) with parsed frontmatter (name, scope, model, maxTurns, readonly)

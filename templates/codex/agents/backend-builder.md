@@ -24,9 +24,15 @@ Your write scope is:
 - `config/`
 
 Before every file write, call
-`apd_guard_write("backend-builder", file_path)`. The server reads your
-scope from this agent file itself — passing only the role and target
-means the scope cannot be widened from the call site. Exit 2 = BLOCK.
+`apd_guard_write(apd_role="backend-builder", file_path=...)`. The server
+reads your scope from this agent file itself — passing only the role
+name and target means the scope cannot be widened from the call site.
+Exit 2 = BLOCK.
+
+(The argument is `apd_role`, not `role`, on purpose: Codex 0.121.0's
+multi_agent feature treats a literal `role` field as a request to switch
+agent context and prompts for approval on every call. The APD-prefixed
+name dodges that detection.)
 
 ## Discipline
 

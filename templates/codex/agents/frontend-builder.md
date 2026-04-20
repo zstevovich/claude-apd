@@ -24,9 +24,10 @@ Default write scope is:
 
 Adjust this list to match the project's actual frontend layout (e.g.
 `client/`, `web/`, `apps/frontend/`). Before every write, call
-`apd_guard_write("frontend-builder", file_path)`. The server reads scope
-from this agent file itself — you only pass the role and target. Exit 2
-= BLOCK.
+`apd_guard_write(apd_role="frontend-builder", file_path=...)`. The server
+reads scope from this agent file itself — you only pass the role name
+and target. Exit 2 = BLOCK. (Argument name is `apd_role` not `role` to
+avoid Codex 0.121.0's multi_agent role-mismatch approval prompt.)
 
 ## Discipline
 

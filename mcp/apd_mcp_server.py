@@ -445,30 +445,36 @@ def apd_advance_pipeline(step: str, arg: str = "") -> dict:
 
 
 @mcp.tool()
-def apd_guard_write(role: str, file_path: str) -> dict:
-    """Check whether a Write/Edit target falls inside `role`'s configured scope.
+def apd_guard_write(apd_role: str, file_path: str) -> dict:
+    """Check whether a Write/Edit target falls inside `apd_role`'s configured scope.
 
-    Scope is read from the server-side agent registry (.claude/agents/<role>.md
-    on CC/hybrid projects, .apd/agents/<role>.md on pure-Codex), NOT from
+    The parameter is named `apd_role` (not `role`) on purpose: Codex 0.121.0's
+    multi_agent feature treats a literal `role` field in MCP tool arguments as
+    a request to switch agent context, which surfaces as a "Role mismatch"
+    approval prompt on every call. The APD-prefixed name sidesteps that
+    detection without changing semantics.
+
+    Scope is read from the server-side agent registry (.claude/agents/<apd_role>.md
+    on CC/hybrid projects, .apd/agents/<apd_role>.md on pure-Codex), NOT from
     client arguments. This closes the earlier loophole where the orchestrator
     could widen its own scope by passing inflated `allowed_paths`.
 
-    - role is required and must match a file in the agent registry.
+    - apd_role is required and must match a file in the agent registry.
     - readonly agents (frontmatter `readonly: true`) always BLOCK.
     - Agents with no `scope` list ALLOW all writes (unscoped role).
 
     Wraps bin/core/guard-scope. Exit 2 = BLOCK, exit 0 = ALLOW.
     """
-    if not role:
-        return {"ok": False, "error": "role is required"}
+    if not apd_role:
+        return {"ok": False, "error": "apd_role is required"}
     if not file_path:
         return {"ok": False, "error": "file_path is required"}
 
-    # role must be a bare identifier — reject any path separators, parent
+    # apd_role must be a bare identifier — reject any path separators, parent
     # refs, or whitespace. Without this, a client could pass "../../outside"
     # to make an attacker-placed outside.md (with scope: [/]) the authority.
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+", role) or role in (".", ".."):
-        return {"ok": False, "error": f"invalid role '{role}' — must match [A-Za-z0-9_.-]+"}
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", apd_role) or apd_role in (".", ".."):
+        return {"ok": False, "error": f"invalid apd_role '{apd_role}' — must match [A-Za-z0-9_.-]+"}
 
     project = _project_dir()
     agents_dir = _agents_dir(project)
@@ -478,7 +484,7 @@ def apd_guard_write(role: str, file_path: str) -> dict:
             "error": "no agent registry found — create .apd/agents/ or .claude/agents/",
         }
 
-    agent_file = agents_dir / f"{role}.md"
+    agent_file = agents_dir / f"{apd_role}.md"
     # Defense in depth: the resolved agent file must live directly inside
     # agents_dir. If the basename whitelist ever misses something, this
     # still confines registry lookups to the project-owned agents dir.
@@ -490,13 +496,13 @@ def apd_guard_write(role: str, file_path: str) -> dict:
     except (OSError, ValueError):
         return {
             "ok": False,
-            "error": f"role '{role}' resolves outside {agents_dir}",
+            "error": f"apd_role '{apd_role}' resolves outside {agents_dir}",
         }
 
     if not agent_file.exists():
         return {
             "ok": False,
-            "error": f"unknown role '{role}' — no file at {agent_file}",
+            "error": f"unknown apd_role '{apd_role}' — no file at {agent_file}",
         }
 
     fm = _parse_agent_frontmatter(agent_file)
@@ -514,7 +520,7 @@ def apd_guard_write(role: str, file_path: str) -> dict:
             "ok": False,
             "exit_code": 2,
             "stdout": "",
-            "stderr": f"role '{role}' is read-only — writes blocked by registry",
+            "stderr": f"apd_role '{apd_role}' is read-only — writes blocked by registry",
         }
 
     scope = fm.get("scope", [])

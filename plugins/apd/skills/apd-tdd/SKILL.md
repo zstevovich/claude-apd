@@ -1,6 +1,6 @@
 ---
 name: apd-tdd
-description: Use during the APD builder phase (between apd_advance_pipeline('spec', ...) and apd_advance_pipeline('builder')) whenever you're implementing a feature or fixing a bug. Write a FAILING test first, watch it fail, write minimal code to pass, refactor while green. Every file write must go through apd_guard_write(role, file_path) — scope is enforced server-side from .apd/agents/<role>.md.
+description: Use during the APD builder phase (between apd_advance_pipeline('spec', ...) and apd_advance_pipeline('builder')) whenever you're implementing a feature or fixing a bug. Write a FAILING test first, watch it fail, write minimal code to pass, refactor while green. Every file write must go through apd_guard_write(apd_role, file_path) — scope is enforced server-side from .apd/agents/<apd_role>.md.
 ---
 
 # APD Test-Driven Development (Codex)
@@ -26,9 +26,11 @@ Watch it fail.** If it passes on the first run, you are testing existing
 behavior — fix the test to actually describe the new requirement.
 
 Before each test-file write, call
-`apd_guard_write("<role>", "<path>")`. The server reads scope from
-`.apd/agents/<role>.md` on every call — you only pass the role name and
-target path. Use `apd_list_agents()` to discover which roles are defined.
+`apd_guard_write(apd_role="<role>", file_path="<path>")`. The server reads
+scope from `.apd/agents/<role>.md` on every call — you only pass the role
+name and target path. Use `apd_list_agents()` to discover which roles are
+defined. (Argument is `apd_role`, not `role`, to dodge Codex 0.121.0's
+multi_agent role-mismatch approval prompt.)
 
 ### 2. GREEN — minimal code to pass
 
@@ -51,9 +53,9 @@ Pick the next behavior. Write the next failing test. Repeat.
 
 Builder scope is declared in the agent frontmatter
 (`.apd/agents/<role>.md`, `scope:` list). Call
-`apd_guard_write("<role>", "<path>")` before every Write/Edit — the server
-reads scope from the agent file itself, so the role name is the only
-handle you need (and can't widen).
+`apd_guard_write(apd_role="<role>", file_path="<path>")` before every
+Write/Edit — the server reads scope from the agent file itself, so the
+role name is the only handle you need (and can't widen).
 
 Do NOT bypass with direct Bash writes — `guard-bash-scope` blocks writes
 into `.apd/pipeline/` and reviewed-files scope, and the verifier will

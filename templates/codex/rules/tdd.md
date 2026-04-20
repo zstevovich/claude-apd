@@ -39,9 +39,10 @@ test('deletes post by id', async () => {
 ```
 
 **Run it. Watch it fail.** Before every write, call
-`apd_guard_write("<builder-role>", test_file_path)`. The server reads the
-role's scope from `.apd/agents/<role>.md` itself — you only pass the role
-name and target. Exit 2 means BLOCK; move the test to a path inside scope.
+`apd_guard_write(apd_role="<builder-role>", file_path=test_file_path)`.
+The server reads the role's scope from `.apd/agents/<role>.md` itself
+— you only pass the role name and target. Exit 2 means BLOCK; move the
+test to a path inside scope.
 
 If the test passes on the first run, you are testing existing behavior —
 fix the test to actually describe the new requirement.
@@ -72,10 +73,12 @@ Pick the next behavior. Write the next failing test. Repeat.
 
 Builder scope is declared in the agent file's frontmatter
 (`.apd/agents/<role>.md`, `scope:` list). Call
-`apd_guard_write("<role>", "<target-path>")` before every Write/Edit — the
-server reads scope from the agent file on every call, so you cannot widen
-it by manipulating arguments. Use `apd_list_agents()` once to discover
-which role names are defined.
+`apd_guard_write(apd_role="<role>", file_path="<target-path>")` before
+every Write/Edit — the server reads scope from the agent file on every
+call, so you cannot widen it by manipulating arguments. Use
+`apd_list_agents()` once to discover which role names are defined. The
+argument is named `apd_role` (not `role`) to dodge Codex 0.121.0's
+multi_agent role-mismatch approval prompt.
 
 Do NOT bypass `apd_guard_write` with direct Bash writes — `guard-bash-scope`
 blocks writes into `.apd/pipeline/` and reviewed-files scope, and the
