@@ -1974,6 +1974,76 @@ fi
 rm -rf "$SK_HOME"
 
 # -----------------------------------------------------------
+# 22. apd report adversarial display — distinguish 0/0/0 with notes
+#     ("rationale recorded") from 0/0/0 without notes ("N/A").
+# -----------------------------------------------------------
+section "22. apd report adversarial display"
+
+RPT_DIR="$(mktemp -d -t apd-rpt.XXXXXX)"
+mkdir -p "$RPT_DIR/.apd/pipeline" "$RPT_DIR/.apd/agents"
+cat > "$RPT_DIR/.apd/config" <<'EOF'
+PROJECT_NAME=rpt-test
+EOF
+# Minimum pipeline state pipeline-report needs to render
+NOW=$(date -u +%s)
+for step in spec.done builder.done reviewer.done verifier.done; do
+    echo "$NOW" > "$RPT_DIR/.apd/pipeline/$step"
+done
+cat > "$RPT_DIR/.apd/pipeline/spec-card.md" <<'EOF'
+## Goal
+Test
+**Acceptance criteria:**
+- R1: x
+EOF
+
+# Case A: ADVERSARIAL:0:0:0 with substantive Notes — rationale recorded
+cat > "$RPT_DIR/.apd/pipeline/.adversarial-summary" <<'EOF'
+ADVERSARIAL:0:0:0
+
+Notes:
+Reviewed regressions, concurrency, edge cases, contract drift, and security surface. Nothing flagged.
+EOF
+RPT_OUT=$(cd "$RPT_DIR" && bash "$APD_PLUGIN_ROOT/bin/apd" report 2>/dev/null)
+if echo "$RPT_OUT" | grep -q 'Adversarial:.*0 findings.*rationale recorded'; then
+    pass "report distinguishes 0/0/0 with notes as 'rationale recorded'"
+    PASSES=$((PASSES + 1))
+else
+    fail "report did not show 'rationale recorded' for 0/0/0 with notes"
+    FAILS=$((FAILS + 1))
+fi
+
+# Case B: ADVERSARIAL:0:0:0 alone (legacy, no notes) — should fall back to N/A
+cat > "$RPT_DIR/.apd/pipeline/.adversarial-summary" <<'EOF'
+ADVERSARIAL:0:0:0
+EOF
+RPT_OUT=$(cd "$RPT_DIR" && bash "$APD_PLUGIN_ROOT/bin/apd" report 2>/dev/null)
+if echo "$RPT_OUT" | grep -q 'Adversarial:.*N/A'; then
+    pass "report shows N/A for legacy 0/0/0 without notes"
+    PASSES=$((PASSES + 1))
+else
+    fail "report did not show N/A for 0/0/0 without notes"
+    FAILS=$((FAILS + 1))
+fi
+
+# Case C: ADVERSARIAL:3:2:1 with notes — real findings still rendered correctly
+cat > "$RPT_DIR/.apd/pipeline/.adversarial-summary" <<'EOF'
+ADVERSARIAL:3:2:1
+
+Notes:
+Found N+1 query and concurrent-write race; both fixed in this cycle.
+EOF
+RPT_OUT=$(cd "$RPT_DIR" && bash "$APD_PLUGIN_ROOT/bin/apd" report 2>/dev/null)
+if echo "$RPT_OUT" | grep -q 'findings' && echo "$RPT_OUT" | grep -q '66% hit'; then
+    pass "report renders real findings correctly when notes are present"
+    PASSES=$((PASSES + 1))
+else
+    fail "report mishandled real findings with notes"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$RPT_DIR"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

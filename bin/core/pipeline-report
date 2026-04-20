@@ -160,10 +160,15 @@ _read_current_run() {
         fi
     fi
 
-    # Adversarial summary
+    # Adversarial summary — first line is ADVERSARIAL:T:A:D, rest may
+    # contain a Notes: section the model wrote when total was 0
+    # (substantive rationale, not a rubber-stamp).
     if [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
         IFS=: read -r _prefix ADV_T ADV_A ADV_D < "$PIPELINE_DIR/.adversarial-summary" 2>/dev/null || true
         ADV_T=${ADV_T:-0}; ADV_A=${ADV_A:-0}; ADV_D=${ADV_D:-0}
+        if grep -q '^Notes:' "$PIPELINE_DIR/.adversarial-summary" 2>/dev/null; then
+            ADV_HAS_NOTES=1
+        fi
     fi
 
     # Agents
@@ -324,6 +329,12 @@ _render_current() {
                   "  ${D}Adversarial:${R}    ${ORG}${ADV_T}${R} findings (${hit_rate}% hit)"
         _box_line "    accepted: ${ADV_A}  dismissed: ${ADV_D}" \
                   "    ${G}accepted: ${ADV_A}${R}  ${D}dismissed: ${ADV_D}${R}"
+    elif [ "${ADV_HAS_NOTES:-0}" = "1" ]; then
+        # Genuine 0/0/0 pass with a substantive rationale — server
+        # required notes >= 80 chars before accepting it, so the
+        # orchestrator did review and found nothing to flag.
+        _box_line "  Adversarial:    0 findings (rationale recorded)" \
+                  "  ${D}Adversarial:${R}    ${G}0 findings${R} (rationale recorded)"
     else
         _box_line "  Adversarial:    N/A" "  ${D}Adversarial:${R}    ${D}N/A${R}"
     fi
