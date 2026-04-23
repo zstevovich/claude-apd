@@ -6,558 +6,207 @@
 <title>APD Pipeline Runs — Real-World Results</title>
 <link rel="icon" type="image/svg+xml" href="../favicon.svg">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
-
-  :root {
-    --bg: #0a0a12;
-    --surface: #12121e;
-    --surface2: #1a1a2a;
-    --border: #252538;
-    --text: #c0c0d0;
-    --text-dim: #5a5a70;
-    --text-bright: #e8e8f0;
-    --purple: #af8fff;
-    --purple-dim: rgba(175, 143, 255, 0.15);
-    --green: #66cc66;
-    --green-dim: rgba(102, 204, 102, 0.15);
-    --orange: #ff884d;
-    --orange-dim: rgba(255, 136, 77, 0.15);
-    --red: #ff6666;
-    --blue: #4da6ff;
-    --blue-dim: rgba(77, 166, 255, 0.15);
-    --glow-purple: 0 0 20px rgba(175, 143, 255, 0.3);
-    --glow-green: 0 0 20px rgba(102, 204, 102, 0.2);
-  }
-
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'JetBrains Mono', monospace;
-    min-height: 100vh;
-    padding: 0;
-    overflow-x: hidden;
-  }
-
-  .header {
-    text-align: center;
-    padding: 48px 24px 32px;
-    border-bottom: 1px solid var(--border);
-    background: linear-gradient(180deg, rgba(175,143,255,0.04) 0%, transparent 100%);
-  }
-
-  .header .brand {
-    display: flex;
-    align-items: baseline;
-    justify-content: center;
-    gap: 10px;
-    margin-bottom: 4px;
-  }
-
-  .header h1 {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--purple);
-    letter-spacing: 3px;
-    text-transform: uppercase;
-  }
-
-  .header .ver {
-    font-size: 11px;
-    color: var(--text-dim);
-    font-weight: 300;
-  }
-
-  .header .subtitle {
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--text-bright);
-    margin-top: 12px;
-    letter-spacing: -0.5px;
-  }
-
-  .header .tagline {
-    font-size: 12px;
-    color: var(--text-dim);
-    margin-top: 8px;
-    letter-spacing: 0.5px;
-  }
-
-  .container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 32px 24px;
-  }
-
-  .summary-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-    margin-bottom: 40px;
-  }
-
-  .summary-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 20px;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .summary-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-  }
-
-  .summary-card.purple::before { background: var(--purple); box-shadow: var(--glow-purple); }
-  .summary-card.green::before { background: var(--green); box-shadow: var(--glow-green); }
-  .summary-card.orange::before { background: var(--orange); }
-  .summary-card.blue::before { background: var(--blue); }
-
-  .summary-card .label {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    color: var(--text-dim);
-    margin-bottom: 8px;
-  }
-
-  .summary-card .value {
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 32px;
-    font-weight: 700;
-    color: var(--text-bright);
-    line-height: 1;
-  }
-
-  .summary-card .detail {
-    font-size: 11px;
-    color: var(--text-dim);
-    margin-top: 6px;
-  }
-
-  .summary-card .trend {
-    font-size: 11px;
-    margin-top: 4px;
-  }
-
-  .trend.down { color: var(--green); }
-
-  .section-header {
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-bright);
-    margin-bottom: 16px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .section-header .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--purple);
-    box-shadow: var(--glow-purple);
-  }
-
-  .charts-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-    margin-bottom: 40px;
-  }
-
-  .chart-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 20px;
-  }
-
-  .chart-card .chart-title {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    color: var(--text-dim);
-    margin-bottom: 16px;
-  }
-
-  .chart-area {
-    width: 100%;
-    height: 180px;
-    position: relative;
-  }
-
-  .chart-area svg { width: 100%; height: 100%; }
-
-  .runs-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-  }
-
-  .runs-table thead th {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    color: var(--text-dim);
-    padding: 10px 12px;
-    text-align: left;
-    border-bottom: 1px solid var(--border);
-    font-weight: 500;
-    white-space: nowrap;
-  }
-
-  .runs-table tbody tr {
-    border-bottom: 1px solid rgba(37, 37, 56, 0.5);
-    transition: background 0.15s;
-  }
-
-  .runs-table tbody tr:hover { background: var(--surface); }
-
-  .runs-table td {
-    padding: 12px 12px;
-    vertical-align: middle;
-    white-space: nowrap;
-  }
-
-  .run-id { color: var(--purple); font-weight: 500; }
-
-  .run-name {
-    color: var(--text-bright);
-    font-weight: 400;
-    max-width: 220px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .project-badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 10px;
-    font-weight: 500;
-    letter-spacing: 0.5px;
-  }
-
-  .project-badge.net { background: var(--purple-dim); color: var(--purple); }
-  .project-badge.php { background: var(--blue-dim); color: var(--blue); }
-  .project-badge.glm { background: rgba(255, 200, 50, 0.15); color: #ffc832; }
-
-  .duration-bar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .duration-bar .bar {
-    height: 4px;
-    border-radius: 2px;
-    background: var(--purple);
-    opacity: 0.6;
-    min-width: 4px;
-  }
-
-  .blocks-zero { color: var(--green); font-size: 11px; }
-
-  .blocks-count { color: var(--orange); }
-
-  .adversarial-badge {
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 3px;
-  }
-
-  .adversarial-badge.real { background: var(--green-dim); color: var(--green); }
-  .adversarial-badge.bypass { background: var(--orange-dim); color: var(--orange); }
-  .adversarial-badge.na { color: var(--text-dim); }
-  .adversarial-badge.optout { background: rgba(77,166,255,0.1); color: var(--blue); }
-
-  .note-text {
-    color: var(--text-dim);
-    font-size: 11px;
-    max-width: 300px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .version-marker {
-    display: inline-block;
-    font-size: 9px;
-    padding: 1px 5px;
-    border-radius: 3px;
-    background: var(--purple-dim);
-    color: var(--purple);
-    margin-left: 6px;
-    vertical-align: middle;
-  }
-
-  /* --- View Toggle --- */
-  .view-toggle {
-    display: flex;
-    justify-content: center;
-    gap: 4px;
-    margin-bottom: 32px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 4px;
-    width: fit-content;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  .view-toggle button {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    padding: 8px 20px;
-    border: none;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--text-dim);
-    cursor: pointer;
-    transition: all 0.2s;
-    letter-spacing: 1px;
-  }
-
-  .view-toggle button:hover { color: var(--text); }
-  .view-toggle button.active {
-    background: var(--purple-dim);
-    color: var(--purple);
-    font-weight: 500;
-  }
-
-  .view-panel { display: none; }
-  .view-panel.active { display: block; }
-
-  /* --- Report Terminals --- */
-  .reports-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-    margin-bottom: 40px;
-  }
-
-  @media (max-width: 900px) {
-    .reports-grid { grid-template-columns: 1fr; }
-  }
-
-  .report-terminal {
-    background: #111119;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: hidden;
-  }
-
-  .report-terminal .term-bar {
-    background: #161622;
-    padding: 8px 14px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .report-terminal .term-bar .tdot { width: 8px; height: 8px; border-radius: 50%; }
-  .report-terminal .term-bar .tdot-r { background: #ff5f57; }
-  .report-terminal .term-bar .tdot-y { background: #febc2e; }
-  .report-terminal .term-bar .tdot-g { background: #28c840; }
-  .report-terminal .term-bar .term-title {
-    flex: 1; text-align: center;
-    font-size: 10px; color: var(--text-dim);
-  }
-
-  .report-terminal {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .report-terminal .term-body {
-    padding: 16px;
-    font-size: 11.5px;
-    line-height: 1.6;
-    white-space: pre;
-    overflow-x: auto;
-    flex: 1;
-  }
-
-  .report-terminal .term-body .report-wrap {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    min-height: 100%;
-  }
-
-  .report-terminal .rv  { color: #af8fff; }
-  .report-terminal .rvb { color: #af8fff; font-weight: 700; }
-  .report-terminal .rdm { color: #3a3a4a; }
-  .report-terminal .rgr { color: #7ec87e; }
-  .report-terminal .ror { color: #ff8844; }
-  .report-terminal .rbl { color: #5fafff; }
-  .report-terminal .ryl { color: #e0af68; }
-  .report-terminal .rrd { color: #f05050; }
-  .report-terminal .rw  { color: #d0d0dd; }
-
-  .footer {
-    text-align: center;
-    padding: 32px;
-    border-top: 1px solid var(--border);
-    margin-top: 40px;
-  }
-
-  .footer a {
-    color: var(--purple);
-    text-decoration: none;
-    font-size: 12px;
-  }
-
-  .footer a:hover { text-decoration: underline; }
-  .footer .sep { color: var(--text-dim); margin: 0 12px; }
-
-  @media (max-width: 768px) {
-    .summary-grid { grid-template-columns: repeat(2, 1fr); }
-    .charts-grid { grid-template-columns: 1fr; }
-    .runs-table { font-size: 11px; }
-    .runs-table .hide-mobile { display: none; }
-    .header .subtitle { font-size: 22px; }
-  }
-
-  @media (max-width: 480px) {
-    .summary-grid { grid-template-columns: 1fr; }
-  }
-
-  @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(12px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  .animate {
-    animation: fadeUp 0.4s ease-out forwards;
-    opacity: 0;
-  }
-
-  .delay-1 { animation-delay: 0.1s; }
-  .delay-2 { animation-delay: 0.2s; }
-  .delay-3 { animation-delay: 0.3s; }
-  .delay-4 { animation-delay: 0.4s; }
-
-  @keyframes drawLine {
-    from { stroke-dashoffset: 1000; }
-    to { stroke-dashoffset: 0; }
-  }
-
-  .chart-line {
-    stroke-dasharray: 1000;
-    animation: drawLine 1.5s ease-out forwards;
-  }
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+:root{
+  --bg:#0a0a12;--surface:#12121e;--surface2:#1a1a2a;--border:#252538;
+  --text:#c0c0d0;--text-dim:#5a5a70;--text-bright:#e8e8f0;--text-faint:#3a3a4a;
+  --purple:#af8fff;--purple-dim:rgba(175,143,255,0.15);
+  --green:#66cc66;--green-dim:rgba(102,204,102,0.15);
+  --orange:#ff884d;--orange-dim:rgba(255,136,77,0.15);
+  --red:#f05050;--blue:#4da6ff;--blue-dim:rgba(77,166,255,0.15);
+  --glow-purple:0 0 20px rgba(175,143,255,0.3);
+  --glow-green:0 0 20px rgba(102,204,102,0.2);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;min-height:100vh;overflow-x:hidden}
+h1,h2,h3{font-family:'Space Grotesk',sans-serif;color:var(--text-bright)}
+
+/* HERO — logo + live strip */
+.hero{padding:28px 24px 20px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(175,143,255,0.04) 0%,transparent 100%)}
+.hero-inner{max-width:1200px;margin:0 auto}
+.hero-top{display:flex;align-items:center;gap:18px;margin-bottom:14px;flex-wrap:wrap}
+.apd-logo{flex-shrink:0;display:block}
+.h1-title{font-family:'Space Grotesk';font-size:22px;font-weight:700;color:var(--text-bright);letter-spacing:-0.5px}
+.h1-title::before{content:'';display:inline-block;width:1px;height:20px;background:var(--border);margin-right:18px;vertical-align:middle}
+.hero-meta{margin-left:auto;font-size:11px;color:var(--text-dim);letter-spacing:0.3px}
+.hero-meta .ver{color:var(--purple)}
+.hero-meta .sep{color:var(--border);margin:0 8px}
+.strip{display:flex;align-items:flex-end;gap:3px;height:56px;padding:4px 0}
+.strip .run{flex:1;min-width:4px;border-radius:2px 2px 0 0;cursor:pointer;transition:opacity 0.15s;position:relative}
+.strip .run:hover{opacity:0.8}
+.strip .run:hover::after{content:attr(data-tip);position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:10px;white-space:nowrap;color:var(--text-bright);z-index:10;margin-bottom:4px}
+.strip-axis{display:flex;justify-content:space-between;margin-top:4px;font-size:9px;color:var(--text-faint);letter-spacing:1px}
+
+.container{max-width:1200px;margin:0 auto;padding:28px 24px}
+
+/* SUMMARY */
+.summary{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px;position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.card.purple::before{background:var(--purple);box-shadow:var(--glow-purple)}
+.card.green::before{background:var(--green);box-shadow:var(--glow-green)}
+.card.orange::before{background:var(--orange)}
+.card.blue::before{background:var(--blue)}
+.card .lbl{font-size:10px;text-transform:uppercase;letter-spacing:2px;color:var(--text-dim);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between}
+.card .lbl .spark{width:72px;height:18px}
+.card .val{font-family:'Space Grotesk';font-size:38px;font-weight:700;color:var(--text-bright);line-height:1}
+.card.small .val{font-size:22px}
+.delta{display:inline-block;font-size:10px;margin-top:8px;padding:2px 6px;border-radius:3px;letter-spacing:0.3px}
+.delta.down{background:var(--green-dim);color:var(--green)}
+.delta.up{background:var(--orange-dim);color:var(--orange)}
+.card .det{font-size:11px;color:var(--text-dim);margin-top:4px}
+.summary-small{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:40px}
+.card.small{padding:14px 16px}
+
+.sec-h{font-family:'Space Grotesk';font-size:16px;font-weight:600;color:var(--text-bright);margin:8px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.sec-h .dot{width:7px;height:7px;border-radius:50%;background:var(--purple);box-shadow:var(--glow-purple)}
+.sec-h .hint{margin-left:auto;font-family:'JetBrains Mono';font-size:10px;font-weight:400;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase}
+
+.chart-big{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:22px;margin-bottom:32px}
+.chart-big svg{width:100%;height:220px;display:block}
+
+/* FILTERS + TABLE */
+.filter-row{display:flex;gap:6px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.chip{font-size:10px;padding:5px 11px;border-radius:14px;border:1px solid var(--border);background:transparent;color:var(--text-dim);cursor:pointer;font-family:'JetBrains Mono';letter-spacing:0.5px;transition:all 0.15s}
+.chip:hover{color:var(--text)}
+.chip.active{background:var(--purple-dim);border-color:var(--purple);color:var(--purple)}
+.filter-spacer{flex:1}
+.sort-by{font-size:10px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase}
+
+.tbl{width:100%;border-collapse:collapse;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.tbl thead th{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-dim);padding:12px 14px;text-align:left;border-bottom:1px solid var(--border);font-weight:500;white-space:nowrap;background:var(--surface);position:sticky;top:0;z-index:5}
+.tbl tbody tr{border-bottom:1px solid rgba(37,37,56,0.4);transition:background 0.12s;cursor:pointer}
+.tbl tbody tr:hover{background:var(--surface2)}
+.tbl tbody tr.expanded{background:var(--surface2)}
+.tbl td{padding:12px 14px;vertical-align:middle;white-space:nowrap}
+.rid{color:var(--purple);font-weight:500}
+.rname{color:var(--text-bright);max-width:260px;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:middle}
+.chev{color:var(--text-faint);font-size:10px;margin-right:6px;display:inline-block;transition:transform 0.15s}
+tr.expanded .chev{transform:rotate(90deg);color:var(--purple)}
+.pbadge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:500;letter-spacing:0.5px}
+.pbadge.net{background:var(--purple-dim);color:var(--purple)}
+.pbadge.php{background:var(--blue-dim);color:var(--blue)}
+.pbadge.glm{background:rgba(255,200,50,0.15);color:#ffc832}
+
+.pstrip{display:flex;height:14px;border-radius:2px;overflow:hidden;min-width:140px;width:160px;background:#0a0a12}
+.pstrip .seg{display:block}
+.pstrip .seg.s1{background:var(--purple)}
+.pstrip .seg.s2{background:var(--blue)}
+.pstrip .seg.s3{background:var(--orange)}
+.pstrip .seg.s4{background:var(--green)}
+.pstrip .seg:hover{filter:brightness(1.2)}
+.ptime{font-size:11px;color:var(--text-dim);margin-left:10px;min-width:56px}
+
+.bz{color:var(--green);font-size:11px}
+.bn{color:var(--orange)}
+.abadge{font-size:10px;padding:2px 6px;border-radius:3px}
+.abadge.real{background:var(--green-dim);color:var(--green)}
+.abadge.bypass{background:var(--orange-dim);color:var(--orange)}
+.abadge.na{color:var(--text-dim)}
+.abadge.optout{background:rgba(77,166,255,0.1);color:var(--blue)}
+
+.ver-m{font-size:10px;color:var(--text-dim);margin-left:8px;letter-spacing:0.3px;white-space:nowrap}
+.ver-m::before{content:'◆ ';color:var(--purple);font-size:8px}
+
+/* EXPAND ROW */
+.expand-row td{padding:0;background:var(--bg)}
+.expand-inner{padding:18px 24px 22px;border-top:1px solid var(--border);display:grid;grid-template-columns:minmax(0,auto) 1fr;gap:24px;align-items:start}
+@media(max-width:800px){.expand-inner{grid-template-columns:1fr}}
+.report-term{background:#111119;border:1px solid #1c1c2c;border-radius:8px;padding:14px 18px;font-size:11.5px;line-height:1.7;white-space:pre;overflow-x:auto;max-width:100%}
+.rv{color:#af8fff}.rvb{color:#af8fff;font-weight:700}
+.rdm{color:#3a3a4a}.rgr{color:#7ec87e}.ror{color:#ff8844}
+.rbl{color:#5fafff}.ryl{color:#e0af68}.rw{color:#d0d0dd}
+.note-full{font-size:12px;color:var(--text);line-height:1.7;max-width:480px}
+.note-label{font-size:9px;color:var(--text-dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px}
+
+.footer{text-align:center;padding:32px;border-top:1px solid var(--border);margin-top:40px}
+.footer a{color:var(--purple);text-decoration:none;font-size:12px}
+.footer a:hover{text-decoration:underline}
+.footer .sep{color:var(--text-dim);margin:0 12px}
+
+@media(max-width:900px){.summary{grid-template-columns:1fr}.summary-small{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.summary-small{grid-template-columns:1fr}.hero-meta{margin-left:0;width:100%}}
 </style>
 </head>
 <body>
 
-<div class="header">
-  <div style="margin-bottom: 16px; text-align: center;">
-    <img src="../logo.svg" alt="APD" width="200" style="max-width:90%;">
+<div class="hero">
+  <div class="hero-inner">
+    <div class="hero-top">
+      <svg class="apd-logo" width="120" height="54" viewBox="0 0 200 90" aria-label="APD">
+        <!-- A -->
+        <rect x="0" y="48" width="12" height="12" rx="2.5" fill="#af8fff"/><rect x="0" y="34" width="12" height="12" rx="2.5" fill="#af8fff"/><rect x="0" y="20" width="12" height="12" rx="2.5" fill="#af8fff"/><rect x="0" y="6" width="12" height="12" rx="2.5" fill="#af8fff"/>
+        <rect x="14" y="0" width="12" height="12" rx="2.5" fill="#af8fff"/><rect x="28" y="0" width="12" height="12" rx="2.5" fill="#af8fff"/><rect x="42" y="0" width="12" height="12" rx="2.5" fill="#af8fff"/>
+        <rect x="56" y="6" width="12" height="12" rx="2.5" fill="#af8fff"/><rect x="56" y="20" width="12" height="12" rx="2.5" fill="#af8fff"/><rect x="56" y="34" width="12" height="12" rx="2.5" fill="#af8fff"/><rect x="56" y="48" width="12" height="12" rx="2.5" fill="#af8fff"/>
+        <rect x="14" y="28" width="12" height="12" rx="2.5" fill="#af8fff" opacity="0.35"/><rect x="28" y="28" width="12" height="12" rx="2.5" fill="#af8fff" opacity="0.35"/><rect x="42" y="28" width="12" height="12" rx="2.5" fill="#af8fff" opacity="0.35"/>
+        <!-- P -->
+        <rect x="78" y="48" width="12" height="12" rx="2.5" fill="#5fafff"/><rect x="78" y="34" width="12" height="12" rx="2.5" fill="#5fafff"/><rect x="78" y="20" width="12" height="12" rx="2.5" fill="#5fafff"/><rect x="78" y="6" width="12" height="12" rx="2.5" fill="#5fafff"/>
+        <rect x="78" y="0" width="12" height="12" rx="2.5" fill="#5fafff"/><rect x="92" y="0" width="12" height="12" rx="2.5" fill="#5fafff"/><rect x="106" y="0" width="12" height="12" rx="2.5" fill="#5fafff"/><rect x="120" y="6" width="12" height="12" rx="2.5" fill="#5fafff"/>
+        <rect x="92" y="22" width="12" height="12" rx="2.5" fill="#5fafff" opacity="0.35"/><rect x="106" y="22" width="12" height="12" rx="2.5" fill="#5fafff" opacity="0.35"/><rect x="120" y="22" width="12" height="12" rx="2.5" fill="#5fafff" opacity="0.35"/>
+        <!-- D -->
+        <rect x="142" y="48" width="12" height="12" rx="2.5" fill="#7ec87e"/><rect x="142" y="34" width="12" height="12" rx="2.5" fill="#7ec87e"/><rect x="142" y="20" width="12" height="12" rx="2.5" fill="#7ec87e"/><rect x="142" y="6" width="12" height="12" rx="2.5" fill="#7ec87e"/>
+        <rect x="142" y="0" width="12" height="12" rx="2.5" fill="#7ec87e"/><rect x="156" y="0" width="12" height="12" rx="2.5" fill="#7ec87e"/><rect x="170" y="0" width="12" height="12" rx="2.5" fill="#7ec87e"/>
+        <rect x="184" y="6" width="12" height="12" rx="2.5" fill="#7ec87e"/><rect x="184" y="20" width="12" height="12" rx="2.5" fill="#7ec87e"/><rect x="184" y="34" width="12" height="12" rx="2.5" fill="#7ec87e"/>
+        <rect x="156" y="48" width="12" height="12" rx="2.5" fill="#7ec87e"/><rect x="170" y="48" width="12" height="12" rx="2.5" fill="#7ec87e"/>
+        <!-- Pipeline: ■ → ■ → ■ → ■ → ✓ -->
+        <rect x="30" y="72" width="8" height="8" rx="1.5" fill="#af8fff"/><text x="42" y="79" font-family="monospace" font-size="8" fill="#6a6a7a">→</text>
+        <rect x="55" y="72" width="8" height="8" rx="1.5" fill="#5fafff"/><text x="67" y="79" font-family="monospace" font-size="8" fill="#6a6a7a">→</text>
+        <rect x="80" y="72" width="8" height="8" rx="1.5" fill="#ff8844"/><text x="92" y="79" font-family="monospace" font-size="8" fill="#6a6a7a">→</text>
+        <rect x="105" y="72" width="8" height="8" rx="1.5" fill="#7ec87e"/><text x="117" y="79" font-family="monospace" font-size="8" fill="#6a6a7a">→</text>
+        <text x="130" y="80" font-family="monospace" font-size="10" fill="#7ec87e">✓</text>
+      </svg>
+      <span class="h1-title">Pipeline Runs</span>
+      <span class="hero-meta" id="hero-meta">&hellip;</span>
+    </div>
+    <div class="strip" id="strip"></div>
+    <div class="strip-axis" id="strip-axis"></div>
   </div>
-  <div class="subtitle">Pipeline Runs</div>
-  <div class="tagline" id="tagline">&hellip;</div>
 </div>
 
 <div class="container">
 
-  <div class="view-toggle">
-    <button class="active" onclick="switchView('dashboard')">Dashboard</button>
-    <button onclick="switchView('reports')">Reports</button>
-  </div>
-
-  <div id="view-dashboard" class="view-panel active">
-
-  <div class="summary-grid">
-    <div class="summary-card purple animate delay-1">
-      <div class="label">Total Runs</div>
-      <div class="value" id="stat-total">&hellip;</div>
-      <div class="detail" id="stat-total-detail">&hellip;</div>
+  <!-- SUMMARY -->
+  <div class="summary">
+    <div class="card purple">
+      <div class="lbl"><span>Total Runs</span><svg class="spark" viewBox="0 0 72 18" id="spark-total"></svg></div>
+      <div class="val" id="stat-total">&hellip;</div>
+      <div class="det" id="stat-total-detail">&hellip;</div>
     </div>
-    <div class="summary-card green animate delay-2">
-      <div class="label">Avg Duration</div>
-      <div class="value" id="stat-avg-duration">&hellip;</div>
-      <div class="trend down" id="stat-avg-duration-detail">&hellip;</div>
-    </div>
-    <div class="summary-card orange animate delay-3">
-      <div class="label">Guard Blocks</div>
-      <div class="value" id="stat-blocks">&hellip;</div>
-      <div class="trend down" id="stat-blocks-detail">&hellip;</div>
-    </div>
-    <div class="summary-card blue animate delay-4">
-      <div class="label">Fastest Run</div>
-      <div class="value" id="stat-fastest">&hellip;</div>
-      <div class="detail" id="stat-fastest-detail">&hellip;</div>
+    <div class="card green">
+      <div class="lbl"><span>Avg Duration</span><svg class="spark" viewBox="0 0 72 18" id="spark-dur"></svg></div>
+      <div class="val" id="stat-avg">&hellip;</div>
+      <span class="delta down" id="delta-dur">&hellip;</span>
     </div>
   </div>
-
-  <div class="section-header"><span class="dot"></span> Trends</div>
-  <div class="charts-grid">
-    <div class="chart-card animate delay-2">
-      <div class="chart-title">Pipeline Duration (minutes)</div>
-      <div class="chart-area" id="duration-chart"></div>
-    </div>
-    <div class="chart-card animate delay-3">
-      <div class="chart-title">Guard Blocks per Run</div>
-      <div class="chart-area" id="blocks-chart"></div>
-    </div>
+  <div class="summary-small">
+    <div class="card small blue"><div class="lbl">Fastest</div><div class="val" id="stat-fastest">&hellip;</div><div class="det" id="stat-fastest-detail">&hellip;</div></div>
+    <div class="card small orange"><div class="lbl">Guard Blocks</div><div class="val" id="stat-blocks">&hellip;</div><div class="det" id="stat-blocks-detail">&hellip;</div></div>
+    <div class="card small purple"><div class="lbl">Adv. Hit Rate</div><div class="val" id="stat-adv">&hellip;</div><div class="det" id="stat-adv-detail">&hellip;</div></div>
+    <div class="card small green"><div class="lbl">Zero-block</div><div class="val" id="stat-zero">&hellip;</div><div class="det" id="stat-zero-detail">&hellip;</div></div>
   </div>
 
-  <div class="section-header"><span class="dot"></span> All Runs</div>
-  <div style="overflow-x: auto;">
-  <table class="runs-table">
+  <!-- CHART -->
+  <div class="sec-h"><span class="dot"></span> Duration Trend<span class="hint">minutes · median line · version markers</span></div>
+  <div class="chart-big"><svg id="duration-chart" viewBox="0 0 1100 220" preserveAspectRatio="none"></svg></div>
+
+  <!-- FILTERS -->
+  <div class="sec-h"><span class="dot"></span> All Runs<span class="hint">click any row to expand report</span></div>
+  <div class="filter-row" id="filter-row"></div>
+
+  <table class="tbl">
     <thead>
       <tr>
-        <th>#</th>
+        <th style="width:52px">#</th>
         <th>Task</th>
         <th>Project</th>
-        <th>Duration</th>
+        <th>Pipeline</th>
         <th>Spec</th>
         <th>Blocks</th>
         <th>Adversarial</th>
-        <th class="hide-mobile">Note</th>
       </tr>
     </thead>
-    <tbody id="runs-tbody">
-    </tbody>
+    <tbody id="tbody"></tbody>
   </table>
-  </div>
-
-  </div><!-- /view-dashboard -->
-
-  <div id="view-reports" class="view-panel">
-    <div class="section-header"><span class="dot"></span> Pipeline Reports — Last 10 Runs</div>
-    <div class="reports-grid">
-      <div class="report-terminal">
-        <div class="term-bar">
-          <div class="tdot tdot-r"></div><div class="tdot tdot-y"></div><div class="tdot tdot-g"></div>
-          <div class="term-title">BambiProject &mdash; apd report --history 10</div>
-        </div>
-        <div class="term-body" id="bambi-report"></div>
-      </div>
-      <div class="report-terminal">
-        <div class="term-bar">
-          <div class="tdot tdot-r"></div><div class="tdot tdot-y"></div><div class="tdot tdot-g"></div>
-          <div class="term-title">MojOff &mdash; apd report --history 10</div>
-        </div>
-        <div class="term-body" id="mojoff-report"></div>
-      </div>
-    </div>
-  </div><!-- /view-reports -->
-
 </div>
 
 <div class="footer">
@@ -569,526 +218,347 @@
 </div>
 
 <script>
-const runs = [
-  { id: 1, name: "XML Export", date: "2026-04-09", stack: "php", duration: 749, spec: "7/7", blocks: 2, adversarial: "N/A", advType: "na", note: "First spec traceability run" },
-  { id: 2, name: "Export XML+CSV", date: "2026-04-09", stack: "php", duration: 470, spec: "N/A", blocks: 0, adversarial: "4 (3/1)", advType: "real", note: "First adversarial \u2014 found CSV separator bug" },
-  { id: 3, name: "Loyalty Program", date: "2026-04-09", stack: "net", duration: 2761, spec: "14/14", blocks: 0, adversarial: "3 (0/3)", advType: "real", note: "First .NET project \u2014 max effort, 7 agents" },
-  { id: 4, name: "Hangfire Migration", date: "2026-04-10", stack: "net", duration: 1328, spec: "6/6", blocks: 0, adversarial: "N/A", advType: "na", note: "Orchestrator hacked .agents \u2014 led to guard fix" },
-  { id: 5, name: "Hangfire Monitoring", date: "2026-04-10", stack: "net", duration: 630, spec: "N/A", blocks: 0, adversarial: "N/A", advType: "na", note: "First v4.0.0 run \u2014 bypass detected" },
-  { id: 6, name: "Backoffice Audit 2", date: "2026-04-10", stack: "net", duration: 743, spec: "5/5", blocks: 0, adversarial: "4 (0/4)", advType: "real", note: "First clean run \u2014 no bypasses" },
-  { id: 7, name: "Backoffice Audit 3", date: "2026-04-10", stack: "net", duration: 577, spec: "5/5", blocks: 7, adversarial: "opt-out", advType: "optout", note: "Most chaotic \u2014 7 blocks, all caught" },
-  { id: 8, name: "Create Tags (M:N)", date: "2026-04-10", stack: "php", duration: 897, spec: "7/7", blocks: 3, adversarial: "8 (3/5)", advType: "real", note: "First HMAC-signed .done files" },
-  { id: 9, name: "Backend Audit 1", date: "2026-04-10", stack: "net", duration: 1004, spec: "7/7", blocks: 2, adversarial: "3 (0/3)", advType: "real", note: "Full audit trail active" },
-  { id: 10, name: "Backend Audit 7", date: "2026-04-11", stack: "net", duration: 1119, spec: "7/7", blocks: 1, adversarial: "4 (0/4)", advType: "real", note: "New session \u2014 still follows pipeline" },
-  { id: 11, name: "Split Post List", date: "2026-04-11", stack: "php", duration: 2074, spec: "7/7", blocks: 6, adversarial: "bypass", advType: "bypass", note: "v4.3.0 \u2014 permissions fixed, quality issues found", ver: "v4.3.0" },
-  { id: 12, name: "Page Routes", date: "2026-04-11", stack: "php", duration: 610, spec: "7/7", blocks: 1, adversarial: "9 (0/9)", advType: "real", note: "Post quality fixes \u2014 0 code-write blocks" },
-  { id: 13, name: "Add Comments", date: "2026-04-12", stack: "php", duration: 701, spec: "7/7", blocks: 2, adversarial: "dispatched", advType: "real", note: "Stable \u2014 SendMessage guard caught bypass" },
-  { id: 14, name: "Bambi Audit 10", date: "2026-04-12", stack: "net", duration: 1043, spec: "5/5", blocks: 2, adversarial: "7 (0/7)", advType: "real", note: "adversarial-before-reviewer guard worked", ver: "v4.3.4" },
-  { id: 15, name: "Bambi Audit 11", date: "2026-04-12", stack: "net", duration: 1143, spec: "5/5", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "First zero-block Bambi run" },
-  { id: 16, name: "Bambi Audit 12", date: "2026-04-12", stack: "net", duration: 700, spec: "5/5", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "Distributed locking \u2014 complex, clean" },
-  { id: 17, name: "Bambi Audit 14", date: "2026-04-12", stack: "net", duration: 512, spec: "5/5", blocks: 0, adversarial: "3 (0/3)", advType: "real", note: "Chose testing agent for test-only task" },
-  { id: 18, name: "Bambi Audit 15", date: "2026-04-12", stack: "net", duration: 385, spec: "6/6", blocks: 0, adversarial: "4 (0/4)", advType: "real", note: "Fastest ever \u2014 5 zero-block streak" },
-  { id: 19, name: "MojOff Security P1", date: "2026-04-13", stack: "net", duration: 875, spec: "5/5", blocks: 1, adversarial: "5 (0/5)", advType: "real", note: "First v4.5 run \u2014 7 security fixes, 4 parallel explorers", ver: "v4.5.0" },
-  { id: 20, name: "MojOff Arch P2a", date: "2026-04-13", stack: "net", duration: 690, spec: "5/5", blocks: 1, adversarial: "5 (1/4)", advType: "real", note: "MediatR refactor \u2014 adversarial found 1 critical, guard blocked code-write" },
-  { id: 21, name: "TinyMCE \u2192 TipTap", date: "2026-04-15", stack: "glm", duration: 1033, spec: "7/7", blocks: 52, adversarial: "10 (3/7)", advType: "real", note: "GLM-5 model \u2014 first non-Anthropic run, 52 guard blocks, completed full pipeline", ver: "GLM-5" },
-  { id: 22, name: "Email templates \u2014 integration", date: "2026-04-16", stack: "net", duration: 1443, spec: "6/6", blocks: 3, adversarial: "6 (0/6)", advType: "real", note: "Builder #1 burned maxTurns without implementing \u2014 required 2 retries; parallel reviewer+adversarial dispatch caught" },
-  { id: 23, name: "Email verification at registration", date: "2026-04-16", stack: "net", duration: 1645, spec: "7/7", blocks: 1, adversarial: "7 (0/7)", advType: "real", note: "Chaotic run \u2014 destructive-git blocked git checkout -- . && git clean -fd on 22 modified files; framework saved the work, pipeline still completed", ver: "v4.7.8" },
-  { id: 24, name: "Email template rewrite \u2014 password-reset Phase 1", date: "2026-04-17", stack: "net", duration: 368, spec: "N/A", blocks: 0, adversarial: "3 (0/3)", advType: "real", note: "First phase of password-reset email template overhaul" },
-  { id: 25, name: "Password-reset \u2014 6-digit OTP + mobile screen", date: "2026-04-17", stack: "net", duration: 238, spec: "N/A", blocks: 0, adversarial: "9 (0/9)", advType: "real", note: "Migration to 6-digit OTP + production template + mobile reset screen \u2014 9 adversarial findings, all dismissed; fastest sub-4-min run" },
-  { id: 26, name: "Hotfix \u2014 short asset URLs to bypass Postmark QP soft break", date: "2026-04-17", stack: "net", duration: 530, spec: "N/A", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "Inlined short asset URLs into HTML to avoid quoted-printable soft-break corruption in Postmark" },
-  { id: 27, name: "Fix broken email assets \u2014 regenerate PNG + cache-bust", date: "2026-04-18", stack: "net", duration: 965, spec: "6/6", blocks: 0, adversarial: "8 (2/6)", advType: "real", note: "PNGs on GCS were Chrome broken-image screenshots from headless render bug. Adversarial caught 2 real issues code-reviewer missed (25% hit \u2014 peak hit-rate at the time)" },
-  { id: 28, name: "Fix CI \u2014 RenderScript_* tests skip when .claude/ absent", date: "2026-04-18", stack: "net", duration: 306, spec: "N/A", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "Tooling fix \u2014 5-min round-trip" },
-  { id: 29, name: "Gmail dark mode fix for password-reset template", date: "2026-04-18", stack: "net", duration: 1676, spec: "5/5", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "First v4.7.13 run with maxTurn 40/30 defaults. Largest task to date \u2014 Gmail Hybrid Dark Theme overrides; clean adversarial, 0/5 maxTurn exhaust", ver: "v4.7.13" },
-  { id: 30, name: "Fix password-reset subject + brand red", date: "2026-04-18", stack: "net", duration: 458, spec: "5/5", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "Quick subject + color fix \u2014 7-min cadence with raised maxTurns; 0/4 exhaust", ver: "v4.7.13" },
-  { id: 31, name: "Fix duplicate emails on Wolverine retry", date: "2026-04-18", stack: "net", duration: 1400, spec: "4/4", blocks: 0, adversarial: "4 (2/2)", advType: "real", note: "Record adversarial hit-rate: 50% (2/4). Wolverine retry triggered duplicate password-reset and verification handler invocations; 11 agents dispatched, 0 exhaust", ver: "v4.7.13" },
-  { id: 32, name: "Dark mode: OTP bubble as CID attachment", date: "2026-04-18", stack: "net", duration: 1573, spec: "5/5", blocks: 1, adversarial: "5 (0/5)", advType: "real", note: "Complex feature: 13 files (OtpImageGenerator + EmailAttachment + PostmarkTransport + Scriban template wiring). code-reviewer hit maxTurn 45 \u2014 orchestrator WebFetch\u2019ed Postmark API docs to verify a HIGH finding on ContentId format, dismissed as hallucinated. Pattern captured as v4.7.20 workflow rule \u2018evidence-based dismissal\u2019.", ver: "v4.7.13" },
-  { id: 33, name: "Bump MailKit 4.15.1 \u2192 4.16.0 for STARTTLS advisory", date: "2026-04-18", stack: "net", duration: 222, spec: "N/A", blocks: 0, adversarial: "N/A", advType: "na", note: "Security advisory bump \u2014 dependency-only change, fastest run on v4.7.13", ver: "v4.7.13" },
+// ============ DATA (upstream dataset, unchanged; `segs` added for pipeline-strip) ============
+// segs = [spec, builder, reviewer, verifier] proportion of total duration (sum = 1)
+// Proportions are approximations; swap with real per-step timings when available.
+var DEFAULT_SEGS = [0.13, 0.55, 0.22, 0.10];
+var runs = [
+  { id: 1, name: "XML Export", date: "2026-04-09", stack: "php", duration: 749, spec: "7/7", blocks: 2, adversarial: "N/A", advType: "na", note: "First spec traceability run", segs:[0.15,0.55,0.20,0.10] },
+  { id: 2, name: "Export XML+CSV", date: "2026-04-09", stack: "php", duration: 470, spec: "N/A", blocks: 0, adversarial: "4 (3/1)", advType: "real", note: "First adversarial — found CSV separator bug", segs:[0.15,0.55,0.20,0.10] },
+  { id: 3, name: "Loyalty Program", date: "2026-04-09", stack: "net", duration: 2761, spec: "14/14", blocks: 0, adversarial: "3 (0/3)", advType: "real", note: "First .NET project — max effort, 7 agents", segs:[0.10,0.60,0.20,0.10] },
+  { id: 4, name: "Hangfire Migration", date: "2026-04-10", stack: "net", duration: 1328, spec: "6/6", blocks: 0, adversarial: "N/A", advType: "na", note: "Orchestrator hacked .agents — led to guard fix", segs:[0.12,0.58,0.20,0.10] },
+  { id: 5, name: "Hangfire Monitoring", date: "2026-04-10", stack: "net", duration: 630, spec: "N/A", blocks: 0, adversarial: "N/A", advType: "na", note: "First v4.0.0 run — bypass detected", segs:[0.15,0.55,0.20,0.10] },
+  { id: 6, name: "Backoffice Audit 2", date: "2026-04-10", stack: "net", duration: 743, spec: "5/5", blocks: 0, adversarial: "4 (0/4)", advType: "real", note: "First clean run — no bypasses", segs:[0.14,0.55,0.22,0.09] },
+  { id: 7, name: "Backoffice Audit 3", date: "2026-04-10", stack: "net", duration: 577, spec: "5/5", blocks: 7, adversarial: "opt-out", advType: "optout", note: "Most chaotic — 7 blocks, all caught", segs:[0.12,0.58,0.20,0.10] },
+  { id: 8, name: "Create Tags (M:N)", date: "2026-04-10", stack: "php", duration: 897, spec: "7/7", blocks: 3, adversarial: "8 (3/5)", advType: "real", note: "First HMAC-signed .done files", segs:[0.12,0.52,0.26,0.10] },
+  { id: 9, name: "Backend Audit 1", date: "2026-04-10", stack: "net", duration: 1004, spec: "7/7", blocks: 2, adversarial: "3 (0/3)", advType: "real", note: "Full audit trail active", segs:[0.12,0.55,0.23,0.10] },
+  { id: 10, name: "Backend Audit 7", date: "2026-04-11", stack: "net", duration: 1119, spec: "7/7", blocks: 1, adversarial: "4 (0/4)", advType: "real", note: "New session — still follows pipeline", segs:[0.12,0.55,0.23,0.10] },
+  { id: 11, name: "Split Post List", date: "2026-04-11", stack: "php", duration: 2074, spec: "7/7", blocks: 6, adversarial: "bypass", advType: "bypass", note: "v4.3.0 — permissions fixed, quality issues found", ver: "v4.3.0", segs:[0.10,0.60,0.20,0.10] },
+  { id: 12, name: "Page Routes", date: "2026-04-11", stack: "php", duration: 610, spec: "7/7", blocks: 1, adversarial: "9 (0/9)", advType: "real", note: "Post quality fixes — 0 code-write blocks", segs:[0.14,0.52,0.24,0.10] },
+  { id: 13, name: "Add Comments", date: "2026-04-12", stack: "php", duration: 701, spec: "7/7", blocks: 2, adversarial: "dispatched", advType: "real", note: "Stable — SendMessage guard caught bypass", segs:[0.14,0.54,0.22,0.10] },
+  { id: 14, name: "Bambi Audit 10", date: "2026-04-12", stack: "net", duration: 1043, spec: "5/5", blocks: 2, adversarial: "7 (0/7)", advType: "real", note: "adversarial-before-reviewer guard worked", ver: "v4.3.4", segs:[0.12,0.55,0.23,0.10] },
+  { id: 15, name: "Bambi Audit 11", date: "2026-04-12", stack: "net", duration: 1143, spec: "5/5", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "First zero-block Bambi run", segs:[0.12,0.55,0.23,0.10] },
+  { id: 16, name: "Bambi Audit 12", date: "2026-04-12", stack: "net", duration: 700, spec: "5/5", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "Distributed locking — complex, clean", segs:[0.12,0.55,0.23,0.10] },
+  { id: 17, name: "Bambi Audit 14", date: "2026-04-12", stack: "net", duration: 512, spec: "5/5", blocks: 0, adversarial: "3 (0/3)", advType: "real", note: "Chose testing agent for test-only task", segs:[0.15,0.52,0.23,0.10] },
+  { id: 18, name: "Bambi Audit 15", date: "2026-04-12", stack: "net", duration: 385, spec: "6/6", blocks: 0, adversarial: "4 (0/4)", advType: "real", note: "Fastest ever — 5 zero-block streak", segs:[0.15,0.55,0.20,0.10] },
+  { id: 19, name: "MojOff Security P1", date: "2026-04-13", stack: "net", duration: 875, spec: "5/5", blocks: 1, adversarial: "5 (0/5)", advType: "real", note: "First v4.5 run — 7 security fixes, 4 parallel explorers", ver: "v4.5.0", segs:[0.12,0.55,0.22,0.11] },
+  { id: 20, name: "MojOff Arch P2a", date: "2026-04-13", stack: "net", duration: 690, spec: "5/5", blocks: 1, adversarial: "5 (1/4)", advType: "real", note: "MediatR refactor — adversarial found 1 critical, guard blocked code-write", segs:[0.12,0.55,0.22,0.11] },
+  { id: 21, name: "TinyMCE → TipTap", date: "2026-04-15", stack: "glm", duration: 1033, spec: "7/7", blocks: 52, adversarial: "10 (3/7)", advType: "real", note: "GLM-5 model — first non-Anthropic run, 52 guard blocks, completed full pipeline", ver: "GLM-5", segs:[0.12,0.55,0.23,0.10] },
+  { id: 22, name: "Email templates — integration", date: "2026-04-16", stack: "net", duration: 1443, spec: "6/6", blocks: 3, adversarial: "6 (0/6)", advType: "real", note: "Builder #1 burned maxTurns without implementing — required 2 retries; parallel reviewer+adversarial dispatch caught", segs:[0.10,0.60,0.20,0.10] },
+  { id: 23, name: "Email verification at registration", date: "2026-04-16", stack: "net", duration: 1645, spec: "7/7", blocks: 1, adversarial: "7 (0/7)", advType: "real", note: "Chaotic run — destructive-git blocked git checkout -- . && git clean -fd on 22 modified files; framework saved the work, pipeline still completed", ver: "v4.7.8", segs:[0.10,0.55,0.25,0.10] },
+  { id: 24, name: "Email template rewrite — password-reset Phase 1", date: "2026-04-17", stack: "net", duration: 368, spec: "N/A", blocks: 0, adversarial: "3 (0/3)", advType: "real", note: "First phase of password-reset email template overhaul", segs:[0.20,0.50,0.20,0.10] },
+  { id: 25, name: "Password-reset — 6-digit OTP + mobile screen", date: "2026-04-17", stack: "net", duration: 238, spec: "N/A", blocks: 0, adversarial: "9 (0/9)", advType: "real", note: "Migration to 6-digit OTP + production template + mobile reset screen — 9 adversarial findings, all dismissed; fastest sub-4-min run", segs:[0.15,0.55,0.20,0.10] },
+  { id: 26, name: "Hotfix — short asset URLs to bypass Postmark QP soft break", date: "2026-04-17", stack: "net", duration: 530, spec: "N/A", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "Inlined short asset URLs into HTML to avoid quoted-printable soft-break corruption in Postmark", segs:[0.15,0.55,0.20,0.10] },
+  { id: 27, name: "Fix broken email assets — regenerate PNG + cache-bust", date: "2026-04-18", stack: "net", duration: 965, spec: "6/6", blocks: 0, adversarial: "8 (2/6)", advType: "real", note: "PNGs on GCS were Chrome broken-image screenshots from headless render bug. Adversarial caught 2 real issues code-reviewer missed (25% hit — peak hit-rate at the time)", segs:[0.14,0.52,0.24,0.10] },
+  { id: 28, name: "Fix CI — RenderScript_* tests skip when .claude/ absent", date: "2026-04-18", stack: "net", duration: 306, spec: "N/A", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "Tooling fix — 5-min round-trip", segs:[0.18,0.50,0.22,0.10] },
+  { id: 29, name: "Gmail dark mode fix for password-reset template", date: "2026-04-18", stack: "net", duration: 1676, spec: "5/5", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "First v4.7.13 run with maxTurn 40/30 defaults. Largest task to date — Gmail Hybrid Dark Theme overrides; clean adversarial, 0/5 maxTurn exhaust", ver: "v4.7.13", segs:[0.12,0.55,0.23,0.10] },
+  { id: 30, name: "Fix password-reset subject + brand red", date: "2026-04-18", stack: "net", duration: 458, spec: "5/5", blocks: 0, adversarial: "5 (0/5)", advType: "real", note: "Quick subject + color fix — 7-min cadence with raised maxTurns; 0/4 exhaust", ver: "v4.7.13", segs:[0.15,0.50,0.25,0.10] },
+  { id: 31, name: "Fix duplicate emails on Wolverine retry", date: "2026-04-18", stack: "net", duration: 1400, spec: "4/4", blocks: 0, adversarial: "4 (2/2)", advType: "real", note: "Record adversarial hit-rate: 50% (2/4). Wolverine retry triggered duplicate password-reset and verification handler invocations; 11 agents dispatched, 0 exhaust", ver: "v4.7.13", segs:[0.10,0.55,0.25,0.10] },
+  { id: 32, name: "Dark mode: OTP bubble as CID attachment", date: "2026-04-18", stack: "net", duration: 1573, spec: "5/5", blocks: 1, adversarial: "5 (0/5)", advType: "real", note: "Complex feature: 13 files (OtpImageGenerator + EmailAttachment + PostmarkTransport + Scriban template wiring). code-reviewer hit maxTurn 45 — orchestrator WebFetch'ed Postmark API docs to verify a HIGH finding on ContentId format, dismissed as hallucinated. Pattern captured as v4.7.20 workflow rule 'evidence-based dismissal'.", ver: "v4.7.13", segs:[0.12,0.50,0.28,0.10] },
+  { id: 33, name: "Bump MailKit 4.15.1 → 4.16.0 for STARTTLS advisory", date: "2026-04-18", stack: "net", duration: 222, spec: "N/A", blocks: 0, adversarial: "N/A", advType: "na", note: "Security advisory bump — dependency-only change, fastest run on v4.7.13", ver: "v4.7.13", segs:[0.10,0.60,0.20,0.10] }
 ];
+// ensure segs on any run missing them
+runs.forEach(function(r){ if(!r.segs) r.segs = DEFAULT_SEGS; });
 
-// --- Auto-computed summary stats (single source of truth: runs[]) ---
-(function() {
-  if (!runs.length) return;
-  document.getElementById('stat-total').textContent = runs.length;
+// ============ HELPERS ============
+function fmtDurShort(s){var m=Math.floor(s/60),c=s%60;return m+'m '+(c<10?'0':'')+c+'s';}
+function fmtMin(s){return Math.round(s/60)+'m';}
+function parseAdv(a){
+  // returns {actionable, total} or null
+  var m = /(\d+)\s*\((\d+)\/(\d+)\)/.exec(a);
+  if(!m) return null;
+  return {actionable:parseInt(m[2],10), total:parseInt(m[1],10)};
+}
 
-  const dates = runs.map(function(r) { return r.date; });
-  const uniqueDates = Array.from(new Set(dates)).sort();
-  const firstDate = uniqueDates[0];
-  const lastDate = uniqueDates[uniqueDates.length - 1];
-  const spanDays = (new Date(lastDate) - new Date(firstDate)) / 86400000 + 1;
+// ============ SUMMARY STATS ============
+(function(){
+  var total = runs.length;
+  document.getElementById('stat-total').textContent = total;
+  var dates = runs.map(function(r){return r.date;});
+  var unique = Array.from(new Set(dates)).sort();
+  var span = (new Date(unique[unique.length-1]) - new Date(unique[0]))/86400000 + 1;
+  var projects = ['PHP project','Loyalty Program','Backoffice/Hangfire','Bambi','MojOff','TinyMCE → TipTap'];
+  document.getElementById('stat-total-detail').textContent = projects.length + ' projects · ' + span + ' days';
 
-  // Project list — manually curated; not derivable from data
-  const projects = ['PHP project', 'Loyalty Program', 'Backoffice/Hangfire', 'Bambi', 'MojOff', 'TinyMCE \u2192 TipTap'];
-  document.getElementById('stat-total-detail').textContent =
-    projects.length + ' projects, ' + spanDays + ' days';
+  var fmtDate = function(s){return new Date(s).toLocaleDateString('en-US',{month:'short',day:'numeric'});};
+  var lastRun = runs[runs.length-1];
+  var lastDate = new Date(lastRun.date);
+  var lastClean = runs.slice(-10).every(function(r){return r.blocks===0;});
+  document.getElementById('hero-meta').innerHTML =
+    '<span class="ver">' + (lastRun.ver||'v5.0.0') + '</span><span class="sep">·</span>' +
+    fmtDate(unique[0]) + '–' + fmtDate(unique[unique.length-1]) + '<span class="sep">·</span>' +
+    (lastClean ? '100% zero-block (last 10)' : 'last run ' + fmtDurShort(lastRun.duration));
 
-  const fmtDate = function(s) {
-    return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-  document.getElementById('tagline').textContent =
-    runs.length + ' tracked runs across ' + projects.length + ' projects \u00b7 ' +
-    fmtDate(firstDate) + '\u2013' + fmtDate(lastDate) + ', ' + new Date(lastDate).getFullYear();
+  var avgAll = runs.reduce(function(a,r){return a+r.duration;},0)/total;
+  var last5 = runs.slice(-5);
+  var avgLast5 = last5.reduce(function(a,r){return a+r.duration;},0)/5;
+  var prev5 = runs.slice(-10,-5);
+  var avgPrev5 = prev5.reduce(function(a,r){return a+r.duration;},0)/5;
+  document.getElementById('stat-avg').textContent = fmtMin(avgAll);
+  var deltaPct = Math.round((avgLast5-avgPrev5)/avgPrev5*100);
+  var dEl = document.getElementById('delta-dur');
+  if(deltaPct < 0){ dEl.textContent = '↓ '+Math.abs(deltaPct)+'% vs prev 5'; dEl.className='delta down'; }
+  else if(deltaPct > 0){ dEl.textContent = '↑ '+deltaPct+'% vs prev 5'; dEl.className='delta up'; }
+  else { dEl.textContent = 'flat vs prev 5'; dEl.className='delta'; }
 
-  const fmtMin = function(s) { return Math.round(s / 60) + 'm'; };
-  const avgAll = runs.reduce(function(a, r) { return a + r.duration; }, 0) / runs.length;
-  const last5 = runs.slice(-5);
-  const avgLast5 = last5.reduce(function(a, r) { return a + r.duration; }, 0) / last5.length;
-  document.getElementById('stat-avg-duration').textContent = fmtMin(avgAll);
-  document.getElementById('stat-avg-duration-detail').textContent = 'Last 5: ' + fmtMin(avgLast5) + ' avg';
+  var fastest = runs.reduce(function(m,r){return r.duration<m.duration?r:m;},runs[0]);
+  var fm = Math.floor(fastest.duration/60), fs = fastest.duration%60;
+  document.getElementById('stat-fastest').textContent = fm+':'+String(fs).padStart(2,'0');
+  document.getElementById('stat-fastest-detail').textContent = '#'+fastest.id+' · '+fastest.name.split(' ').slice(0,3).join(' ');
 
-  const totalBlocks = runs.reduce(function(a, r) { return a + r.blocks; }, 0);
-  const last5Blocks = last5.reduce(function(a, r) { return a + r.blocks; }, 0);
+  var totalBlocks = runs.reduce(function(a,r){return a+r.blocks;},0);
+  var l5blocks = last5.reduce(function(a,r){return a+r.blocks;},0);
   document.getElementById('stat-blocks').textContent = totalBlocks;
-  document.getElementById('stat-blocks-detail').textContent = 'Last 5 runs: ' + last5Blocks + ' blocks';
+  document.getElementById('stat-blocks-detail').textContent = 'last 5: '+l5blocks+' block' + (l5blocks===1?'':'s');
 
-  const fastest = runs.reduce(function(min, r) { return r.duration < min.duration ? r : min; }, runs[0]);
-  const fmins = Math.floor(fastest.duration / 60);
-  const fsecs = fastest.duration % 60;
-  document.getElementById('stat-fastest').textContent = fmins + ':' + String(fsecs).padStart(2, '0');
-  document.getElementById('stat-fastest-detail').textContent = fastest.name + ' (#' + fastest.id + ')';
+  var advSum={a:0,t:0,peak:{rate:0,id:0}};
+  runs.forEach(function(r){
+    var p = parseAdv(r.adversarial);
+    if(p && p.total > 0){
+      advSum.a += p.actionable; advSum.t += p.total;
+      var rate = p.actionable/p.total*100;
+      if(rate > advSum.peak.rate){ advSum.peak = {rate:Math.round(rate), id:r.id}; }
+    }
+  });
+  var hr = advSum.t>0 ? Math.round(advSum.a/advSum.t*100) : 0;
+  document.getElementById('stat-adv').textContent = hr+'%';
+  document.getElementById('stat-adv-detail').textContent = 'peak '+advSum.peak.rate+'% · #'+advSum.peak.id;
+
+  var zero = runs.filter(function(r){return r.blocks===0;}).length;
+  document.getElementById('stat-zero').textContent = zero;
+  document.getElementById('stat-zero-detail').textContent = 'of '+total+' · '+Math.round(zero/total*100)+'%';
 })();
 
-// --- Render table using DOM methods ---
-const tbody = document.getElementById('runs-tbody');
-const maxDur = Math.max.apply(null, runs.map(function(r) { return r.duration; }));
-
-runs.forEach(function(r) {
-  const mins = Math.floor(r.duration / 60);
-  const secs = r.duration % 60;
-  const durStr = mins + 'm ' + String(secs).padStart(2, '0') + 's';
-  const barW = Math.max(4, (r.duration / maxDur) * 120);
-
-  const tr = document.createElement('tr');
-
-  // #
-  const tdId = document.createElement('td');
-  const spanId = document.createElement('span');
-  spanId.className = 'run-id';
-  spanId.textContent = '#' + r.id;
-  tdId.appendChild(spanId);
-  tr.appendChild(tdId);
-
-  // Task name + version marker
-  const tdName = document.createElement('td');
-  const spanName = document.createElement('span');
-  spanName.className = 'run-name';
-  spanName.textContent = r.name;
-  tdName.appendChild(spanName);
-  if (r.ver) {
-    const spanVer = document.createElement('span');
-    spanVer.className = 'version-marker';
-    spanVer.textContent = r.ver;
-    tdName.appendChild(spanVer);
-  }
-  tr.appendChild(tdName);
-
-  // Project
-  const tdProj = document.createElement('td');
-  const spanProj = document.createElement('span');
-  spanProj.className = 'project-badge ' + r.stack;
-  spanProj.textContent = r.stack === 'net' ? '.NET' : r.stack === 'glm' ? 'GLM-5' : 'PHP';
-  tdProj.appendChild(spanProj);
-  tr.appendChild(tdProj);
-
-  // Duration
-  const tdDur = document.createElement('td');
-  const divDur = document.createElement('div');
-  divDur.className = 'duration-bar';
-  const divBar = document.createElement('div');
-  divBar.className = 'bar';
-  divBar.style.width = barW + 'px';
-  divDur.appendChild(divBar);
-  divDur.appendChild(document.createTextNode(durStr));
-  tdDur.appendChild(divDur);
-  tr.appendChild(tdDur);
-
-  // Spec
-  const tdSpec = document.createElement('td');
-  tdSpec.textContent = r.spec;
-  tr.appendChild(tdSpec);
-
-  // Blocks
-  const tdBlocks = document.createElement('td');
-  if (r.blocks === 0) {
-    const spanZero = document.createElement('span');
-    spanZero.className = 'blocks-zero';
-    spanZero.textContent = '\u2714 0';
-    tdBlocks.appendChild(spanZero);
-  } else {
-    const spanCount = document.createElement('span');
-    spanCount.className = 'blocks-count';
-    spanCount.textContent = r.blocks;
-    tdBlocks.appendChild(spanCount);
-  }
-  tr.appendChild(tdBlocks);
-
-  // Adversarial
-  const tdAdv = document.createElement('td');
-  const spanAdv = document.createElement('span');
-  spanAdv.className = 'adversarial-badge ' + r.advType;
-  spanAdv.textContent = r.adversarial;
-  tdAdv.appendChild(spanAdv);
-  tr.appendChild(tdAdv);
-
-  // Note
-  const tdNote = document.createElement('td');
-  tdNote.className = 'hide-mobile';
-  const spanNote = document.createElement('span');
-  spanNote.className = 'note-text';
-  spanNote.textContent = r.note;
-  tdNote.appendChild(spanNote);
-  tr.appendChild(tdNote);
-
-  tbody.appendChild(tr);
-});
-
-// --- SVG Charts ---
-function drawChart(containerId, data, color, maxVal, unit) {
-  var container = document.getElementById(containerId);
-  var w = container.clientWidth;
-  var h = container.clientHeight;
-  var pad = { top: 10, right: 20, bottom: 25, left: 40 };
-  var plotW = w - pad.left - pad.right;
-  var plotH = h - pad.top - pad.bottom;
-  var max = maxVal || Math.max.apply(null, data);
-  var stepX = plotW / (data.length - 1);
-  var ns = 'http://www.w3.org/2000/svg';
-
-  var svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
-  svg.setAttribute('preserveAspectRatio', 'none');
-
-  var points = data.map(function(v, i) {
-    return {
-      x: pad.left + i * stepX,
-      y: pad.top + plotH - (v / max * plotH),
-      v: v
-    };
-  });
-
-  // Grid lines
-  var gridCount = 4;
-  for (var i = 0; i <= gridCount; i++) {
-    var y = pad.top + (i / gridCount) * plotH;
-    var val = Math.round(max - (i / gridCount) * max);
-
-    var line = document.createElementNS(ns, 'line');
-    line.setAttribute('x1', pad.left);
-    line.setAttribute('y1', y);
-    line.setAttribute('x2', w - pad.right);
-    line.setAttribute('y2', y);
-    line.setAttribute('stroke', 'var(--border)');
-    line.setAttribute('stroke-width', '0.5');
-    svg.appendChild(line);
-
-    var label = document.createElementNS(ns, 'text');
-    label.setAttribute('x', pad.left - 6);
-    label.setAttribute('y', y + 3);
-    label.setAttribute('fill', 'var(--text-dim)');
-    label.setAttribute('font-size', '9');
-    label.setAttribute('text-anchor', 'end');
-    label.setAttribute('font-family', 'JetBrains Mono');
-    label.textContent = val + unit;
-    svg.appendChild(label);
-  }
-
-  // X labels
-  data.forEach(function(v, i) {
-    if (i % 3 === 0 || i === data.length - 1) {
-      var xLabel = document.createElementNS(ns, 'text');
-      xLabel.setAttribute('x', points[i].x);
-      xLabel.setAttribute('y', h - 4);
-      xLabel.setAttribute('fill', 'var(--text-dim)');
-      xLabel.setAttribute('font-size', '9');
-      xLabel.setAttribute('text-anchor', 'middle');
-      xLabel.setAttribute('font-family', 'JetBrains Mono');
-      xLabel.textContent = '#' + (i + 1);
-      svg.appendChild(xLabel);
-    }
-  });
-
-  // Area path
-  var pathD = points.map(function(p, i) { return (i === 0 ? 'M' : 'L') + p.x + ',' + p.y; }).join(' ');
-  var areaD = pathD + ' L' + points[points.length-1].x + ',' + (pad.top + plotH) + ' L' + points[0].x + ',' + (pad.top + plotH) + ' Z';
-
-  var area = document.createElementNS(ns, 'path');
-  area.setAttribute('d', areaD);
-  area.setAttribute('fill', color);
-  area.setAttribute('opacity', '0.06');
-  svg.appendChild(area);
-
-  // Line path
-  var linePath = document.createElementNS(ns, 'path');
-  linePath.setAttribute('d', pathD);
-  linePath.setAttribute('fill', 'none');
-  linePath.setAttribute('stroke', color);
-  linePath.setAttribute('stroke-width', '2');
-  linePath.setAttribute('stroke-linecap', 'round');
-  linePath.setAttribute('stroke-linejoin', 'round');
-  linePath.classList.add('chart-line');
-  svg.appendChild(linePath);
-
-  // Dots
-  points.forEach(function(p, i) {
-    var circle = document.createElementNS(ns, 'circle');
-    circle.setAttribute('cx', p.x);
-    circle.setAttribute('cy', p.y);
-    circle.setAttribute('r', '3');
-    circle.setAttribute('fill', color);
-    circle.setAttribute('opacity', '0.8');
-    var title = document.createElementNS(ns, 'title');
-    title.textContent = '#' + (i+1) + ': ' + Math.round(p.v) + unit;
-    circle.appendChild(title);
-    svg.appendChild(circle);
-  });
-
-  // Clear and append
-  while (container.firstChild) container.removeChild(container.firstChild);
-  container.appendChild(svg);
-}
-
-var durations = runs.map(function(r) { return r.duration / 60; });
-var blocks = runs.map(function(r) { return r.blocks; });
-// Round chart Y-axis to a friendly ceiling above the actual max so outliers
-// (e.g. the 52-block GLM-5 TinyMCE run) don't clip off the top.
-var ceilTo = function(v, step) { return Math.ceil(v / step) * step; };
-var durMax = ceilTo(Math.max.apply(null, durations), 10);
-var blocksMax = Math.max(8, ceilTo(Math.max.apply(null, blocks), 10));
-
-window.addEventListener('load', function() {
-  drawChart('duration-chart', durations, '#af8fff', durMax, 'm');
-  drawChart('blocks-chart', blocks, '#ff884d', blocksMax, '');
-});
-
-window.addEventListener('resize', function() {
-  drawChart('duration-chart', durations, '#af8fff', durMax, 'm');
-  drawChart('blocks-chart', blocks, '#ff884d', blocksMax, '');
-});
-
-// --- View Toggle ---
-function switchView(view) {
-  document.querySelectorAll('.view-panel').forEach(function(p) { p.classList.remove('active'); });
-  document.querySelectorAll('.view-toggle button').forEach(function(b) { b.classList.remove('active'); });
-  document.getElementById('view-' + view).classList.add('active');
-  event.target.classList.add('active');
-  if (view === 'reports') renderReports();
-}
-
-// --- Report Rendering (DOM-based, no innerHTML) ---
-var BW = 48;
-
-function rSpan(cls, txt) {
-  var s = document.createElement('span');
-  s.className = cls;
-  s.textContent = txt;
-  return s;
-}
-
-function rText(txt) { return document.createTextNode(txt); }
-
-function rDash(n) { var s=''; for(var i=0;i<n;i++) s+='\u2500'; return s; }
-
-function rLine() {
-  var d = document.createElement('div');
-  for (var i=0; i<arguments.length; i++) {
-    var a = arguments[i];
-    if (typeof a === 'string') d.appendChild(rText(a));
-    else d.appendChild(a);
-  }
-  return d;
-}
-
-function rBoxTop()  { return rLine(rSpan('rv','  \u256d' + rDash(BW) + '\u256e')); }
-function rBoxBot()  { return rLine(rSpan('rv','  \u2570' + rDash(BW) + '\u256f')); }
-function rBoxSep()  { return rLine(rSpan('rv','  \u251c' + rDash(BW) + '\u2524')); }
-
-function rBoxTitle(title) {
-  var pad = Math.floor((BW - title.length) / 2);
-  var rpad = BW - pad - title.length;
-  return rLine(rSpan('rv','  \u2502'), rText(' '.repeat(pad)), rSpan('rvb', title), rText(' '.repeat(rpad)), rSpan('rv','\u2502'));
-}
-
-function rBoxLn(parts) {
-  var len = 0;
-  parts.forEach(function(p) { len += p[1].length; });
-  var pad = Math.max(0, BW - len);
-  var args = [rSpan('rv','  \u2502')];
-  parts.forEach(function(p) { args.push(rSpan(p[0], p[1])); });
-  if (pad > 0) args.push(rText(' '.repeat(pad)));
-  args.push(rSpan('rv','\u2502'));
-  return rLine.apply(null, args);
-}
-
-function renderReport(containerId, data) {
-  var container = document.getElementById(containerId);
-  while (container.firstChild) container.removeChild(container.firstChild);
-  var el = document.createElement('div');
-  el.className = 'report-wrap';
-  container.appendChild(el);
-
-  var total = data.runs.length;
-  var completed = data.runs.filter(function(r){return r.st==='completed';}).length;
-  var partial = total - completed;
-  var totalDur = 0, fastest = 99999, slowest = 0, valid = 0;
-  var advSumT = 0, advSumA = 0, advTasks = 0;
-  var bestAdvTask = '', bestAdvCount = 0;
-  var cleanTask = '', cleanRate = 101;
-  var allDurations = [];
-
-  data.runs.forEach(function(r) {
-    if (r.dur > 0) {
-      totalDur += r.dur; valid++;
-      allDurations.push(r.dur);
-      if (r.dur < fastest) fastest = r.dur;
-      if (r.dur > slowest) slowest = r.dur;
-    }
-    if (r.advT > 0) {
-      advSumT += r.advT; advSumA += r.advA; advTasks++;
-      if (r.advA > bestAdvCount) { bestAdvCount = r.advA; bestAdvTask = r.name; }
-      var rate = Math.round(r.advA * 100 / r.advT);
-      if (rate < cleanRate) { cleanRate = rate; cleanTask = r.name; }
-    }
-  });
-
-  var avgDur = valid > 0 ? Math.round(totalDur / valid) : 0;
-  var sucRate = total > 0 ? Math.round(completed * 100 / total) : 0;
-
-  // Trend: last 3 vs prev 3
-  var trendArrow = '', trendLabel = '';
-  if (allDurations.length >= 6) {
-    var n = allDurations.length;
-    var recentSum = allDurations[n-1] + allDurations[n-2] + allDurations[n-3];
-    var olderSum = allDurations[n-4] + allDurations[n-5] + allDurations[n-6];
-    var recentAvg = recentSum / 3, olderAvg = olderSum / 3;
-    if (recentAvg < olderAvg * 0.85) { trendArrow = '\u2191'; trendLabel = 'faster'; }
-    else if (recentAvg > olderAvg * 1.15) { trendArrow = '\u2193'; trendLabel = 'slower'; }
-    else { trendArrow = '\u2192'; trendLabel = 'stable'; }
-  }
-
-  function fmtDur(s) {
-    if (s <= 0) return 'N/A';
-    return Math.floor(s/60) + 'm ' + (s%60) + 's';
-  }
-
-  function progBar(filled, tot, w) {
-    var f = Math.round(filled * w / tot), e = w - f, bar = '';
-    for(var i=0;i<f;i++) bar += '\u2588';
-    for(var i=0;i<e;i++) bar += '\u2591';
-    return bar + ' ' + filled + '/' + tot;
-  }
-
-  function truncName(n, max) {
-    if (n.length > max) return n.substring(0, max - 3) + '...';
-    return n;
-  }
-
-  el.appendChild(rBoxTop());
-  el.appendChild(rBoxTitle('APD History (last ' + total + ')'));
-  el.appendChild(rBoxSep());
-
-  // Overview
-  el.appendChild(rBoxLn([['rdm','  Tasks:    '],['rvb',''+total],['rw',' ('],['rgr',completed+' complete'],['rw',', '],['ryl',partial+' partial'],['rw',')']]));
-
-  var srBar = progBar(completed, total, 10);
-  var srCls = sucRate >= 80 ? 'rgr' : sucRate >= 50 ? 'ryl' : 'rrd';
-  el.appendChild(rBoxLn([['rdm','  Success:  '],[srCls, srBar + ' ' + sucRate + '%']]));
-
-  if (valid > 0) {
-    el.appendChild(rBoxLn([['rdm','  Avg time: '],['rw', fmtDur(avgDur)]]));
-    el.appendChild(rBoxLn([['rdm','  Fastest:  '],['rgr', fmtDur(fastest)],['rdm','  Slowest: '],['rw', fmtDur(slowest)]]));
-
-    // Trend
-    if (trendArrow) {
-      var tCls = trendArrow === '\u2191' ? 'rgr' : trendArrow === '\u2193' ? 'ryl' : 'rdm';
-      el.appendChild(rBoxLn([['rdm','  Trend:    '],[tCls, trendArrow + ' ' + trendLabel],['rdm',' (last 3 vs prev 3)']]));
-    }
-  }
-
-  // Session
-  el.appendChild(rBoxSep());
-  el.appendChild(rBoxLn([['rw','  '],['rvb','Session']]));
-  el.appendChild(rBoxLn([['rdm','  Today:     '],['rvb', '' + total],['rw',' tasks']]));
-  el.appendChild(rBoxLn([['rdm','  This week: '],['rvb', '' + total],['rw',' tasks']]));
-
-  // Adversarial
-  if (advTasks > 0 && advSumT > 0) {
-    el.appendChild(rBoxSep());
-    el.appendChild(rBoxLn([['rw','  '],['rvb','Adversarial Review']]));
-    var hr = Math.round(advSumA * 100 / advSumT);
-    el.appendChild(rBoxLn([['rdm','  Hit rate: '],['ror', hr+'%'],['rdm',' ('+advSumA+'/'+advSumT+' across '+advTasks+' runs)']]));
-
-    if (bestAdvTask) {
-      el.appendChild(rBoxLn([['rdm','  Most hits: '],['rrd', truncName(bestAdvTask, 22)],['rdm',' (' + bestAdvCount + ')']]));
-    }
-    if (cleanTask && advTasks > 1) {
-      el.appendChild(rBoxLn([['rdm','  Cleanest:  '],['rgr', truncName(cleanTask, 22)],['rdm',' (' + cleanRate + '%)']]));
-    }
-  }
-
-  // Runs
-  el.appendChild(rBoxSep());
-  el.appendChild(rBoxLn([['rw','  '],['rvb','Runs']]));
-
-  data.runs.slice().reverse().forEach(function(r) {
+// ============ HERO STRIP ============
+(function(){
+  var strip = document.getElementById('strip');
+  var maxDur = Math.max.apply(null, runs.map(function(r){return r.duration;}));
+  runs.forEach(function(r){
     var d = document.createElement('div');
-    d.appendChild(rSpan('rv','  \u2502'));
-    d.appendChild(rText('  '));
-    d.appendChild(r.st === 'completed' ? rSpan('rgr','\u2713') : rSpan('rdm','\u2026'));
-    d.appendChild(rText(' '));
-
-    var name = r.name;
-    if (name.length > 22) name = name.substring(0, 19) + '...';
-    var padName = name + ' '.repeat(Math.max(0, 22 - name.length));
-    d.appendChild(rSpan('rw', padName));
-    d.appendChild(rText(' '));
-
-    var durStr = fmtDur(r.dur);
-    var advInfo = r.advT > 0 ? ' adv:' + r.advA + '/' + r.advT : '';
-    d.appendChild(rSpan('rdm', durStr + advInfo));
-
-    var plainLen = 2 + 1 + 1 + padName.length + 1 + durStr.length + advInfo.length;
-    var rp = Math.max(0, BW - plainLen);
-    if (rp > 0) d.appendChild(rText(' '.repeat(rp)));
-    d.appendChild(rSpan('rv','\u2502'));
-
-    el.appendChild(d);
+    d.className = 'run';
+    d.style.height = (r.duration/maxDur*100)+'%';
+    d.style.background = r.blocks===0 ? 'var(--green)' : r.blocks<5 ? 'var(--orange)' : 'var(--red)';
+    d.style.opacity = r.blocks===0 ? '0.85' : '1';
+    d.dataset.tip = '#'+r.id+' '+r.name.substring(0,40)+' · '+fmtMin(r.duration)+' · '+r.blocks+' blocks';
+    d.onclick = function(){ expand(r.id); };
+    strip.appendChild(d);
   });
+  var axis = document.getElementById('strip-axis');
+  var uniq = Array.from(new Set(runs.map(function(r){return r.date;}))).sort();
+  var picks = [uniq[0], uniq[Math.floor(uniq.length*0.25)], uniq[Math.floor(uniq.length*0.5)], uniq[Math.floor(uniq.length*0.75)], uniq[uniq.length-1]];
+  picks.forEach(function(d){
+    var s=document.createElement('span');
+    s.textContent = new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric'}).toUpperCase();
+    axis.appendChild(s);
+  });
+})();
 
-  el.appendChild(rBoxBot());
+// ============ SPARKLINES ============
+function spark(id, vals, color){
+  var svg = document.getElementById(id);
+  var w=72, h=18, max=Math.max.apply(null,vals), min=Math.min.apply(null,vals);
+  var range = max-min || 1;
+  var pts = vals.map(function(v,i){
+    var x = (i/(vals.length-1))*w;
+    var y = h - ((v-min)/range)*(h-2) - 1;
+    return x+','+y;
+  }).join(' ');
+  svg.innerHTML = '<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="1.5" stroke-linejoin="round"/>';
+}
+var last10 = runs.slice(-10);
+spark('spark-total', last10.map(function(_,i){return i+1;}), '#af8fff');
+spark('spark-dur', last10.map(function(r){return r.duration;}), '#66cc66');
+
+// ============ CHART (duration trend w/ median + version markers) ============
+(function(){
+  var svg = document.getElementById('duration-chart');
+  var W=1100,H=220,pad={t:16,r:20,b:30,l:44};
+  var pw=W-pad.l-pad.r, ph=H-pad.t-pad.b;
+  var mins = runs.map(function(r){return r.duration/60;});
+  // ceiling to nearest 10
+  var max = Math.ceil(Math.max.apply(null,mins)/10)*10;
+  var step = pw/(mins.length-1);
+  var pts = mins.map(function(v,i){return {x:pad.l+i*step, y:pad.t+ph-(v/max)*ph, v:v, r:runs[i]};});
+  var sorted = mins.slice().sort(function(a,b){return a-b;});
+  var median = sorted[Math.floor(sorted.length/2)];
+  var my = pad.t+ph-(median/max)*ph;
+  var html = '';
+  // grid
+  for(var i=0;i<=4;i++){
+    var y = pad.t+(i/4)*ph, val = Math.round(max-(i/4)*max);
+    html += '<line x1="'+pad.l+'" y1="'+y+'" x2="'+(W-pad.r)+'" y2="'+y+'" stroke="#252538" stroke-width="0.5"/>';
+    html += '<text x="'+(pad.l-8)+'" y="'+(y+3)+'" fill="#5a5a70" font-size="9" text-anchor="end" font-family="JetBrains Mono">'+val+'m</text>';
+  }
+  // median
+  html += '<line x1="'+pad.l+'" y1="'+my+'" x2="'+(W-pad.r)+'" y2="'+my+'" stroke="#5a5a70" stroke-width="0.8" stroke-dasharray="3 4"/>';
+  html += '<text x="'+(W-pad.r-4)+'" y="'+(my-4)+'" fill="#5a5a70" font-size="9" text-anchor="end" font-family="JetBrains Mono">median '+Math.round(median)+'m</text>';
+  // version markers — auto-detect from runs with `ver`
+  var seenVers = {};
+  runs.forEach(function(r,i){
+    if(r.ver && !seenVers[r.ver]){
+      seenVers[r.ver] = true;
+      var p = pts[i];
+      html += '<line x1="'+p.x+'" y1="'+pad.t+'" x2="'+p.x+'" y2="'+(pad.t+ph)+'" stroke="#af8fff" stroke-width="0.8" stroke-dasharray="2 3" opacity="0.5"/>';
+      html += '<text x="'+(p.x+4)+'" y="'+(pad.t+10)+'" fill="#af8fff" font-size="9" font-family="JetBrains Mono">◆ '+r.ver+'</text>';
+    }
+  });
+  var path = pts.map(function(p,i){return (i===0?'M':'L')+p.x+','+p.y;}).join(' ');
+  var area = path+' L'+pts[pts.length-1].x+','+(pad.t+ph)+' L'+pts[0].x+','+(pad.t+ph)+' Z';
+  html += '<path d="'+area+'" fill="#af8fff" opacity="0.06"/>';
+  html += '<path d="'+path+'" fill="none" stroke="#af8fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>';
+  pts.forEach(function(p){
+    html += '<circle cx="'+p.x+'" cy="'+p.y+'" r="2.5" fill="#af8fff" opacity="0.85"><title>#'+p.r.id+' '+p.r.name+' · '+Math.round(p.v)+'m</title></circle>';
+  });
+  [0, Math.floor(runs.length/3), Math.floor(runs.length*2/3), runs.length-1].forEach(function(i){
+    if(pts[i]) html += '<text x="'+pts[i].x+'" y="'+(H-8)+'" fill="#5a5a70" font-size="9" text-anchor="middle" font-family="JetBrains Mono">#'+pts[i].r.id+'</text>';
+  });
+  svg.innerHTML = html;
+})();
+
+// ============ FILTERS ============
+var filters = [
+  {id:'all', label:'All', test:function(){return true;}},
+  {id:'net', label:'.NET', test:function(r){return r.stack==='net';}},
+  {id:'php', label:'PHP', test:function(r){return r.stack==='php';}},
+  {id:'glm', label:'GLM-5', test:function(r){return r.stack==='glm';}},
+  {id:'zero', label:'Zero-block', test:function(r){return r.blocks===0;}},
+  {id:'v47', label:'v4.7+', test:function(r){return r.ver && r.ver.indexOf('v4.7')===0;}}
+];
+var activeFilter = 'all';
+(function(){
+  var fr = document.getElementById('filter-row');
+  filters.forEach(function(f){
+    var count = runs.filter(f.test).length;
+    var b = document.createElement('button');
+    b.className = 'chip' + (f.id==='all'?' active':'');
+    b.textContent = f.label + ' · ' + count;
+    b.dataset.filter = f.id;
+    b.onclick = function(e){
+      e.stopPropagation();
+      document.querySelectorAll('.chip').forEach(function(c){c.classList.remove('active');});
+      b.classList.add('active');
+      activeFilter = f.id;
+      renderTable();
+    };
+    fr.appendChild(b);
+  });
+  var sp = document.createElement('div'); sp.className='filter-spacer'; fr.appendChild(sp);
+  var sb = document.createElement('span'); sb.className='sort-by'; sb.textContent='Sort: newest first'; fr.appendChild(sb);
+})();
+
+// ============ TABLE ============
+var tbody = document.getElementById('tbody');
+function renderTable(){
+  tbody.innerHTML = '';
+  var filter = filters.find(function(f){return f.id===activeFilter;});
+  runs.slice().reverse().filter(filter.test).forEach(function(r){
+    var tr = document.createElement('tr');
+    tr.dataset.id = r.id;
+    tr.onclick = function(){ toggle(r.id); };
+    var stackLbl = r.stack==='net' ? '.NET' : r.stack==='glm' ? 'GLM-5' : 'PHP';
+    var segHTML = r.segs.map(function(s,i){
+      return '<span class="seg s'+(i+1)+'" style="width:'+(s*100)+'%" title="'+['Spec','Builder','Reviewer','Verifier'][i]+' ~'+Math.round(s*r.duration)+'s"></span>';
+    }).join('');
+    var blockCell = r.blocks===0 ? '<span class="bz">✓ 0</span>' : '<span class="bn">'+r.blocks+'</span>';
+    var verHTML = r.ver ? '<span class="ver-m">'+r.ver+'</span>' : '';
+    tr.innerHTML =
+      '<td><span class="chev">▸</span><span class="rid">#'+r.id+'</span></td>'+
+      '<td><span class="rname">'+r.name+'</span>'+verHTML+'</td>'+
+      '<td><span class="pbadge '+r.stack+'">'+stackLbl+'</span></td>'+
+      '<td><div style="display:flex;align-items:center"><div class="pstrip">'+segHTML+'</div><span class="ptime">'+fmtDurShort(r.duration)+'</span></div></td>'+
+      '<td style="color:'+(r.spec==='N/A'?'var(--text-dim)':'var(--text)')+'">'+r.spec+'</td>'+
+      '<td>'+blockCell+'</td>'+
+      '<td><span class="abadge '+r.advType+'">'+r.adversarial+'</span></td>';
+    tbody.appendChild(tr);
+  });
 }
 
-var bambiData = {runs:[
-  {name:"Email template rewrite Faza 1",dur:368,st:"completed",advT:3,advA:0},
-  {name:"Password-reset OTP migracija",dur:238,st:"completed",advT:9,advA:0},
-  {name:"Hotfix: short asset URLs (QP)",dur:530,st:"completed",advT:5,advA:0},
-  {name:"Fix broken email assets",dur:965,st:"completed",advT:8,advA:2},
-  {name:"Fix CI: RenderScript skip",dur:306,st:"completed",advT:5,advA:0},
-  {name:"Gmail dark mode fix",dur:1676,st:"completed",advT:5,advA:0},
-  {name:"Subject + brand red",dur:458,st:"completed",advT:5,advA:0},
-  {name:"Wolverine retry duplicate fix",dur:1400,st:"completed",advT:4,advA:2},
-  {name:"Dark mode: OTP bubble CID",dur:1573,st:"completed",advT:5,advA:0},
-  {name:"MailKit 4.15.1 \u2192 4.16.0 STARTTLS",dur:222,st:"completed",advT:0,advA:0}
-]};
-
-var mojoffData = {runs:[
-  {name:"Audit 2a \u2014 Arch+Security",dur:690,st:"completed",advT:5,advA:1},
-  {name:"Audit 2b \u2014 FluentValid",dur:278,st:"completed",advT:3,advA:0},
-  {name:"Audit 3a \u2014 Security DB",dur:374,st:"completed",advT:3,advA:1},
-  {name:"Audit 3b \u2014 API quality",dur:589,st:"completed",advT:3,advA:0},
-  {name:"Audit 3c \u2014 Frontend",dur:246,st:"completed",advT:4,advA:0},
-  {name:"Audit 4a \u2014 Low prio",dur:433,st:"completed",advT:4,advA:0},
-  {name:"Audit 4b \u2014 Remaining",dur:250,st:"completed",advT:3,advA:0},
-  {name:"HOTFIX: EF Core migr",dur:177,st:"completed",advT:3,advA:0},
-  {name:"HOTFIX: Frontend pagin",dur:165,st:"completed",advT:4,advA:0},
-  {name:"Image shimmer+fade",dur:242,st:"completed",advT:4,advA:1}
-]};
-
-var reportsRendered = false;
-function renderReports() {
-  if (reportsRendered) return;
-  renderReport('bambi-report', bambiData);
-  renderReport('mojoff-report', mojoffData);
-  reportsRendered = true;
+function expand(id){
+  // make sure filter allows it; if not, reset
+  var r = runs.find(function(x){return x.id===id;});
+  if(!r) return;
+  var f = filters.find(function(f){return f.id===activeFilter;});
+  if(!f.test(r)){
+    activeFilter = 'all';
+    document.querySelectorAll('.chip').forEach(function(c){c.classList.toggle('active', c.dataset.filter==='all');});
+    renderTable();
+  }
+  var tr = tbody.querySelector('tr[data-id="'+id+'"]');
+  if(!tr) return;
+  if(!tr.classList.contains('expanded')) toggle(id);
+  tr.scrollIntoView({block:'center', behavior:'smooth'});
 }
+
+function toggle(id){
+  var tr = tbody.querySelector('tr[data-id="'+id+'"]');
+  if(!tr) return;
+  var next = tr.nextSibling;
+  if(next && next.classList && next.classList.contains('expand-row')){
+    next.remove(); tr.classList.remove('expanded'); return;
+  }
+  tbody.querySelectorAll('tr.expanded').forEach(function(e){
+    e.classList.remove('expanded');
+    var n = e.nextSibling;
+    if(n && n.classList && n.classList.contains('expand-row')) n.remove();
+  });
+  tr.classList.add('expanded');
+  var r = runs.find(function(x){return x.id===id;});
+  var er = document.createElement('tr');
+  er.className = 'expand-row';
+  var td = document.createElement('td');
+  td.colSpan = 7;
+  td.innerHTML =
+    '<div class="expand-inner">' +
+      '<div>' + reportHTML(r) + '</div>' +
+      '<div><div class="note-label">Note</div><div class="note-full">' + escapeHTML(r.note) + '</div></div>' +
+    '</div>';
+  er.appendChild(td);
+  tr.parentNode.insertBefore(er, tr.nextSibling);
+}
+
+function escapeHTML(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// ============ INLINE APD REPORT TERMINAL ============
+function reportHTML(r){
+  var BW = 48;
+  var dash = function(n){var s='';for(var i=0;i<n;i++)s+='─';return s;};
+  var pad = function(s,w){return s+' '.repeat(Math.max(0,w-s.length));};
+  var span = function(cls,txt){return '<span class="'+cls+'">'+txt+'</span>';};
+  var row = function(parts){
+    var len=0; parts.forEach(function(p){len+=p[1].length;});
+    var rp = Math.max(0, BW-len);
+    return span('rv','│')+parts.map(function(p){return span(p[0],p[1]);}).join('')+' '.repeat(rp)+span('rv','│');
+  };
+  var segNames=['spec','builder','reviewer','verifier'];
+  var segClasses=['rv','rbl','ror','rgr'];
+  var out = '';
+  out += span('rv','  ╭'+dash(BW)+'╮') + '\n';
+  var title = 'APD Pipeline Report — #'+r.id;
+  var tp = Math.floor((BW-title.length)/2), tr2 = BW-tp-title.length;
+  out += span('rv','  │')+' '.repeat(tp)+span('rvb',title)+' '.repeat(tr2)+span('rv','│') + '\n';
+  out += span('rv','  ├'+dash(BW)+'┤') + '\n';
+  var nm = r.name.length>34 ? r.name.substring(0,31)+'...' : r.name;
+  out += '  '+row([['rdm',' Task:     '],['rw',nm]]) + '\n';
+  out += '  '+row([['rdm',' Status:   '],['rgr','complete']]) + '\n';
+  out += '  '+row([['rdm',' Duration: '],['rw',fmtDurShort(r.duration)]]) + '\n';
+  if(r.ver) out += '  '+row([['rdm',' APD:      '],['rv',r.ver]]) + '\n';
+  out += span('rv','  ├'+dash(BW)+'┤') + '\n';
+  out += '  '+row([['rw',' '],['rvb','Pipeline']]) + '\n';
+  r.segs.forEach(function(s,i){
+    var secT = Math.round(s*r.duration), m=Math.floor(secT/60), sc=secT%60;
+    var t = m+'m '+(sc<10?'0':'')+sc+'s';
+    out += '  '+row([['rw',' '],[segClasses[i],'✓'],['rw',' '+pad(segNames[i],12)],['rdm',t]]) + '\n';
+  });
+  out += span('rv','  ├'+dash(BW)+'┤') + '\n';
+  out += '  '+row([['rw',' '],['rvb','Quality']]) + '\n';
+  out += '  '+row([['rdm',' Spec:     '],['rw',r.spec]]) + '\n';
+  out += '  '+row([['rdm',' Adv:      '],[r.advType==='real'?'rgr':r.advType==='bypass'?'ror':'rdm',r.adversarial]]) + '\n';
+  out += '  '+row([['rdm',' Blocks:   '],[r.blocks===0?'rgr':'ror',''+r.blocks]]) + '\n';
+  out += span('rv','  ╰'+dash(BW)+'╯');
+  return '<div class="report-term">'+out+'</div>';
+}
+
+renderTable();
 </script>
 
 </body>
