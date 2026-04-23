@@ -728,9 +728,13 @@ case "$STEP" in
                     PIPELINE_STATUS="Partial (verifier not completed)"
                 fi
 
-                # 5. New rule — auto-fill "None" for skip/init tasks, leave [fill in] for real tasks
-                NEW_RULE='[fill in or "None"]'
-                if echo "$TASK_NAME" | grep -qE '^(HOTFIX|INIT):'; then
+                # 5. New rule — caller can pass via 2nd arg ("pipeline reset 'learning text'")
+                #    Empty/missing → "None" (no manual session-log edit needed)
+                if [ -n "$ARG" ]; then
+                    # Collapse newlines/CR so it stays one log line
+                    NEW_RULE="${ARG//$'\n'/ }"
+                    NEW_RULE="${NEW_RULE//$'\r'/ }"
+                else
                     NEW_RULE="None"
                 fi
 

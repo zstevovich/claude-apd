@@ -112,9 +112,12 @@ substantial enough that the adversarial gate stays on regardless — the
    `apd_verify_step(scope="fast")` directly.
 9. **Commit** with a short, imperative-mood message in the repo's style.
 10. **Reset before the next task:** `apd_advance_pipeline("reset")` —
-    archives metrics + agent history, writes session-log summary, clears
-    pipeline artifacts so the next task starts clean. Skipping this
-    causes telemetry loss and stale spec-card state.
+    archives metrics + agent history, writes session-log summary
+    (defaults "New rule" to "None"; pass a learning string as 2nd arg
+    to capture a real one, e.g.
+    `apd_advance_pipeline("reset", "always run composer dump-autoload after model changes")`),
+    clears pipeline artifacts. Skipping the call causes telemetry loss
+    and stale spec-card state.
 
 ## Rules and memory
 
