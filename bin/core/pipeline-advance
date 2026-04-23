@@ -344,6 +344,8 @@ case "$STEP" in
         show_pipeline "reviewer"
         # GitHub sync (best-effort)
         bash "$SCRIPT_DIR/gh-sync" builder 2>/dev/null || true
+        echo "" >&2
+        echo "    ${D}Next:${R} Review the diff, then advance the reviewer gate" >&2
         ;;
 
     reviewer)
@@ -443,6 +445,14 @@ case "$STEP" in
         show_pipeline "verifier"
         # GitHub sync (best-effort)
         bash "$SCRIPT_DIR/gh-sync" reviewer 2>/dev/null || true
+        echo "" >&2
+        if [ "$ADV_OPT_OUT" = true ]; then
+            echo "    ${D}Next (Lean):${R} advance the verifier gate — adversarial skipped per spec-card opt-out" >&2
+        elif [ -f "$PIPELINE_DIR/.adversarial-pending" ]; then
+            echo "    ${D}Next (Full):${R} run the adversarial pass and record the outcome, then advance the verifier gate" >&2
+        else
+            echo "    ${D}Next:${R} advance the verifier gate" >&2
+        fi
         ;;
 
     verifier)
@@ -571,6 +581,7 @@ case "$STEP" in
         apd_header "COMMIT ALLOWED" "total: $TOTAL"
         show_pipeline ""
         echo "    Ready: APD_ORCHESTRATOR_COMMIT=1 git commit ..."
+        echo "    ${D}After commit, before any new task: advance the reset step${R}" >&2
         # GitHub sync (best-effort)
         bash "$SCRIPT_DIR/gh-sync" verifier 2>/dev/null || true
         ;;
@@ -663,9 +674,13 @@ case "$STEP" in
                         BLOCKS=0
                         BLOCK_REASONS=""
                         while IFS='|' read -r log_ts log_type log_agent log_reason log_cmd; do
+                            # Skip orphan/garbage lines (legacy multi-line entries from pre-fix writers)
+                            case "$log_ts" in
+                                [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][[:space:]][0-9][0-9]:[0-9][0-9]:[0-9][0-9]) ;;
+                                *) continue ;;
+                            esac
                             LOG_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$log_ts" +%s 2>/dev/null || date -d "$log_ts" +%s 2>/dev/null || echo 0)
                             if [ "$LOG_EPOCH" -eq 0 ] 2>/dev/null && [ -n "$log_ts" ]; then
-                                echo "WARN: guard-audit.log timestamp unparseable, skipped: '$log_ts'" >&2
                                 continue
                             fi
                             if [ "$LOG_EPOCH" -ge "$SPEC_TS" ] 2>/dev/null; then

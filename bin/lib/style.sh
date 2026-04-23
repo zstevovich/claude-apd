@@ -211,6 +211,9 @@ show_pipeline() {
 log_block() {
     local reason="$1"
     local cmd_summary="${2:-}"
+    # Collapse newlines/CR so each event is exactly one log line
+    cmd_summary="${cmd_summary//$'\n'/ }"
+    cmd_summary="${cmd_summary//$'\r'/ }"
     local log_file="${MEMORY_DIR:-}/guard-audit.log"
     [ -d "${MEMORY_DIR:-}" ] || return 0
     local agent_info="${AGENT_ID:-orchestrator}"

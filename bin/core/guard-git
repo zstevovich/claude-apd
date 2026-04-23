@@ -26,7 +26,11 @@ log_block() {
   if [ -d "$MEMORY_DIR" ]; then
     local agent_info="${AGENT_ID:-orchestrator}"
     [ -n "$AGENT_TYPE" ] && agent_info="${agent_info}(${AGENT_TYPE})"
-    echo "$(date +%Y-%m-%d\ %H:%M:%S)|BLOCK|${agent_info}|${reason}|${RAW_COMMAND:-$COMMAND}" >> "$log_file" 2>/dev/null
+    # Collapse newlines/CR so each event is exactly one log line
+    local cmd="${RAW_COMMAND:-$COMMAND}"
+    cmd="${cmd//$'\n'/ }"
+    cmd="${cmd//$'\r'/ }"
+    echo "$(date +%Y-%m-%d\ %H:%M:%S)|BLOCK|${agent_info}|${reason}|${cmd}" >> "$log_file" 2>/dev/null
   fi
 }
 
