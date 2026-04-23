@@ -19,10 +19,64 @@ these tools:
 | `apd_doctor` | Pipeline diagnostics — run before and after large steps |
 | `apd_advance_pipeline(step, arg?)` | Move the pipeline forward one gate |
 | `apd_guard_write(apd_role, file_path)` | MUST call before every file write — scope is read server-side from `.apd/agents/<apd_role>.md`; exit 2 = BLOCK. The argument is `apd_role` not `role` to dodge Codex's multi_agent role-mismatch approval prompt |
-| `apd_verify_step()` | Run project `.codex/bin/verify-all.sh` (or framework fallback) |
+| `apd_verify_step(scope="full")` | Run project `.codex/bin/verify-all.sh` (or framework fallback). `scope="fast"` exposes `APD_VERIFY_SCOPE=fast` to the verifier so a customised verify-all.sh can run build + targeted tests only — use during builder REFACTOR iteration. Default `"full"` runs the complete suite and is what the pre-commit gate uses |
 | `apd_adversarial_pass(total, accepted, dismissed, notes="")` | Record adversarial review outcome — `notes` is REQUIRED when `total=0` (>= 80 chars) so the server can tell a real "0 findings" pass from a rubber-stamp |
 | `apd_list_agents()` | List every agent definition in `.apd/agents/` with scope, model, maxTurns — call once to discover which roles exist; scope is enforced by `apd_guard_write` itself, not by re-sending it |
-| `apd_pipeline_state()` | Structured snapshot of the current pipeline: which `.done` files exist, spec-card criteria count + freeze hash, implementation-plan presence, adversarial summary, reviewed-files count, verifier cache age, and the next step to advance |
+| `apd_pipeline_state()` | Structured snapshot of the current pipeline: which `.done` files exist, spec-card criteria count + freeze hash, implementation-plan presence, adversarial summary, reviewed-files count, verifier cache age, the next step to advance, and a `budgets` field (spec criteria, reviewed files, verifier duration) with advisory green/yellow/red status to inform the Lean vs Full choice |
+
+## Recon (before the spec card)
+
+Before writing the spec card you need enough context to draft precise
+acceptance criteria. Recon is the single biggest source of wasted context
+on Codex — the orchestrator is prone to opening files it does not need.
+Be sharp here and every downstream gate is cheaper.
+
+Order:
+
+1. **Structural tools first.** Call `apd_list_agents()` to see which roles
+   and scopes exist, and `apd_pipeline_state()` for the current pipeline
+   snapshot. These are cheap and give the shape of the work before any
+   file read.
+2. **Grep over Read.** Use `grep`/`rg` to locate the relevant symbol,
+   function, or config. Only `Read` a full file when you must understand
+   a specific function in its surrounding context.
+3. **Stay in the green zone: ≤ 7 file reads before the spec card.** If
+   you are about to open an 8th file, stop and ask whether the task is
+   too broad for one pipeline cycle — decompose it instead. Genuine
+   exceptions (unfamiliar codebase, truly cross-cutting change) exist
+   but should be rare.
+
+## Lean vs Full pipeline
+
+Not every task needs every gate. Choose the mode at spec time:
+
+- **Full** (default): spec → builder → reviewer → adversarial → verifier
+  → commit. Use whenever the work touches a migration, auth or session
+  handling, a public API or wire protocol, a security-sensitive path, or
+  a cross-module refactor.
+- **Lean**: spec → builder → reviewer → verifier → commit. Skip
+  adversarial for genuinely small, contained work — a trivial feature or
+  bugfix of fewer than 5 files that does NOT fall into any Full category
+  above.
+
+Default to Full. Pick Lean only when ALL of these are true: single narrow
+change, no migration, no auth, no public-API change, no security
+surface, no cross-module refactor. When in doubt, pick Full — adversarial
+is cheap insurance against the regressions it catches.
+
+### Opting into Lean
+
+Add this line anywhere in `.apd/pipeline/spec-card.md`:
+
+```
+adversarial: skip — <one-sentence reason>
+```
+
+The reviewer gate then advances straight to verifier without setting the
+adversarial-pending flag. **Mechanical cap: the opt-out is only honored
+when the spec has ≤ 2 `R*:` criteria.** A 3+ criterion spec is
+substantial enough that the adversarial gate stays on regardless — the
+`adversarial: skip` line is ignored in that case.
 
 ## Order of operations for a task
 
@@ -42,14 +96,20 @@ these tools:
 5. **Advance the builder gate:** `apd_advance_pipeline("builder")`.
 6. **Review the diff inline.** Walk the diff like a hostile reviewer.
    Advance: `apd_advance_pipeline("reviewer")`.
-7. **Verify:** `apd_advance_pipeline("verifier")`. This runs
-   `apd_verify_step()` internally, which blocks on build or test failure.
-8. **Adversarial pass (optional but recommended):** consider regressions,
+7. **Adversarial pass (Full mode only):** consider regressions,
    concurrency, edge cases, contract drift, security surface. Record the
    outcome with `apd_adversarial_pass(total, accepted, dismissed, notes)`.
    If you genuinely find nothing (`total=0`), `notes` becomes mandatory
    (>= 80 chars) — write what categories you actually examined and why
-   they came up clean. The server rejects empty 0/0/0 records.
+   they came up clean. The server rejects empty 0/0/0 records. In Lean
+   mode, skip this step — the reviewer gate does not set the
+   adversarial-pending flag when `adversarial: skip` is accepted.
+8. **Verify:** `apd_advance_pipeline("verifier")`. This runs
+   `apd_verify_step()` internally (always with `scope="full"`), which
+   blocks on build or test failure. In Full mode, it also blocks when
+   step 7 was not recorded. For quick checks during a builder REFACTOR
+   cycle — before you're ready to advance the gate — call
+   `apd_verify_step(scope="fast")` directly.
 9. **Commit** with a short, imperative-mood message in the repo's style.
 
 ## Rules and memory

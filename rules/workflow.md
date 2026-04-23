@@ -26,12 +26,13 @@
    → bash .claude/bin/apd pipeline reviewer (after reviewer completes)
    → If reviewer finds critical issues → dispatch builder to fix → re-review
    ↓
-6b. DISPATCH ADVERSARIAL REVIEWER (optional, recommended)
+6b. DISPATCH ADVERSARIAL REVIEWER (Full mode only)
    → Dispatch adversarial-reviewer agent (sonnet/max, read-only, no spec context)
    → Agent sees only git diff + touched files, finds issues blind
    → Orchestrator evaluates findings: accept or dismiss each
    → Write ADVERSARIAL:total:accepted:dismissed to .apd/pipeline/.adversarial-summary
    → If accepted findings → fix via builder → re-review
+   → Lean mode skips this step — see "Lean vs Full" below
    ↓
 7. RUN VERIFIER — build + test
    → bash .claude/bin/apd pipeline verifier
@@ -112,6 +113,38 @@ bash .claude/bin/apd pipeline stats
 - **NEVER write, edit, or create project source files** (code, templates, CSS, JS, tests, configs). You are the ORCHESTRATOR — you write ONLY pipeline files (spec-card.md, implementation-plan.md, .adversarial-summary) and memory files. ALL code changes go through dispatched Builder agents. `guard-orchestrator` mechanically blocks this — every failed attempt wastes tokens.
 - **NEVER read code files after a reviewer finishes** to "verify" or "double-check" the review. Trust the reviewer's findings. If the reviewer missed something, dispatch the reviewer again — do not replicate its work.
 - **DO verify review findings that cite an external standard** — API format, protocol spec, library contract, vendor docs — against the primary source (official documentation) before accept/dismiss. `WebFetch` or reading a checked-in spec file is NOT the same as re-reading the code under review. Reviewers are agents; they can have knowledge gaps and hallucinate. Evidence-based dismissal ("Postmark docs show `ContentID: cid:...` — finding is false positive, dismiss") is engineering; feeling-based dismissal ("I think it's fine") is negligence. Document the source in the dismissal so the audit trail is reviewable.
+
+## 0. Lean vs Full mode
+
+Every pipeline cycle runs in one of two modes. Pick at spec time:
+
+- **Full** (default): spec → builder → reviewer → adversarial → verifier
+  → commit. Use whenever the work touches a migration, auth or session
+  handling, a public API or wire protocol, a security-sensitive path
+  (input validation, crypto, secrets), or a cross-module refactor.
+- **Lean**: spec → builder → reviewer → verifier → commit. Adversarial
+  is skipped. Only available for a genuinely small, contained change —
+  fewer than 5 files in scope AND none of the Full-only categories apply.
+
+Default to Full. Pick Lean only when ALL of these are true: single narrow
+change, no migration, no auth, no public-API change, no security surface,
+no cross-module refactor. When in doubt, pick Full — adversarial is cheap
+insurance against the regressions it catches.
+
+### Opting into Lean
+
+Add this line anywhere in `.apd/pipeline/spec-card.md`:
+
+```
+adversarial: skip — <one-sentence reason>
+```
+
+The reviewer step then advances straight to verifier without creating
+`.adversarial-pending`. **Mechanical cap: the opt-out is only honored
+when the spec has ≤ 2 `R*:` criteria.** A 3+ criterion spec is
+substantial enough that adversarial stays required; the opt-out line is
+ignored in that case. The cap is a deliberate nudge — if the spec
+doesn't fit in 2 criteria, it's not a Lean task.
 
 ## 1. Spec card before code
 

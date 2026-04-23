@@ -1464,7 +1464,7 @@ def _ex(fn):
     m = re.search(r"(^def " + fn + r"\(.*?)(?=^def |^@mcp|\Z)", src, re.M | re.S)
     return m.group(1) if m else ""
 
-code = "\n".join([_ex(n) for n in ("_read_done", "_is_project_root", "_project_dir")])
+code = "\n".join([_ex(n) for n in ("_budget_status", "_read_done", "_is_project_root", "_project_dir")])
 ps = re.search(r"@mcp\.tool\(\)\n(def apd_pipeline_state.*?)(?=\n@mcp|\nclass |\Z)", src, re.S)
 code += "\n" + ps.group(1)
 exec(compile(code, "<ps>", "exec"), globs)
@@ -1515,6 +1515,27 @@ PY
         PASSES=$((PASSES + 1))
     else
         fail "reviewed_files wrong: $OUT"; FAILS=$((FAILS + 1))
+    fi
+    # Soft phase budgets — 3 criteria + 3 reviewed files => both green,
+    # verifier_duration_s = null (verifier.done missing in this fixture).
+    if echo "$OUT" | python3 -c "
+import sys, json
+s = json.loads(sys.stdin.read())
+b = s.get('budgets') or {}
+sc = (b.get('spec_criteria') or {})
+rf = (b.get('reviewed_files') or {})
+ok = (
+    sc.get('value') == 3 and sc.get('status') == 'green' and
+    rf.get('value') == 3 and rf.get('status') == 'green' and
+    b.get('verifier_duration_s') is None
+)
+sys.exit(0 if ok else 1)
+" 2>/dev/null; then
+        pass "budgets populated (spec_criteria/reviewed_files green, verifier_duration_s=null)"
+        PASSES=$((PASSES + 1))
+    else
+        fail "budgets missing or wrong shape: $OUT"
+        FAILS=$((FAILS + 1))
     fi
 
     rm -rf "$PS"
@@ -1623,6 +1644,153 @@ else
 fi
 
 rm -rf "$ADV_DIR"
+
+# -----------------------------------------------------------
+# 20c. apd_verify_step scope parameter (fast vs full)
+#      - default scope="full"; invalid scope rejected
+#      - scope="fast" exposes APD_VERIFY_SCOPE=fast to verify-all.sh
+# -----------------------------------------------------------
+section "20c. apd_verify_step scope"
+
+VS_DIR="$(mktemp -d -t apd-vs.XXXXXX)"
+mkdir -p "$VS_DIR/.codex/bin" "$VS_DIR/.apd/pipeline"
+# Dummy verify-all.sh that echoes the scope seen in its environment.
+cat > "$VS_DIR/.codex/bin/verify-all.sh" <<'VSH'
+#!/bin/bash
+echo "APD_VERIFY_SCOPE=${APD_VERIFY_SCOPE:-unset}"
+exit 0
+VSH
+chmod +x "$VS_DIR/.codex/bin/verify-all.sh"
+
+VS_OUT="$(APD_PROJECT_DIR="$VS_DIR" python3 - <<PY
+import sys, types, json
+mcp_mod = types.ModuleType("mcp")
+server_mod = types.ModuleType("mcp.server")
+fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+class DummyFastMCP:
+    def __init__(self,*_a,**_kw): pass
+    def tool(self,*_a,**_kw):
+        def d(fn): return fn
+        return d
+    def run(self): return None
+fastmcp_mod.FastMCP = DummyFastMCP
+server_mod.fastmcp = fastmcp_mod
+mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod
+sys.modules["mcp.server"] = server_mod
+sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
+import apd_mcp_server as m
+
+results = {
+    "default":    m.apd_verify_step(),
+    "full":       m.apd_verify_step(scope="full"),
+    "fast":       m.apd_verify_step(scope="fast"),
+    "invalid":    m.apd_verify_step(scope="deep"),
+    "empty":      m.apd_verify_step(scope=""),
+}
+# Slim down to json-friendly shape — stdout is what we check for the env var
+print(json.dumps({
+    k: {"ok": v.get("ok"), "scope": v.get("scope"), "error": v.get("error",""), "stdout": (v.get("stdout") or "").strip()}
+    for k, v in results.items()
+}))
+PY
+)"
+
+if echo "$VS_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+sys.exit(0 if d['default']['ok'] is True and d['default']['scope'] == 'full' and 'APD_VERIFY_SCOPE=full' in d['default']['stdout'] else 1)
+" 2>/dev/null; then
+    pass "default scope is 'full' and reaches verify-all.sh as env var"
+    PASSES=$((PASSES + 1))
+else
+    fail "default scope did not resolve to 'full': $VS_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$VS_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+sys.exit(0 if d['fast']['ok'] is True and d['fast']['scope'] == 'fast' and 'APD_VERIFY_SCOPE=fast' in d['fast']['stdout'] else 1)
+" 2>/dev/null; then
+    pass "scope='fast' passes APD_VERIFY_SCOPE=fast to verify-all.sh"
+    PASSES=$((PASSES + 1))
+else
+    fail "scope='fast' did not propagate: $VS_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$VS_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+ok = d['invalid']['ok'] is False and 'invalid scope' in (d['invalid']['error'] or '') and d['empty']['ok'] is True and d['empty']['scope'] == 'full'
+sys.exit(0 if ok else 1)
+" 2>/dev/null; then
+    pass "invalid scope rejected, empty scope falls back to 'full'"
+    PASSES=$((PASSES + 1))
+else
+    fail "scope validation not behaving correctly: $VS_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$VS_DIR"
+
+# Framework-fallback path: no project-local verify-all.sh, so apd_verify_step
+# drops to bin/core/verify-all. APD_VERIFY_SCOPE must reach that script too —
+# otherwise scope="fast" silently degrades to full on the fallback path.
+VS_FB="$(mktemp -d -t apd-vs-fb.XXXXXX)"
+mkdir -p "$VS_FB/.codex"
+VS_FB_OUT="$(APD_PROJECT_DIR="$VS_FB" python3 - <<PY
+import sys, types, json, os
+mcp_mod = types.ModuleType("mcp")
+server_mod = types.ModuleType("mcp.server")
+fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+class DummyFastMCP:
+    def __init__(self,*_a,**_kw): pass
+    def tool(self,*_a,**_kw):
+        def d(fn): return fn
+        return d
+    def run(self): return None
+fastmcp_mod.FastMCP = DummyFastMCP
+server_mod.fastmcp = fastmcp_mod
+mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod
+sys.modules["mcp.server"] = server_mod
+sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
+import apd_mcp_server as m
+# Intercept _run_core to capture the env_extra that gets forwarded.
+captured = {}
+orig = m._run_core
+def spy(script, *args, timeout=30, env_extra=None):
+    captured["script"] = script
+    captured["env_extra"] = env_extra
+    return {"ok": True, "exit_code": 0, "stdout": "", "stderr": ""}
+m._run_core = spy
+res = m.apd_verify_step(scope="fast")
+print(json.dumps({"captured": captured, "source": res.get("source"), "scope": res.get("scope")}))
+PY
+)"
+
+if echo "$VS_FB_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+ok = (
+    d.get('source') == 'framework' and d.get('scope') == 'fast' and
+    (d.get('captured') or {}).get('script') == 'verify-all' and
+    ((d.get('captured') or {}).get('env_extra') or {}).get('APD_VERIFY_SCOPE') == 'fast'
+)
+sys.exit(0 if ok else 1)
+" 2>/dev/null; then
+    pass "framework-fallback path forwards APD_VERIFY_SCOPE to _run_core"
+    PASSES=$((PASSES + 1))
+else
+    fail "framework fallback dropped scope: $VS_FB_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$VS_FB"
 
 # -----------------------------------------------------------
 # 21. apd cdx skills — hybrid install (direct-drop default, marketplace experimental)

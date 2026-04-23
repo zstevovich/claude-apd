@@ -63,8 +63,10 @@ Before attempting any fix:
    `.apd/rules/tdd.md` for the red-green-refactor discipline.
 2. **Implement the minimum change** that resolves the root cause. No
    unrelated cleanup in the same commit.
-3. **Run the full verifier** (`apd_verify_step()`) and make sure no other
-   test regressed.
+3. **Run the full verifier** (`apd_verify_step(scope="full")`) and make
+   sure no other test regressed. During red-green iteration you can use
+   `apd_verify_step(scope="fast")` for a quicker loop, but always finish
+   with a full pass before advancing the verifier gate.
 
 ## Common rationalizations
 

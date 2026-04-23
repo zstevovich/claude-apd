@@ -7,6 +7,15 @@
 PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_DIR" || exit 0
 
+# ===== SCOPE — "full" (default) or "fast" (build + touched tests only) =====
+# Set by `apd_verify_step(scope="fast")` via the APD_VERIFY_SCOPE env var.
+# pipeline-advance verifier always runs with the default (unset → full).
+# Fast mode is an opt-in optimisation — branches below may reference
+# $APD_VERIFY_SCOPE to skip slow-suite steps during builder REFACTOR
+# iteration. If this script is not customised for fast mode the request
+# is safely ignored and the full suite runs anyway.
+export APD_VERIFY_SCOPE="${APD_VERIFY_SCOPE:-full}"
+
 # ===== CACHE — skip if Verifier step already passed recently =====
 # pipeline-advance verifier writes timestamp to verified.timestamp
 # If fresh (<120s) and no new changes -> skip rebuild
@@ -50,9 +59,19 @@ fi
 #         if ! dotnet build src/MyProject.sln -v q --nologo 2>&1; then
 #             ERRORS+=("Backend build FAILED")
 #         fi
+#         # Fast mode: skip the full test run during iteration.
+#         # if [ "$APD_VERIFY_SCOPE" = "fast" ]; then
+#         #     TOUCHED_PROJECTS=$(echo "$CHANGED_FILES" | grep -oE '^(src|tests)/[^/]+' | sort -u)
+#         #     for p in $TOUCHED_PROJECTS; do
+#         #         if ! dotnet test "$p" -v q --nologo --no-build 2>&1; then
+#         #             ERRORS+=("Tests for $p FAILED")
+#         #         fi
+#         #     done
+#         # else
 #         if ! dotnet test src/MyProject.sln -v q --nologo --no-build 2>&1; then
 #             ERRORS+=("Backend tests FAILED")
 #         fi
+#         # fi
 #     fi
 # fi
 # ================================

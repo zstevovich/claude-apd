@@ -1,5 +1,23 @@
 # Changelog
 
+## v4.7.21 — 2026-04-23
+
+Codex usage tuning — four soft levers that shave ~25-35% tokens on a typical mixed workload without touching pipeline gating. Additive changes only; existing callers of `apd_verify_step()` / `apd_pipeline_state()` keep working unchanged.
+
+### Added
+- **`templates/codex/AGENTS.md` — Recon section** before "Order of operations". Gives the Codex orchestrator three explicit rules before writing the spec card: (1) structural tools first (`apd_list_agents()` + `apd_pipeline_state()`) instead of opening files, (2) Grep/rg over full-file Read, (3) `≤ 7 file reads` green zone with "decompose the task instead" as the escape hatch beyond that. Pure guidance — no gate. Addresses the biggest concrete token burner observed on real Codex cycles (orchestrator reading 14+ files during recon when 5-7 would suffice).
+- **Lean vs Full pipeline documentation** — formalises the previously-undocumented `adversarial: skip — <reason>` opt-out in `bin/core/pipeline-advance`. Lean skips adversarial for small, contained work (<5 files, no migration/auth/public-API/security/cross-module refactor); Full (default) runs every gate. Mechanical cap preserved: opt-out is only honored when the spec has ≤ 2 `R*:` criteria, otherwise the line is ignored. Added to `rules/workflow.md` (new `## 0. Lean vs Full mode` section), `templates/codex/AGENTS.md` (new section + step 7/8 reorder so adversarial correctly precedes the verifier gate — matches actual `pipeline-advance` enforcement), and `templates/codex/rules/brainstorm.md` (mode selection in the "Converge on a design" summary template).
+- **`apd_pipeline_state()` `budgets` field** — advisory green/yellow/red status for `spec_criteria` (green ≤4, yellow 5-7), `reviewed_files` (green ≤4 → Lean-eligible, yellow 5-6, red 7+ → split the task), and `verifier_duration_s` (informational, nullable until verifier.done exists). No gate blocks on status — pure visibility to inform the Lean vs Full choice. New helper `_budget_status(value, green_max, yellow_max)`.
+- **`apd_verify_step(scope="full"|"fast")` parameter** — fast mode passes `APD_VERIFY_SCOPE=fast` to verify-all.sh so a customised verifier can run build + touched-files tests only during builder REFACTOR iteration. Invalid scope rejected; empty string falls back to `full`. `pipeline-advance verifier` always runs with the default (env var unset → `full`) so the gate is unaffected. Safe-by-default: an uncustomised verify-all.sh just ignores the env var and runs its full logic. Framework reference at `bin/core/verify-all` and generated header in `apd-init` both `export APD_VERIFY_SCOPE="${APD_VERIFY_SCOPE:-full}"`; `.NET` example in `bin/core/verify-all` gains a commented fast-mode branch as the template pattern.
+
+### Fixed
+- **Framework-fallback path in `apd_verify_step` dropped `APD_VERIFY_SCOPE`.** When neither `.codex/bin/verify-all.sh` nor `.claude/bin/verify-all.sh` existed, the tool fell through to `_run_core("verify-all", ...)` which built a fresh env dict independently — `scope="fast"` silently degraded to `full` on the fallback. `_run_script`/`_run_core` now accept an optional `env_extra` kwarg overlaid on `_codex_env()`; `apd_verify_step` forwards `{"APD_VERIFY_SCOPE": scope}` explicitly on the fallback call. Caught by code review before landing.
+
+### Tests
+- `test-codex-adapter` grows four checks under new section **20c. apd_verify_step scope**: default resolves to `full` with env propagation, `scope="fast"` propagates `APD_VERIFY_SCOPE=fast`, invalid scope rejected with descriptive error, framework-fallback path forwards `APD_VERIFY_SCOPE` through `_run_core` (spy-based). Section 20 (`apd_pipeline_state`) gains a budgets-shape check. Test harness helper extraction now pulls `_budget_status` alongside the existing helpers. Total: **201/0 passing** (up from 196).
+
+---
+
 ## v4.7.20 — 2026-04-18
 
 ### Added

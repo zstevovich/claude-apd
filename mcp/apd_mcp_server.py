@@ -57,15 +57,20 @@ def _codex_env(project_dir: Path | None = None) -> dict:
     return env
 
 
-def _run_script(path: Path, *args: str, timeout: int = 30) -> dict:
+def _run_script(path: Path, *args: str, timeout: int = 30, env_extra: dict | None = None) -> dict:
     """Run an APD script and return a structured result.
 
     Always pins both cwd and APD_PROJECT_DIR to the resolved project root so
     pure-Codex projects also work when Codex is launched from a subdirectory.
+    `env_extra` is overlaid on top of the Codex env so callers can surface
+    additional variables (e.g. APD_VERIFY_SCOPE) without rebuilding the env.
     """
     if not path.exists():
         return {"ok": False, "error": f"{path.name} not found at {path}"}
     project = _project_dir()
+    env = _codex_env(project)
+    if env_extra:
+        env.update(env_extra)
     try:
         result = subprocess.run(
             ["bash", str(path), *args],
@@ -73,7 +78,7 @@ def _run_script(path: Path, *args: str, timeout: int = 30) -> dict:
             text=True,
             timeout=timeout,
             cwd=str(project),
-            env=_codex_env(project),
+            env=env,
         )
         return {
             "ok": result.returncode == 0,
@@ -85,9 +90,9 @@ def _run_script(path: Path, *args: str, timeout: int = 30) -> dict:
         return {"ok": False, "error": f"{path.name} timed out after {timeout}s"}
 
 
-def _run_core(script: str, *args: str, timeout: int = 30) -> dict:
+def _run_core(script: str, *args: str, timeout: int = 30, env_extra: dict | None = None) -> dict:
     """Run a bin/core/* script and return a structured result."""
-    return _run_script(CORE_DIR / script, *args, timeout=timeout)
+    return _run_script(CORE_DIR / script, *args, timeout=timeout, env_extra=env_extra)
 
 
 _PROJECT_MARKERS = (".codex", "AGENTS.md", ".claude", "CLAUDE.md")
@@ -228,6 +233,22 @@ def _parse_agent_frontmatter(path: Path) -> dict:
     return result
 
 
+def _budget_status(value: int, green_max: int, yellow_max: int) -> str:
+    """Classify a budget counter as green/yellow/red.
+
+    green  — value is well inside the recommended budget
+    yellow — value is approaching the limit; consider decomposing
+    red    — value is past the yellow threshold; strongly consider splitting
+
+    All three budgets are advisory — no gate blocks on status.
+    """
+    if value <= green_max:
+        return "green"
+    if value <= yellow_max:
+        return "yellow"
+    return "red"
+
+
 def _read_done(done: Path) -> dict:
     """Parse a .done file produced by the validator.
 
@@ -278,8 +299,18 @@ def apd_pipeline_state() -> dict:
         "adversarial":         {"pending": bool, "total": int, "accepted": int, "dismissed": int} | null,
         "reviewed_files":      int,
         "verified_cache":      {"ts": int, "age": int, "fresh": bool} | null,
+        "budgets": {
+          "spec_criteria":  {"value": int, "budget_green": 4, "budget_yellow": 7, "status": "green"|"yellow"|"red"},
+          "reviewed_files": {"value": int, "lean_budget": 4,   "status": "green"|"yellow"|"red"},
+          "verifier_duration_s": int | null
+        },
         "next_step":           "spec" | "builder" | "reviewer" | "verifier" | "commit" | None
       }
+
+    Budgets are advisory visibility — no gate blocks on status. Use
+    them to decide Lean vs Full (reviewed_files `green` with ≤ 2
+    criteria = Lean-eligible) or to notice when a task is sprawling
+    past the recommended size.
     """
     project = _project_dir()
     pipeline_dir = project / ".apd" / "pipeline"
@@ -370,6 +401,39 @@ def apd_pipeline_state() -> dict:
             state["verified_cache"] = {"ts": ts, "age": age, "fresh": age < 120}
         except (OSError, ValueError):
             pass
+
+    # Soft phase budgets — advisory only, no gate enforces status.
+    # Spec criteria: green 1-4 (comfortable), yellow 5-7 (approaching the
+    # hard limit of 7 enforced by pipeline-advance spec).
+    # Reviewed files: green 0-4 (Lean-eligible when criteria also ≤ 2),
+    # yellow 5-6 (borderline — prefer Full), red 7+ (consider splitting
+    # the task across multiple pipeline cycles).
+    # Verifier duration: time elapsed between reviewer.done and
+    # verifier.done; null until verifier completes. No threshold — the
+    # value is informational and project-dependent.
+    spec_count = state["spec_card"]["criteria_count"]
+    reviewed_count = state["reviewed_files"]
+
+    verifier_duration: int | None = None
+    reviewer_ts = state["steps"].get("reviewer", {}).get("ts", 0)
+    verifier_ts = state["steps"].get("verifier", {}).get("ts", 0)
+    if reviewer_ts and verifier_ts and verifier_ts >= reviewer_ts:
+        verifier_duration = verifier_ts - reviewer_ts
+
+    state["budgets"] = {
+        "spec_criteria": {
+            "value": spec_count,
+            "budget_green": 4,
+            "budget_yellow": 7,
+            "status": _budget_status(spec_count, 4, 7),
+        },
+        "reviewed_files": {
+            "value": reviewed_count,
+            "lean_budget": 4,
+            "status": _budget_status(reviewed_count, 4, 6),
+        },
+        "verifier_duration_s": verifier_duration,
+    }
 
     return state
 
@@ -530,16 +594,44 @@ def apd_guard_write(apd_role: str, file_path: str) -> dict:
     return _run_core("guard-scope", "--file-path", file_path, *scope, timeout=5)
 
 
+_VERIFY_SCOPES = ("full", "fast")
+
+
 @mcp.tool()
-def apd_verify_step() -> dict:
+def apd_verify_step(scope: str = "full") -> dict:
     """Run the project-level verify-all script.
 
     Looks up a per-project verifier in Codex-native (.codex/bin/verify-all.sh)
     first, then legacy CC (.claude/bin/verify-all.sh) as fallback for hybrid
     setups. If neither exists, delegates to the framework default at
     bin/core/verify-all.
+
+    scope — selects how much work the verifier does:
+      "full" (default) — complete build + test suite; use before advancing
+                         the verifier gate and on pre-commit checks.
+      "fast"           — build + targeted tests only (touched files'
+                         direct test deps). For iteration during the
+                         builder REFACTOR cycle, where the goal is a quick
+                         signal rather than exhaustive verification.
+
+    The scope is exposed to verify-all.sh via the `APD_VERIFY_SCOPE`
+    environment variable. A verify-all.sh that has not been customised for
+    fast mode will still honor the request by running its full logic —
+    that's always safe, just not the optimisation the caller hoped for.
+
+    pipeline-advance verifier always runs with "full" (it invokes
+    verify-all.sh directly without the env var set).
     """
+    scope = (scope or "full").strip().lower()
+    if scope not in _VERIFY_SCOPES:
+        return {
+            "ok": False,
+            "error": f"invalid scope '{scope}' — must be one of {_VERIFY_SCOPES}",
+        }
+
     project = _project_dir()
+    env = _codex_env(project)
+    env["APD_VERIFY_SCOPE"] = scope
     for rel in (".codex/bin/verify-all.sh", ".claude/bin/verify-all.sh"):
         project_verify = project / rel
         if not project_verify.exists():
@@ -548,7 +640,7 @@ def apd_verify_step() -> dict:
             result = subprocess.run(
                 ["bash", str(project_verify)],
                 capture_output=True, text=True, timeout=300, cwd=str(project),
-                env=_codex_env(project),
+                env=env,
             )
             return {
                 "ok": result.returncode == 0,
@@ -556,11 +648,13 @@ def apd_verify_step() -> dict:
                 "stdout": result.stdout,
                 "stderr": result.stderr,
                 "source": "project",
+                "scope": scope,
             }
         except subprocess.TimeoutExpired:
-            return {"ok": False, "error": f"{rel} timed out after 300s"}
-    result = _run_core("verify-all", timeout=300)
+            return {"ok": False, "error": f"{rel} timed out after 300s", "scope": scope}
+    result = _run_core("verify-all", timeout=300, env_extra={"APD_VERIFY_SCOPE": scope})
     result["source"] = "framework"
+    result["scope"] = scope
     return result
 
 

@@ -109,6 +109,11 @@ EOF
 PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_DIR" || exit 0
 
+# Scope — "full" (default) or "fast" (build + touched tests only).
+# Set by apd_verify_step(scope="fast") via APD_VERIFY_SCOPE env var.
+# pipeline-advance verifier always runs with the default (unset → full).
+export APD_VERIFY_SCOPE="${APD_VERIFY_SCOPE:-full}"
+
 # Cache — skip if Verifier step already passed recently
 VERIFIED_TS_FILE="$PROJECT_DIR/.apd/pipeline/verified.timestamp"
 if [ -f "$VERIFIED_TS_FILE" ]; then

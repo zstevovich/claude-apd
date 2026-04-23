@@ -69,7 +69,14 @@ Scope: <what's in>
 Out of scope: <what's out>
 Approach: <one-paragraph technical direction>
 Affected files: <list>
+Pipeline mode: Full | Lean  (see AGENTS.md)
 ```
+
+**Pick Lean only when ALL are true:** fewer than 5 affected files, no
+migration, no auth/session, no public-API or wire-protocol change, no
+security-sensitive surface, no cross-module refactor. Otherwise go Full.
+When in doubt, Full. If you pick Lean, add `adversarial: skip — <reason>`
+in the spec card (honored only when ≤ 2 R-criteria).
 
 Wait for explicit approval. Then — and only then — write
 `.apd/pipeline/spec-card.md` and call
