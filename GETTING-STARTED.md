@@ -27,6 +27,11 @@ Pick the runtime you use. The pipeline semantics (spec → builder → reviewer 
 
 ## Step 1 — Add the marketplace (one time)
 
+> **Codex 0.121.0 users:** marketplace plugin install is upstream-blocked
+> (openai/codex#18258 — `/plugin install` registers the marketplace but the
+> plugin doesn't activate). Use **Part B (direct-drop)** below until the
+> upstream fix ships. CC users: marketplace works as documented here.
+
 ```console
 > /plugin marketplace add zstevovich/claude-apd
 ```
@@ -272,6 +277,11 @@ All commands: `bash .claude/bin/apd <command>`
 # Part B — OpenAI Codex
 
 APD runs on Codex through an MCP server. The orchestrator (main Codex model) plays all pipeline roles inline — there is no sub-agent dispatch — and APD enforces scope via the `apd_guard_write` MCP tool before every file write.
+
+> **This direct-drop path is the recommended Codex install today.** Stable
+> and supported on 0.121.0. The marketplace path in Part A above is
+> upstream-blocked for Codex; switch to it once OpenAI ships the fix
+> (openai/codex#18258).
 
 ## B-Prerequisites
 
