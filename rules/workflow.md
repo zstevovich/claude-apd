@@ -40,7 +40,9 @@
    ↓
 8. ONE COMMIT for the entire feature
    → APD_ORCHESTRATOR_COMMIT=1 git commit
-   → Pipeline auto-resets, session log auto-populated
+   → Before the next task: bash .claude/bin/apd pipeline reset
+     (archives metrics + agent history, writes session-log summary;
+     skipping this causes telemetry loss)
    ↓
 9. FINISH — /apd-finish for push/PR/keep decision
 ```
@@ -83,7 +85,7 @@ This is not just a documented rule — **hooks technically block commits** if st
 
 - `guard-git` → calls `pipeline-gate` → checks that ALL 4 files exist
 - If any is missing → **commit is BLOCKED**
-- After commit → pipeline auto-resets (deletes flags)
+- After commit, before the next task → run `bash .claude/bin/apd pipeline reset` manually (archives metrics + agent history, writes session-log summary, then deletes flags)
 
 ### Commands
 

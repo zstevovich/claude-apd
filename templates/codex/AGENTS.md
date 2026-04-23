@@ -111,6 +111,10 @@ substantial enough that the adversarial gate stays on regardless — the
    cycle — before you're ready to advance the gate — call
    `apd_verify_step(scope="fast")` directly.
 9. **Commit** with a short, imperative-mood message in the repo's style.
+10. **Reset before the next task:** `apd_advance_pipeline("reset")` —
+    archives metrics + agent history, writes session-log summary, clears
+    pipeline artifacts so the next task starts clean. Skipping this
+    causes telemetry loss and stale spec-card state.
 
 ## Rules and memory
 
