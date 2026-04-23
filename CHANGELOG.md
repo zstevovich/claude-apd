@@ -1,5 +1,71 @@
 # Changelog
 
+## v5.0.0 — 2026-04-24
+
+**Multi-runtime era.** APD becomes first-class on both Claude Code and OpenAI Codex. The major bump reflects the conceptual shift, not breaking changes — existing CC users see only additive changes (new files under `mcp/`, `plugins/apd/`, `bin/adapter/cdx/`, `bin/compiled/`). Codex side ships an MCP server (8 tools), per-tool approval registration, hook adapter, install flow, 4 Codex-native skills, AGENTS.md template, and direct-drop plus marketplace distribution paths.
+
+The release also bundles four runtime-polish fixes (F1-F4), a documentation reorganisation (Part B for Codex install + authoritative runtime SPEC), and the corrections from two real-world Codex Lean tests (commits `bc6a93a` and `7374bd7`) on the PHP test project.
+
+### Codex adapter (consolidated since v4.7.x)
+
+- **MCP server** (`mcp/apd_mcp_server.py`) — FastMCP wrapper exposing 8 tools: `apd_ping`, `apd_doctor`, `apd_pipeline_state`, `apd_list_agents`, `apd_advance_pipeline`, `apd_guard_write`, `apd_verify_step`, `apd_adversarial_pass`. Defense in depth on `apd_guard_write` (regex `[A-Za-z0-9_.-]+` whitelist + filesystem escape detection). Empty-pass guard on `apd_adversarial_pass` (notes ≥80 chars when total=0). Per-tool approval blocks written into project `.codex/config.toml` (Codex 0.121.0 has no server-wide default).
+- **Codex plugin manifest** (`plugins/apd/.codex-plugin/plugin.json`) — APD interface, capabilities, `defaultPrompt` injecting "Follow the APD pipeline …" at session start.
+- **Codex marketplace** (`.agents/plugins/marketplace.json`) — `INSTALLED_BY_DEFAULT` registration so APD is first-class in every Codex project (when upstream `/plugin install` works; current 0.121.0 has openai/codex#18258 blocking it — direct-drop is the supported path).
+- **Codex skills** (`plugins/apd/skills/{apd-brainstorm, apd-tdd, apd-debug, apd-finish}/`) — markdown body + `agents/openai.yaml` per skill.
+- **Codex install adapter** (`bin/adapter/cdx/install-codex-config`) — 8-step idempotent flow: MCP server registration → per-agent sandbox skip (intentional, Codex 0.121.0 doesn't enforce) → `.codex/bin/apd` shortcut → `.apd/config` seed → AGENTS.md write-only-if-missing → `.apd/rules/*` → pure-Codex `.apd/` scaffold (skipped on hybrid) → hooks.json merge.
+- **Codex skills install** (`bin/adapter/cdx/skills-install`) — direct-drop (default, symlinks `~/.codex/skills/apd-*` → repo) and `--marketplace` modes (latter experimental, blocked upstream).
+- **Codex hook adapter shim** (`bin/adapter/cdx/guard-bash-scope`) — parses Codex hook stdin JSON and forwards to core `guard-bash-scope`. Single PreToolUse Bash event wired (Codex 0.121.0 supports only this reliably in `codex exec` mode).
+- **Codex doctor** (`bin/adapter/cdx/codex-doctor`) — 6-section audit (prerequisites, global config, project `.codex/`, .apd content, AGENTS.md, MCP server syntax + 8 tool functions present).
+- **AGENTS.md template** (`templates/codex/AGENTS.md`) — Codex orchestrator master guide; mirrors CLAUDE.md role for the Codex runtime.
+- **5 Codex agent templates** (`templates/codex/agents/`) — backend-builder, frontend-builder, testing, code-reviewer, adversarial-reviewer.
+- **4 Codex rules** (`templates/codex/rules/{brainstorm, debug, finish, tdd}.md`) — phase-specific orchestrator guidance.
+
+### F1 — Inline "Next:" runtime guidance
+
+`bin/core/pipeline-advance` builder/reviewer/verifier cases now print a runtime-neutral "Next:" line at the end of each gate. Reviewer case has 3 branches (Lean opt-out / Full pending / fallback). Spec case retained its existing CC-flavored Next-steps block as separate concern. **Why:** orchestrator was reading lifecycle from AGENTS.md/workflow.md only — runtime reinforcement closes the loop.
+
+### F2 — Reset lifecycle documentation
+
+- `templates/codex/AGENTS.md` — added step 10 (`apd_advance_pipeline("reset")`) to the Order of operations. Previously orchestrator never knew to call reset, causing telemetry loss + stale spec-card.
+- `rules/workflow.md` — corrected two false "auto-resets" claims (lines 43, 86); pipeline does NOT auto-reset, must be called manually. Documented the correct command and what it archives.
+
+### F3 — guard-audit.log sanitisation
+
+Heredoc commit messages were producing 51 garbage lines in real Test logs, surfacing as 51 WARNs per `apd report` call.
+
+- **Writers** (`bin/lib/style.sh::log_block` + `bin/core/guard-git::log_block`): collapse newlines/CR in `cmd_summary` so each blocked event is exactly one log line.
+- **Parsers** (`bin/core/pipeline-report` + `bin/core/pipeline-advance` reset case): silently skip orphan lines (legacy multi-line entries from pre-fix writers) instead of WARN-spamming. Pattern matches `^YYYY-MM-DD HH:MM:SS|`.
+
+Net: zero WARN output post-fix; legacy garbage is invisible to users; future writes are one-line.
+
+### F4 — Caller-provided "New rule" with "None" default
+
+`pipeline-advance` reset case: caller passes optional learning string as 2nd arg (`apd_advance_pipeline("reset", "always run composer dump-autoload after model changes")`); session-log entry uses it directly. Empty/missing → "None" (no manual session-log edit needed). Newlines sanitised so each event stays one log line.
+
+Removes user-facing placeholder `[fill in or "None"]` that previously required manual session-log edit. AGENTS.md step 10 + workflow.md document the optional 2nd arg.
+
+### Documentation
+
+- **`docs/SPEC.md`** — authoritative runtime map. 23 sections (Part I surface map + Part II internals). Documents every guard, MCP tool, hook event, constant (budget thresholds, timeouts, regex patterns), install step, manifest field. Auto-loaded into framework-internal CLAUDE.md context. **Convention:** code without a SPEC entry is undocumented; update SPEC in the same commit as any framework change.
+- **`GETTING-STARTED.md` Part B polish** — Step 1 (marketplace) flagged as Codex 0.121.0 upstream-blocked (openai/codex#18258); Part B (direct-drop) noted as recommended Codex install today.
+
+### Tests
+
+- `bash bin/core/test-codex-adapter` → **201/0 PASS** maintained throughout the F1-F4 series; bash syntax checks (`bash -n`) clean on every modified script.
+- Two real-world Codex Lean test cycles: comment-validator-minimum-lengths (1m 32s) and category-validator-no-leading-digit (1m 39s). Test 2 was the definitive Lean decision-logic validation (clean prompt, orchestrator independently picked Lean with original-wording rationale).
+- `examples/nodejs-react` verify-apd baseline confirmed at **60/20/2** (the 20 FAILs are structural: install-time files not shipped in example + 8 guard tests needing real hook context).
+
+### Known limitations (carried forward)
+
+- Codex 0.121.0 marketplace install upstream-blocked (openai/codex#18258). Direct-drop is the supported install path.
+- Codex `/` slash menu doesn't list APD skills (same upstream).
+- `pipeline-advance` spec case retains CC-specific Next-steps block (works for CC, ignored by Codex orchestrator).
+- `SessionStart` hook flagged not firing on some projects (CRITICAL backlog).
+- F4 caller-provided arg path live-validated only via documentation read in Test 2; arg-path live test pending (default "None" path is exercised on every reset).
+- `bump-version` script does NOT update `plugins/apd/.codex-plugin/plugin.json` automatically — fixed manually for this release; backlog item to extend the script.
+
+---
+
 ## v4.7.21 — 2026-04-23
 
 Codex usage tuning — four soft levers that shave ~25-35% tokens on a typical mixed workload without touching pipeline gating. Additive changes only; existing callers of `apd_verify_step()` / `apd_pipeline_state()` keep working unchanged.
