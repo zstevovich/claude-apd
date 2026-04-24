@@ -180,7 +180,7 @@ fi
 section "Guard Coverage"
 
 GUARDS_OK=true
-for guard in guard-git guard-orchestrator guard-lockfile guard-pipeline-state guard-bash-scope guard-scope guard-secrets guard-permission-denied; do
+for guard in guard-git guard-orchestrator guard-lockfile guard-pipeline-state guard-bash-scope guard-scope guard-secrets guard-permission-denied guard-compact guard-send-message; do
     if [ -f "$SCRIPT_DIR/$guard" ] && [ -x "$SCRIPT_DIR/$guard" ]; then
         pass "$guard"
     else

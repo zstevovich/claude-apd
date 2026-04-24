@@ -119,7 +119,7 @@ bash .claude/bin/apd pipeline stats
 
 ## 0. Lean vs Full mode
 
-Every pipeline cycle runs in one of two modes. Pick at spec time:
+Not every task needs every gate. Pick the mode at spec time:
 
 - **Full** (default): spec → builder → reviewer → adversarial → verifier
   → commit. Use whenever the work touches a migration, auth or session

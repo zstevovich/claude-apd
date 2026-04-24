@@ -1,5 +1,14 @@
 # Changelog
 
+## v5.0.1 — 2026-04-24
+
+Two small post-merge fixes.
+
+- **`rules/workflow.md`** — align opener of `## 0. Lean vs Full mode` with Codex `AGENTS.md` (*"Not every task needs every gate. Pick the mode at spec time:"*). Previously the CC wording (*"Every pipeline cycle runs in one of two modes"*) read neutrally and the orchestrator defaulted to Full even for Lean-eligible tasks; the Codex phrasing encourages picking the lighter mode when it fits.
+- **`bin/core/pipeline-doctor`** — include `guard-compact` and `guard-send-message` in the Guard Coverage section. Both guards exist in `bin/core/` and are wired in `hooks/hooks.json`, but doctor listed only 8/10. Now reports 10/10.
+
+Verified on `examples/nodejs-react`: `verify-apd` baseline unchanged at 60/20/2.
+
 ## v5.0.0 — 2026-04-24
 
 **Multi-runtime era.** APD becomes first-class on both Claude Code and OpenAI Codex. The major bump reflects the conceptual shift, not breaking changes — existing CC users see only additive changes (new files under `mcp/`, `plugins/apd/`, `bin/adapter/cdx/`, `bin/compiled/`). Codex side ships an MCP server (8 tools), per-tool approval registration, hook adapter, install flow, 4 Codex-native skills, AGENTS.md template, and direct-drop plus marketplace distribution paths.
