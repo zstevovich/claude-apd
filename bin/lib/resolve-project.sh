@@ -44,30 +44,47 @@ APD_VERSION="$(_read_apd_version "$APD_PLUGIN_ROOT")"
 APD_VERSION="${APD_VERSION:-unknown}"
 
 # --- Project root ---
-# Claude Code hook commands execute with cwd = project directory
+# Claude Code / Codex hook commands execute with cwd = project directory
 # Priority: explicit env var → git toplevel → pwd detection → upward walk
+#
+# Project markers (any one counts): .claude/, .codex/, CLAUDE.md, AGENTS.md.
+# .codex/ and AGENTS.md are recognised so pure-Codex projects resolve without
+# CC-native files. $HOME is explicitly excluded during upward walk because the
+# user's global Codex config lives at ~/.codex/ and must not be mistaken for a
+# project root.
+_apd_has_marker() {
+    [ -f "$1/CLAUDE.md" ] || [ -d "$1/.claude" ] || [ -d "$1/.codex" ] || [ -f "$1/AGENTS.md" ]
+}
+
 if [ -n "${APD_PROJECT_DIR:-}" ]; then
     PROJECT_DIR="$APD_PROJECT_DIR"
-elif _git_root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -d "$_git_root/.claude" ]; then
+elif _git_root=$(git rev-parse --show-toplevel 2>/dev/null) && _apd_has_marker "$_git_root"; then
     # Git toplevel is authoritative — works from any subdirectory or worktree
     PROJECT_DIR="$_git_root"
-elif [ -f "$(pwd)/CLAUDE.md" ] || [ -d "$(pwd)/.claude" ]; then
+elif _apd_has_marker "$(pwd)" && [ "$(pwd)" != "$HOME" ]; then
     PROJECT_DIR="$(pwd)"
 else
     # Walk upward looking for project markers (fallback for non-git dirs)
     _apd_dir="$(pwd)"
     PROJECT_DIR=""
-    while [ "$_apd_dir" != "/" ]; do
-        if [ -f "$_apd_dir/CLAUDE.md" ] || [ -d "$_apd_dir/.claude" ]; then
+    while [ "$_apd_dir" != "/" ] && [ "$_apd_dir" != "$HOME" ]; do
+        if _apd_has_marker "$_apd_dir"; then
             PROJECT_DIR="$_apd_dir"
             break
         fi
         _apd_dir="$(dirname "$_apd_dir")"
     done
-    # Last resort: use pwd
-    PROJECT_DIR="${PROJECT_DIR:-$(pwd)}"
+    # Last resort: use pwd (but never $HOME)
+    if [ -z "$PROJECT_DIR" ]; then
+        if [ "$(pwd)" != "$HOME" ]; then
+            PROJECT_DIR="$(pwd)"
+        else
+            PROJECT_DIR="$HOME"  # fall back to home only as last-resort, APD_ACTIVE guard will disable
+        fi
+    fi
     unset _apd_dir
 fi
+unset -f _apd_has_marker 2>/dev/null || true
 
 # --- Derived paths ---
 CLAUDE_DIR="$PROJECT_DIR/.claude"

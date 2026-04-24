@@ -8,6 +8,10 @@ CLAUDE.md
 # Dev tools — local only
 bump-version
 
+# Runtime logs written into plugin root (by cdx session-start hook)
+cdx-session-start.log
+session-start.log
+
 # Go source — not distributed, only compiled binaries ship
 cmd/
 go.mod

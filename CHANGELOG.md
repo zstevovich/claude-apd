@@ -1,5 +1,37 @@
 # Changelog
 
+## v5.0.3 — 2026-04-26
+
+Fixes a project-resolution bug surfaced by the first real Codex 0.124 TUI SessionStart test on a pure-Codex project.
+
+### Context
+
+- **New reality on Codex 0.124.0:** `SessionStart` hook **does** fire in TUI mode (per live test on `~/Projects/Test`, 2026-04-26 21:13:39). The earlier assumption that Codex only fired `SessionStart` in TUI on 0.121 and `codex exec` was blocked is now obsolete — in 0.124, hooks declared in `.codex/hooks.json` are honoured.
+- Plugin-based MCP + hooks distribution (registered via `codex plugin marketplace add`) also works end-to-end: `apd_ping` returns a valid response with `version: 5.0.2`, `runtime: codex`, and the right `project_dir` after marketplace install + plugin enable.
+
+### Bug
+
+`bin/lib/resolve-project.sh` only recognised `.claude/` and `CLAUDE.md` as project markers. On a pure-Codex project (only `.codex/` and `AGENTS.md`), the upward walk climbed past the project and matched `~/.claude/` (the user-global CC config), resolving `PROJECT_DIR=$HOME` and tripping `APD_ACTIVE=false`. The session-start script then exited early, skipping the apd-init gap analysis.
+
+Log evidence from the failing run:
+
+```
+21:13:39 START pwd=/Users/zoranstevovic/Projects/Test
+21:13:39 resolve: PROJECT_DIR=/Users/zoranstevovic APD_ACTIVE=false
+21:13:39 EXIT: APD_ACTIVE=false
+```
+
+### Fix
+
+- `bin/lib/resolve-project.sh` now treats `.codex/` and `AGENTS.md` as first-class project markers alongside `.claude/` and `CLAUDE.md`, via a new `_apd_has_marker` helper used in all three resolution paths (git toplevel, pwd, upward walk).
+- The upward-walk path now explicitly stops at `$HOME` and refuses to resolve `PROJECT_DIR=$HOME`. This prevents `~/.codex/` (global Codex config) and `~/.claude/` (global CC config) from being mistaken for a project root when a hook fires from a path with no markers above it.
+- Verified on a clean `~/Projects/Test` (only `.codex/` present): `resolve: PROJECT_DIR=/Users/zoranstevovic/Projects/Test APD_ACTIVE=true gap-analysis: ran`.
+
+### Tests
+
+- `bash bin/core/test-codex-adapter` → **207/0 PASS** (no regressions).
+- `verify-apd` on `examples/nodejs-react` → **60/20/2** (baseline held).
+
 ## v5.0.2 — 2026-04-26
 
 Two fixes that together close the CRITICAL "SessionStart on Codex" gap, plus a convenience CLI for plugin updates.
