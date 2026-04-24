@@ -30,7 +30,7 @@
     ],
     "websiteURL": "https://github.com/zstevovich/claude-apd",
     "defaultPrompt": [
-      "Follow the APD pipeline: spec → builder → reviewer → verifier → commit. Use the matching skill for the current phase."
+      "At session start, call apd_doctor once for gap analysis (verifies APD scaffolding, flags drift). Then follow the APD pipeline: spec → builder → reviewer → verifier → commit. Use the matching skill for the current phase."
     ]
   }
 }

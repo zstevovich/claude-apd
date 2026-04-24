@@ -1,5 +1,28 @@
 # Changelog
 
+## v5.0.2 — 2026-04-26
+
+Two fixes that together close the CRITICAL "SessionStart on Codex" gap, plus a convenience CLI for plugin updates.
+
+### Codex SessionStart equivalent (A + B combined)
+
+The CC `SessionStart` hook was fixed in CC 2.1.101 (re-confirmed on 2.1.119). Codex 0.121.0 fires `SessionStart` in TUI only, never in `codex exec`. Before this release, cdx had no runtime equivalent to CC's `bin/core/session-start` — no dynamic gap-analysis, no shortcut drift guard, no auto apd-init.
+
+- **`bin/adapter/cdx/session-start`** (new) — drains stdin, restores `.codex/bin/apd` shortcut if deleted, runs `apd-init --quick` gap analysis with the same 1h throttle pattern as CC. Silent log at `<APD_PLUGIN_ROOT>/cdx-session-start.log`.
+- **`bin/adapter/cdx/install-codex-config`** — new block 6 merges `SessionStart` into `.codex/hooks.json` idempotently, preserving any existing PreToolUse/PostToolUse entries.
+- **`plugins/apd/.codex-plugin/plugin.json`** — `defaultPrompt` extended to instruct the orchestrator to call `apd_doctor` at session open. This is the exec-mode path (hook does not fire there). Caveat: activation of the new `defaultPrompt` depends on upstream `/plugin install` marketplace path, which is blocked in Codex 0.121.0 (openai/codex#18258). Fully active once upstream issue resolves.
+- **`bin/adapter/cdx/codex-doctor`** — new check reports whether `.codex/hooks.json` wires SessionStart.
+- **`bin/core/test-codex-adapter`** — +6 tests covering first-run write, hooks.json content, script executable bit, manifest mention of `apd_doctor`, and merge preservation in the repair scenario. Baseline moved 201 → 207.
+
+### `apd update` convenience CLI
+
+- **`bin/core/apd-update`** (new) — one command that pulls the framework with `git pull --ff-only` and re-runs project init (`install-codex-config` for `.codex/`, `apd-init --quick` for `.claude/`). Idempotent. Flags: `--check-only` (dry-run, exits before pull), `--skip-pull` (reinit only, no git fetch). Aborts cleanly on dirty working tree or non-FF divergence.
+- **`bin/apd`** — dispatches `update` / `up` to the new script, help block updated.
+
+### Documentation
+
+- **`docs/SPEC.md`** — §1 (Distribution: `apd update` row), §2 (CLI surface: `update` subcommand), §4.2 (Codex hooks: now 2 hooks, SessionStart tabela), §11.2 (Codex session-start dual path — TUI hook + exec `defaultPrompt`), §12 (hooks.json content), §14 (SessionStart known-limitations updated).
+
 ## v5.0.1 — 2026-04-24
 
 Two small post-merge fixes.

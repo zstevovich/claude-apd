@@ -7,6 +7,7 @@
 #   pipeline <step>   Pipeline advance (spec/builder/reviewer/verifier/status/reset/rollback/metrics)
 #   doctor            Pipeline diagnostics
 #   init [--quick]    Initialize or update APD in a project
+#   update [project]  Pull latest plugin from GitHub + reinit project
 #   verify            Run full APD verification
 #   trace             Check spec traceability
 #   contracts         Check cross-layer type contracts
@@ -28,6 +29,9 @@ case "$CMD" in
         ;;
     init|setup)
         exec bash "$CORE_DIR/apd-init" "$@"
+        ;;
+    update|up)
+        exec bash "$CORE_DIR/apd-update" "$@"
         ;;
     verify)
         exec bash "$CORE_DIR/verify-apd" "$@"
@@ -154,6 +158,7 @@ case "$CMD" in
         echo "    pipeline <step>   Pipeline advance (spec/builder/reviewer/verifier/status/reset)"
         echo "    doctor            Pipeline diagnostics"
         echo "    init [--quick]    Initialize or update APD in a project"
+        echo "    update [project]  Pull latest plugin + reinit project (--check-only to dry-run)"
         echo "    verify            Run full APD verification"
         echo "    trace             Check spec traceability"
         echo "    contracts         Check cross-layer type contracts"

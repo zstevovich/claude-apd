@@ -88,6 +88,7 @@ FIRST_EXIT=$?
 echo "$FIRST_OUT" | grep -q "\[wrote\] \[mcp_servers.apd\]" && pass "wrote MCP block" && PASSES=$((PASSES + 1)) || { fail "did not write MCP block"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "per-agent sandbox profiles skipped" && pass "sandbox profiles deferred (MCP guard-scope path)" && PASSES=$((PASSES + 1)) || { fail "sandbox skip notice missing"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "PreToolUse Bash hook" && pass "wrote hooks.json" && PASSES=$((PASSES + 1)) || { fail "no hooks.json written"; FAILS=$((FAILS + 1)); }
+echo "$FIRST_OUT" | grep -q "SessionStart hook" && pass "wrote SessionStart hook" && PASSES=$((PASSES + 1)) || { fail "no SessionStart hook written"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "\.codex/bin/apd shortcut" && pass "wrote .codex/bin/apd shortcut" && PASSES=$((PASSES + 1)) || { fail "no apd shortcut created"; FAILS=$((FAILS + 1)); }
 _check ".codex/bin/apd is executable" test -x "$SCRATCH/.codex/bin/apd"
 echo "$FIRST_OUT" | grep -q "\.apd/config seed" && pass "seeded .apd/config (pure-Codex activation)" && PASSES=$((PASSES + 1)) || { fail "no .apd/config seed emitted"; FAILS=$((FAILS + 1)); }
@@ -140,6 +141,11 @@ for _t in apd_ping apd_doctor apd_advance_pipeline apd_guard_write \
 done
 _check_file_contains "hooks.json has PreToolUse" "$HOOKS" 'PreToolUse'
 _check_file_contains "hooks.json routes to guard-bash-scope" "$HOOKS" 'guard-bash-scope'
+_check_file_contains "hooks.json has SessionStart" "$HOOKS" 'SessionStart'
+_check_file_contains "hooks.json routes SessionStart to adapter" "$HOOKS" 'bin/adapter/cdx/session-start'
+_check "session-start script is executable" test -x "$APD_PLUGIN_ROOT/bin/adapter/cdx/session-start"
+_check_file_contains "Codex plugin manifest mentions apd_doctor at session start" \
+    "$APD_PLUGIN_ROOT/plugins/apd/.codex-plugin/plugin.json" 'apd_doctor'
 _check_file_contains ".apd/config has PROJECT_NAME" "$SCRATCH/.apd/config" '^PROJECT_NAME='
 
 if command -v python3 &>/dev/null; then
@@ -238,6 +244,14 @@ if grep -qF "$APD_PLUGIN_ROOT/bin/adapter/cdx/guard-bash-scope" "$REPAIR/.codex/
     PASSES=$((PASSES + 1))
 else
     fail "APD Bash hook missing after merge"
+    FAILS=$((FAILS + 1))
+fi
+
+if grep -qF "$APD_PLUGIN_ROOT/bin/adapter/cdx/session-start" "$REPAIR/.codex/hooks.json" 2>/dev/null; then
+    pass "APD SessionStart hook merged alongside existing PreToolUse/PostToolUse"
+    PASSES=$((PASSES + 1))
+else
+    fail "APD SessionStart hook missing after merge"
     FAILS=$((FAILS + 1))
 fi
 

@@ -46,6 +46,7 @@ CONFIG_FILE="$CODEX_DIR/config.toml"
 HOOKS_FILE="$CODEX_DIR/hooks.json"
 MCP_SERVER="$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
 GUARD_BASH="$APD_PLUGIN_ROOT/bin/adapter/cdx/guard-bash-scope"
+SESSION_START="$APD_PLUGIN_ROOT/bin/adapter/cdx/session-start"
 
 if [ ! -f "$MCP_SERVER" ]; then
     echo "ERROR: APD MCP server not found at $MCP_SERVER" >&2
@@ -464,6 +465,128 @@ case "$HOOKS_RC" in
         rm -f "$HOOKS_TMP"
         echo "ERROR: failed to merge APD hook into $HOOKS_FILE" >&2
         exit 7
+        ;;
+esac
+
+# -----------------------------------------------------------
+# 6. SessionStart hook — merge into .codex/hooks.json
+#    Codex 0.121.0 fires SessionStart only in TUI mode (not `codex exec`);
+#    the MCP `defaultPrompt` tells the orchestrator to call apd_doctor at
+#    session open, which covers exec-mode users. Together these two paths
+#    approximate CC's session-start behaviour (shortcut drift guard +
+#    throttled apd-init --quick gap analysis).
+# -----------------------------------------------------------
+SS_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-ss.XXXXXX")"
+set +e
+SS_STATUS="$(
+python3 - "$HOOKS_FILE" "$SESSION_START" "$SS_TMP" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+hooks_path = Path(sys.argv[1])
+script = sys.argv[2]
+out_path = Path(sys.argv[3])
+
+desired = {
+    "type": "command",
+    "command": f"bash {script}",
+    "timeout": 10,
+}
+marker = "bin/adapter/cdx/session-start"
+
+if hooks_path.exists():
+    try:
+        data = json.loads(hooks_path.read_text())
+    except json.JSONDecodeError as exc:
+        print(f"invalid JSON in {hooks_path}: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+else:
+    data = {}
+
+if not isinstance(data, dict):
+    print(f"{hooks_path} must contain a JSON object", file=sys.stderr)
+    raise SystemExit(1)
+
+hooks = data.setdefault("hooks", {})
+if not isinstance(hooks, dict):
+    print(f"{hooks_path}: top-level 'hooks' must be an object", file=sys.stderr)
+    raise SystemExit(1)
+
+ss_entries = hooks.setdefault("SessionStart", [])
+if not isinstance(ss_entries, list):
+    print(f"{hooks_path}: hooks.SessionStart must be an array", file=sys.stderr)
+    raise SystemExit(1)
+
+action = "skip"
+desired_present = False
+stale_slot = None
+
+for entry in ss_entries:
+    if not isinstance(entry, dict):
+        continue
+    entry_hooks = entry.setdefault("hooks", [])
+    if not isinstance(entry_hooks, list):
+        continue
+    for idx, hook in enumerate(entry_hooks):
+        if not isinstance(hook, dict):
+            continue
+        command = hook.get("command", "")
+        if hook.get("type") == "command" and command == desired["command"]:
+            desired_present = True
+            if hook.get("timeout") != desired["timeout"]:
+                entry_hooks[idx] = desired
+                action = "updated"
+            break
+        if marker in command:
+            stale_slot = (entry_hooks, idx)
+    if desired_present:
+        break
+
+if not desired_present:
+    if stale_slot is not None:
+        stale_slot[0][stale_slot[1]] = desired
+        action = "updated"
+    elif ss_entries:
+        # Append into the first existing SessionStart entry's inner hooks list.
+        first = ss_entries[0]
+        first_hooks = first.setdefault("hooks", [])
+        first_hooks.append(desired)
+        action = "updated"
+    else:
+        ss_entries.append({"hooks": [desired]})
+        action = "wrote"
+
+if action == "skip":
+    print("skip")
+    raise SystemExit(0)
+
+out_path.write_text(json.dumps(data, indent=2) + "\n")
+print(action)
+raise SystemExit(10)
+PY
+)"
+SS_RC=$?
+set -e
+case "$SS_RC" in
+    0)
+        rm -f "$SS_TMP"
+        echo "[skip] SessionStart session-start hook already wired in $HOOKS_FILE"
+        ;;
+    10)
+        _backup_if_exists "$HOOKS_FILE"
+        mv "$SS_TMP" "$HOOKS_FILE"
+        if [ "$SS_STATUS" = "updated" ]; then
+            echo "[updated] SessionStart hook → $HOOKS_FILE"
+        else
+            echo "[wrote] SessionStart hook → $HOOKS_FILE"
+        fi
+        CHANGES=$((CHANGES + 1))
+        ;;
+    *)
+        rm -f "$SS_TMP"
+        echo "ERROR: failed to merge SessionStart hook into $HOOKS_FILE" >&2
+        exit 8
         ;;
 esac
 

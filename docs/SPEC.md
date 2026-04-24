@@ -27,6 +27,7 @@
 | Install command | `/plugin marketplace add zstevovich/claude-apd` → `/plugin install` | `/plugin install …` (upstream-blocked on 0.121.0; openai/codex#18258) → fall back to direct-drop |
 | Direct-drop | n/a | `apd cdx skills install` symlinks `~/.codex/skills/apd-*` → `plugins/apd/skills/<name>` |
 | Live source resolution | from CC plugin runtime cache | direct lokalni path (Test project's MCP server points at `apd-template/mcp/` directly; marketplace cache stale by design for dev workflow) |
+| In-place update (dev workflow) | n/a (use CC `/plugin update`) | `apd update [project]` — `git pull --ff-only` on framework + reinit project's `.codex/` hooks/config. Idempotent. Dry-run via `--check-only`. |
 
 GitHub repo: `zstevovich/claude-apd`. Branch flow: `feature/codex-adapter` (pre-merge), `main` (released).
 
@@ -37,6 +38,7 @@ Top-level dispatcher routes by 1st arg. Resolves project root via `bin/lib/resol
 | Subcommand | Target | Purpose |
 |---|---|---|
 | `init` / `setup` | `bin/core/apd-init` | Initialize APD inside a project |
+| `update` / `up` | `bin/core/apd-update` | `git pull --ff-only` on framework repo + re-run `install-codex-config` / `apd-init --quick` on target project. Aborts on dirty tree or non-FF. Flags: `--check-only`, `--skip-pull`. |
 | `pipeline` / `pl` | `bin/core/pipeline-advance` | Pipeline gate operations (steps + reset/rollback/status/stats/metrics) |
 | `doctor` / `dr` | `bin/core/pipeline-doctor` | 11-section audit of pipeline + project |
 | `report` / `rp` | `bin/core/pipeline-report` | Render formatted summary |
@@ -86,7 +88,14 @@ FastMCP wrapper, runs via `uv run --with mcp python …`. Per-project registrati
 
 ### 4.2 Codex hooks — generated per-project at `<project>/.codex/hooks.json`
 
-Written by `bin/adapter/cdx/install-codex-config`. Codex 0.121.0 supports only `PreToolUse Bash` reliably. Single hook wired: `bin/adapter/cdx/guard-bash-scope` shim with 5s timeout. Requires global `codex features enable codex_hooks` (one-time, "under development" feature).
+Written by `bin/adapter/cdx/install-codex-config`. Codex 0.121.0 fires `PreToolUse Bash` reliably in both exec and TUI modes; `SessionStart` fires in TUI only. Two hooks wired:
+
+| Event | Shim | Timeout | Purpose |
+|---|---|---|---|
+| `PreToolUse` (matcher `Bash`) | `bin/adapter/cdx/guard-bash-scope` | 5s | Scope enforcement on Bash tool calls |
+| `SessionStart` | `bin/adapter/cdx/session-start` | 10s | Shortcut drift guard + `apd-init --quick` gap analysis (throttled 1h). TUI only; exec mode relies on MCP `defaultPrompt` instructing the orchestrator to call `apd_doctor` at session open. |
+
+Requires global `codex features enable codex_hooks` (one-time, "under development" feature).
 
 ### 4.3 Guards — `bin/core/guard-*` (10 scripts)
 
@@ -215,11 +224,14 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 
 ### 11.1 Session start (CC)
 
-`monitors/monitors.json` registers single monitor `apd-session-context` → `bin/core/session-start`. Runs on every CC SessionStart event. Self-healing checks: jq install, script executability, settings.json validity, stale pipeline detection (>24h offers reset). 3600s TTL cache via `.last-init-check`. CRITICAL backlog: not firing on some projects.
+`monitors/monitors.json` registers single monitor `apd-session-context` → `bin/core/session-start`. Runs on every CC SessionStart event (resolved in CC 2.1.101; re-confirmed on 2.1.119). Self-healing checks: jq install, script executability, settings.json validity, stale pipeline detection (>24h offers reset). 3600s TTL cache via `.last-init-check`.
 
-### 11.2 Codex MCP bootstrap
+### 11.2 Codex session-start (TUI hook + exec fallback)
 
-On `__main__` execution, server's `_bootstrap_shortcut()` creates `.codex/bin/apd` shortcut (idempotent: skip if path-substring already correct). Only fires if `.codex/` dir exists in resolved project.
+Codex 0.121.0 has two entry paths for session-start work, because `SessionStart` fires reliably in TUI but not in `codex exec`:
+
+1. **TUI path — `bin/adapter/cdx/session-start`** (wired via `.codex/hooks.json`, see §4.2). Drains stdin, restores `.codex/bin/apd` shortcut if deleted, runs `apd-init --quick` (gap analysis) throttled via `.last-init-check` (same 1h TTL as CC). Silent log at `<APD_PLUGIN_ROOT>/cdx-session-start.log`.
+2. **Exec path — MCP `defaultPrompt`**. The Codex plugin manifest (`plugins/apd/.codex-plugin/plugin.json`) instructs the orchestrator to call `apd_doctor` once at session start. Covers `codex exec` where the hook does not fire. Also runs at install time: MCP server `_bootstrap_shortcut()` creates `.codex/bin/apd` when `.codex/` already exists.
 
 ## 12. Configuration surfaces
 
@@ -229,7 +241,7 @@ On `__main__` execution, server's `_bootstrap_shortcut()` creates `.codex/bin/ap
 | `.claude/settings.local.json` | Project | User | Local CC overrides (gitignored) |
 | `~/.codex/config.toml` | User-global | User + APD bootstrap | `[features]` (codex_hooks, multi_agent), `[marketplaces.codex-apd]`, `[plugins."apd@codex-apd"]`, per-project trust levels |
 | `<project>/.codex/config.toml` | Project | install-codex-config | `[mcp_servers.apd]` command + 8 per-tool approval blocks |
-| `<project>/.codex/hooks.json` | Project | install-codex-config | PreToolUse Bash → guard-bash-scope shim |
+| `<project>/.codex/hooks.json` | Project | install-codex-config | PreToolUse Bash → guard-bash-scope shim; SessionStart → cdx session-start (TUI only) |
 | `.apd/config` (or legacy `.claude/.apd-config`) | Project | apd-init | `PROJECT_NAME`, `APD_VERSION`, `STACK` metadata |
 | `.apd/agents/<name>.md` (Codex) / `.claude/agents/<name>.md` (CC) | Project | apd-setup or `apd cdx agents add` | Per-agent scope + frontmatter |
 
@@ -246,7 +258,7 @@ On `__main__` execution, server's `_bootstrap_shortcut()` creates `.codex/bin/ap
 - **Codex 0.121.0 marketplace install** upstream-blocked (openai/codex#18258). Direct-drop is supported.
 - **Codex `/` slash menu** doesn't list APD skills (same upstream).
 - **`pipeline-advance` spec case** has CC-specific Next-steps block — works for CC, ignored by Codex orchestrator.
-- **`SessionStart` hook** not firing on some projects (CRITICAL backlog).
+- **`SessionStart` hook** — CC side RESOLVED in CC 2.1.101 (re-confirmed on 2.1.119). Codex 0.121.0 fires `SessionStart` only in TUI mode, not in `codex exec`; the adapter wires the TUI hook and relies on MCP `defaultPrompt` (orchestrator calls `apd_doctor`) for exec-mode coverage.
 - **`guard-parallel-same-agent` missing** — 3× parallel dispatch caused conflicts (backlog).
 - **In-monorepo `verify-apd`** mis-resolves project root.
 - **CC `SubagentStop` hook** is the only `.agents` log telemetry source on CC; Codex has no equivalent (relies on inline orchestrator state).

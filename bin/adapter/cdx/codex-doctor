@@ -124,6 +124,12 @@ else
         _bad "$HOOKS missing or not wired to guard-bash-scope"
     fi
 
+    if [ -f "$HOOKS" ] && grep -q 'bin/adapter/cdx/session-start' "$HOOKS"; then
+        _ok "hooks.json wires SessionStart → cdx session-start (TUI only; exec mode covered by MCP defaultPrompt)"
+    else
+        _warn "hooks.json has no SessionStart hook — TUI sessions will not get auto gap-analysis. Run: apd cdx init"
+    fi
+
     SHORTCUT="$CODEX_DIR/bin/apd"
     if [ -x "$SHORTCUT" ] && grep -qF "$APD_PLUGIN_ROOT/bin/apd" "$SHORTCUT" 2>/dev/null; then
         _ok ".codex/bin/apd shortcut points to plugin entry"

@@ -1,0 +1,200 @@
+#!/bin/bash
+# APD Update — pulls latest plugin from GitHub and re-runs project init
+#
+# Usage:
+#   apd update [project-dir]    # default: cwd
+#   apd update --check-only     # show what would be pulled, do nothing
+#   apd update --skip-pull      # don't touch framework; just reinit project
+#
+# Behaviour (happy path):
+#   1. cd into APD_PLUGIN_ROOT (the framework git clone)
+#   2. git fetch + fast-forward to origin on current branch
+#   3. In the target project, re-run install-codex-config (if .codex/ exists)
+#      and/or apd-init --quick (if .claude/ exists). Both are idempotent —
+#      they add / repair anything missing without clobbering user content.
+#
+# Aborts (exit != 0) on:
+#   - framework repo not a git clone
+#   - uncommitted changes in framework repo (won't --ff-only over dirty state)
+#   - non-fast-forward divergence
+#   - missing upstream branch
+
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APD_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+source "$APD_PLUGIN_ROOT/bin/lib/style.sh"
+
+CHECK_ONLY=false
+SKIP_PULL=false
+TARGET=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --check-only) CHECK_ONLY=true ;;
+        --skip-pull)  SKIP_PULL=true ;;
+        -h|--help)
+            cat <<EOF
+Usage: apd update [project-dir]
+
+Pulls latest APD plugin from GitHub in the framework repo, then re-runs
+project init (Codex: install-codex-config, CC: apd-init --quick) in the
+target project so .codex/hooks.json and .claude/ scaffolding pick up new
+hooks, scripts, and rules. Both reinit steps are idempotent.
+
+Options:
+  --check-only   Show what would be pulled; do not pull or reinit
+  --skip-pull    Skip the git pull; just reinit the project
+  -h, --help     This message
+
+Default target: current working directory.
+EOF
+            exit 0
+            ;;
+        --*)
+            echo "Unknown flag: $1" >&2
+            echo "Run: apd update --help" >&2
+            exit 1
+            ;;
+        *)
+            if [ -n "$TARGET" ]; then
+                echo "ERROR: multiple project args ($TARGET, $1)" >&2
+                exit 1
+            fi
+            TARGET="$1"
+            ;;
+    esac
+    shift
+done
+
+[ -z "$TARGET" ] && TARGET="$(pwd)"
+if [ ! -d "$TARGET" ]; then
+    echo "ERROR: target is not a directory: $TARGET" >&2
+    exit 1
+fi
+TARGET="$(cd "$TARGET" && pwd -P)"
+
+apd_header "APD Update"
+echo "  Framework: $APD_PLUGIN_ROOT"
+echo "  Target:    $TARGET"
+echo ""
+
+# -----------------------------------------------------------
+# 1. Framework repo update
+# -----------------------------------------------------------
+section "1. Framework update"
+
+if [ "$SKIP_PULL" = true ]; then
+    echo "  [skip] --skip-pull flag set"
+elif [ ! -d "$APD_PLUGIN_ROOT/.git" ]; then
+    warn "Framework root is not a git clone — cannot pull"
+    echo "  Path: $APD_PLUGIN_ROOT"
+    echo "  If this is a marketplace install, update via your plugin manager instead."
+else
+    cd "$APD_PLUGIN_ROOT" || { echo "ERROR: cannot cd into $APD_PLUGIN_ROOT" >&2; exit 2; }
+
+    if ! git fetch --prune origin >/dev/null 2>&1; then
+        fail "git fetch failed (network? auth?)"
+        exit 3
+    fi
+
+    BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+    LOCAL_SHA="$(git rev-parse HEAD)"
+    REMOTE_REF="origin/$BRANCH"
+
+    if ! REMOTE_SHA="$(git rev-parse "$REMOTE_REF" 2>/dev/null)"; then
+        warn "No upstream branch '$REMOTE_REF' — skipping pull"
+        REMOTE_SHA=""
+    fi
+
+    if [ -z "$REMOTE_SHA" ]; then
+        :
+    elif [ "$LOCAL_SHA" = "$REMOTE_SHA" ]; then
+        pass "Framework already up to date (branch=$BRANCH, $(echo "$LOCAL_SHA" | cut -c1-8))"
+    else
+        # Show incoming commits
+        BEHIND="$(git rev-list --count "HEAD..$REMOTE_REF")"
+        AHEAD="$(git rev-list --count "$REMOTE_REF..HEAD")"
+        echo "  Local:  $BRANCH @ $(echo "$LOCAL_SHA" | cut -c1-8)  (ahead $AHEAD / behind $BEHIND)"
+        echo ""
+        echo "  Incoming commits:"
+        git log --oneline "HEAD..$REMOTE_REF" | head -20 | sed 's/^/    /'
+        echo ""
+
+        if [ "$CHECK_ONLY" = true ]; then
+            echo "  --check-only mode: stopping before pull"
+            exit 0
+        fi
+
+        # Refuse to pull on top of dirty working tree
+        if [ -n "$(git status --porcelain)" ]; then
+            fail "Framework repo has uncommitted changes — aborting"
+            git status --short | sed 's/^/    /' | head -20
+            echo ""
+            echo "  Resolve with: cd \"$APD_PLUGIN_ROOT\" && git status"
+            exit 4
+        fi
+
+        # Refuse if local is ahead AND behind (non-FF)
+        if [ "$AHEAD" -gt 0 ] && [ "$BEHIND" -gt 0 ]; then
+            fail "Local branch has diverged from $REMOTE_REF (ahead $AHEAD, behind $BEHIND)"
+            echo "  Non-fast-forward pull would be destructive. Resolve manually."
+            exit 5
+        fi
+
+        if git pull --ff-only origin "$BRANCH" >/dev/null 2>&1; then
+            pass "Pulled $BEHIND commit(s) on $BRANCH (now at $(git rev-parse --short HEAD))"
+        else
+            fail "git pull --ff-only failed"
+            exit 5
+        fi
+    fi
+fi
+
+# -----------------------------------------------------------
+# 2. Target project reinit
+# -----------------------------------------------------------
+section "2. Project reinit"
+
+# Refuse to reinit the framework repo itself (same guard as install-codex-config)
+FW_RESOLVED="$(cd "$APD_PLUGIN_ROOT" && pwd -P)"
+if [ "$TARGET" = "$FW_RESOLVED" ]; then
+    warn "Target is the framework repo itself — skipping project reinit"
+    echo "  apd update only pulls the framework in this case; project reinit needs a real target project."
+    exit 0
+fi
+
+IS_CDX=false
+IS_CC=false
+[ -d "$TARGET/.codex" ] && IS_CDX=true
+[ -d "$TARGET/.claude" ] && IS_CC=true
+
+if [ "$IS_CDX" = false ] && [ "$IS_CC" = false ]; then
+    warn "No .codex/ or .claude/ in target — not an APD project"
+    echo "  Target: $TARGET"
+    exit 0
+fi
+
+if [ "$IS_CDX" = true ]; then
+    echo "  [cdx] install-codex-config (merges new hooks + refreshes MCP block)"
+    if bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$TARGET"; then
+        pass "Codex config up to date"
+    else
+        fail "install-codex-config exited non-zero"
+        exit 6
+    fi
+fi
+
+if [ "$IS_CC" = true ]; then
+    echo ""
+    echo "  [cc] apd-init --quick (gap analysis)"
+    if (cd "$TARGET" && bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick); then
+        pass "CC project up to date"
+    else
+        fail "apd-init --quick exited non-zero"
+        exit 7
+    fi
+fi
+
+echo ""
+pass "apd update done."
