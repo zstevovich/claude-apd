@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>v5.0.3</b> &middot; MIT &middot; macOS + Linux
+  <b>v5.0.4</b> &middot; MIT &middot; macOS + Linux
 </p>
 
 ![APD Demo](docs/demo/apd-demo.gif)

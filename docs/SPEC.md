@@ -88,14 +88,16 @@ FastMCP wrapper, runs via `uv run --with mcp python …`. Per-project registrati
 
 ### 4.2 Codex hooks — generated per-project at `<project>/.codex/hooks.json`
 
-Written by `bin/adapter/cdx/install-codex-config`. Codex 0.121.0 fires `PreToolUse Bash` reliably in both exec and TUI modes; `SessionStart` fires in TUI only. Two hooks wired:
+Written by `bin/adapter/cdx/install-codex-config`. Codex 0.124.0 fires `PreToolUse Bash` reliably in both exec and TUI modes; `SessionStart` fires in TUI only. Two hooks wired:
 
 | Event | Shim | Timeout | Purpose |
 |---|---|---|---|
 | `PreToolUse` (matcher `Bash`) | `bin/adapter/cdx/guard-bash-scope` | 5s | Scope enforcement on Bash tool calls |
 | `SessionStart` | `bin/adapter/cdx/session-start` | 10s | Shortcut drift guard + `apd-init --quick` gap analysis (throttled 1h). TUI only; exec mode relies on MCP `defaultPrompt` instructing the orchestrator to call `apd_doctor` at session open. |
 
-Requires global `codex features enable codex_hooks` (one-time, "under development" feature).
+Requires global `codex features enable codex_hooks` (stable as of 0.124; was "under development" on 0.121).
+
+**Codex 0.124 SessionStart quirk — fires on first user prompt, not at banner display.** A live TUI session does not fire `SessionStart` when the TUI first renders; the hook executes only when the user submits the first message. This is upstream behaviour, tracked in openai/codex#15269 ("SessionStart not firing on session start instead it fires on first user prompt submission"). Practical implication: gap-analysis runs on first turn, not at open. If the first turn is cancelled before a prompt is sent, the hook does not fire for that session.
 
 ### 4.3 Guards — `bin/core/guard-*` (10 scripts)
 
@@ -228,10 +230,12 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 
 ### 11.2 Codex session-start (TUI hook + exec fallback)
 
-Codex 0.121.0 has two entry paths for session-start work, because `SessionStart` fires reliably in TUI but not in `codex exec`:
+Codex 0.124.0 has two entry paths for session-start work, because `SessionStart` fires in TUI only and is timed to the first user prompt (not the TUI banner):
 
-1. **TUI path — `bin/adapter/cdx/session-start`** (wired via `.codex/hooks.json`, see §4.2). Drains stdin, restores `.codex/bin/apd` shortcut if deleted, runs `apd-init --quick` (gap analysis) throttled via `.last-init-check` (same 1h TTL as CC). Silent log at `<APD_PLUGIN_ROOT>/cdx-session-start.log`.
+1. **TUI path — `bin/adapter/cdx/session-start`** (wired via `.codex/hooks.json`, see §4.2). Drains stdin, restores `.codex/bin/apd` shortcut if deleted, runs `apd-init --quick` (gap analysis) throttled via `.last-init-check` (same 1h TTL as CC). Silent log at `<APD_PLUGIN_ROOT>/cdx-session-start.log`. Per openai/codex#15269, the hook fires when the user submits the first message in the TUI, not when the TUI renders.
 2. **Exec path — MCP `defaultPrompt`**. The Codex plugin manifest (`plugins/apd/.codex-plugin/plugin.json`) instructs the orchestrator to call `apd_doctor` once at session start. Covers `codex exec` where the hook does not fire. Also runs at install time: MCP server `_bootstrap_shortcut()` creates `.codex/bin/apd` when `.codex/` already exists.
+
+**Live-validated on 2026-04-26 against Codex 0.124.0 + `~/Projects/Test`:** fresh TUI session opened at 21:24:29, first prompt submitted at 21:30:48, hook fired at 21:30:48 and wrote `START / resolve: PROJECT_DIR=/Users/zoranstevovic/Projects/Test APD_ACTIVE=true / gap-analysis / END`. `apd_ping` via MCP returns `{version: <plugin-version>, runtime: codex, project_dir: <project>}` on every session.
 
 ## 12. Configuration surfaces
 
@@ -258,7 +262,8 @@ Codex 0.121.0 has two entry paths for session-start work, because `SessionStart`
 - **Codex 0.121.0 marketplace install** upstream-blocked (openai/codex#18258). Direct-drop is supported.
 - **Codex `/` slash menu** doesn't list APD skills (same upstream).
 - **`pipeline-advance` spec case** has CC-specific Next-steps block — works for CC, ignored by Codex orchestrator.
-- **`SessionStart` hook** — CC side RESOLVED in CC 2.1.101 (re-confirmed on 2.1.119). Codex 0.121.0 fires `SessionStart` only in TUI mode, not in `codex exec`; the adapter wires the TUI hook and relies on MCP `defaultPrompt` (orchestrator calls `apd_doctor`) for exec-mode coverage.
+- **`SessionStart` hook** — CC side RESOLVED in CC 2.1.101 (re-confirmed on 2.1.119). Codex 0.124 fires `SessionStart` only in TUI mode, and only on first user prompt (not TUI banner) per openai/codex#15269. Adapter wires the TUI hook and relies on MCP `defaultPrompt` (orchestrator calls `apd_doctor`) for exec-mode coverage. Live-validated 2026-04-26.
+- **Codex plugin manifest gap (`.mcp.json`)** — other Codex plugins (cloudflare, build-ios-apps) ship an `.mcp.json` at plugin root to auto-register an MCP server on install. APD's `plugins/apd/` does not yet; MCP registration currently relies on the orchestrator running `apd cdx init` after install (triggered by `defaultPrompt`). Candidate for v5.1.
 - **`guard-parallel-same-agent` missing** — 3× parallel dispatch caused conflicts (backlog).
 - **In-monorepo `verify-apd`** mis-resolves project root.
 - **CC `SubagentStop` hook** is the only `.agents` log telemetry source on CC; Codex has no equivalent (relies on inline orchestrator state).

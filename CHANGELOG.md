@@ -1,5 +1,29 @@
 # Changelog
 
+## v5.0.4 — 2026-04-26
+
+Documentation-only patch capturing live Codex 0.124.0 validation findings from a full TUI session test against `~/Projects/Test`.
+
+### What we learned live
+
+- **Plugin install via GitHub marketplace works on 0.124.** `codex plugin marketplace add zstevovich/claude-apd` clones the repo into `~/.codex/.tmp/marketplaces/codex-apd`, then enabling the plugin (`[plugins."apd@codex-apd"] enabled = true`) makes skills appear in the slash menu immediately.
+- **MCP auto-registration works end-to-end.** After plugin enable, a fresh TUI session on a clean project leads to `.codex/config.toml` being populated with `[mcp_servers.apd]` + 8 per-tool approval blocks, and `.codex/hooks.json` with both `PreToolUse Bash → guard-bash-scope` and `SessionStart → cdx session-start`. Working hypothesis (not yet proven): the orchestrator invokes `apd cdx init` on its own because `defaultPrompt` tells it to call `apd_doctor`, which flags the gap. Unknown whether Codex itself also has a post-install hook path.
+- **`apd_ping` via MCP returns a valid response on every session.** Confirmed output: `{"ok": true, "version": "5.0.2", "plugin_root": "/Users/.../apd-template", "project_dir": "/Users/.../Test", "runtime": "codex"}`.
+- **`SessionStart` hook fires in TUI — but on first user prompt, not at banner display.** Tracked upstream as openai/codex#15269 ("SessionStart not firing on session start instead it fires on first user prompt submission"). Practical effect: gap-analysis runs on the first turn of every fresh TUI session, not at open. If the user cancels before sending the first message, the hook does not fire for that session.
+- **`codex_hooks` feature is now `stable` on 0.124** (was "under development" on 0.121).
+- **Plugin marketplace upstream is no longer blocked on 0.124.** The 0.121 issue (openai/codex#18258) appears resolved — `plugins` feature flag is stable, GitHub and local marketplaces both register cleanly.
+
+### Documentation updates
+
+- `docs/SPEC.md` §4.2 — version bumped from 0.121 to 0.124; added SessionStart first-prompt quirk + reference to openai/codex#15269.
+- `docs/SPEC.md` §11.2 — reworded for 0.124 semantics; added live-validation paragraph with exact session and hook timestamps from the 2026-04-26 test.
+- `docs/SPEC.md` §14 — updated SessionStart known-limitation entry; added new entry for the `.mcp.json` plugin-manifest gap (ongoing backlog for v5.1).
+
+### Outstanding research (not blocking)
+
+- **`.mcp.json` in plugin manifest.** Other Codex plugins (cloudflare, build-ios-apps) declare MCP servers via `.mcp.json` at plugin root. APD's `plugins/apd/` does not, so our MCP server is registered via post-install `apd cdx init` rather than natively by the plugin. Worth investigating whether we can ship an `.mcp.json` that tolerates a Python stdio server without hardcoded paths — deferred to v5.1 unless blocking.
+- **Which actor wrote `.codex/config.toml` during the first fresh session** — the leading guess is the orchestrator itself, triggered by `defaultPrompt → apd_doctor` spotting the gap. Not a correctness issue but worth confirming so we know whether we can rely on it or need a harder post-install hook.
+
 ## v5.0.3 — 2026-04-26
 
 Fixes a project-resolution bug surfaced by the first real Codex 0.124 TUI SessionStart test on a pure-Codex project.
