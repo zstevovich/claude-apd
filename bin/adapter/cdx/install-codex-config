@@ -27,6 +27,20 @@ if [ ! -d "$PROJECT_DIR" ]; then
     exit 1
 fi
 
+# Refuse to init APD into the framework repo itself (would scaffold APD
+# scaffolding into APD source — useless + confusing). Detect via canonical
+# path comparison after symlink resolution.
+PROJECT_DIR_RESOLVED="$(cd "$PROJECT_DIR" && pwd -P 2>/dev/null || pwd)"
+APD_PLUGIN_ROOT_RESOLVED="$(cd "$APD_PLUGIN_ROOT" && pwd -P 2>/dev/null || pwd)"
+if [ "$PROJECT_DIR_RESOLVED" = "$APD_PLUGIN_ROOT_RESOLVED" ]; then
+    echo "ERROR: refusing to init APD into the framework repo itself." >&2
+    echo "  Framework repo: $APD_PLUGIN_ROOT" >&2
+    echo "  This script scaffolds APD INTO a target project — not into APD source." >&2
+    echo "  Pass an explicit project path:" >&2
+    echo "    bin/apd cdx init <path-to-target-project>" >&2
+    exit 1
+fi
+
 CODEX_DIR="$PROJECT_DIR/.codex"
 CONFIG_FILE="$CODEX_DIR/config.toml"
 HOOKS_FILE="$CODEX_DIR/hooks.json"

@@ -484,6 +484,8 @@ See §15 for actual numbers. `verifier_duration_s` is informational only (no thr
 
 ### 18.1 `install-codex-config` — full 8 steps
 
+**Pre-flight guard:** refuses to run if resolved project path == APD framework repo path (canonical comparison via `pwd -P`). Prevents accidentally scaffolding APD into APD source. Bypass not possible — must pass explicit non-framework project path.
+
 1. **MCP Server Registration** — Python idempotence check; if existing matches desired, skip; else write new TOML with all 8 APD tools + per-tool `[mcp_servers.apd.tools.<tool>] approval_mode = "approve"` blocks. Backs up existing config.toml with timestamp suffix. Exit code 10 signals changes.
 2. **Per-Agent Sandbox Profiles** — INTENTIONALLY DISABLED. Codex 0.121.0 doesn't enforce FileSystemSandboxPolicy at runtime. Per-agent stays in MCP `apd_guard_write`.
 3. **`.codex/bin/apd` Shortcut** — idempotent; creates wrapper execing `bin/apd`, chmod +x.
