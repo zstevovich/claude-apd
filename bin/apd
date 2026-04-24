@@ -109,7 +109,7 @@ case "$CMD" in
                 echo "    Skills: apd-brainstorm, apd-tdd, apd-debug, apd-finish"
                 echo ""
                 echo "  ${V}Diagnostics${R}"
-                echo "    doctor                       Audit the pure-Codex setup (runtime-aware)"
+                echo "    doctor [project]             Audit the pure-Codex setup (runtime-aware; defaults to cwd)"
                 echo "    test                         Run E2E smoke test (60+ checks, no Codex CLI)"
                 echo ""
                 echo "  ${V}Prerequisites${R}"

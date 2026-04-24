@@ -502,6 +502,7 @@ See §15 for actual numbers. `verifier_duration_s` is informational only (no thr
 
 ### 18.3 `codex-doctor`
 
+- **Invocation:** `apd cdx doctor [project]` — optional first arg is project path; if omitted, resolves to cwd
 - Exit codes: 0 = no FAIL (may have WARN), N = N failed checks
 - 6 sections: Prerequisites (uv, python3, jq, codex CLI), Global Codex config (`~/.codex/config.toml` + `codex_hooks` flag), Project `.codex/` (config.toml MCP block, hooks.json guard wire, `.codex/bin/apd` shortcut), .apd content (config marker, workflow.md, memory files, agents dir, .apd-version), AGENTS.md at root, MCP server (syntax check, all 8 tool functions present)
 

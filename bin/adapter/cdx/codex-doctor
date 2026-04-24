@@ -17,6 +17,14 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APD_PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+# Optional first argument: project path. If provided, cd there so
+# resolve-project.sh resolves to that project instead of cwd.
+# This lets `apd cdx doctor <project>` work from anywhere.
+if [ $# -ge 1 ] && [ "${1#-}" = "$1" ] && [ -d "$1" ]; then
+    cd "$1" || { echo "ERROR: cannot cd into $1" >&2; exit 1; }
+fi
+
 source "$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh"
 source "$APD_PLUGIN_ROOT/bin/lib/style.sh"
 
