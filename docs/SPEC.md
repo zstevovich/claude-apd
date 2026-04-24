@@ -68,7 +68,7 @@ FastMCP wrapper, runs via `uv run --with mcp python …`. Per-project registrati
 
 ## 4. Hooks
 
-### 4.1 CC hooks — `hooks/hooks.json` (13 entries across 7 event types)
+### 4.1 CC hooks — `hooks/hooks.json` (13 entries across 8 event types)
 
 | Event | Matcher | Handler | Block? |
 |---|---|---|---|

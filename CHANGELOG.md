@@ -1,5 +1,12 @@
 # Changelog
 
+## v5.0.5 — 2026-04-26
+
+Docs-only patch closing two issues surfaced by `framework-audit`:
+
+- **`docs/SPEC.md` §4.1 heading** — corrected "13 entries across **7** event types" → "**8** event types". The table below already listed all eight (adding `PostCompact` between `PreCompact` and `PermissionDenied`); only the heading counter was stale. Restores alignment with the durable rule "update SPEC in same commit as any framework change".
+- **`README.md` Skills table** — added the missing `/apd-miro` row. `skills/apd-miro/` ships, but the Skills table listed only 7 of 8 skills.
+
 ## v5.0.4 — 2026-04-26
 
 Documentation-only patch capturing live Codex 0.124.0 validation findings from a full TUI session test against `~/Projects/Test`.

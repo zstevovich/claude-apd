@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>v5.0.4</b> &middot; MIT &middot; macOS + Linux
+  <b>v5.0.5</b> &middot; MIT &middot; macOS + Linux
 </p>
 
 ![APD Demo](docs/demo/apd-demo.gif)
@@ -307,6 +307,7 @@ Allowed paths: src/ tests/
 | `/apd-setup` | Project initialization and maintenance | On setup |
 | `/apd-audit` | Qualitative framework audit | Optional |
 | `/apd-github` | GitHub Projects board sync | Optional |
+| `/apd-miro` | Miro board dashboard sync | Optional |
 | `/apd-miro` | Miro dashboard updates | Optional |
 
 ## Codex adapter surface
