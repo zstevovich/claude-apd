@@ -44,11 +44,21 @@ Spec → Builder → Reviewer → [Adversarial] → Verifier → Commit
 bash .claude/bin/apd verify                            # check setup
 ```
 
-**Codex (OpenAI):**
+**Codex (OpenAI) — preferred, via plugin marketplace (validated on Codex 0.124):**
 ```bash
-# Prerequisites: brew install uv jq   +   codex features enable codex_hooks
+# Prerequisites: brew install uv jq   (codex_hooks is stable on 0.124, no feature flag needed)
+codex plugin marketplace add zstevovich/claude-apd             # one time, pulls latest main
+printf '\n[plugins."apd@codex-apd"]\nenabled = true\n' >> ~/.codex/config.toml   # enable
+cd <your-project> && codex                                     # open TUI in target project
+# On first user prompt in the fresh session, APD auto-scaffolds
+# .codex/ + .apd/ + AGENTS.md and MCP tools become available
+# (apd_ping, apd_doctor, apd_guard_write, ...).
+```
+
+**Codex — alternative, direct-drop (no marketplace):**
+```bash
 git clone https://github.com/zstevovich/claude-apd ~/apd && \
-    export PATH="$HOME/apd/bin:$PATH"                  # one-time, until openai/codex#18258 ships
+    export PATH="$HOME/apd/bin:$PATH"                  # live source at ~/apd
 apd cdx init                                           # scaffold .codex/ + .apd/ + AGENTS.md
 apd cdx agents add code-reviewer                       # populate agents
 apd cdx agents add backend-builder src/ config/
@@ -57,7 +67,14 @@ apd cdx doctor                                         # audit setup
 codex                                                  # start session; "run apd_ping"
 ```
 
-> Codex 0.121.0 has no working plugin marketplace install for non-curated plugins (openai/codex#18258 — Codex registers the manifest but never completes the runtime install). APD's marketplace manifest is correct and ready (`<repo-root>/.agents/plugins/marketplace.json`); once the upstream fix ships, `codex marketplace add zstevovich/claude-apd` will replace the git-clone with no APD-side change.
+> **Upgrading APD on Codex.** For the marketplace install, refresh by removing + re-adding the marketplace (Codex lacks a `plugin marketplace upgrade` for non-git sources and won't auto-pull git sources):
+> ```bash
+> codex plugin marketplace remove codex-apd
+> codex plugin marketplace add zstevovich/claude-apd
+> ```
+> For the direct-drop install, use our convenience CLI from the target project: `bash .codex/bin/apd update` pulls the framework and re-runs `install-codex-config` idempotently. Add `--check-only` to dry-run or `--skip-pull` to only reinit the project.
+
+> **Codex SessionStart quirk (upstream).** Per openai/codex#15269, Codex 0.124 fires the TUI `SessionStart` hook when the user submits the first prompt, not at banner display. Practically: gap-analysis runs on first turn, not at open. MCP tools are available immediately.
 
 See [Getting Started](GETTING-STARTED.md) for both walkthroughs.
 
