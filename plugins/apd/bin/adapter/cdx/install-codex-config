@@ -3,15 +3,13 @@
 #
 # Writes into the project's Codex namespace only. Never touches .claude/.
 # Idempotent for each step:
-#   1. .codex/config.toml  → [mcp_servers.apd] (command + args, absolute path
-#                            to this checkout's mcp/apd_mcp_server.py) plus
-#                            8 per-tool [mcp_servers.apd.tools.<name>]
-#                            approval blocks. Plugin-shipped .mcp.json
-#                            self-registration was attempted in v5.0.9-10
-#                            but is blocked by plugin-cache layout (the
-#                            cache does not include mcp/, bin/, VERSION
-#                            from the repo root); reverted in v5.0.11
-#                            until plugin self-containment lands in v6.x.
+#   1. .codex/config.toml  → cleanup-only. Removes any legacy
+#                            [mcp_servers.apd*] blocks left over from
+#                            ≤v5.x installs. Starting v6.0 the MCP server
+#                            self-registers via plugin-shipped
+#                            plugins/apd/.mcp.json (now reachable from
+#                            the Codex plugin cache because all required
+#                            files live inside plugins/apd/).
 #   2. .codex/bin/apd      → shortcut to plugin entry point
 #   3. .codex/hooks.json   → PreToolUse Bash → guard-bash-scope
 #   4. Prints reminder to enable `codex_hooks` feature flag
@@ -90,58 +88,28 @@ _backup_if_exists() {
 }
 
 # -----------------------------------------------------------
-# 1. MCP server registration / repair
+# 1. MCP server cleanup (v6.0+)
 #
-# Writes [mcp_servers.apd] (command/args pointing at this checkout's
-# mcp/apd_mcp_server.py) plus 8 per-tool [mcp_servers.apd.tools.<name>]
-# approval blocks. Plugin-shipped .mcp.json self-registration was
-# attempted in v5.0.9-10 but blocked by plugin-cache layout — see
-# header comment at the top of this file. Until plugin self-containment
-# lands in v6.x, we keep writing the absolute path here.
+# v6.0 ships plugin-shipped plugins/apd/.mcp.json which Codex auto-loads
+# from the plugin cache. The MCP server is no longer registered through
+# .codex/config.toml. This block detects leftover [mcp_servers.apd*]
+# blocks from ≤v5.x installs and removes them so Codex doesn't try to
+# spawn the server twice (or, worse, error on a stale path).
+#
+# Cleanup-only: never writes a new [mcp_servers.apd] block.
 # -----------------------------------------------------------
-CFG_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-config.XXXXXX")"
-set +e
-CFG_STATUS="$(
-python3 - "$CONFIG_FILE" "$MCP_SERVER" "$CFG_TMP" <<'PY'
-import json
+if [ -f "$CONFIG_FILE" ]; then
+    CFG_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-config.XXXXXX")"
+    set +e
+    CFG_STATUS="$(
+python3 - "$CONFIG_FILE" "$CFG_TMP" <<'PY'
 import sys
 from pathlib import Path
 
 cfg_path = Path(sys.argv[1])
-server = sys.argv[2]
-out_path = Path(sys.argv[3])
+out_path = Path(sys.argv[2])
 
 text = cfg_path.read_text() if cfg_path.exists() else ""
-_APD_TOOLS = (
-    "apd_ping", "apd_doctor", "apd_advance_pipeline", "apd_guard_write",
-    "apd_verify_step", "apd_adversarial_pass", "apd_list_agents", "apd_pipeline_state",
-)
-# Each sub-list is one TOML section. Codex has no server-wide
-# default_tools_approval_mode; auto-approval must be declared per-tool.
-# All APD tools are either read-only (ping, doctor, list_agents,
-# pipeline_state, verify_step) or write into apd-managed paths the guards
-# already police (advance_pipeline, guard_write, adversarial_pass), so
-# blanket approval is safe.
-desired_sections: list[list[str]] = [
-    [
-        "[mcp_servers.apd]",
-        'command = "uv"',
-        f'args = ["run", "--with", "mcp", "python", {json.dumps(server)}]',
-    ],
-]
-for _tool in _APD_TOOLS:
-    desired_sections.append([
-        f"[mcp_servers.apd.tools.{_tool}]",
-        'approval_mode = "approve"',
-    ])
-
-# Every TOML header this script claims ownership of. Any pre-existing
-# APD block matches (whitespace tolerant) and is replaced atomically.
-# Anything outside this set (other MCP servers, plugins, projects,
-# etc.) is preserved verbatim.
-APD_HEADERS = {"[mcp_servers.apd]"} | {
-    f"[mcp_servers.apd.tools.{t}]" for t in _APD_TOOLS
-}
 
 def split_sections(raw: str) -> list[list[str]]:
     lines = raw.splitlines()
@@ -159,63 +127,55 @@ def split_sections(raw: str) -> list[list[str]]:
         sections.append(current)
     return sections
 
-def normalize(sec: list[str]) -> list[str]:
-    return [line.rstrip() for line in sec if line.strip()]
-
 sections = split_sections(text)
-existing_apd = [sec for sec in sections if sec and sec[0].strip() in APD_HEADERS]
+# Drop any APD-owned section: the bare [mcp_servers.apd] block plus any
+# nested [mcp_servers.apd.tools.<tool>] approval block. We match by
+# header prefix so this stays robust against future per-tool additions.
+def is_apd(sec: list[str]) -> bool:
+    if not sec:
+        return False
+    head = sec[0].strip()
+    return head == "[mcp_servers.apd]" or head.startswith("[mcp_servers.apd.")
 
-if [normalize(sec) for sec in existing_apd] == desired_sections:
+removed = [sec for sec in sections if is_apd(sec)]
+if not removed:
     print("skip")
     raise SystemExit(0)
 
-action = "updated" if existing_apd else "wrote"
-new_sections: list[list[str]] = []
-inserted = False
-for sec in sections:
-    if sec and sec[0].strip() in APD_HEADERS:
-        if not inserted:
-            new_sections.extend(desired_sections)
-            inserted = True
-        continue
-    new_sections.append(sec)
-if not inserted:
-    new_sections.extend(desired_sections)
-
+kept = [sec for sec in sections if not is_apd(sec)]
 serialized = []
-for sec in new_sections:
+for sec in kept:
     block = "\n".join(line.rstrip() for line in sec).strip("\n")
     if block:
         serialized.append(block)
 
-out_path.write_text("\n\n".join(serialized).rstrip() + "\n")
-print(action)
+out_path.write_text(("\n\n".join(serialized).rstrip() + "\n") if serialized else "")
+print("removed")
 raise SystemExit(10)
 PY
-)"
-CFG_RC=$?
-set -e
-case "$CFG_RC" in
-    0)
-        rm -f "$CFG_TMP"
-        echo "[skip] [mcp_servers.apd] already points to this plugin in $CONFIG_FILE"
-        ;;
-    10)
-        _backup_if_exists "$CONFIG_FILE"
-        mv "$CFG_TMP" "$CONFIG_FILE"
-        if [ "$CFG_STATUS" = "updated" ]; then
-            echo "[updated] [mcp_servers.apd] → $CONFIG_FILE"
-        else
-            echo "[wrote] [mcp_servers.apd] → $CONFIG_FILE"
-        fi
-        CHANGES=$((CHANGES + 1))
-        ;;
-    *)
-        rm -f "$CFG_TMP"
-        echo "ERROR: failed to update $CONFIG_FILE" >&2
-        exit 6
-        ;;
-esac
+    )"
+    CFG_RC=$?
+    set -e
+    case "$CFG_RC" in
+        0)
+            rm -f "$CFG_TMP"
+            echo "[skip] no legacy [mcp_servers.apd*] blocks in $CONFIG_FILE"
+            ;;
+        10)
+            _backup_if_exists "$CONFIG_FILE"
+            mv "$CFG_TMP" "$CONFIG_FILE"
+            echo "[migrated] removed legacy [mcp_servers.apd*] blocks from $CONFIG_FILE — plugin .mcp.json now self-registers the MCP server"
+            CHANGES=$((CHANGES + 1))
+            ;;
+        *)
+            rm -f "$CFG_TMP"
+            echo "ERROR: failed to clean up $CONFIG_FILE" >&2
+            exit 6
+            ;;
+    esac
+else
+    echo "[skip] $CONFIG_FILE does not exist — nothing to clean up"
+fi
 
 # -----------------------------------------------------------
 # 2. Per-agent sandbox profiles — INTENTIONALLY DISABLED

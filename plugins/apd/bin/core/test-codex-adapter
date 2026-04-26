@@ -4,7 +4,8 @@
 # Builds a throwaway project with a known agent set, runs install-codex-config,
 # and verifies every enforcement layer:
 #   1. MCP server: syntactically valid, all expected tools registered
-#   2. config.toml: [mcp_servers.apd] + per-agent [permissions.apd-<role>] blocks
+#   2. plugin .mcp.json: self-registers MCP server (v6.0+); config.toml carries
+#      hooks/shortcut only — no [mcp_servers.apd] blocks
 #   3. hooks.json: PreToolUse Bash → guard-bash-scope
 #   4. Idempotency: second run produces zero writes
 #   5. Negative case: project without .codex/ dir doesn't trigger adapter
@@ -20,6 +21,7 @@
 set -u
 
 APD_PLUGIN_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_ROOT="$(cd "$APD_PLUGIN_ROOT/../.." && pwd)"
 source "$APD_PLUGIN_ROOT/bin/lib/style.sh"
 
 apd_header "Codex Adapter E2E Test"
@@ -85,7 +87,7 @@ FIRST_EXIT=$?
 
 [ "$FIRST_EXIT" -eq 0 ] && pass "exit code 0" && PASSES=$((PASSES + 1)) || { fail "exit code was $FIRST_EXIT"; FAILS=$((FAILS + 1)); }
 
-echo "$FIRST_OUT" | grep -q "\[wrote\] \[mcp_servers.apd\]" && pass "wrote MCP block" && PASSES=$((PASSES + 1)) || { fail "did not write MCP block"; FAILS=$((FAILS + 1)); }
+echo "$FIRST_OUT" | grep -q "\[skip\] $SCRATCH/.codex/config.toml does not exist" && pass "no MCP block written on fresh install (plugin .mcp.json self-registers)" && PASSES=$((PASSES + 1)) || { fail "fresh install unexpectedly wrote MCP block (cleanup-only mode broken)"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "per-agent sandbox profiles skipped" && pass "sandbox profiles deferred (MCP guard-scope path)" && PASSES=$((PASSES + 1)) || { fail "sandbox skip notice missing"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "PreToolUse Bash hook" && pass "wrote hooks.json" && PASSES=$((PASSES + 1)) || { fail "no hooks.json written"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "SessionStart hook" && pass "wrote SessionStart hook" && PASSES=$((PASSES + 1)) || { fail "no SessionStart hook written"; FAILS=$((FAILS + 1)); }
@@ -131,25 +133,43 @@ section "4. Generated file content"
 CFG="$SCRATCH/.codex/config.toml"
 HOOKS="$SCRATCH/.codex/hooks.json"
 
-_check_file_contains "config.toml has [mcp_servers.apd]" "$CFG" '^\[mcp_servers\.apd\]'
-# Per-tool auto-approval — Codex has no server-wide default,
-# every tool must be listed explicitly or the model gets a permission
-# prompt for the missing one
-for _t in apd_ping apd_doctor apd_advance_pipeline apd_guard_write \
-         apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state; do
-    _check_file_contains "config.toml auto-approves $_t" "$CFG" "^\\[mcp_servers\\.apd\\.tools\\.${_t}\\]"
-done
+# v6.0: MCP server registers via plugin .mcp.json, not config.toml. Fresh
+# install must not write [mcp_servers.apd*] blocks anywhere.
+PLUGIN_MCP_JSON="$APD_PLUGIN_ROOT/.mcp.json"
+_check "plugins/apd/.mcp.json exists (self-registration manifest)" test -f "$PLUGIN_MCP_JSON"
+if [ -f "$PLUGIN_MCP_JSON" ]; then
+    _check "plugin .mcp.json is valid JSON" python3 -c "import json; json.load(open('$PLUGIN_MCP_JSON'))"
+    _check_file_contains "plugin .mcp.json declares apd MCP server" "$PLUGIN_MCP_JSON" '"apd"'
+    _check_file_contains "plugin .mcp.json uses cwd: \".\" (resolves to plugin root)" "$PLUGIN_MCP_JSON" '"cwd": "\."'
+    _check_file_contains "plugin .mcp.json points at mcp/apd_mcp_server.py" "$PLUGIN_MCP_JSON" 'mcp/apd_mcp_server\.py'
+    # Per-tool auto-approval — Codex has no server-wide default, every tool
+    # must be listed explicitly. v6.0 carries this in plugin .mcp.json.
+    for _t in apd_ping apd_doctor apd_advance_pipeline apd_guard_write \
+             apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state; do
+        _check_file_contains "plugin .mcp.json auto-approves $_t" "$PLUGIN_MCP_JSON" "\"$_t\""
+    done
+fi
+# Negative check: fresh install must not have written legacy MCP blocks
+if [ ! -f "$CFG" ] || ! grep -q '^\[mcp_servers\.apd' "$CFG"; then
+    pass "fresh install: no [mcp_servers.apd*] block in config.toml (cleanup-only mode)"
+    PASSES=$((PASSES + 1))
+else
+    fail "fresh install unexpectedly produced [mcp_servers.apd*] block in config.toml"
+    FAILS=$((FAILS + 1))
+fi
 _check_file_contains "hooks.json has PreToolUse" "$HOOKS" 'PreToolUse'
 _check_file_contains "hooks.json routes to guard-bash-scope" "$HOOKS" 'guard-bash-scope'
 _check_file_contains "hooks.json has SessionStart" "$HOOKS" 'SessionStart'
 _check_file_contains "hooks.json routes SessionStart to adapter" "$HOOKS" 'bin/adapter/cdx/session-start'
 _check "session-start script is executable" test -x "$APD_PLUGIN_ROOT/bin/adapter/cdx/session-start"
 _check_file_contains "Codex plugin manifest mentions apd_doctor at session start" \
-    "$APD_PLUGIN_ROOT/plugins/apd/.codex-plugin/plugin.json" 'apd_doctor'
+    "$APD_PLUGIN_ROOT/.codex-plugin/plugin.json" 'apd_doctor'
 _check_file_contains ".apd/config has PROJECT_NAME" "$SCRATCH/.apd/config" '^PROJECT_NAME='
 
 if command -v python3 &>/dev/null; then
-    _check "TOML parses cleanly" python3 -c "import tomllib; tomllib.load(open('$CFG','rb'))"
+    if [ -f "$CFG" ]; then
+        _check "TOML parses cleanly" python3 -c "import tomllib; tomllib.load(open('$CFG','rb'))"
+    fi
     _check "JSON parses cleanly" python3 -c "import json; json.load(open('$HOOKS'))"
 else
     warn "python3 not found — skipping strict TOML/JSON parse checks"
@@ -199,19 +219,19 @@ cat > "$REPAIR/.codex/hooks.json" <<'EOF'
 EOF
 
 REPAIR_OUT="$(bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$REPAIR" 2>&1)"
-if echo "$REPAIR_OUT" | grep -q "\[updated\] \[mcp_servers.apd\]"; then
-    pass "installer repairs stale [mcp_servers.apd] path"
+if echo "$REPAIR_OUT" | grep -q "\[migrated\] removed legacy \[mcp_servers.apd"; then
+    pass "installer migrates legacy [mcp_servers.apd] block (v5 → v6 cleanup)"
     PASSES=$((PASSES + 1))
 else
-    fail "installer did not repair stale [mcp_servers.apd] block"
+    fail "installer did not report legacy MCP block migration"
     FAILS=$((FAILS + 1))
 fi
 
-if grep -qF "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py" "$REPAIR/.codex/config.toml" 2>/dev/null; then
-    pass "config.toml now points to current MCP server path"
+if ! grep -q '^\[mcp_servers\.apd' "$REPAIR/.codex/config.toml" 2>/dev/null; then
+    pass "config.toml no longer carries [mcp_servers.apd*] blocks (plugin .mcp.json takes over)"
     PASSES=$((PASSES + 1))
 else
-    fail "config.toml still points to a stale MCP server path"
+    fail "config.toml still has legacy [mcp_servers.apd*] block after migration"
     FAILS=$((FAILS + 1))
 fi
 
@@ -1066,7 +1086,7 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-for label in "uv installed" "apd_mcp_server.py present" "MCP tools registered" "config.toml has \[mcp_servers.apd\]" "hooks.json wires PreToolUse" "AGENTS.md at project root"; do
+for label in "uv installed" "apd_mcp_server.py present" "MCP tools registered" "plugin .mcp.json self-registers" "hooks.json wires PreToolUse" "AGENTS.md at project root"; do
     if echo "$DOC_OUT" | grep -qE "$label"; then
         pass "doctor checks '$label'"
         PASSES=$((PASSES + 1))
@@ -1819,7 +1839,7 @@ mkdir -p "$SK_CODEX" "$SK_BIN"
 # Canonical plugin package lives at plugins/apd/. Both direct-drop and
 # marketplace install read from here — single physical source, no symlink layer.
 for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
-    src="$APD_PLUGIN_ROOT/plugins/apd/skills/$name"
+    src="$APD_PLUGIN_ROOT/skills/$name"
     if [ -f "$src/SKILL.md" ]; then
         pass "canonical skill present: $name (SKILL.md)"
         PASSES=$((PASSES + 1))
@@ -1849,7 +1869,7 @@ for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
 done
 
 # Plugin manifest must live under the canonical package
-if [ -f "$APD_PLUGIN_ROOT/plugins/apd/.codex-plugin/plugin.json" ]; then
+if [ -f "$APD_PLUGIN_ROOT/.codex-plugin/plugin.json" ]; then
     pass "canonical plugin manifest at plugins/apd/.codex-plugin/plugin.json"
     PASSES=$((PASSES + 1))
 else
@@ -1903,7 +1923,7 @@ else
 fi
 
 target=$(readlink "$SK_CODEX/skills/apd-tdd")
-if [ "$target" = "$APD_PLUGIN_ROOT/plugins/apd/skills/apd-tdd" ]; then
+if [ "$target" = "$APD_PLUGIN_ROOT/skills/apd-tdd" ]; then
     pass "apd-tdd symlink points to canonical source"
     PASSES=$((PASSES + 1))
 else
@@ -2005,7 +2025,7 @@ fi
 CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills uninstall >/dev/null 2>&1
 
 # --- Guard against embedded .git inside the canonical plugin (release blocker) ---
-if [ ! -e "$APD_PLUGIN_ROOT/plugins/apd/.git" ]; then
+if [ ! -e "$APD_PLUGIN_ROOT/.git" ]; then
     pass "canonical plugin package has no embedded .git (release-safe)"
     PASSES=$((PASSES + 1))
 else
@@ -2017,7 +2037,7 @@ fi
 # Codex spec requires the manifest at <repo-root>/.agents/plugins/marketplace.json.
 # Without this file, remote install via GitHub shorthand fails the pre-install
 # validation step.
-ROOT_MANIFEST="$APD_PLUGIN_ROOT/.agents/plugins/marketplace.json"
+ROOT_MANIFEST="$REPO_ROOT/.agents/plugins/marketplace.json"
 if [ -f "$ROOT_MANIFEST" ]; then
     pass "root .agents/plugins/marketplace.json exists"
     PASSES=$((PASSES + 1))
@@ -2037,7 +2057,7 @@ fi
 # Plugin path must resolve (Codex validates the target before install)
 if [ -f "$ROOT_MANIFEST" ]; then
     PLUGIN_REL=$(python3 -c "import json; m=json.load(open('$ROOT_MANIFEST')); print(m['plugins'][0]['source']['path'])" 2>/dev/null)
-    PLUGIN_ABS="$APD_PLUGIN_ROOT/${PLUGIN_REL#./}"
+    PLUGIN_ABS="$REPO_ROOT/${PLUGIN_REL#./}"
     if [ -f "$PLUGIN_ABS/.codex-plugin/plugin.json" ]; then
         pass "root marketplace plugin path resolves to a real plugin manifest"
         PASSES=$((PASSES + 1))
@@ -2075,7 +2095,7 @@ else
 fi
 
 if grep -q '^\[marketplaces\.codex-apd\]' "$SK_CODEX/config.toml" 2>/dev/null && \
-   grep -qF "source = \"$APD_PLUGIN_ROOT\"" "$SK_CODEX/config.toml"; then
+   grep -qF "source = \"$REPO_ROOT\"" "$SK_CODEX/config.toml"; then
     pass "--marketplace install registers codex-apd marketplace at repo root"
     PASSES=$((PASSES + 1))
 else

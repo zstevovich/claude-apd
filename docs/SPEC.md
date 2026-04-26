@@ -51,11 +51,13 @@ Top-level dispatcher routes by 1st arg. Resolves project root via `bin/lib/resol
 
 Per-project shortcuts: `.claude/bin/apd` (CC) and `.codex/bin/apd` (Codex) — both exec the plugin entry. Codex shortcut auto-created by MCP server bootstrap on first call.
 
-## 3. MCP server (Codex-only) — `mcp/apd_mcp_server.py`
+## 3. MCP server (Codex-only) — `plugins/apd/mcp/apd_mcp_server.py`
 
-FastMCP wrapper, runs via `uv run --with mcp python …`. Per-project registration in `<project>/.codex/config.toml` under `[mcp_servers.apd]` (command + args, written by `install-codex-config` with the absolute path to *this* checkout's `mcp/apd_mcp_server.py`). Per-tool approval mode set explicitly in 8 `[mcp_servers.apd.tools.<name>]` blocks (Codex has no server-wide default; missing approval = prompt every call). 8 tools (full param details + security in §18).
+FastMCP wrapper, runs via `uv run --with mcp python …`. **v6.0 self-registers via plugin-shipped `plugins/apd/.mcp.json`** with `cwd: "."` (resolves to plugin root in the Codex plugin cache, where `mcp/apd_mcp_server.py` now lives because all framework binaries moved into `plugins/apd/` in v6.0). Per-tool approval mode is carried in the same plugin manifest under `mcpServers.apd.tools.<name>.approval_mode` for all 8 tools (Codex has no server-wide default; missing approval = prompt every call). 8 tools (full param details + security in §18).
 
-**Plugin-shipped self-registration was attempted in v5.0.9 (`plugins/apd/.mcp.json`) and reverted in v5.0.11 after a live-test crash:** Codex's plugin cache only includes the `plugins/apd/` directory, not the repo-root `mcp/`, `bin/`, or `VERSION` that the MCP server depends on. With `cwd: "../.."` in the manifest, Codex spawned `uv run python mcp/apd_mcp_server.py` from `~/.codex/plugins/cache/codex-apd/` and got `[Errno 2] No such file or directory`. Plugin self-containment (moving `mcp/`, `bin/`, `VERSION` into `plugins/apd/`) is the long-term fix and tracked as a v6.0 candidate; until then, the absolute-path writer in `install-codex-config` stays.
+`<project>/.codex/config.toml` no longer carries `[mcp_servers.apd]` blocks in v6.0+. `install-codex-config` is **cleanup-only** for that section: it detects and removes legacy `[mcp_servers.apd*]` blocks left over from ≤v5.x installs so the plugin-shipped registration takes over cleanly.
+
+**Failed v5.0.9–10 self-registration:** Codex's plugin cache previously only included `plugins/apd/`, not repo-root `mcp/`, `bin/`, or `VERSION`. With `cwd: "../.."` set, Codex spawned `uv run python mcp/apd_mcp_server.py` from the plugin cache root and got `[Errno 2] No such file or directory`. v6.0 resolves this by moving every dependency *inside* `plugins/apd/`, so plugin cache contents are sufficient for the MCP server to start. Reverted in v5.0.11; resolved in v6.0.
 
 | Tool | Purpose |
 |---|---|
@@ -71,6 +73,8 @@ FastMCP wrapper, runs via `uv run --with mcp python …`. Per-project registrati
 ## 4. Hooks
 
 ### 4.1 CC hooks — `hooks/hooks.json` (13 entries across 8 event types)
+
+**v6.0 path note:** the hook config file itself stays on the repo root (`hooks/hooks.json`) because Claude Code auto-discovers it from `${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json`. All hook commands now reference `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/...` since `bin/` moved into the plugin folder.
 
 | Event | Matcher | Handler | Block? |
 |---|---|---|---|
@@ -94,8 +98,8 @@ Written by `bin/adapter/cdx/install-codex-config`. Codex 0.124.0 fires `PreToolU
 
 | Event | Shim | Timeout | Purpose |
 |---|---|---|---|
-| `PreToolUse` (matcher `Bash`) | `bin/adapter/cdx/guard-bash-scope` | 5s | Scope enforcement on Bash tool calls |
-| `SessionStart` | `bin/adapter/cdx/session-start` | 10s | Shortcut drift guard + `apd-init --quick` gap analysis (throttled 1h). TUI only — `codex exec` has no equivalent bootstrap path (see §14). |
+| `PreToolUse` (matcher `Bash`) | `plugins/apd/bin/adapter/cdx/guard-bash-scope` | 5s | Scope enforcement on Bash tool calls |
+| `SessionStart` | `plugins/apd/bin/adapter/cdx/session-start` | 10s | Shortcut drift guard + `apd-init --quick` gap analysis (throttled 1h). TUI only — `codex exec` has no equivalent bootstrap path (see §14). |
 
 Requires global `codex features enable codex_hooks` (stable as of 0.124; was "under development" on 0.121).
 
@@ -247,14 +251,15 @@ Codex 0.124+ fires `SessionStart` in TUI mode only, and timed to the first user 
 | `.claude/settings.json` | Project | apd-setup | CC project hooks + permissions |
 | `.claude/settings.local.json` | Project | User | Local CC overrides (gitignored) |
 | `~/.codex/config.toml` | User-global | User + APD bootstrap | `[features]` (codex_hooks, multi_agent), `[marketplaces.codex-apd]`, `[plugins."apd@codex-apd"]`, per-project trust levels |
-| `<project>/.codex/config.toml` | Project | install-codex-config | `[mcp_servers.apd]` (command + args with absolute path to this checkout's `mcp/apd_mcp_server.py`) plus 8 per-tool `[mcp_servers.apd.tools.<name>]` approval blocks. Plugin-shipped `.mcp.json` self-registration was attempted in v5.0.9-10 and reverted in v5.0.11 — the plugin cache excludes the repo-root `mcp/` and `bin/` that the server depends on. |
+| `plugins/apd/.mcp.json` | Plugin | Repo (shipped) | v6.0+ self-registers the APD MCP server with `cwd: "."` (resolves to plugin cache root, where `mcp/apd_mcp_server.py` lives) plus 8 `mcpServers.apd.tools.<name>.approval_mode` entries |
+| `<project>/.codex/config.toml` | Project | install-codex-config | v6.0+ **does not** carry `[mcp_servers.apd*]` — install-codex-config is cleanup-only for that section and removes legacy v5.x blocks. Other sections (codex features, plugin trust) are user-managed. |
 | `<project>/.codex/hooks.json` | Project | install-codex-config | PreToolUse Bash → guard-bash-scope shim; SessionStart → cdx session-start (TUI only) |
 | `.apd/config` (or legacy `.claude/.apd-config`) | Project | apd-init | `PROJECT_NAME`, `APD_VERSION`, `STACK` metadata |
 | `.apd/agents/<name>.md` (Codex) / `.claude/agents/<name>.md` (CC) | Project | apd-setup or `apd cdx agents add` | Per-agent scope + frontmatter |
 
 ## 13. Versioning
 
-- Source of truth: `VERSION` file at repo root + `version` field in plugin manifests
+- Source of truth: `plugins/apd/VERSION` file + `version` field in plugin manifests (`.claude-plugin/plugin.json` for CC, `plugins/apd/.codex-plugin/plugin.json` for Codex). Pre-v6.0 the VERSION file lived at repo root; moved into the plugin folder so the Codex plugin cache can see it.
 - `bump-version` script (gitignored) updates VERSION + manifest version + CHANGELOG entry
 - Semantic versioning: major (breaking), minor (feature), patch (fix)
 - **No bumps without explicit user request** (durable rule)
@@ -418,13 +423,14 @@ All log via shared `log_block` to `<memory>/guard-audit.log` (sanitised newlines
 - Always exit 0
 - CC only
 
-## 17. MCP server internals — `mcp/apd_mcp_server.py`
+## 17. MCP server internals — `plugins/apd/mcp/apd_mcp_server.py`
 
 ### 17.1 Module-level + bootstrap
 
 - FastMCP wrapper: `mcp = FastMCP("apd")`. Functions decorated `@mcp.tool()` auto-exposed.
 - 8 tools registered.
-- No persistent daemon — Codex spawns fresh process per session via `uv run --with mcp python apd_mcp_server.py`.
+- No persistent daemon — Codex spawns fresh process per session via `uv run --with mcp python mcp/apd_mcp_server.py` (cwd resolves to plugin root via plugin-shipped `.mcp.json`).
+- `APD_PLUGIN_ROOT = Path(__file__).resolve().parent.parent` resolves to `plugins/apd/` (v6.0+). All sibling paths (`bin/`, `templates/`, `rules/`, `VERSION`) live in the same plugin folder so Codex's plugin cache contains everything the server needs.
 - `_bootstrap_shortcut()` fires on `__name__ == "__main__"`. Creates `<project>/.codex/bin/apd` shell wrapper execing plugin entry. Idempotent: skips if shortcut exists with correct path substring. Only runs if `.codex/` dir exists. `mkdir -p` parent + `chmod 0o755`.
 
 ### 17.2 Project resolution — `_project_dir()` + `_is_project_root()`
@@ -501,13 +507,13 @@ See §15 for actual numbers. `verifier_duration_s` is informational only (no thr
 - If `total == 0`: `notes` required ≥ 80 chars (rubber-stamp prevention)
 - Writes `.adversarial-summary`: `ADVERSARIAL:T:A:D` + optional Notes block
 
-## 18. Codex adapter scripts — `bin/adapter/cdx/`
+## 18. Codex adapter scripts — `plugins/apd/bin/adapter/cdx/`
 
 ### 18.1 `install-codex-config` — full 8 steps
 
 **Pre-flight guard:** refuses to run if resolved project path == APD framework repo path (canonical comparison via `pwd -P`). Prevents accidentally scaffolding APD into APD source. Bypass not possible — must pass explicit non-framework project path.
 
-1. **MCP Server Registration** — Python idempotence check; if existing matches desired, skip; else write new TOML with `[mcp_servers.apd]` (command + args, absolute path to this checkout's `mcp/apd_mcp_server.py`) plus all 8 per-tool `[mcp_servers.apd.tools.<tool>] approval_mode = "approve"` blocks. Backs up existing config.toml with timestamp suffix. Exit code 10 signals changes. (Plugin self-registration via `plugins/apd/.mcp.json` was attempted in v5.0.9-10 and reverted in v5.0.11 — see §3 for why.)
+1. **MCP Server Cleanup (v6.0+)** — Python idempotence check that removes any legacy `[mcp_servers.apd]` and `[mcp_servers.apd.tools.<tool>]` blocks from `config.toml`. v6.0 ships `plugins/apd/.mcp.json` which Codex auto-loads from the plugin cache, so per-project `[mcp_servers.apd*]` blocks are obsolete and would conflict with the plugin-shipped registration. Cleanup-only — never writes a new MCP block. No-op if `config.toml` does not exist. Exit code 10 signals migration happened. (Pre-v6.0 this step *wrote* the absolute path; see §3 for the cache-layout reason that move was needed.)
 2. **Per-Agent Sandbox Profiles** — INTENTIONALLY DISABLED. Codex 0.121.0 doesn't enforce FileSystemSandboxPolicy at runtime. Per-agent stays in MCP `apd_guard_write`.
 3. **`.codex/bin/apd` Shortcut** — idempotent; creates wrapper execing `bin/apd`, chmod +x.
 4. **`.apd/config` Seed** — only if neither `.apd/config` nor `.claude/.apd-config` exist. Contents: `PROJECT_NAME=<basename>`, `APD_VERSION=<from VERSION or plugin.json>`, `STACK=`. Activates pure-Codex without touching `.claude/`.
@@ -527,7 +533,7 @@ See §15 for actual numbers. `verifier_duration_s` is informational only (no thr
 
 - **Invocation:** `apd cdx doctor [project]` — optional first arg is project path; if omitted, resolves to cwd
 - Exit codes: 0 = no FAIL (may have WARN), N = N failed checks
-- 6 sections: Prerequisites (uv, python3, jq, codex CLI), Global Codex config (`~/.codex/config.toml` + `codex_hooks` flag), Project `.codex/` (config.toml MCP block, hooks.json guard wire, `.codex/bin/apd` shortcut), .apd content (config marker, workflow.md, memory files, agents dir, .apd-version), AGENTS.md at root, MCP server (syntax check, all 8 tool functions present)
+- 6 sections: Prerequisites (uv, python3, jq, codex CLI), Global Codex config (`~/.codex/config.toml` + `codex_hooks` flag), Project `.codex/` (warns on legacy `[mcp_servers.apd*]` blocks, checks plugin `.mcp.json` self-registration, hooks.json guard wire, `.codex/bin/apd` shortcut), .apd content (config marker, workflow.md, memory files, agents dir, .apd-version), AGENTS.md at root, MCP server (syntax check, all 8 tool functions present)
 
 ### 18.4 `skills-install`
 

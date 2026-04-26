@@ -103,24 +103,21 @@ else
     _ok ".codex/ exists"
 
     CFG="$CODEX_DIR/config.toml"
-    if [ -f "$CFG" ] && grep -q '^\[mcp_servers\.apd\]' "$CFG"; then
-        _ok "config.toml has [mcp_servers.apd]"
-        if grep -qF "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py" "$CFG"; then
-            _ok "MCP server path points to this plugin"
-        else
-            _warn "MCP server path in config.toml doesn't match plugin root ($APD_PLUGIN_ROOT) — another APD install may be registered"
-        fi
+    # v6.0: MCP server self-registers via plugin .mcp.json. We only flag
+    # legacy [mcp_servers.apd*] blocks left behind by ≤v5.x — they would
+    # collide with the plugin-shipped registration. `apd cdx init` removes
+    # them.
+    if [ -f "$CFG" ] && grep -q '^\[mcp_servers\.apd' "$CFG"; then
+        _warn "$CFG has legacy [mcp_servers.apd*] block(s) — run \`apd cdx init\` to clean up; v6.0 self-registers the MCP server via plugin .mcp.json"
     else
-        _bad "[mcp_servers.apd] block missing from $CFG — run: apd cdx init"
+        _ok "config.toml has no legacy [mcp_servers.apd*] blocks (plugin .mcp.json self-registers the MCP server)"
     fi
-    APD_TOOLS_OK=1
-    for _t in apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state; do
-        grep -q "^\[mcp_servers\.apd\.tools\.${_t}\]" "$CFG" 2>/dev/null || APD_TOOLS_OK=0
-    done
-    if [ "$APD_TOOLS_OK" -eq 1 ]; then
-        _ok "config.toml has all 8 [mcp_servers.apd.tools.*] approval blocks"
+
+    PLUGIN_MCP="$APD_PLUGIN_ROOT/.mcp.json"
+    if [ -f "$PLUGIN_MCP" ] && grep -q '"apd"' "$PLUGIN_MCP"; then
+        _ok "plugin .mcp.json self-registers the APD MCP server"
     else
-        _warn "config.toml missing one or more APD per-tool approval blocks — run: apd cdx init"
+        _bad "plugin .mcp.json missing at $PLUGIN_MCP — APD MCP tools will not load"
     fi
 
     HOOKS="$CODEX_DIR/hooks.json"

@@ -39,7 +39,7 @@ allowed-tools: Read Glob Grep Bash
 ### 1. Run verify-apd first
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/verify-apd
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/verify-apd
 ```
 
 If FAIL → fix those first. This skill builds on top of verify-apd, not replaces it.
@@ -59,7 +59,7 @@ For each agent in `.claude/agents/*.md`:
 **Hook check:**
 - `if:` field must be inside hook objects, NOT at matcher level
 - No env var prefixes in `if` patterns (e.g., `Bash(git *)` not `Bash(APD_ORCHESTRATOR_COMMIT=1 git *)`)
-- Guard scripts use `${CLAUDE_PLUGIN_ROOT}/bin/core/` paths
+- Guard scripts use `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/` paths
 - Builders have: guard-scope, guard-bash-scope, guard-secrets, guard-git
 - Reviewer has: guard-secrets, guard-git (NO guard-scope — read-only)
 
@@ -107,7 +107,7 @@ Read `.claude/rules/workflow.md` and verify:
 
 ```bash
 bash .claude/bin/apd pipeline status
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/apd-init --version
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/apd-init --version
 ```
 
 - Pipeline responds without errors

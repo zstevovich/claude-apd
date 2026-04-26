@@ -29,13 +29,13 @@ Instead of manually calling `gh issue create` and `gh issue close`, use the `gh-
 
 ```bash
 # Instead of manually:
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/gh-sync spec "User login"      # creates issue + starts pipeline spec
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/gh-sync builder                 # comments on issue + starts pipeline builder
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/gh-sync reviewer                # comments + starts reviewer
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/gh-sync verifier                # comments + starts verifier
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/gh-sync done 42 abc1234         # closes issue with commit reference
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/gh-sync skip 42 "Hotfix"        # closes with apd-skip label
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/gh-sync status                  # shows active issue
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/gh-sync spec "User login"      # creates issue + starts pipeline spec
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/gh-sync builder                 # comments on issue + starts pipeline builder
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/gh-sync reviewer                # comments + starts reviewer
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/gh-sync verifier                # comments + starts verifier
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/gh-sync done 42 abc1234         # closes issue with commit reference
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/gh-sync skip 42 "Hotfix"        # closes with apd-skip label
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/gh-sync status                  # shows active issue
 ```
 
 `gh-sync` automatically tracks the issue number for the current pipeline — you don't need to pass it at every step.

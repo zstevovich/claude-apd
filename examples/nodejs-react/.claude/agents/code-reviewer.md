@@ -12,13 +12,13 @@ hooks:
     - matcher: "Read"
       hooks:
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/bin/core/guard-secrets"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/guard-secrets"
           timeout: 5
     - matcher: "Bash"
       if: "Bash(git *) | Bash(APD_ORCHESTRATOR_COMMIT=1 git *)"
       hooks:
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/bin/core/guard-git"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/guard-git"
           timeout: 5
 ---
 

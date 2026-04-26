@@ -1,5 +1,51 @@
 # Changelog
 
+## v6.0.0 — 2026-04-27 — Plugin self-containment
+
+**Major refactor.** Every framework binary, template, rule, and the MCP server itself now live inside `plugins/apd/`. The Codex plugin cache, which only mirrors the plugin folder, finally contains everything the MCP server needs — closing the v5.0.9–10 plugin-shipped `.mcp.json` gap that was reverted in v5.0.11. `install-codex-config` becomes cleanup-only for the MCP server section; per-project `<project>/.codex/config.toml` no longer carries `[mcp_servers.apd*]` blocks.
+
+### Layout changes (repo root → `plugins/apd/`)
+
+```
+bin/        →  plugins/apd/bin/
+mcp/        →  plugins/apd/mcp/
+rules/      →  plugins/apd/rules/
+templates/  →  plugins/apd/templates/
+VERSION     →  plugins/apd/VERSION
+```
+
+Stays on the repo root (CC plugin auto-discovery + repo tooling):
+
+- `.claude-plugin/{plugin.json,marketplace.json}` — CC manifests
+- `hooks/hooks.json` — auto-discovered by Claude Code from `${CLAUDE_PLUGIN_ROOT}/hooks/`
+- `skills/` — auto-discovered by Claude Code (top-level CC skills, including the CC-only `apd-setup`)
+- `monitors/monitors.json` — referenced by `.claude-plugin/plugin.json` relative to repo root
+- `.agents/plugins/marketplace.json` — Codex marketplace manifest
+- `bump-version`, `.gitignore`, `README.md`, `CHANGELOG.md`, `LICENSE`, `docs/`, `examples/`
+
+### MCP server self-registration
+
+`plugins/apd/.mcp.json` now ships with the plugin and registers the APD MCP server with `cwd: "."`. Codex auto-loads this from the plugin cache at `~/.codex/plugins/cache/codex-apd/apd/<v>/`, which now contains `mcp/apd_mcp_server.py`. Per-tool approval modes for all 8 tools live in the same manifest under `mcpServers.apd.tools.<name>.approval_mode`.
+
+### Migration for existing users
+
+`apd cdx init` (i.e. `install-codex-config`) detects any legacy `[mcp_servers.apd]` and `[mcp_servers.apd.tools.<tool>]` blocks in `<project>/.codex/config.toml` and removes them. Backup of the original is written next to the file (`config.toml.bak.<epoch>`). After upgrading the plugin via `codex plugin marketplace upgrade codex-apd`, run `apd cdx init` once per project to clean up the legacy blocks.
+
+### Path reference updates
+
+- `${CLAUDE_PLUGIN_ROOT}/bin/...` → `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/...` in all CC hooks, monitors, top-level CC skills, agent templates, and example agent files
+- `APD_PLUGIN_ROOT` (computed by every script) now resolves to `plugins/apd/` instead of repo root. Scripts that need repo-root-only paths (the Codex marketplace manifest, top-level skills) reference an explicit `REPO_ROOT="$APD_PLUGIN_ROOT/../.."` instead
+- `bump-version` updates `plugins/apd/VERSION`, `plugins/apd/.codex-plugin/plugin.json`, and `.agents/plugins/marketplace.json` in addition to the CC manifests
+
+### Tests
+
+`bin/core/test-codex-adapter` reorganised: 213 passing checks (was 209 before v6.0). New checks cover plugin `.mcp.json` validity, `cwd: "."`, all 8 per-tool approval entries, and migration of legacy `[mcp_servers.apd*]` blocks. `codex-doctor` now flags legacy MCP blocks and verifies plugin `.mcp.json` presence.
+
+### Breaking
+
+- Anyone with hardcoded `apd-template/bin/...` or `apd-template/mcp/...` paths in external scripts must update to `apd-template/plugins/apd/bin/...` etc.
+- Pre-v6.0 `.codex/config.toml` files keep working until `apd cdx init` is rerun, but the plugin-shipped registration takes precedence — running both can cause Codex to spawn the MCP server twice.
+
 ## v5.0.11 — 2026-04-27
 
 Fourth patch in the v5.1 chain. Reverts the v5.0.9-10 plugin .mcp.json self-registration experiment after a second live-test crash.

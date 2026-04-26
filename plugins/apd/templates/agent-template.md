@@ -15,29 +15,29 @@ hooks:
     - matcher: "Read"
       hooks:
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/guard-secrets"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-secrets"
           timeout: 5
     - matcher: "Write|Edit"
       hooks:
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/guard-scope {{SCOPE_PATHS}}"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-scope {{SCOPE_PATHS}}"
           timeout: 5
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/guard-secrets"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-secrets"
           timeout: 5
     - matcher: "Bash"
       hooks:
         - type: command
           if: "Bash(git *)"
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/guard-git"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-git"
           timeout: 5
     - matcher: "Bash"
       hooks:
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/guard-bash-scope {{SCOPE_PATHS}}"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-bash-scope {{SCOPE_PATHS}}"
           timeout: 5
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/guard-secrets"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-secrets"
           timeout: 5
 ---
 

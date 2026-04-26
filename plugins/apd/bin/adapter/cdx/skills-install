@@ -32,19 +32,21 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APD_PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$(cd "$APD_PLUGIN_ROOT/../.." && pwd)"
 source "$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh"
 source "$APD_PLUGIN_ROOT/bin/lib/style.sh"
 
-# Canonical plugin package. Both install modes read from here; there is
-# no longer a separate templates/codex/skills/ source.
-PLUGIN_LAYOUT="$APD_PLUGIN_ROOT/plugins/apd"
+# Canonical plugin package = APD_PLUGIN_ROOT (plugins/apd/). Both install
+# modes read from here; there is no longer a separate templates/codex/skills/
+# source.
+PLUGIN_LAYOUT="$APD_PLUGIN_ROOT"
 SKILL_SRC_DIR="$PLUGIN_LAYOUT/skills"
-# Marketplace root = plugin repo root. Codex looks for
+# Marketplace root = repo root. Codex looks for
 # .agents/plugins/marketplace.json there for both local and remote
 # (`codex marketplace add owner/repo`) installs — keeping these aligned
 # is what makes the local --marketplace flag a true rehearsal of the
 # remote install path.
-MARKETPLACE_DIR="$APD_PLUGIN_ROOT"
+MARKETPLACE_DIR="$REPO_ROOT"
 MARKETPLACE_MANIFEST="$MARKETPLACE_DIR/.agents/plugins/marketplace.json"
 MARKETPLACE_NAME="codex-apd"
 PLUGIN_KEY="apd@$MARKETPLACE_NAME"

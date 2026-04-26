@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/session-start\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/session-start\"",
             "timeout": 5,
             "statusMessage": "Loading APD context..."
           }
@@ -20,7 +20,7 @@
           {
             "type": "command",
             "if": "Bash(git *)",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/guard-git\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-git\"",
             "timeout": 5
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/guard-bash-scope\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-bash-scope\"",
             "timeout": 5
           }
         ]
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/guard-send-message\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/guard-send-message\"",
             "timeout": 5
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/guard-orchestrator\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-orchestrator\"",
             "timeout": 5
           }
         ]
@@ -60,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/guard-pipeline-state\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-pipeline-state\"",
             "timeout": 5
           }
         ]
@@ -71,7 +71,7 @@
           {
             "type": "command",
             "if": "Write(*/package-lock.json) | Write(*/pnpm-lock.yaml) | Write(*/yarn.lock) | Write(*/composer.lock) | Write(*/Cargo.lock) | Write(*/go.sum) | Write(*/packages.lock.json) | Write(*/Gemfile.lock) | Write(*/poetry.lock) | Edit(*/package-lock.json) | Edit(*/pnpm-lock.yaml) | Edit(*/yarn.lock) | Edit(*/composer.lock) | Edit(*/Cargo.lock) | Edit(*/go.sum) | Edit(*/packages.lock.json) | Edit(*/Gemfile.lock) | Edit(*/poetry.lock)",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/guard-lockfile\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-lockfile\"",
             "timeout": 5
           }
         ]
@@ -84,7 +84,7 @@
           {
             "type": "command",
             "if": "Bash(git commit*)",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/pipeline-post-commit\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/pipeline-post-commit\"",
             "timeout": 10
           }
         ]
@@ -95,7 +95,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/track-agent\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/track-agent\"",
             "timeout": 3
           }
         ]
@@ -106,7 +106,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/track-agent\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/track-agent\"",
             "timeout": 3
           }
         ]
@@ -117,7 +117,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/guard-compact\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/guard-compact\"",
             "timeout": 5
           }
         ]
@@ -128,7 +128,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/session-start\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/session-start\"",
             "timeout": 5,
             "statusMessage": "Reinjecting APD context after compaction..."
           }
@@ -140,7 +140,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/core/guard-permission-denied\""
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/guard-permission-denied\""
           }
         ]
       }

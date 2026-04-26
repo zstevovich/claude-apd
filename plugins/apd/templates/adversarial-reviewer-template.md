@@ -13,13 +13,13 @@ hooks:
     - matcher: "Read"
       hooks:
         - type: command
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/guard-secrets"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-secrets"
           timeout: 5
     - matcher: "Bash"
       hooks:
         - type: command
           if: "Bash(git *)"
-          command: "bash ${CLAUDE_PLUGIN_ROOT}/bin/adapter/cc/guard-git"
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-git"
           timeout: 5
 ---
 

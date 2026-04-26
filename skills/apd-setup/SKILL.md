@@ -56,8 +56,8 @@ Guard scripts, pipeline scripts, workflow.md, skills — all live in the plugin 
 ### 1. Run the init scripts FIRST — do not analyse the project before this
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/bin/core/apd-init"
-bash "${CLAUDE_PLUGIN_ROOT}/bin/core/session-start"
+bash "${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/apd-init"
+bash "${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/session-start"
 ```
 
 Do NOT skip this. Do NOT do your own analysis instead. Run both scripts and read their output. The second script creates the `apd` shortcut and loads project context. Only proceed to step 2 if the scripts report missing files.
@@ -73,10 +73,10 @@ Check whether `.claude/` or `CLAUDE.md` already exists:
 
 | Check | File | If missing |
 |-------|------|------------|
-| Reviewer agent | `.claude/agents/code-reviewer.md` | Generate from `${CLAUDE_PLUGIN_ROOT}/templates/reviewer-template.md` |
+| Reviewer agent | `.claude/agents/code-reviewer.md` | Generate from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/reviewer-template.md` |
 | Builder maxTurns | `.claude/agents/*.md` frontmatter | Add `maxTurns: 40` (builders) / `30` (reviewers) — bumps legacy 20/15 defaults |
 | Reviewer model | `code-reviewer.md` frontmatter | Must be `model: opus`, `effort: max`, `permissionMode: plan` |
-| Workflow rules | `.claude/rules/workflow.md` | Copy from `${CLAUDE_PLUGIN_ROOT}/rules/workflow.md` |
+| Workflow rules | `.claude/rules/workflow.md` | Copy from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/rules/workflow.md` |
 | Principles | `.claude/rules/principles.md` | Generate from template |
 | Memory files | `.claude/memory/` (4 files) | Generate missing ones |
 | .apd-config | `.claude/.apd-config` | Generate with project name, version, stack |
@@ -150,14 +150,14 @@ Generate with sections (ALL populated, NO placeholders):
 
 #### 5.2 Agents
 
-**Builder agents** — one per domain, from `${CLAUDE_PLUGIN_ROOT}/templates/agent-template.md`:
+**Builder agents** — one per domain, from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/agent-template.md`:
 - Frontmatter: name, description, tools (Read/Write/Edit/Glob/Grep/Bash), **model: sonnet**, **effort: xhigh**, maxTurns: 40, permissionMode: bypassPermissions
 - **color:** assign per role — backend: `purple`, frontend: `blue`, testing: `green`, other: `cyan`
-- Hooks with `${CLAUDE_PLUGIN_ROOT}/bin/core/` paths
+- Hooks with `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/` paths
 - guard-scope and guard-bash-scope with exact SCOPE_PATHS
 - Body: role, stack, workflow, FORBIDDEN
 
-**Reviewer agent** — ALWAYS generated, from `${CLAUDE_PLUGIN_ROOT}/templates/reviewer-template.md`:
+**Reviewer agent** — ALWAYS generated, from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/reviewer-template.md`:
 - Frontmatter: name: code-reviewer, tools (Read/Glob/Grep/Bash — **NO Write/Edit**), **model: opus**, **effort: max**, maxTurns: 30, **permissionMode: plan** (read-only), **color: orange**
 - NO guard-scope (reviewer reads everything, writes nothing)
 - Body: review checklist, output format, verdict
@@ -168,7 +168,7 @@ GENERATE agents from the templates — do not copy literally.
 
 #### 5.3 verify-all.sh
 
-Read the snippet from `${CLAUDE_PLUGIN_ROOT}/templates/verify-all/{stack}.sh`.
+Read the snippet from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/verify-all/{stack}.sh`.
 Generate `.claude/scripts/verify-all.sh` with:
 - Shebang + header comment
 - Verifier cache check block
@@ -180,10 +180,10 @@ Generate `.claude/scripts/verify-all.sh` with:
 
 **workflow.md** — Copy from the plugin (rules are NOT auto-loaded from plugins):
 ```bash
-cp "${CLAUDE_PLUGIN_ROOT}/rules/workflow.md" .claude/rules/workflow.md
+cp "${CLAUDE_PLUGIN_ROOT}/plugins/apd/rules/workflow.md" .claude/rules/workflow.md
 ```
 
-**principles.md** — Read `${CLAUDE_PLUGIN_ROOT}/templates/principles/{language}.md`.
+**principles.md** — Read `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/principles/{language}.md`.
 Adapt for the stack — add architectural pattern and port range.
 Place in `.claude/rules/principles.md`.
 
@@ -236,7 +236,7 @@ STACK={stack}
 
 #### 5.7 Gitignore
 
-Add entries from `${CLAUDE_PLUGIN_ROOT}/templates/gitignore-entries.txt` if missing.
+Add entries from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/gitignore-entries.txt` if missing.
 
 #### 5.8 MCP Configuration
 
@@ -313,7 +313,7 @@ Include all recommended? (yes / adjust)
 ### 6. Verify
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/bin/core/verify-apd
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/verify-apd
 ```
 
 ## Example
@@ -377,7 +377,7 @@ You're done when:
 - `apd-init` and `session-start` ran successfully and the `apd` shortcut works
 - For new setup: every file in the "What gets generated" table exists with no placeholders left
 - For maintenance: every gap analysis row is either ✓ or has been fixed
-- `bash ${CLAUDE_PLUGIN_ROOT}/bin/core/verify-apd` passes (X PASS / 0 FAIL)
+- `bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/verify-apd` passes (X PASS / 0 FAIL)
 - The reviewer agent exists with `opus / max / plan / orange / maxTurns: 30`
 - `.claude/.apd-config` (or `.apd/config`) is present with PROJECT_NAME, APD_VERSION, STACK
 - `.mcp.json` recommendations have been presented to the user (and either accepted or skipped explicitly)
