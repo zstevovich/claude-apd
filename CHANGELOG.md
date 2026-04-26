@@ -1,5 +1,39 @@
 # Changelog
 
+## v5.0.10 — 2026-04-26
+
+Third patch in the v5.1 chain. Emergency fix for v5.0.9 — live test caught a Codex startup crash that local-cache testing would have missed.
+
+### What was broken in v5.0.9
+
+v5.0.9 shipped `plugins/apd/.mcp.json` and stopped writing top-level `[mcp_servers.apd]` into user config.toml — but kept writing the eight `[mcp_servers.apd.tools.<name>]` per-tool approval blocks. After running `apd cdx init` on a v5.0.9 project, `<project>/.codex/config.toml` contained only the per-tool blocks. TOML semantics implicitly defines `mcp_servers.apd` as a parent table whenever any `[mcp_servers.apd.tools.<name>]` block exists; that parent had no `command` / `url`, so Codex refused to start: `Error loading config.toml: invalid transport in mcp_servers.apd`. Per-tool blocks cannot legally exist without a parent transport block in user config.
+
+### Fix
+
+- **`plugins/apd/.mcp.json` gains a `tools` field.** Codex `RawMcpServerConfig` accepts `tools: HashMap<String, McpServerToolConfig>` per `codex-rs/config/src/mcp_types.rs:241`; `McpServerToolConfig` carries the `approval_mode` field (line 56). All eight APD tools (`apd_ping`, `apd_doctor`, `apd_advance_pipeline`, `apd_guard_write`, `apd_verify_step`, `apd_adversarial_pass`, `apd_list_agents`, `apd_pipeline_state`) now declare `approval_mode = "approve"` inside the plugin manifest itself. Codex picks them up alongside the server registration.
+- **`bin/adapter/cdx/install-codex-config` is cleanup-only.** It writes nothing under `[mcp_servers.apd*]`; on re-run it strips both pre-v5.0.9 top-level `[mcp_servers.apd]` and v5.0.9 per-tool `[mcp_servers.apd.tools.*]` blocks. If config.toml has nothing to clean, the script is a no-op (the file is not even created).
+- **`bin/adapter/cdx/codex-doctor` updated.** New OK check: plugin `.mcp.json` includes per-tool approvals for all 8 APD tools. New BAD check: legacy `[mcp_servers.apd.tools.*]` block(s) still in user config.toml — explains the `invalid transport` crash and points at `apd cdx init` for cleanup.
+
+### Doc updates
+
+- `docs/SPEC.md` §3 — clarifies that all MCP config (server + per-tool approvals) ships in plugin `.mcp.json` since v5.0.10.
+- `docs/SPEC.md` §12 (configuration surfaces) — `<project>/.codex/config.toml` row reworded as cleanup-only.
+- `docs/SPEC.md` §18.1 — Step 1 of `install-codex-config` is now "MCP cleanup-only" with a pointer back to v5.0.10 motivation.
+
+### Tests
+
+- `bin/core/test-codex-adapter` — replaced `wrote per-tool approval blocks` assertion with `first install skips MCP cleanup on empty config (nothing to remove)`. Replaced eight `config.toml auto-approves <tool>` checks with eight `plugin .mcp.json auto-approves <tool>` checks. Added a hard fail-on-presence check for `[mcp_servers.apd*]` in user config. Repair test now expects "[removed] legacy APD MCP block" instead of "[updated] APD per-tool approvals". TOML parse check now skips when config.toml doesn't exist (no-op installs leave it absent). Total 210 → 211 PASS / 0 FAIL.
+
+### Live unblock
+
+If you ran `apd cdx init` on v5.0.9 and Codex now refuses to start with `invalid transport in mcp_servers.apd`, empty the project config (or run v5.0.10's `apd cdx init` once it ships):
+
+```bash
+> <project>/.codex/config.toml          # one-shot unblock
+# OR after v5.0.10 marketplace-upgrade:
+bash <project>/.codex/bin/apd cdx init   # cleanup happens automatically
+```
+
 ## v5.0.9 — 2026-04-26
 
 Second patch in the v5.1 chain. Plugin self-registers its MCP server via `plugins/apd/.mcp.json`; closes the v5.0.6 exec-mode bootstrap gap.

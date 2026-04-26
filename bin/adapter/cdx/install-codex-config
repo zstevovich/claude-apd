@@ -3,10 +3,12 @@
 #
 # Writes into the project's Codex namespace only. Never touches .claude/.
 # Idempotent for each step:
-#   1. .codex/config.toml  → APD per-tool approvals only. Server registration
-#                            itself is shipped in plugins/apd/.mcp.json since
-#                            v5.0.9. Any legacy [mcp_servers.apd] block from
-#                            older installs is removed on re-run.
+#   1. .codex/config.toml  → cleanup only since v5.0.10. All APD MCP config
+#                            (server, args, per-tool approvals) ships in
+#                            plugins/apd/.mcp.json. Step 1 removes any legacy
+#                            [mcp_servers.apd] or [mcp_servers.apd.tools.*]
+#                            blocks that older APD installs (pre-5.0.9 or
+#                            5.0.9 itself) might have written.
 #   2. .codex/bin/apd      → shortcut to plugin entry point
 #   3. .codex/hooks.json   → PreToolUse Bash → guard-bash-scope
 #   4. Prints reminder to enable `codex_hooks` feature flag
@@ -85,50 +87,40 @@ _backup_if_exists() {
 }
 
 # -----------------------------------------------------------
-# 1. Per-tool approval blocks + cleanup of legacy [mcp_servers.apd]
+# 1. Cleanup any legacy APD MCP blocks from <project>/.codex/config.toml
 #
-# Since v5.0.9 the server itself is registered by `plugins/apd/.mcp.json`
-# (Codex 0.124+ auto-loads plugin-shipped MCP configs). This script no
-# longer writes the [mcp_servers.apd] command/args block — it only writes
-# per-tool [mcp_servers.apd.tools.<name>] approval defaults, and removes
-# any legacy [mcp_servers.apd] block left over from older APD installs
-# so Codex doesn't print a "plugin MCP overwrote earlier server
-# definition" warning on every session.
+# Since v5.0.10 every APD MCP setting — including per-tool
+# approval_mode — ships in plugins/apd/.mcp.json. This script writes
+# nothing into [mcp_servers.apd*]; it only REMOVES anything that may
+# still be there from APD < v5.0.10 installs (the top-level
+# [mcp_servers.apd] block from < v5.0.9 and/or the per-tool
+# [mcp_servers.apd.tools.<name>] blocks from v5.0.9). Leaving them in
+# place would either trigger Codex's "plugin MCP overwrote earlier
+# server definition" warning (top-level) or worse — make Codex refuse
+# to start with "invalid transport in mcp_servers.apd" because
+# per-tool blocks implicitly define the parent table without a
+# transport field (this exact bug is what motivated v5.0.10).
 # -----------------------------------------------------------
 CFG_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-config.XXXXXX")"
 set +e
 CFG_STATUS="$(
-python3 - "$CONFIG_FILE" "$MCP_SERVER" "$CFG_TMP" <<'PY'
-import json
+python3 - "$CONFIG_FILE" "$CFG_TMP" <<'PY'
 import sys
 from pathlib import Path
 
 cfg_path = Path(sys.argv[1])
-server = sys.argv[2]
-out_path = Path(sys.argv[3])
+out_path = Path(sys.argv[2])
 
 text = cfg_path.read_text() if cfg_path.exists() else ""
+
 _APD_TOOLS = (
     "apd_ping", "apd_doctor", "apd_advance_pipeline", "apd_guard_write",
     "apd_verify_step", "apd_adversarial_pass", "apd_list_agents", "apd_pipeline_state",
 )
-# Each sub-list is one TOML section. Codex has no server-wide
-# default_tools_approval_mode; auto-approval must be declared per-tool.
-# All APD tools are either read-only (ping, doctor, list_agents,
-# pipeline_state, verify_step) or write into apd-managed paths the guards
-# already police (advance_pipeline, guard_write, adversarial_pass), so
-# blanket approval is safe.
-desired_sections: list[list[str]] = []
-for _tool in _APD_TOOLS:
-    desired_sections.append([
-        f"[mcp_servers.apd.tools.{_tool}]",
-        'approval_mode = "approve"',
-    ])
-
-# Every TOML header this script claims ownership of. Any pre-v5.0.9
-# [mcp_servers.apd] block is matched and removed on next run; per-tool
-# blocks are matched, removed, and re-emitted from desired_sections.
-# Anything else (other MCP servers, plugins, projects) is left alone.
+# Every TOML header that pre-v5.0.10 APD installs may have written into
+# user config.toml. Match any of these (whitespace tolerant) and drop
+# the section entirely. Anything outside this set (other MCP servers,
+# plugins, projects, etc.) is preserved verbatim.
 APD_HEADERS = {"[mcp_servers.apd]"} | {
     f"[mcp_servers.apd.tools.{t}]" for t in _APD_TOOLS
 }
@@ -149,37 +141,25 @@ def split_sections(raw: str) -> list[list[str]]:
         sections.append(current)
     return sections
 
-def normalize(sec: list[str]) -> list[str]:
-    return [line.rstrip() for line in sec if line.strip()]
-
 sections = split_sections(text)
-existing_apd = [sec for sec in sections if sec and sec[0].strip() in APD_HEADERS]
+filtered = [sec for sec in sections if not (sec and sec[0].strip() in APD_HEADERS)]
 
-if [normalize(sec) for sec in existing_apd] == desired_sections:
+if filtered == sections:
+    # Nothing to clean. Leave file alone, signal "skip" to caller.
     print("skip")
     raise SystemExit(0)
 
-action = "updated" if existing_apd else "wrote"
-new_sections: list[list[str]] = []
-inserted = False
-for sec in sections:
-    if sec and sec[0].strip() in APD_HEADERS:
-        if not inserted:
-            new_sections.extend(desired_sections)
-            inserted = True
-        continue
-    new_sections.append(sec)
-if not inserted:
-    new_sections.extend(desired_sections)
-
 serialized = []
-for sec in new_sections:
+for sec in filtered:
     block = "\n".join(line.rstrip() for line in sec).strip("\n")
     if block:
         serialized.append(block)
 
-out_path.write_text("\n\n".join(serialized).rstrip() + "\n")
-print(action)
+if serialized:
+    out_path.write_text("\n\n".join(serialized).rstrip() + "\n")
+else:
+    out_path.write_text("")
+print("removed")
 raise SystemExit(10)
 PY
 )"
@@ -188,16 +168,12 @@ set -e
 case "$CFG_RC" in
     0)
         rm -f "$CFG_TMP"
-        echo "[skip] APD per-tool approvals already match in $CONFIG_FILE"
+        echo "[skip] no legacy APD MCP blocks in $CONFIG_FILE"
         ;;
     10)
         _backup_if_exists "$CONFIG_FILE"
         mv "$CFG_TMP" "$CONFIG_FILE"
-        if [ "$CFG_STATUS" = "updated" ]; then
-            echo "[updated] APD per-tool approvals → $CONFIG_FILE"
-        else
-            echo "[wrote] APD per-tool approvals → $CONFIG_FILE"
-        fi
+        echo "[removed] legacy APD MCP block(s) from $CONFIG_FILE (now provided by plugins/apd/.mcp.json)"
         CHANGES=$((CHANGES + 1))
         ;;
     *)

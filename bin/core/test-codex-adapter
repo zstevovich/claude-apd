@@ -85,7 +85,7 @@ FIRST_EXIT=$?
 
 [ "$FIRST_EXIT" -eq 0 ] && pass "exit code 0" && PASSES=$((PASSES + 1)) || { fail "exit code was $FIRST_EXIT"; FAILS=$((FAILS + 1)); }
 
-echo "$FIRST_OUT" | grep -q "\[wrote\] APD per-tool approvals" && pass "wrote per-tool approval blocks" && PASSES=$((PASSES + 1)) || { fail "did not write per-tool approval blocks"; FAILS=$((FAILS + 1)); }
+echo "$FIRST_OUT" | grep -q "\[skip\] no legacy APD MCP blocks" && pass "first install skips MCP cleanup on empty config (nothing to remove)" && PASSES=$((PASSES + 1)) || { fail "first install did not skip MCP cleanup on empty config"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "per-agent sandbox profiles skipped" && pass "sandbox profiles deferred (MCP guard-scope path)" && PASSES=$((PASSES + 1)) || { fail "sandbox skip notice missing"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "PreToolUse Bash hook" && pass "wrote hooks.json" && PASSES=$((PASSES + 1)) || { fail "no hooks.json written"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "SessionStart hook" && pass "wrote SessionStart hook" && PASSES=$((PASSES + 1)) || { fail "no SessionStart hook written"; FAILS=$((FAILS + 1)); }
@@ -140,13 +140,22 @@ else
 fi
 _check_file_contains "plugin .mcp.json registers apd MCP server" \
     "$APD_PLUGIN_ROOT/plugins/apd/.mcp.json" '"apd"'
-# Per-tool auto-approval — Codex 0.121.0 has no server-wide default,
-# every tool must be listed explicitly or the model gets a permission
-# prompt for the missing one
+# Per-tool auto-approval — since v5.0.10 lives inside plugin .mcp.json
+# under mcpServers.apd.tools.<name>.approval_mode = "approve". Codex
+# loads it from the plugin alongside the server registration; user
+# config.toml is never written.
 for _t in apd_ping apd_doctor apd_advance_pipeline apd_guard_write \
          apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state; do
-    _check_file_contains "config.toml auto-approves $_t" "$CFG" "^\\[mcp_servers\\.apd\\.tools\\.${_t}\\]"
+    _check_file_contains "plugin .mcp.json auto-approves $_t" \
+        "$APD_PLUGIN_ROOT/plugins/apd/.mcp.json" "\"${_t}\""
 done
+if grep -q '^\[mcp_servers\.apd' "$CFG" 2>/dev/null; then
+    fail "config.toml has [mcp_servers.apd*] block — should be empty since v5.0.10 (plugin .mcp.json owns server + tools)"
+    FAILS=$((FAILS + 1))
+else
+    pass "config.toml has no [mcp_servers.apd*] blocks (server + tools both come from plugin .mcp.json)"
+    PASSES=$((PASSES + 1))
+fi
 _check_file_contains "hooks.json has PreToolUse" "$HOOKS" 'PreToolUse'
 _check_file_contains "hooks.json routes to guard-bash-scope" "$HOOKS" 'guard-bash-scope'
 _check_file_contains "hooks.json has SessionStart" "$HOOKS" 'SessionStart'
@@ -157,7 +166,12 @@ _check_file_contains "Codex plugin manifest mentions apd_doctor at session start
 _check_file_contains ".apd/config has PROJECT_NAME" "$SCRATCH/.apd/config" '^PROJECT_NAME='
 
 if command -v python3 &>/dev/null; then
-    _check "TOML parses cleanly" python3 -c "import tomllib; tomllib.load(open('$CFG','rb'))"
+    if [ -f "$CFG" ]; then
+        _check "TOML parses cleanly" python3 -c "import tomllib; tomllib.load(open('$CFG','rb'))"
+    else
+        pass "TOML check skipped — install-codex-config no longer creates empty config.toml since v5.0.10 (cleanup-only)"
+        PASSES=$((PASSES + 1))
+    fi
     _check "JSON parses cleanly" python3 -c "import json; json.load(open('$HOOKS'))"
 else
     warn "python3 not found — skipping strict TOML/JSON parse checks"
@@ -207,19 +221,19 @@ cat > "$REPAIR/.codex/hooks.json" <<'EOF'
 EOF
 
 REPAIR_OUT="$(bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$REPAIR" 2>&1)"
-if echo "$REPAIR_OUT" | grep -q "\[updated\] APD per-tool approvals"; then
-    pass "installer rewrites APD per-tool approvals on repair"
+if echo "$REPAIR_OUT" | grep -q "\[removed\] legacy APD MCP block"; then
+    pass "installer removes legacy APD MCP block(s) on repair"
     PASSES=$((PASSES + 1))
 else
-    fail "installer did not rewrite per-tool approvals on repair"
+    fail "installer did not report legacy MCP block removal on repair"
     FAILS=$((FAILS + 1))
 fi
 
-if grep -q '^\[mcp_servers\.apd\]$' "$REPAIR/.codex/config.toml" 2>/dev/null; then
-    fail "installer left legacy [mcp_servers.apd] block in config.toml"
+if grep -q '^\[mcp_servers\.apd' "$REPAIR/.codex/config.toml" 2>/dev/null; then
+    fail "installer left legacy [mcp_servers.apd*] block in config.toml after repair"
     FAILS=$((FAILS + 1))
 else
-    pass "installer removed legacy [mcp_servers.apd] block during repair"
+    pass "installer removed every legacy [mcp_servers.apd*] block during repair"
     PASSES=$((PASSES + 1))
 fi
 
