@@ -1,5 +1,37 @@
 # Changelog
 
+## v5.0.9 — 2026-04-26
+
+Second patch in the v5.1 chain. Plugin self-registers its MCP server via `plugins/apd/.mcp.json`; closes the v5.0.6 exec-mode bootstrap gap.
+
+### What was broken
+
+`install-codex-config` wrote `[mcp_servers.apd]` into every user's `<project>/.codex/config.toml` with the absolute path to the dev checkout's `mcp/apd_mcp_server.py`. That worked locally but was the root cause of every "MCP path is stale" repair, every WARN about plugin MCP overwriting earlier definitions, and the entire reason `codex exec` had no automatic APD bootstrap (the user-config block had to be written manually first via `apd cdx init`, which doesn't fire in exec mode).
+
+### Fix
+
+- **New file: `plugins/apd/.mcp.json`** registers the APD MCP server with `command: "uv"`, `args: ["run", "--with", "mcp", "python", "mcp/apd_mcp_server.py"]`, `cwd: "../.."`. Codex 0.124+ auto-loads plugin-shipped `.mcp.json` (`core-plugins/loader.rs::normalize_plugin_mcp_server_value`), normalises `cwd` against the plugin root (`plugins/apd/`), and the resulting `cwd = repo-root` is then applied to the stdio launcher's `Command::current_dir` (`rmcp-client/stdio_server_launcher.rs:231`). The Python server already self-locates via `Path(__file__).resolve().parent.parent`, so it finds the rest of the repo from there.
+- **`bin/adapter/cdx/install-codex-config` no longer writes `[mcp_servers.apd]`.** That block is now provided by the plugin. The installer keeps the per-tool `[mcp_servers.apd.tools.<name>]` approval blocks (plugin `.mcp.json` doesn't carry per-tool approvals). Crucially, the existing replace logic still treats `[mcp_servers.apd]` as APD-owned, so any legacy block from APD < v5.0.9 is **removed on next run** — without that cleanup, Codex would print "plugin MCP overwrote earlier server definition" on every session.
+- **`bin/adapter/cdx/codex-doctor` updated.** Old check ("config.toml has `[mcp_servers.apd]`") now reports a WARN if it finds the legacy block, and a new check confirms `plugins/apd/.mcp.json` registers the apd server. A second new check verifies all 8 per-tool approval blocks are present.
+
+### Why `cwd: "../.."`?
+
+The plugin's MCP server (`mcp/apd_mcp_server.py`) lives at the repo root — outside the plugin directory itself — because it depends on `bin/core/*`, `bin/adapter/cdx/*`, and `VERSION` which all live at the repo root. The `cwd: "../.."` value places the spawned process at `plugins/apd/../..` = repo root, which is what the Python server expects via its `__file__`-based path resolution. A future major release will move all of this into a self-contained `plugins/apd/` and drop the `../..`.
+
+### Doc updates
+
+- `docs/SPEC.md` §3 (MCP server) — explains the plugin .mcp.json registration path, the `cwd: "../.."` rationale, and the residual install-codex-config role.
+- `docs/SPEC.md` §12 (configuration surfaces) — `<project>/.codex/config.toml` row reworded: "8 per-tool approval blocks; `[mcp_servers.apd]` ships in plugins/apd/.mcp.json".
+- `docs/SPEC.md` §18.1 (install-codex-config steps) — Step 1 reworded as "per-tool approvals + legacy cleanup".
+
+### Tests
+
+- `bin/core/test-codex-adapter` — replaced "config.toml has `[mcp_servers.apd]`" check with a paired "no legacy block" + "plugin .mcp.json registers apd". Repair test now asserts the legacy block is removed instead of rewritten. Doctor label scan updated. Total: 209 → 210 PASS / 0 FAIL.
+
+### Live verification still needed
+
+This patch ships untested-in-TUI per the marketplace-only rule. Next step is `codex plugin marketplace upgrade codex-apd` on `~/Projects/Test`, then a fresh TUI session to confirm `apd_ping` works **without** `install-codex-config` having pre-written the server block.
+
 ## v5.0.8 — 2026-04-26
 
 First patch in the v5.1 chain. Surfaces a real install bug discovered during the v5.0.7 live marketplace test on `~/Projects/Test`.

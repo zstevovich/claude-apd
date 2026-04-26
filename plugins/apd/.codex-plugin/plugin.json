@@ -1,6 +1,6 @@
 {
   "name": "apd",
-  "version": "5.0.8",
+  "version": "5.0.9",
   "description": "Agent Pipeline Development — enforced multi-agent pipelines for Codex with mechanical guardrails for AI-assisted software development.",
   "author": {
     "name": "Zoran Stevovic",

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "apd": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "--with", "mcp", "python", "mcp/apd_mcp_server.py"],
+      "cwd": "../.."
+    }
+  }
+}

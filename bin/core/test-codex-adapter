@@ -85,7 +85,7 @@ FIRST_EXIT=$?
 
 [ "$FIRST_EXIT" -eq 0 ] && pass "exit code 0" && PASSES=$((PASSES + 1)) || { fail "exit code was $FIRST_EXIT"; FAILS=$((FAILS + 1)); }
 
-echo "$FIRST_OUT" | grep -q "\[wrote\] \[mcp_servers.apd\]" && pass "wrote MCP block" && PASSES=$((PASSES + 1)) || { fail "did not write MCP block"; FAILS=$((FAILS + 1)); }
+echo "$FIRST_OUT" | grep -q "\[wrote\] APD per-tool approvals" && pass "wrote per-tool approval blocks" && PASSES=$((PASSES + 1)) || { fail "did not write per-tool approval blocks"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "per-agent sandbox profiles skipped" && pass "sandbox profiles deferred (MCP guard-scope path)" && PASSES=$((PASSES + 1)) || { fail "sandbox skip notice missing"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "PreToolUse Bash hook" && pass "wrote hooks.json" && PASSES=$((PASSES + 1)) || { fail "no hooks.json written"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "SessionStart hook" && pass "wrote SessionStart hook" && PASSES=$((PASSES + 1)) || { fail "no SessionStart hook written"; FAILS=$((FAILS + 1)); }
@@ -131,7 +131,15 @@ section "4. Generated file content"
 CFG="$SCRATCH/.codex/config.toml"
 HOOKS="$SCRATCH/.codex/hooks.json"
 
-_check_file_contains "config.toml has [mcp_servers.apd]" "$CFG" '^\[mcp_servers\.apd\]'
+if grep -q '^\[mcp_servers\.apd\]$' "$CFG" 2>/dev/null; then
+    fail "config.toml still has [mcp_servers.apd] (legacy block; should ship via plugins/apd/.mcp.json)"
+    FAILS=$((FAILS + 1))
+else
+    pass "config.toml has no legacy [mcp_servers.apd] block (server now ships from plugin .mcp.json)"
+    PASSES=$((PASSES + 1))
+fi
+_check_file_contains "plugin .mcp.json registers apd MCP server" \
+    "$APD_PLUGIN_ROOT/plugins/apd/.mcp.json" '"apd"'
 # Per-tool auto-approval — Codex 0.121.0 has no server-wide default,
 # every tool must be listed explicitly or the model gets a permission
 # prompt for the missing one
@@ -199,20 +207,20 @@ cat > "$REPAIR/.codex/hooks.json" <<'EOF'
 EOF
 
 REPAIR_OUT="$(bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$REPAIR" 2>&1)"
-if echo "$REPAIR_OUT" | grep -q "\[updated\] \[mcp_servers.apd\]"; then
-    pass "installer repairs stale [mcp_servers.apd] path"
+if echo "$REPAIR_OUT" | grep -q "\[updated\] APD per-tool approvals"; then
+    pass "installer rewrites APD per-tool approvals on repair"
     PASSES=$((PASSES + 1))
 else
-    fail "installer did not repair stale [mcp_servers.apd] block"
+    fail "installer did not rewrite per-tool approvals on repair"
     FAILS=$((FAILS + 1))
 fi
 
-if grep -qF "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py" "$REPAIR/.codex/config.toml" 2>/dev/null; then
-    pass "config.toml now points to current MCP server path"
-    PASSES=$((PASSES + 1))
-else
-    fail "config.toml still points to a stale MCP server path"
+if grep -q '^\[mcp_servers\.apd\]$' "$REPAIR/.codex/config.toml" 2>/dev/null; then
+    fail "installer left legacy [mcp_servers.apd] block in config.toml"
     FAILS=$((FAILS + 1))
+else
+    pass "installer removed legacy [mcp_servers.apd] block during repair"
+    PASSES=$((PASSES + 1))
 fi
 
 if echo "$REPAIR_OUT" | grep -q "\[updated\] PreToolUse Bash hook"; then
@@ -1066,7 +1074,7 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-for label in "uv installed" "apd_mcp_server.py present" "MCP tools registered" "config.toml has \[mcp_servers.apd\]" "hooks.json wires PreToolUse" "AGENTS.md at project root"; do
+for label in "uv installed" "apd_mcp_server.py present" "MCP tools registered" "registers apd MCP server" "hooks.json wires PreToolUse" "AGENTS.md at project root"; do
     if echo "$DOC_OUT" | grep -qE "$label"; then
         pass "doctor checks '$label'"
         PASSES=$((PASSES + 1))

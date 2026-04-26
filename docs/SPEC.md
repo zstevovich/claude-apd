@@ -53,7 +53,7 @@ Per-project shortcuts: `.claude/bin/apd` (CC) and `.codex/bin/apd` (Codex) — b
 
 ## 3. MCP server (Codex-only) — `mcp/apd_mcp_server.py`
 
-FastMCP wrapper, runs via `uv run --with mcp python …`. Per-project registration in `<project>/.codex/config.toml` under `[mcp_servers.apd]`. Per-tool approval mode set explicitly (Codex 0.121.0 has no server-wide default). 8 tools (full param details + security in §18).
+FastMCP wrapper, runs via `uv run --with mcp python …`. **Server registration ships in `plugins/apd/.mcp.json` since v5.0.9** — Codex 0.124+ auto-loads plugin-level `.mcp.json` and resolves `cwd` to the plugin root (via `core-plugins/loader.rs::normalize_plugin_mcp_server_value`), so the plugin self-registers `[mcp_servers.apd]` on every install with no path-rewriting from `install-codex-config`. Our manifest sets `cwd: "../.."` so the resolved cwd is the repo root (parent of the plugin dir), where `mcp/apd_mcp_server.py` lives — see §17 for the path-self-locating Python that follows. Per-tool approval mode is still written by `install-codex-config` (`<project>/.codex/config.toml [mcp_servers.apd.tools.<name>]`, approve mode each), since `.mcp.json` doesn't carry per-tool approvals. 8 tools (full param details + security in §18).
 
 | Tool | Purpose |
 |---|---|
@@ -245,7 +245,7 @@ Codex 0.124+ fires `SessionStart` in TUI mode only, and timed to the first user 
 | `.claude/settings.json` | Project | apd-setup | CC project hooks + permissions |
 | `.claude/settings.local.json` | Project | User | Local CC overrides (gitignored) |
 | `~/.codex/config.toml` | User-global | User + APD bootstrap | `[features]` (codex_hooks, multi_agent), `[marketplaces.codex-apd]`, `[plugins."apd@codex-apd"]`, per-project trust levels |
-| `<project>/.codex/config.toml` | Project | install-codex-config | `[mcp_servers.apd]` command + 8 per-tool approval blocks |
+| `<project>/.codex/config.toml` | Project | install-codex-config | 8 per-tool `[mcp_servers.apd.tools.<name>]` approval blocks. `[mcp_servers.apd]` itself ships in `plugins/apd/.mcp.json` since v5.0.9 (legacy block removed on next install). |
 | `<project>/.codex/hooks.json` | Project | install-codex-config | PreToolUse Bash → guard-bash-scope shim; SessionStart → cdx session-start (TUI only) |
 | `.apd/config` (or legacy `.claude/.apd-config`) | Project | apd-init | `PROJECT_NAME`, `APD_VERSION`, `STACK` metadata |
 | `.apd/agents/<name>.md` (Codex) / `.claude/agents/<name>.md` (CC) | Project | apd-setup or `apd cdx agents add` | Per-agent scope + frontmatter |
@@ -505,7 +505,7 @@ See §15 for actual numbers. `verifier_duration_s` is informational only (no thr
 
 **Pre-flight guard:** refuses to run if resolved project path == APD framework repo path (canonical comparison via `pwd -P`). Prevents accidentally scaffolding APD into APD source. Bypass not possible — must pass explicit non-framework project path.
 
-1. **MCP Server Registration** — Python idempotence check; if existing matches desired, skip; else write new TOML with all 8 APD tools + per-tool `[mcp_servers.apd.tools.<tool>] approval_mode = "approve"` blocks. Backs up existing config.toml with timestamp suffix. Exit code 10 signals changes.
+1. **APD per-tool approvals + legacy cleanup** — Python idempotence check on per-tool `[mcp_servers.apd.tools.<tool>] approval_mode = "approve"` blocks (8 of them). On re-run, also removes any legacy `[mcp_servers.apd]` block left over from APD < v5.0.9 — server registration now ships in `plugins/apd/.mcp.json`, so the legacy block would otherwise cause Codex to log a "plugin MCP overwrote earlier server definition" warning every session. Backs up existing config.toml with timestamp suffix. Exit code 10 signals changes.
 2. **Per-Agent Sandbox Profiles** — INTENTIONALLY DISABLED. Codex 0.121.0 doesn't enforce FileSystemSandboxPolicy at runtime. Per-agent stays in MCP `apd_guard_write`.
 3. **`.codex/bin/apd` Shortcut** — idempotent; creates wrapper execing `bin/apd`, chmod +x.
 4. **`.apd/config` Seed** — only if neither `.apd/config` nor `.claude/.apd-config` exist. Contents: `PROJECT_NAME=<basename>`, `APD_VERSION=<from VERSION or plugin.json>`, `STACK=`. Activates pure-Codex without touching `.claude/`.
