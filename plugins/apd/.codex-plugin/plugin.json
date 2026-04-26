@@ -1,6 +1,6 @@
 {
   "name": "apd",
-  "version": "5.0.0",
+  "version": "5.0.6",
   "description": "Agent Pipeline Development — enforced multi-agent pipelines for Codex with mechanical guardrails for AI-assisted software development.",
   "author": {
     "name": "Zoran Stevovic",
@@ -30,7 +30,9 @@
     ],
     "websiteURL": "https://github.com/zstevovich/claude-apd",
     "defaultPrompt": [
-      "At session start, call apd_doctor once for gap analysis (verifies APD scaffolding, flags drift). Then follow the APD pipeline: spec → builder → reviewer → verifier → commit. Use the matching skill for the current phase."
+      "Bootstrap APD: run apd_doctor and gap analysis.",
+      "Brainstorm a new APD spec card.",
+      "Audit APD setup with apd_doctor."
     ]
   }
 }

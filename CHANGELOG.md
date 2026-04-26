@@ -1,5 +1,13 @@
 # Changelog
 
+## v5.0.6 — 2026-04-26
+
+Live re-validation against Codex 0.125.0 + manifest fix for hard limit introduced in 0.124+.
+
+- **Codex 0.125.0 sanity test passed.** TUI session opened from `~/Projects/Test`, first user prompt fired `SessionStart` hook on schedule (`gap-analysis: ran` after stale-cache detection). `codex_hooks` is now listed in the stable feature set on 0.125. Tracks original v5.0.4 evidence (0.124) plus this re-confirmation; openai/codex#15269 quirk (fires on first prompt, not banner) still applies.
+- **`plugins/apd/.codex-plugin/plugin.json` — `defaultPrompt` schema fix.** Codex 0.124+ enforces a hard cap of 3 entries × 128 chars each on `interface.defaultPrompt`; longer entries are silently dropped (`codex-tui.log` shows `WARN ... ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters`). The previous single 240+ char entry was being ignored entirely. Replaced with three short user-facing starter prompts: "Bootstrap APD: run apd_doctor and gap analysis." / "Brainstorm a new APD spec card." / "Audit APD setup with apd_doctor."
+- **Doc consequence — exec-mode bootstrap is no longer claimed via `defaultPrompt`.** SPEC §4.2, §11.2, §14, §19.3 reworded. The earlier hypothesis that the orchestrator picked up a long `defaultPrompt` as a system-style instruction is no longer valid in 0.124+; `defaultPrompt` is now strictly user-facing UX. `codex exec` lacks an automatic APD bootstrap path until a real upstream entry point ships — flagged as a known limitation, candidate for v5.1 (likely via `.mcp.json` self-registration).
+
 ## v5.0.5 — 2026-04-26
 
 Docs-only patch closing two issues surfaced by `framework-audit`:
