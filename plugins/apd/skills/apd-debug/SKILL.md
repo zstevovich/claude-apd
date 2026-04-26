@@ -5,9 +5,21 @@ description: Use on any APD test failure, build failure, verifier block, or crit
 
 # APD Systematic Debugging (Codex)
 
-**Use when:** a test fails, a build fails, the verifier step blocks the
-pipeline, or the reviewer raises a critical finding. Do this BEFORE
-re-running any pipeline step.
+Do this BEFORE re-running any pipeline step.
+
+## When to use / When to skip
+
+**Use when:**
+- A test failed (unit, integration, or end-to-end)
+- A build or compile failed
+- The verifier step blocked the pipeline
+- The reviewer raised a critical finding
+- You are about to re-dispatch a pipeline step after a verifier failure (MANDATORY)
+
+**Skip when:**
+- The "failure" is actually expected behaviour (test marked skip/expected-fail)
+- You haven't run the failing command yourself yet (run it first, get a real error message)
+- The issue is a known intermittent and you have a tracking ticket — escalate, don't loop
 
 ## The Iron Law
 
@@ -74,3 +86,18 @@ propose a fix.
 - Saying "it's probably…" without evidence
 - Copy-pasting a fix you don't understand
 - Starting a fourth hypothesis after three failed
+
+## Exit criteria
+
+You're done when:
+- Root cause is named in one sentence with file:line evidence
+- Failing test reproducing the bug exists and is committed (Phase 4)
+- The single targeted fix turns the failing test green
+- `apd_verify_step()` confirms no regressions
+- No unrelated cleanup snuck into the same change
+
+## Hand-off
+
+- After this skill completes → resume the pipeline step that failed (re-run the affected step)
+- During Phase 4 (writing the failing test) → invoke `apd-tdd`
+- After 3+ failed hypotheses → escalate to user with summary of what was tried; do NOT keep guessing

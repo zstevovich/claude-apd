@@ -1,0 +1,4 @@
+interface:
+  display_name: "APD GitHub Projects"
+  short_description: "Sync APD pipeline phases with a GitHub Projects v2 board"
+  default_prompt: "Use $apd-github. The project has GITHUB_PROJECTS_URL set in AGENTS.md and gh CLI is authenticated. Use the gh-sync wrapper at ${APD_PLUGIN_ROOT}/bin/core/gh-sync to track the active issue across phases — call gh-sync spec '<task>' on spec creation, gh-sync builder|reviewer|verifier on each apd_advance_pipeline transition, gh-sync done <issue> <commit> on commit, or gh-sync skip <issue> '<reason>' on hotfix bypass. Don't call gh directly; gh-sync owns the active-issue state. Pipeline progress is authoritative — the board is a projection. If gh-sync reports inconsistency, escalate; don't auto-correct."

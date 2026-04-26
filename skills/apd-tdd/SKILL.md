@@ -15,6 +15,18 @@ NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 
 Write code before the test? Delete it. Start over. No exceptions. Violating the letter IS violating the spirit.
 
+## When to use / When to skip
+
+**Use when:**
+- You are inside the APD builder phase
+- You are about to write or modify production code (any non-test source file)
+- You are fixing a bug that has reached Phase 4 of `apd-debug`
+
+**Skip when:**
+- You are reading code without modifying it (use Read directly)
+- You are running an existing test suite (use Bash directly)
+- You are editing documentation, configuration, or scaffolding files
+
 ## Red-Green-Refactor
 
 ```dot
@@ -108,17 +120,17 @@ Next failing test for next behavior.
 - "I'll add tests at the end"
 - Refactoring while tests are red
 
-## Checklist
+## Exit criteria
 
-Before marking task complete:
-- [ ] Every new function has a test
-- [ ] Watched each test fail before implementing
-- [ ] Wrote minimal code to pass
-- [ ] All tests pass
-- [ ] Edge cases covered
+You're done when:
+- Every new function has at least one test that you watched fail
+- All tests pass — both new and the prior suite (no regressions)
+- Edge cases are covered (empty input, invalid input, boundary values)
+- No production code exists that isn't exercised by a test
+- Refactor pass left tests green
 
-## Integration
+## Hand-off
 
-- **Called by:** Builder agents during implementation (workflow.md step 5)
-- **Pairs with:** `/apd-debug` when tests fail unexpectedly
-- **Never skip:** Even for "trivial" changes. Especially for trivial changes.
+- After this skill completes → builder phase advances via `pipeline-advance builder`
+- If a test goes red unexpectedly → switch to `apd-debug` (Phase 4 of debug uses this skill again)
+- Never skip — even for "trivial" changes. Especially for trivial changes.

@@ -2,6 +2,7 @@
 name: apd-brainstorm
 description: Use when the user's task is vague, broad, or has multiple possible approaches — before writing the APD spec card. Triggers on unclear scope, ambiguous requirements, or "improve X" style requests.
 effort: max
+allowed-tools: Read Glob Grep
 ---
 
 # APD Brainstorm
@@ -13,6 +14,19 @@ NO SPEC WITHOUT SHARED UNDERSTANDING FIRST
 ```
 
 If you cannot explain the design in one sentence — you are not ready for a spec.
+
+## When to use / When to skip
+
+**Use when:**
+- The task is vague, broad, or "improve X" style
+- The user gave a destination but no path ("we need user search")
+- Multiple reasonable interpretations exist
+- You catch yourself making implementation choices the user hasn't seen
+
+**Skip when:**
+- The task is fully specified (file paths, function names, acceptance criteria)
+- The user has already approved a design — write the spec card directly
+- You are mid-pipeline (spec is locked; raise concerns to user, don't re-brainstorm)
 
 ## Process
 
@@ -109,8 +123,17 @@ Do NOT write code during brainstorming. This skill produces a DESIGN, not an imp
 - No code during brainstorming
 - End with a clear design that feeds into the spec
 
-## Integration
+## Exit criteria
 
-- **Called by:** Orchestrator, when task is vague or complex (workflow.md step 1)
-- **Leads to:** `pipeline-advance spec` (the only valid exit)
-- **Never leads to:** code, agents, implementation
+You're done when:
+- The user can restate the goal in one sentence and you both agree on it
+- Scope and out-of-scope are explicit and written down
+- Approach is named (architectural pattern, library choice, integration point)
+- Affected files are listed (not just "wherever it goes")
+- The user has explicitly approved the design summary — no implicit approval
+
+## Hand-off
+
+- After explicit approval → write the spec card and call `pipeline-advance spec "<name>"` (the only valid exit)
+- Never leads to: code, agents, implementation — those come from the builder phase
+- If the user asks for "just one quick thing" mid-brainstorm → finish the brainstorm first, then queue it

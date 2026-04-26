@@ -5,9 +5,21 @@ description: Use during the APD builder phase (between apd_advance_pipeline('spe
 
 # APD Test-Driven Development (Codex)
 
-**Use when:** you are implementing a feature or fixing a bug. On Codex the
-orchestrator IS the builder — this applies to every implementation between
-`apd_advance_pipeline('spec', ...)` and `apd_advance_pipeline('builder')`.
+On Codex the orchestrator IS the builder — this skill applies to every
+implementation between `apd_advance_pipeline('spec', ...)` and
+`apd_advance_pipeline('builder')`.
+
+## When to use / When to skip
+
+**Use when:**
+- You are inside the APD builder phase
+- You are about to write or modify production code (any non-test source file)
+- You are fixing a bug that has reached Phase 4 of `apd-debug`
+
+**Skip when:**
+- You are reading code without modifying it
+- You are running an existing test suite (use shell directly)
+- You are editing documentation, configuration, or scaffolding files
 
 ## The Iron Law
 
@@ -72,11 +84,18 @@ fail the cycle.
 | "Manual test is faster" | Manual testing doesn't prove edge cases or prevent regressions. |
 | "I can't test this" | You can't test the CURRENT design. Simplify the design. |
 
-## Checklist before calling `apd_advance_pipeline('builder')`
+## Exit criteria
 
-- [ ] Every new function has a test
-- [ ] Watched each test fail before implementing
-- [ ] Wrote minimal code to pass
-- [ ] All tests pass locally
-- [ ] Edge cases covered
-- [ ] Every write went through `apd_guard_write`
+You're done when:
+- Every new function has a test you watched fail
+- All tests pass locally — both new and the prior suite (no regressions)
+- Edge cases are covered (empty input, invalid input, boundary values)
+- Every write went through `apd_guard_write(apd_role=..., file_path=...)`
+- No unrelated files touched outside the agent's `scope:`
+- Refactor pass left tests green
+
+## Hand-off
+
+- After this skill completes → call `apd_advance_pipeline('builder')`
+- If a test goes red unexpectedly → switch to `apd-debug` (Phase 4 of debug uses this skill again)
+- Never skip — even for "trivial" changes. Especially for trivial changes.

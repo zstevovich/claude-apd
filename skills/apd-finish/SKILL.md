@@ -2,6 +2,7 @@
 name: apd-finish
 description: Use when a successful APD pipeline commit has just completed and a push/PR/keep decision is needed. MANDATORY after every pipeline commit.
 effort: high
+allowed-tools: Read Bash
 ---
 
 # APD Finish
@@ -13,6 +14,18 @@ NO PUSH WITHOUT USER DECISION FIRST
 ```
 
 The pipeline produced a commit. Now the user decides what happens with it. Never auto-push, never assume.
+
+## When to use / When to skip
+
+**Use when:**
+- A pipeline cycle just produced a successful commit
+- All four pipeline steps (spec → builder → reviewer → verifier) are complete
+- The user has not yet made a push/PR/keep/discard decision
+
+**Skip when:**
+- The pipeline failed before commit — go back to `apd-debug`, not finish
+- The user has already pushed — there is nothing to decide
+- This is a hotfix outside the pipeline — different decision flow, don't apply pipeline summary template
 
 ## Process
 
@@ -114,8 +127,17 @@ git branch -D <branch>
 - **Always verify tests** before presenting options
 - **PR body must include APD pipeline summary** — proves the work was reviewed
 
-## Integration
+## Exit criteria
 
-- **Called by:** Orchestrator after successful commit (workflow.md step 9)
-- **Follows:** Pipeline complete → commit → `/apd-finish`
-- **Terminal state:** User decision made (push/PR/keep/discard)
+You're done when:
+- Tests have been verified from a clean state — green
+- The pipeline report has been shown to the user
+- The user has explicitly picked one of the four options (typed, not implied)
+- The chosen option has been executed end-to-end (push completed, PR URL returned, branch deleted, etc.)
+- For Discard: the user typed `discard` literally before any branch was removed
+
+## Hand-off
+
+- This is a **terminal skill** — when it completes, the cycle is closed
+- If verification fails at Step 1 → switch to `apd-debug` (do NOT present finish options on red tests)
+- After option 1/2 success → return push/PR URL to the user; do not auto-start a new pipeline

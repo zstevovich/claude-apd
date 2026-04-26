@@ -15,6 +15,20 @@ NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST
 
 If you have not completed Phase 1, you CANNOT propose fixes. Guessing is not debugging. Violating the letter IS violating the spirit.
 
+## When to use / When to skip
+
+**Use when:**
+- A test failed (unit, integration, or end-to-end)
+- A build or compile failed
+- The verifier blocked the pipeline
+- The reviewer raised a critical finding
+- You are about to re-dispatch a builder after a verifier failure (MANDATORY)
+
+**Skip when:**
+- The "failure" is actually expected behaviour (test marked skip/expected-fail)
+- You haven't run the failing command yourself yet (run it first, get a real error message)
+- The issue is a known intermittent and you have a tracking ticket — escalate, don't loop
+
 ## Four Phases
 
 ```dot
@@ -90,8 +104,17 @@ digraph debug {
 | 3. Hypothesis | One change, verify | Multiple changes at once |
 | 4. Fix | Failing test first, single fix | Fix without test, bundle changes |
 
-## Integration
+## Exit criteria
 
-- **Called by:** Orchestrator when verifier fails or reviewer finds critical bugs (workflow.md step 7)
-- **Pairs with:** `/apd-tdd` for Phase 4 (fix with failing test)
-- **Escalates to:** Orchestrator/user after 3+ failed hypotheses
+You're done when:
+- Root cause is named in one sentence with file:line evidence
+- Failing test reproducing the bug exists and is committed (Phase 4)
+- The single targeted fix turns the failing test green
+- Full test suite passes — no regressions
+- No unrelated cleanup snuck into the same change
+
+## Hand-off
+
+- After this skill completes → resume the pipeline step that failed (re-dispatch builder, re-run verifier)
+- During Phase 4 (writing the failing test) → invoke `apd-tdd`
+- After 3+ failed hypotheses → escalate to user with summary of what was tried; do NOT keep guessing

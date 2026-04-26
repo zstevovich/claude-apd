@@ -7,21 +7,22 @@ allowed-tools: Read Glob Grep Bash
 
 # APD Project Audit
 
-## The Iron Law
+> Qualitative review of how APD is configured in the project — content quality,
+> not just file existence. Pairs with `verify-apd` (mechanical checks).
 
-```
-NO TASK WITHOUT A HEALTHY PIPELINE FIRST
-```
+## When to use / When to skip
 
-If the audit finds issues, fix them before starting work. A broken pipeline produces broken results.
-
-## When to Use
-
+**Use when:**
 - First session after `/apd-setup` — confirm everything is correct
 - After manually editing agents, CLAUDE.md, or settings.json
-- When pipeline behaves unexpectedly
-- When verify-apd passes but something "feels off"
+- When the pipeline behaves unexpectedly
+- When `verify-apd` passes but something "feels off"
 - Before handing the project to another developer
+
+**Skip when:**
+- `verify-apd` itself is failing — fix those mechanical issues first
+- You only need a yes/no health check — `verify-apd` is faster
+- Mid-pipeline — audit is for between cycles, not during
 
 ## What This Checks (verify-apd Does NOT)
 
@@ -142,7 +143,7 @@ CLEAN:
 Result: X issues (Y critical, Z important)
 ```
 
-## Common Rationalizations
+## Common rationalizations
 
 | Excuse | Reality |
 |--------|---------|
@@ -151,8 +152,18 @@ Result: X issues (Y critical, Z important)
 | "CLAUDE.md looks ok" | Missing sections mean orchestrator skips important rules |
 | "I'll fix it when it breaks" | Broken pipeline produces broken code silently |
 
-## Integration
+## Exit criteria
 
-- **Called by:** Developer at start of session or after configuration changes
-- **Pairs with:** `verify-apd` (mechanical checks) + `/apd-setup` (fixes issues)
-- **Leads to:** Fix issues → re-audit → start working
+You're done when:
+- Every agent has been opened and its frontmatter checked against the matrix in §2
+- Every required section in CLAUDE.md is present and free of unreplaced `{{PLACEHOLDER}}` values
+- `.claude/settings.json` has all four required keys (env, attribution, enabledPlugins, hooks)
+- `apd pipeline status` runs without error
+- Findings are sorted into CRITICAL / IMPORTANT / CLEAN buckets in the output format
+- If any CRITICAL is reported, the user has been told what to fix and in what order
+
+## Hand-off
+
+- After audit completes with CRITICAL findings → invoke `/apd-setup` to regenerate missing pieces
+- After audit completes clean → continue with normal development
+- If audit reveals a structural issue not covered by `/apd-setup` → escalate to user with concrete file:line references

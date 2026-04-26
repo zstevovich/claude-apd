@@ -1,0 +1,135 @@
+---
+name: apd-github
+description: Use when the project has GitHub Projects configured (GITHUB_PROJECTS_URL in AGENTS.md) and you need to sync APD pipeline tasks with the board on Codex. Creates issues for specs, moves cards through columns, closes on completion.
+---
+
+# GitHub Projects — APD Pipeline Tracking (Codex)
+
+Maps APD pipeline phases to GitHub Projects v2 columns. Each task becomes an
+issue with a spec card, and pipeline progress is reflected on the board.
+
+## When to use / When to skip
+
+**Use when:**
+- The project has a GitHub Projects v2 board configured (`GITHUB_PROJECTS_URL` in AGENTS.md)
+- A pipeline phase just transitioned — sync the column
+- Spec was just approved — create the issue
+- Pipeline just committed — close the issue with the commit reference
+
+**Skip when:**
+- No GitHub Projects board is configured for the project
+- The repo is not on GitHub (Gitlab/Bitbucket/local)
+- `gh` CLI is not authenticated — escalate, don't silently skip
+- The user is in a hotfix flow that bypasses the pipeline (no issue to track)
+
+## Automation — gh-sync
+
+Instead of calling `gh` directly, use the `gh-sync` wrapper which tracks the
+active issue across the pipeline:
+
+```bash
+bash ${APD_PLUGIN_ROOT}/bin/core/gh-sync spec "User login"
+bash ${APD_PLUGIN_ROOT}/bin/core/gh-sync builder
+bash ${APD_PLUGIN_ROOT}/bin/core/gh-sync reviewer
+bash ${APD_PLUGIN_ROOT}/bin/core/gh-sync verifier
+bash ${APD_PLUGIN_ROOT}/bin/core/gh-sync done 42 abc1234
+bash ${APD_PLUGIN_ROOT}/bin/core/gh-sync skip 42 "Hotfix"
+bash ${APD_PLUGIN_ROOT}/bin/core/gh-sync status
+```
+
+`gh-sync` automatically tracks the issue number for the current pipeline — you
+don't need to pass it at every step. On Codex, the wrapper is invoked through
+shell calls subject to `guard-bash-scope`.
+
+## Prerequisite
+
+- `gh` CLI authenticated (`gh auth login`)
+- GitHub Projects v2 created with columns: **Spec**, **In Progress**, **Review**, **Testing**, **Done**
+- `GITHUB_PROJECTS_URL` set in `AGENTS.md`
+
+## Pipeline → column mapping
+
+| APD step | GitHub Projects column | Action |
+|---|---|---|
+| `apd_advance_pipeline('spec', "Task")` | **Spec** | Create issue with spec card, add to board |
+| `apd_advance_pipeline('builder')` | **In Progress** | Move issue to In Progress |
+| `apd_advance_pipeline('reviewer')` | **Review** | Move issue to Review |
+| `apd_advance_pipeline('verifier')` | **Testing** | Move issue to Testing |
+| Commit (successful) | **Done** | Close issue, link commit, move to Done |
+| `apd_advance_pipeline('skip', "<reason>")` | **Done** | Close issue with `apd-skip` label |
+
+## Procedure
+
+### 1. Spec phase — create the issue
+
+When the orchestrator writes a spec card, also create a GitHub issue:
+
+```bash
+bash ${APD_PLUGIN_ROOT}/bin/core/gh-sync spec "Task name"
+```
+
+This creates the issue with the spec card body and adds it to the configured
+project board.
+
+### 2. Move cards on phase transitions
+
+After each `apd_advance_pipeline()` call, run the matching `gh-sync` step.
+The wrapper knows the active issue number from `.apd/pipeline/gh-issue` and
+moves the card to the next column.
+
+### 3. Close on completion
+
+After a successful commit:
+
+```bash
+bash ${APD_PLUGIN_ROOT}/bin/core/gh-sync done <issue> <commit>
+```
+
+### 4. Skip label
+
+If the pipeline was skipped (hotfix):
+
+```bash
+bash ${APD_PLUGIN_ROOT}/bin/core/gh-sync skip <issue> "<reason>"
+```
+
+## Anti-patterns
+
+- **Don't** call `gh issue create` directly when `gh-sync spec` is available **→ Do** use `gh-sync` so the issue number is tracked through the pipeline
+- **Don't** open a new issue for each pipeline phase **→ Do** create one issue at spec, move it through columns, close at commit
+- **Don't** silently swallow `gh` auth failures **→ Do** escalate with `gh auth login` instructions
+- **Don't** close the issue with a generic "done" comment **→ Do** include the commit hash so the board links back to code
+- **Don't** pull labels/columns from a hard-coded list **→ Do** read the project's column names dynamically (project owners customise them)
+
+## Exit criteria
+
+You're done when:
+- The active issue's column reflects the current pipeline phase
+- On commit: issue is closed with the commit hash in the closing comment
+- On skip: issue closed with `apd-skip` label and the skip reason
+- The board's column-history reflects every pipeline transition (cycle-time data is preserved)
+- No orphan issues — every `[APD]` issue maps to a real pipeline task or has been triaged
+
+## Hand-off
+
+- This skill is **complementary**, not a gate — pipeline progress is authoritative; board is the projection
+- Called by orchestrator on every `apd_advance_pipeline()` step (workflow), not by humans directly
+- If `gh-sync` reports an inconsistency (issue out of sync with pipeline state) → escalate to user; don't auto-correct
+
+## Board setup recommendation
+
+Create a GitHub Projects v2 board with the following columns:
+
+| Column | Description |
+|---|---|
+| **Backlog** | Planned tasks (not in the pipeline) |
+| **Spec** | Spec card created, awaiting approval |
+| **In Progress** | Builder working |
+| **Review** | Reviewer examining |
+| **Testing** | Verifier testing |
+| **Done** | Committed and pushed |
+
+Labels:
+- `apd-pipeline` — all APD tasks
+- `apd-skip` — tasks with skipped pipeline
+- `human-gate` — tasks requiring approval

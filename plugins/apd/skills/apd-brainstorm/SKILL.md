@@ -5,8 +5,20 @@ description: Use when an APD task is vague, broad, or has multiple reasonable in
 
 # APD Brainstorm (Codex)
 
-**Use when:** the task is vague, broad, or "improve X" style. Finish
-brainstorming BEFORE calling `apd_advance_pipeline('spec', ...)`.
+Finish brainstorming BEFORE calling `apd_advance_pipeline('spec', ...)`.
+
+## When to use / When to skip
+
+**Use when:**
+- The task is vague, broad, or "improve X" style
+- The user gave a destination but no path ("we need user search")
+- Multiple reasonable interpretations exist
+- You catch yourself making implementation choices the user hasn't seen
+
+**Skip when:**
+- The task is fully specified (file paths, function names, acceptance criteria)
+- The user has already approved a design — write the spec card directly
+- You are mid-pipeline (spec is locked; raise concerns to user, don't re-brainstorm)
 
 ## The Iron Law
 
@@ -49,3 +61,19 @@ Brainstorming produces a DESIGN. Implementation is the builder phase.
 | "Let me just start coding and iterate" | Iteration without direction is waste. |
 | "The user seems impatient" | Users are more impatient when you build the wrong thing. |
 | "I'll figure it out during implementation" | Vague specs produce vague code. |
+
+## Exit criteria
+
+You're done when:
+- The user can restate the goal in one sentence and you both agree on it
+- Scope and out-of-scope are explicit and written down
+- Approach is named (architectural pattern, library choice, integration point)
+- Affected files are listed (not just "wherever it goes")
+- The user has explicitly approved the design summary — no implicit approval
+- `.apd/pipeline/spec-card.md` has been written and `apd_advance_pipeline('spec', '<name>')` is the next call
+
+## Hand-off
+
+- After explicit approval → write the spec card and call `apd_advance_pipeline('spec', '<name>')` (the only valid exit)
+- Never leads to: code, agent edits, file writes outside `.apd/pipeline/` — those come from the builder phase
+- If the user asks for "just one quick thing" mid-brainstorm → finish the brainstorm first, then queue it

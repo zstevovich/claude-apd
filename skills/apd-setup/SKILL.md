@@ -3,23 +3,27 @@ name: apd-setup
 description: Use when setting up APD in a new project or maintaining an existing one. Generates CLAUDE.md, agents, rules, memory, verify-all.sh. Also runs gap analysis and fixes missing pieces on existing projects.
 disable-model-invocation: true
 effort: max
+allowed-tools: Read Glob Grep Bash Edit Write
 ---
 
 # APD Setup
 
-**Step 1 — MANDATORY: Run the init script AND session-start. Do this FIRST before anything else.**
+> Manual-only skill (`disable-model-invocation: true`). The user invokes it
+> with `/apd-setup`. This skill is a CC-only path; on Codex the equivalent
+> is the `apd cdx init` CLI.
 
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/bin/core/apd-init"
-bash "${CLAUDE_PLUGIN_ROOT}/bin/core/session-start"
-```
+## When to use / When to skip
 
-Do NOT skip this. Do NOT do your own analysis. Run both scripts and read their output.
-The second script creates the `apd` shortcut and loads project context.
+**Use when:**
+- Setting up APD in a new project for the first time
+- Maintaining an existing APD project (gap analysis fills in missing pieces)
+- After a major framework upgrade — gap analysis flags deprecated patterns
+- After manually editing `.claude/` and wanting to validate
 
-**Step 2 — Only if the script says CLAUDE.md or agents are missing:**
-
-Generate project-specific files that the script cannot create (they require analysis):
+**Skip when:**
+- The project is already fully configured and `apd-audit` is clean — nothing to do
+- You're inside an active pipeline cycle — wait for the cycle to close
+- The project is Codex-only — use `apd cdx init` CLI instead, this skill writes `.claude/` paths
 
 ## What gets generated (in the project)
 
@@ -49,7 +53,16 @@ Guard scripts, pipeline scripts, workflow.md, skills — all live in the plugin 
 
 ## Steps
 
-### 1. Detect existing environment
+### 1. Run the init scripts FIRST — do not analyse the project before this
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/bin/core/apd-init"
+bash "${CLAUDE_PLUGIN_ROOT}/bin/core/session-start"
+```
+
+Do NOT skip this. Do NOT do your own analysis instead. Run both scripts and read their output. The second script creates the `apd` shortcut and loads project context. Only proceed to step 2 if the scripts report missing files.
+
+### 2. Detect existing environment
 
 Check whether `.claude/` or `CLAUDE.md` already exists:
 
@@ -87,7 +100,7 @@ Fix 2 gaps? (yes/no)
 
 Generate ONLY what is missing. Do NOT overwrite existing files.
 
-### 2. Gather information from the user
+### 3. Gather information from the user
 
 Some values come pre-filled from plugin userConfig (set at `plugin enable` time):
 - **Project name** — read from `$CLAUDE_PLUGIN_OPTION_PROJECT_NAME` (confirm with user)
@@ -102,7 +115,7 @@ Ask only for values NOT provided by userConfig:
 - Miro board URL (optional)
 - GitHub Projects URL (optional)
 
-### 3. Auto-detect agents from project structure
+### 4. Auto-detect agents from project structure
 
 Read the structure with `ls -d */` and suggest agents:
 
@@ -117,9 +130,9 @@ Read the structure with `ls -d */` and suggest agents:
 
 Show the suggestion — user approves or adjusts.
 
-### 4. Generate files
+### 5. Generate files
 
-#### 4.1 CLAUDE.md
+#### 5.1 CLAUDE.md
 
 Generate with sections (ALL populated, NO placeholders):
 - `# {Name}` + `> {Description}`
@@ -135,7 +148,7 @@ Generate with sections (ALL populated, NO placeholders):
 - `## GitHub Projects` — only if present
 - `## Anti-patterns`
 
-#### 4.2 Agents
+#### 5.2 Agents
 
 **Builder agents** — one per domain, from `${CLAUDE_PLUGIN_ROOT}/templates/agent-template.md`:
 - Frontmatter: name, description, tools (Read/Write/Edit/Glob/Grep/Bash), **model: sonnet**, **effort: xhigh**, maxTurns: 40, permissionMode: bypassPermissions
@@ -153,7 +166,7 @@ The reviewer is **mandatory** — every project gets one. It uses opus/max becau
 
 GENERATE agents from the templates — do not copy literally.
 
-#### 4.3 verify-all.sh
+#### 5.3 verify-all.sh
 
 Read the snippet from `${CLAUDE_PLUGIN_ROOT}/templates/verify-all/{stack}.sh`.
 Generate `.claude/scripts/verify-all.sh` with:
@@ -163,7 +176,7 @@ Generate `.claude/scripts/verify-all.sh` with:
 - Error reporting footer
 - `chmod +x`
 
-#### 4.4 Rules
+#### 5.4 Rules
 
 **workflow.md** — Copy from the plugin (rules are NOT auto-loaded from plugins):
 ```bash
@@ -174,7 +187,7 @@ cp "${CLAUDE_PLUGIN_ROOT}/rules/workflow.md" .claude/rules/workflow.md
 Adapt for the stack — add architectural pattern and port range.
 Place in `.claude/rules/principles.md`.
 
-#### 4.5 Memory files
+#### 5.5 Memory files
 
 Generate in `.claude/memory/`:
 - `MEMORY.md` — name, agents, stack, port range
@@ -182,7 +195,7 @@ Generate in `.claude/memory/`:
 - `session-log.md` — empty with header
 - `pipeline-skip-log.md` — empty with header and table
 
-#### 4.6 Configuration
+#### 5.6 Configuration
 
 `.claude/settings.json` — Must include env, attribution, notification, AND disable superpowers:
 ```json
@@ -221,11 +234,11 @@ STACK={stack}
 
 `.claude/.apd-version`: current version from plugin.json
 
-#### 4.7 Gitignore
+#### 5.7 Gitignore
 
 Add entries from `${CLAUDE_PLUGIN_ROOT}/templates/gitignore-entries.txt` if missing.
 
-#### 4.8 MCP Configuration
+#### 5.8 MCP Configuration
 
 Based on the project's stack and integrations, recommend and generate `.mcp.json`.
 
@@ -297,7 +310,7 @@ Include all recommended? (yes / adjust)
 
 4. Add `.mcp.json` to `.gitignore` if not already there (may contain credentials).
 
-### 5. Verify
+### 6. Verify
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/bin/core/verify-apd
@@ -349,3 +362,28 @@ Claude:
 
   verify-apd: 52 PASS, 0 FAIL
 ```
+
+## Anti-patterns
+
+- **Don't** start asking the user questions before running `apd-init` and `session-start` **→ Do** run the scripts first; they may already have set up most of the project
+- **Don't** overwrite existing files during gap analysis **→ Do** generate ONLY missing files; touch existing ones only if they're literally empty or marked stale
+- **Don't** populate `CLAUDE.md` with `{{PLACEHOLDER}}` values **→ Do** ask the user (or read from `CLAUDE_PLUGIN_OPTION_*` env vars) and fill every placeholder
+- **Don't** assume the stack from one folder name **→ Do** read enough of the project (`package.json`, `pom.xml`, `Cargo.toml`, etc.) to confirm before suggesting agents
+- **Don't** generate the reviewer agent with `model: sonnet` **→ Do** use `model: opus, effort: max, permissionMode: plan` — this is the one agent where shortcuts matter
+
+## Exit criteria
+
+You're done when:
+- `apd-init` and `session-start` ran successfully and the `apd` shortcut works
+- For new setup: every file in the "What gets generated" table exists with no placeholders left
+- For maintenance: every gap analysis row is either ✓ or has been fixed
+- `bash ${CLAUDE_PLUGIN_ROOT}/bin/core/verify-apd` passes (X PASS / 0 FAIL)
+- The reviewer agent exists with `opus / max / plan / orange / maxTurns: 30`
+- `.claude/.apd-config` (or `.apd/config`) is present with PROJECT_NAME, APD_VERSION, STACK
+- `.mcp.json` recommendations have been presented to the user (and either accepted or skipped explicitly)
+
+## Hand-off
+
+- After successful setup → invoke `apd-audit` to confirm content quality (mechanical checks just passed; quality is a separate gate)
+- After audit clean → start your first pipeline cycle with `apd pipeline spec "<task>"`
+- If `verify-apd` still has FAILs after this skill runs → escalate to user with concrete file:line references; do NOT silently rerun the skill

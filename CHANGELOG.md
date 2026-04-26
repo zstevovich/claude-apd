@@ -1,5 +1,39 @@
 # Changelog
 
+## v5.0.7 — 2026-04-26
+
+Skill quality release — every APD skill on both runtimes now conforms to a single canonical template, with explicit triggers, exit criteria, and anti-patterns. Closes the long-standing structural drift across the eight CC skills and brings the Codex side from 4 → 7 skills.
+
+### Skill template canon
+
+- **New file** — `templates/skill-template.md` codifies frontmatter (CC: `name`, `description`, `effort`, `allowed-tools`, optional `disable-model-invocation`; Codex: just `name` and `description`), a four-section mandatory body (When to use / When to skip · Steps · Exit criteria · Anti-patterns) plus two optional sections (Iron Law where the skill has a real invariant, Hand-off where transitions exist), and an effort taxonomy. Anti-patterns explicitly accepts two formats: "Don't → Do" pairs (procedural skills) and "Common rationalizations" tables (anti-self-deception, used by tdd / debug / brainstorm / finish).
+- **Cross-runtime parity table** — eight CC skills, seven on Codex; `apd-setup` is intentionally CC-only because `apd cdx init` CLI replaces it.
+
+### CC skills brought to compliance (8 of 8)
+
+- **Frontmatter** — added missing `allowed-tools` to `apd-setup`, `apd-brainstorm`, `apd-finish`, `apd-github`, `apd-miro`. The remaining three already had it.
+- **Body** — added explicit `When to use / When to skip`, `Exit criteria`, and `Hand-off` sections to all eight (most had implicit equivalents in `Integration` / checklist tail).
+- **Specific fixes:**
+  - `apd-setup` — Step 1's "MANDATORY: run init scripts" was a top-level paragraph; refactored into a numbered first step under `## Steps`. Renumbered the rest (1→2 detect, 2→3 gather, 3→4 auto-detect agents, 4→5 generate files with subsections renumbered 5.1–5.8, 5→6 verify). Added Anti-patterns and Hand-off (→ `apd-audit`) — previously had neither.
+  - `apd-audit` — removed forced "Iron Law" line ("NO TASK WITHOUT A HEALTHY PIPELINE FIRST" wasn't really an invariant, just a recommendation).
+  - `apd-github` and `apd-miro` — added Anti-patterns sections (had none before).
+  - All four "Common Rationalizations" tables (audit, brainstorm, debug, tdd) renamed to lower-case "Common rationalizations" to match template wording.
+
+### Codex skills brought to compliance + parity (4 → 7)
+
+- **New ports** — `plugins/apd/skills/apd-audit/`, `plugins/apd/skills/apd-github/`, `plugins/apd/skills/apd-miro/`. Each ships a `SKILL.md` adapted for Codex (references `AGENTS.md` instead of `CLAUDE.md`, `.apd/agents/` instead of `.claude/agents/`, `apd_pipeline_state()` / `apd_doctor()` / `apd_verify_step()` MCP tools instead of bash commands, `${APD_PLUGIN_ROOT}` instead of `${CLAUDE_PLUGIN_ROOT}`) plus an `agents/openai.yaml` with `display_name`, `short_description`, and `default_prompt` (Codex per-skill UX metadata, distinct schema from the plugin manifest's `interface.defaultPrompt`).
+- **Existing 4 Codex skills** (`apd-brainstorm`, `apd-debug`, `apd-finish`, `apd-tdd`) — added explicit `When to use / When to skip`, `Exit criteria`, and `Hand-off` sections to match the template. Bodies otherwise unchanged.
+
+### Validation
+
+- `bin/core/test-codex-adapter` — 207 PASS / 0 FAIL.
+- All 7 Codex `agents/openai.yaml` files parse as valid YAML.
+- All 15 `SKILL.md` files (8 CC + 7 Codex) have valid YAML frontmatter.
+
+### Known carry-over (not in this release)
+
+- **`codex exec` has no APD bootstrap path** — flagged in v5.0.6, still open. Candidate for v5.1, likely via `.mcp.json` self-registration.
+
 ## v5.0.6 — 2026-04-26
 
 Live re-validation against Codex 0.125.0 + manifest fix for hard limit introduced in 0.124+.

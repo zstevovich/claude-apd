@@ -5,9 +5,19 @@ description: Use after a successful APD pipeline commit on Codex — when apd_pi
 
 # APD Finish (Codex)
 
-**Use when:** the pipeline has closed — all four steps done,
-`apd_pipeline_state()` reports `next_step: "commit"`, and you have just
-committed. Run through this BEFORE push, PR, or moving to the next task.
+Run through this BEFORE push, PR, or moving to the next task.
+
+## When to use / When to skip
+
+**Use when:**
+- A pipeline cycle just produced a successful commit
+- All four pipeline steps are complete; `apd_pipeline_state()` reports `next_step: "commit"`
+- The user has not yet made a push/PR/keep/discard decision
+
+**Skip when:**
+- The pipeline failed before commit — go to `apd-debug`, not finish
+- The user has already pushed — there is nothing to decide
+- This is a hotfix outside the pipeline — different decision flow, don't apply pipeline summary template
 
 ## The Iron Law
 
@@ -117,3 +127,18 @@ git branch -D <branch>
 - Never force-push (the destructive-git guard blocks it)
 - Always verify tests before presenting options
 - PR body MUST include the APD pipeline summary — proves the work was reviewed
+
+## Exit criteria
+
+You're done when:
+- `apd_verify_step()` was re-run and is green
+- The pipeline report has been shown to the user
+- The user has explicitly picked one of the four options (typed, not implied)
+- The chosen option has been executed end-to-end (push completed, PR URL returned, branch deleted, etc.)
+- For Discard: the user typed `discard` literally before any branch was removed
+
+## Hand-off
+
+- This is a **terminal skill** — when it completes, the cycle is closed
+- If verification fails at Step 1 → switch to `apd-debug` (do NOT present finish options on red tests)
+- After option 1/2 success → return push/PR URL to the user; do not auto-start a new pipeline

@@ -2,11 +2,26 @@
 name: apd-github
 description: Use when the project has GitHub Projects configured and you need to sync pipeline tasks with the board. Creates issues for specs, moves cards through columns, closes on completion.
 effort: high
+allowed-tools: Read Bash
 ---
 
 # GitHub Projects — APD Pipeline Tracking
 
 Maps APD pipeline phases to GitHub Projects v2 columns. Each task becomes an issue with a spec card, and pipeline progress is reflected on the board.
+
+## When to use / When to skip
+
+**Use when:**
+- The project has a GitHub Projects v2 board configured (`GITHUB_PROJECTS_URL` in CLAUDE.md)
+- A pipeline phase just transitioned — sync the column
+- Spec was just approved — create the issue
+- Pipeline just committed — close the issue with the commit reference
+
+**Skip when:**
+- No GitHub Projects board is configured for the project
+- The repo is not on GitHub (Gitlab/Bitbucket/local)
+- `gh` CLI is not authenticated — escalate, don't silently skip
+- The user is in a hotfix flow that bypasses the pipeline (no issue to track)
 
 ## Automation — gh-sync
 
@@ -156,3 +171,26 @@ Labels:
 - `apd-pipeline` — all APD tasks
 - `apd-skip` — tasks with skipped pipeline
 - `human-gate` — tasks requiring approval
+
+## Anti-patterns
+
+- **Don't** call `gh issue create` directly when `gh-sync spec` is available **→ Do** use `gh-sync` so the issue number is tracked through the pipeline
+- **Don't** open a new issue for each pipeline phase **→ Do** create one issue at spec, move it through columns, close at commit
+- **Don't** silently swallow `gh` auth failures **→ Do** escalate with `gh auth login` instructions
+- **Don't** close the issue with a generic "done" comment **→ Do** include the commit hash so the board links back to code
+- **Don't** pull labels/columns from a hard-coded list **→ Do** read the project's column names dynamically (project owners customise them)
+
+## Exit criteria
+
+You're done when:
+- The active issue's column reflects the current pipeline phase
+- On commit: issue is closed with the commit hash in the closing comment
+- On skip: issue closed with `apd-skip` label and the skip reason
+- The board's column-history reflects every pipeline transition (cycle-time data is preserved)
+- No orphan issues — every `[APD]` issue maps to a real pipeline task or has been triaged
+
+## Hand-off
+
+- This skill is **complementary**, not a gate — pipeline progress is authoritative; board is the projection
+- Called by orchestrator on every `pipeline-advance` step (workflow), not by humans directly
+- If `gh-sync` reports an inconsistency (issue out of sync with pipeline state) → escalate to user; don't auto-correct
