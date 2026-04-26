@@ -15,20 +15,26 @@ uvx --from mcp --with-requirements mcp/requirements.txt python mcp/apd_mcp_serve
 Run the installer helper from your project directory:
 
 ```bash
-/path/to/apd-template/bin/adapter/cdx/install-codex-config
+/path/to/apd-template/plugins/apd/bin/adapter/cdx/install-codex-config
 ```
 
-This writes `<project>/.codex/config.toml` with the APD MCP entry. Idempotent — safe to re-run. Use `uv run --with mcp` so no system-wide Python changes are needed (`brew install uv` is the only prereq).
+This writes `<project>/.codex/config.toml` with the APD MCP entry and per-tool auto-approval blocks. Idempotent — safe to re-run. Use `uv run --with mcp` so no system-wide Python changes are needed (`brew install uv` is the only prereq).
 
 Manual alternative (if you prefer):
 
 ```toml
 [mcp_servers.apd]
 command = "uv"
-args = ["run", "--with", "mcp", "python", "/absolute/path/to/apd-template/mcp/apd_mcp_server.py"]
+args = ["run", "--with", "mcp", "python", "mcp/apd_mcp_server.py"]
+cwd = "/absolute/path/to/apd-template/plugins/apd"
+
+[mcp_servers.apd.tools.apd_ping]
+approval_mode = "approve"
+
+# Repeat the same approval_mode block for the other seven APD tools.
 ```
 
-Restart `codex`. The `apd_ping` tool should appear in the model's tool list.
+Restart `codex`. The `apd_ping` tool should appear in the model's tool list and run without an MCP approval prompt.
 
 ## Tools
 

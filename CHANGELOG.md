@@ -1,5 +1,15 @@
 # Changelog
 
+## v6.0.2 — 2026-04-27
+
+Fixes Codex TUI prompting for APD MCP tool approval even though `plugins/apd/.mcp.json` declared every APD tool with `approval_mode = "approve"`.
+
+Live Codex 0.125 testing showed that plugin-shipped MCP approval metadata is not applied by the TUI approval gate. `install-codex-config` now writes a project-local, complete `[mcp_servers.apd]` override into `<project>/.codex/config.toml`: `command = "uv"`, relative `mcp/apd_mcp_server.py`, `cwd = "<plugin-root>"`, plus all eight `[mcp_servers.apd.tools.<tool>] approval_mode = "approve"` blocks. This keeps plugin `.mcp.json` as the self-registration fallback while making the effective no-prompt path use Codex's working config surface.
+
+Important detail: APD writes the full parent transport block, not just per-tool approval sections. Per-tool sections alone create an implicit TOML parent with no transport and Codex fails with `invalid transport in mcp_servers.apd`.
+
+`codex-doctor`, `test-codex-adapter`, `docs/SPEC.md`, and `plugins/apd/mcp/README.md` were updated to match the hybrid model.
+
 ## v6.0.1 — 2026-04-27
 
 `verify-apd` Section 8 (synthetic pipeline end-to-end test) now refuses to run when an active real-task pipeline is in flight. Previously, if the test got triggered (via `apd verify` re-run, or other code paths that invoke verify-apd) while a project was mid-pipeline, it would overwrite `spec-card.md` and `implementation-plan.md` with `APD-VERIFY-OPT-OUT`/`APD-VERIFY-TEST` content, append fake agent events to `.agents`, set the pipeline lock, and (when gh-sync is wired) open a GitHub issue — forcing a manual ~3-minute recovery to restore real state.

@@ -103,19 +103,62 @@ else
     _ok ".codex/ exists"
 
     CFG="$CODEX_DIR/config.toml"
-    # v6.0: MCP server self-registers via plugin .mcp.json. We only flag
-    # legacy [mcp_servers.apd*] blocks left behind by ≤v5.x — they would
-    # collide with the plugin-shipped registration. `apd cdx init` removes
-    # them.
-    if [ -f "$CFG" ] && grep -q '^\[mcp_servers\.apd' "$CFG"; then
-        _warn "$CFG has legacy [mcp_servers.apd*] block(s) — run \`apd cdx init\` to clean up; v6.0 self-registers the MCP server via plugin .mcp.json"
+    if [ ! -f "$CFG" ]; then
+        _bad "$CFG missing — run: apd cdx init"
     else
-        _ok "config.toml has no legacy [mcp_servers.apd*] blocks (plugin .mcp.json self-registers the MCP server)"
+        MCP_CFG_STATUS="$(
+python3 - "$CFG" "$APD_PLUGIN_ROOT" <<'PY'
+import sys
+from pathlib import Path
+
+cfg = Path(sys.argv[1])
+plugin_root = sys.argv[2]
+tools = (
+    "apd_ping", "apd_doctor", "apd_advance_pipeline", "apd_guard_write",
+    "apd_verify_step", "apd_adversarial_pass", "apd_list_agents", "apd_pipeline_state",
+)
+
+sections = {}
+current = None
+for raw in cfg.read_text().splitlines():
+    line = raw.strip()
+    if line.startswith("[") and line.endswith("]"):
+        current = line
+        sections[current] = []
+    elif current and line:
+        sections[current].append(line)
+
+server = sections.get("[mcp_servers.apd]", [])
+required = {
+    'command = "uv"',
+    'args = ["run", "--with", "mcp", "python", "mcp/apd_mcp_server.py"]',
+    f'cwd = "{plugin_root}"',
+}
+missing_server = sorted(required - set(server))
+missing_tools = [
+    t for t in tools
+    if 'approval_mode = "approve"' not in sections.get(f"[mcp_servers.apd.tools.{t}]", [])
+]
+if missing_server or missing_tools:
+    details = []
+    if missing_server:
+        details.append("server: " + ", ".join(missing_server))
+    if missing_tools:
+        details.append("tools: " + ", ".join(missing_tools))
+    print("; ".join(details))
+    raise SystemExit(1)
+PY
+        )"
+        if [ $? -eq 0 ]; then
+            _ok "config.toml registers APD MCP server + 8 auto-approved tools"
+        else
+            _bad "config.toml APD MCP block incomplete or stale — run \`apd cdx init\` (${MCP_CFG_STATUS:-unknown mismatch})"
+        fi
     fi
 
     PLUGIN_MCP="$APD_PLUGIN_ROOT/.mcp.json"
     if [ -f "$PLUGIN_MCP" ] && grep -q '"apd"' "$PLUGIN_MCP"; then
-        _ok "plugin .mcp.json self-registers the APD MCP server"
+        _ok "plugin .mcp.json self-registers the APD MCP server fallback"
     else
         _bad "plugin .mcp.json missing at $PLUGIN_MCP — APD MCP tools will not load"
     fi

@@ -4,8 +4,8 @@
 # Builds a throwaway project with a known agent set, runs install-codex-config,
 # and verifies every enforcement layer:
 #   1. MCP server: syntactically valid, all expected tools registered
-#   2. plugin .mcp.json: self-registers MCP server (v6.0+); config.toml carries
-#      hooks/shortcut only — no [mcp_servers.apd] blocks
+#   2. plugin .mcp.json: self-registers MCP server; project config.toml carries
+#      the full APD MCP override with per-tool approvals for Codex's TUI gate
 #   3. hooks.json: PreToolUse Bash → guard-bash-scope
 #   4. Idempotency: second run produces zero writes
 #   5. Negative case: project without .codex/ dir doesn't trigger adapter
@@ -87,7 +87,7 @@ FIRST_EXIT=$?
 
 [ "$FIRST_EXIT" -eq 0 ] && pass "exit code 0" && PASSES=$((PASSES + 1)) || { fail "exit code was $FIRST_EXIT"; FAILS=$((FAILS + 1)); }
 
-echo "$FIRST_OUT" | grep -q "\[skip\] $SCRATCH/.codex/config.toml does not exist" && pass "no MCP block written on fresh install (plugin .mcp.json self-registers)" && PASSES=$((PASSES + 1)) || { fail "fresh install unexpectedly wrote MCP block (cleanup-only mode broken)"; FAILS=$((FAILS + 1)); }
+echo "$FIRST_OUT" | grep -q "\[wrote\] \[mcp_servers.apd\]" && pass "wrote APD MCP block with tool approvals" && PASSES=$((PASSES + 1)) || { fail "fresh install did not write APD MCP block"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "per-agent sandbox profiles skipped" && pass "sandbox profiles deferred (MCP guard-scope path)" && PASSES=$((PASSES + 1)) || { fail "sandbox skip notice missing"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "PreToolUse Bash hook" && pass "wrote hooks.json" && PASSES=$((PASSES + 1)) || { fail "no hooks.json written"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "SessionStart hook" && pass "wrote SessionStart hook" && PASSES=$((PASSES + 1)) || { fail "no SessionStart hook written"; FAILS=$((FAILS + 1)); }
@@ -133,8 +133,9 @@ section "4. Generated file content"
 CFG="$SCRATCH/.codex/config.toml"
 HOOKS="$SCRATCH/.codex/hooks.json"
 
-# v6.0: MCP server registers via plugin .mcp.json, not config.toml. Fresh
-# install must not write [mcp_servers.apd*] blocks anywhere.
+# v6.0+: plugin .mcp.json self-registers the server, but Codex 0.125 does
+# not honor plugin-shipped approval_mode. Project config.toml therefore
+# carries a full APD server override plus per-tool approvals.
 PLUGIN_MCP_JSON="$APD_PLUGIN_ROOT/.mcp.json"
 _check "plugins/apd/.mcp.json exists (self-registration manifest)" test -f "$PLUGIN_MCP_JSON"
 if [ -f "$PLUGIN_MCP_JSON" ]; then
@@ -149,12 +150,25 @@ if [ -f "$PLUGIN_MCP_JSON" ]; then
         _check_file_contains "plugin .mcp.json auto-approves $_t" "$PLUGIN_MCP_JSON" "\"$_t\""
     done
 fi
-# Negative check: fresh install must not have written legacy MCP blocks
-if [ ! -f "$CFG" ] || ! grep -q '^\[mcp_servers\.apd' "$CFG"; then
-    pass "fresh install: no [mcp_servers.apd*] block in config.toml (cleanup-only mode)"
+_check_file_contains "config.toml has APD MCP server block" "$CFG" '^\[mcp_servers\.apd\]$'
+_check_file_contains "config.toml APD command uses uv" "$CFG" '^command = "uv"$'
+_check_file_contains "config.toml APD args use relative plugin MCP path" "$CFG" 'args = \["run", "--with", "mcp", "python", "mcp/apd_mcp_server\.py"\]'
+if grep -qF "cwd = \"$APD_PLUGIN_ROOT\"" "$CFG" 2>/dev/null; then
+    pass "config.toml APD cwd points at plugin root"
     PASSES=$((PASSES + 1))
 else
-    fail "fresh install unexpectedly produced [mcp_servers.apd*] block in config.toml"
+    fail "config.toml APD cwd missing or stale"
+    FAILS=$((FAILS + 1))
+fi
+for _t in apd_ping apd_doctor apd_advance_pipeline apd_guard_write \
+         apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state; do
+    _check_file_contains "config.toml auto-approves $_t" "$CFG" "^\\[mcp_servers\\.apd\\.tools\\.$_t\\]$"
+done
+if [ "$(grep -c '^approval_mode = "approve"$' "$CFG" 2>/dev/null | tr -d ' ')" = "8" ]; then
+    pass "config.toml has exactly 8 APD approval_mode entries"
+    PASSES=$((PASSES + 1))
+else
+    fail "config.toml approval_mode entry count is not 8"
     FAILS=$((FAILS + 1))
 fi
 _check_file_contains "hooks.json has PreToolUse" "$HOOKS" 'PreToolUse'
@@ -219,19 +233,21 @@ cat > "$REPAIR/.codex/hooks.json" <<'EOF'
 EOF
 
 REPAIR_OUT="$(bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$REPAIR" 2>&1)"
-if echo "$REPAIR_OUT" | grep -q "\[migrated\] removed legacy \[mcp_servers.apd"; then
-    pass "installer migrates legacy [mcp_servers.apd] block (v5 → v6 cleanup)"
+if echo "$REPAIR_OUT" | grep -q "\[updated\] \[mcp_servers.apd\]"; then
+    pass "installer repairs stale [mcp_servers.apd] block"
     PASSES=$((PASSES + 1))
 else
-    fail "installer did not report legacy MCP block migration"
+    fail "installer did not report APD MCP block repair"
     FAILS=$((FAILS + 1))
 fi
 
-if ! grep -q '^\[mcp_servers\.apd' "$REPAIR/.codex/config.toml" 2>/dev/null; then
-    pass "config.toml no longer carries [mcp_servers.apd*] blocks (plugin .mcp.json takes over)"
+if grep -q '^\[mcp_servers\.apd\]' "$REPAIR/.codex/config.toml" 2>/dev/null && \
+   grep -qF 'args = ["run", "--with", "mcp", "python", "mcp/apd_mcp_server.py"]' "$REPAIR/.codex/config.toml" 2>/dev/null && \
+   grep -qF "cwd = \"$APD_PLUGIN_ROOT\"" "$REPAIR/.codex/config.toml" 2>/dev/null; then
+    pass "config.toml carries repaired APD MCP block"
     PASSES=$((PASSES + 1))
 else
-    fail "config.toml still has legacy [mcp_servers.apd*] block after migration"
+    fail "config.toml APD MCP block was not repaired"
     FAILS=$((FAILS + 1))
 fi
 

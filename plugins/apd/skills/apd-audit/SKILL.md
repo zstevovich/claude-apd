@@ -75,7 +75,7 @@ Check that `AGENTS.md` does NOT contain:
 ### 4. MCP registration
 
 Verify `.codex/config.toml` has:
-- `[mcp_servers.apd]` block with `command = "uv"` and the right script path
+- `[mcp_servers.apd]` block with `command = "uv"`, relative `mcp/apd_mcp_server.py`, and `cwd` pointing at the APD plugin root
 - All eight `[mcp_servers.apd.tools.<name>]` blocks (one per APD MCP tool)
 - Approval modes are appropriate for the project's risk profile
 
