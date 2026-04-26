@@ -1807,7 +1807,7 @@ fi
 rm -rf "$VS_FB"
 
 # -----------------------------------------------------------
-# 21. apd cdx skills — hybrid install (direct-drop default, marketplace experimental)
+# 21. apd cdx skills — hybrid install (marketplace default, --legacy-symlink deprecated)
 # -----------------------------------------------------------
 section "21. apd cdx skills"
 
@@ -1857,13 +1857,20 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# --- Direct-drop (default) ---
+# --- Status output structure (marketplace + legacy sections) ---
 STATUS_OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills status 2>&1)
-if echo "$STATUS_OUT" | grep -q "Direct-drop"; then
-    pass "status shows Direct-drop section"
+if echo "$STATUS_OUT" | grep -q "Marketplace (default since v5.0.8)"; then
+    pass "status shows Marketplace as default section"
     PASSES=$((PASSES + 1))
 else
-    fail "status missing Direct-drop section"
+    fail "status missing Marketplace default section header"
+    FAILS=$((FAILS + 1))
+fi
+if echo "$STATUS_OUT" | grep -q "Direct-drop (--legacy-symlink, deprecated"; then
+    pass "status shows legacy Direct-drop section labelled deprecated"
+    PASSES=$((PASSES + 1))
+else
+    fail "status missing legacy Direct-drop deprecation label"
     FAILS=$((FAILS + 1))
 fi
 if echo "$STATUS_OUT" | grep -q "apd-brainstorm.*not installed"; then
@@ -1874,16 +1881,24 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install >/dev/null 2>&1
+LEGACY_OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install --legacy-symlink 2>&1)
 ALL_LINKS=1
 for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
     [ -L "$SK_CODEX/skills/$name" ] || ALL_LINKS=0
 done
 if [ "$ALL_LINKS" -eq 1 ]; then
-    pass "default install creates 4 symlinks in ~/.codex/skills/"
+    pass "--legacy-symlink install creates 4 symlinks in ~/.codex/skills/"
     PASSES=$((PASSES + 1))
 else
-    fail "default install did not create all APD skill symlinks"
+    fail "--legacy-symlink install did not create all APD skill symlinks"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$LEGACY_OUT" | grep -q "DEPRECATED"; then
+    pass "--legacy-symlink prints deprecation warning"
+    PASSES=$((PASSES + 1))
+else
+    fail "--legacy-symlink missing deprecation warning"
     FAILS=$((FAILS + 1))
 fi
 
@@ -1905,7 +1920,7 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install apd-debug --copy >/dev/null 2>&1
+CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install --legacy-symlink apd-debug --copy >/dev/null 2>&1
 if [ ! -L "$SK_CODEX/skills/apd-debug" ] && [ -d "$SK_CODEX/skills/apd-debug" ]; then
     pass "install --copy replaces symlink with real directory"
     PASSES=$((PASSES + 1))
@@ -1930,27 +1945,27 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills uninstall >/dev/null 2>&1
+CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills uninstall --legacy-symlink >/dev/null 2>&1
 ANY_LEFT=0
 for name in apd-brainstorm apd-tdd apd-debug apd-finish; do
     [ -e "$SK_CODEX/skills/$name" ] && ANY_LEFT=1
 done
 if [ "$ANY_LEFT" -eq 0 ]; then
-    pass "uninstall removes every apd-* skill"
+    pass "--legacy-symlink uninstall removes every apd-* skill"
     PASSES=$((PASSES + 1))
 else
-    fail "some apd-* skills survived uninstall"
+    fail "some apd-* skills survived --legacy-symlink uninstall"
     FAILS=$((FAILS + 1))
 fi
 
 mkdir -p "$SK_CODEX/skills/some-other-skill"
 touch "$SK_CODEX/skills/some-other-skill/SKILL.md"
-REFUSE_OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills uninstall some-other-skill 2>&1)
+REFUSE_OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills uninstall --legacy-symlink some-other-skill 2>&1)
 if echo "$REFUSE_OUT" | grep -q "refuse"; then
-    pass "uninstall refuses non-apd-* names"
+    pass "--legacy-symlink uninstall refuses non-apd-* names"
     PASSES=$((PASSES + 1))
 else
-    fail "uninstall did not refuse non-apd-* name"
+    fail "--legacy-symlink uninstall did not refuse non-apd-* name"
     FAILS=$((FAILS + 1))
 fi
 rm -rf "$SK_CODEX/skills/some-other-skill"
@@ -1963,7 +1978,7 @@ name: apd-debug
 description: USER CUSTOM VERSION
 ---
 EOF
-OVW_OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install apd-debug --copy 2>&1)
+OVW_OUT=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install --legacy-symlink apd-debug --copy 2>&1)
 if echo "$OVW_OUT" | grep -q "refuse"; then
     pass "install refuses to overwrite user-modified copy without --force"
     PASSES=$((PASSES + 1))
@@ -1978,7 +1993,7 @@ else
     fail "user content lost even though install refused"
     FAILS=$((FAILS + 1))
 fi
-CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install apd-debug --copy --force >/dev/null 2>&1
+CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install --legacy-symlink apd-debug --copy --force >/dev/null 2>&1
 if ! grep -q "USER CUSTOM VERSION" "$SK_CODEX/skills/apd-debug/SKILL.md" 2>/dev/null && \
    grep -q "^name: apd-debug$" "$SK_CODEX/skills/apd-debug/SKILL.md"; then
     pass "install --force overwrites user-modified copy with canonical"
@@ -2051,11 +2066,11 @@ EOF
 chmod +x "$SK_BIN/codex"
 
 MP_OUT=$(PATH="$SK_BIN:$PATH" CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills install --marketplace 2>&1)
-if echo "$MP_OUT" | grep -q "EXPERIMENTAL"; then
-    pass "--marketplace install shows experimental warning"
+if echo "$MP_OUT" | grep -q "Marketplace mode"; then
+    pass "--marketplace install shows marketplace flow info"
     PASSES=$((PASSES + 1))
 else
-    fail "--marketplace install missing experimental warning"
+    fail "--marketplace install missing marketplace flow info"
     FAILS=$((FAILS + 1))
 fi
 
@@ -2138,11 +2153,11 @@ else
 fi
 
 FINAL_STATUS=$(CODEX_HOME="$SK_CODEX" bash "$APD_PLUGIN_ROOT/bin/apd" cdx skills status 2>&1)
-if echo "$FINAL_STATUS" | grep -q "Marketplace (experimental"; then
-    pass "status shows Marketplace (experimental) section"
+if echo "$FINAL_STATUS" | grep -q "Marketplace (default since v5.0.8)"; then
+    pass "status shows Marketplace (default since v5.0.8) section"
     PASSES=$((PASSES + 1))
 else
-    fail "status missing Marketplace (experimental) section"
+    fail "status missing Marketplace default section"
     FAILS=$((FAILS + 1))
 fi
 if echo "$FINAL_STATUS" | grep -q "marketplace:.*not registered"; then

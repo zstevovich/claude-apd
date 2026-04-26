@@ -4,28 +4,29 @@
 # Two install modes, both pointing at the same canonical source under
 # plugins/apd/ inside this plugin:
 #
-#   direct-drop (default)     symlinks into ~/.codex/skills/<name>/
-#     Works on Codex 0.121.0. Skills load into the <skills_instructions>
-#     prompt block so the model can invoke them via $apd-brainstorm etc.
-#     Does NOT currently surface in the `/` slash menu (Codex limits that
-#     menu to plugin-scoped skills + .system/*).
-#
-#   marketplace (--marketplace, experimental)
+#   marketplace (default since v5.0.8)
 #     Registers the plugin repo root as a local Codex marketplace and
 #     enables [plugins."apd@codex-apd"]. Codex reads the manifest at
 #     <repo-root>/.agents/plugins/marketplace.json (single source of
 #     truth — same file Codex would fetch from `codex marketplace add
-#     zstevovich/claude-apd`). The plan is that `/` slash menu lists APD
-#     skills once Codex syncs local marketplaces into its plugin cache.
-#     On 0.121.0 the sync step is still flaky — see openai/codex#18258.
-#     Pick --marketplace only to test the future path; direct-drop is
-#     the supported flow today.
+#     zstevovich/claude-apd`). On Codex 0.124+ this populates the plugin
+#     cache and surfaces every APD skill in the `/` slash menu under the
+#     APD plugin entry. This is the supported flow.
+#
+#   direct-drop (--legacy-symlink, deprecated)
+#     Symlinks into ~/.codex/skills/<name>/. Used to be the default on
+#     Codex 0.121.0 because the marketplace path was upstream-blocked
+#     (openai/codex#18258). On 0.124+ the marketplace flow is stable and
+#     this mode causes user-level symlinks to coexist with plugin-cache
+#     skills, producing duplicates in the slash menu. Still available
+#     behind --legacy-symlink for emergency / local-dev use; will be
+#     removed in a future major.
 #
 # Subcommands:
-#   status                          show state of both install modes
-#   install [--marketplace]         install (default mode = direct-drop)
-#   uninstall [--marketplace]       uninstall whichever mode was installed
-#   help                            usage
+#   status                                   show state of both install modes
+#   install [--legacy-symlink]               install (default mode = marketplace)
+#   uninstall [--legacy-symlink]             uninstall whichever mode was used
+#   help                                     usage
 
 set -euo pipefail
 
@@ -68,14 +69,27 @@ done
 # -----------------------------------------------------------
 SUB="${1:-help}"
 shift 2>/dev/null || true
-MODE="direct"
+MODE="marketplace"
 EXTRA_ARGS=()
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --marketplace|--experimental-marketplace) MODE="marketplace"; shift ;;
+        --legacy-symlink|--direct|--symlink-mode) MODE="direct"; shift ;;
         *) EXTRA_ARGS+=("$1"); shift ;;
     esac
 done
+
+# Deprecation notice for the old direct-drop default. The flag still
+# works but the mode is going to be removed in a future major.
+if [ "$MODE" = "direct" ] && [ "$SUB" != "help" ]; then
+    echo ""
+    echo "  ${Y}DEPRECATED${R}  --legacy-symlink installs symlinks into ~/.codex/skills/."
+    echo "  ${Y}!${R}           Codex 0.124+ surfaces APD skills via the plugin cache (marketplace"
+    echo "  ${Y}!${R}           install), and these symlinks now produce duplicates in the slash"
+    echo "  ${Y}!${R}           menu. Run \`apd cdx skills install\` (no flag) for the supported flow."
+    echo "  ${Y}!${R}           This flag will be removed in a future major release."
+    echo ""
+fi
 
 # -----------------------------------------------------------
 # Marketplace helpers (only used when MODE=marketplace)
@@ -184,12 +198,7 @@ case "$SUB" in
         echo "  ${V}Source${R}            $SKILL_SRC_DIR"
         echo "  ${V}Codex home${R}        $CODEX_HOME"
         echo ""
-        echo "  ${V}Direct-drop (default — ~/.codex/skills/)${R}"
-        for s in "${ALL_SKILLS[@]}"; do
-            printf "    %-18s  %s\n" "$s" "$(_direct_installed_status "$s")"
-        done
-        echo ""
-        echo "  ${V}Marketplace (experimental — --marketplace)${R}"
+        echo "  ${V}Marketplace (default since v5.0.8)${R}"
         if _registered; then
             src=$(_registered_source)
             printf "    %-18s  ${G}✓${R} registered (source: %s)\n" "marketplace:" "$src"
@@ -207,10 +216,15 @@ case "$SUB" in
             printf "    %-18s  ${D}—${R} not enabled\n" "plugin block:"
         fi
         echo ""
+        echo "  ${V}Direct-drop (--legacy-symlink, deprecated — ~/.codex/skills/)${R}"
+        for s in "${ALL_SKILLS[@]}"; do
+            printf "    %-18s  %s\n" "$s" "$(_direct_installed_status "$s")"
+        done
+        echo ""
         ;;
     install|add)
         if [ "$MODE" = "marketplace" ]; then
-            # -------- Marketplace mode (experimental) --------
+            # -------- Marketplace mode (default since v5.0.8) --------
             if [ ! -f "$MARKETPLACE_MANIFEST" ]; then
                 echo "ERROR: marketplace.json missing at $MARKETPLACE_MANIFEST" >&2
                 exit 2
@@ -224,16 +238,10 @@ case "$SUB" in
                 exit 1
             fi
             echo ""
-            echo "  ${Y}! EXPERIMENTAL${R} — Codex 0.121.0 will register the marketplace and"
-            echo "  ${Y}!${R} clone the repo into ~/.codex/.tmp/marketplaces/, but the plugin"
-            echo "  ${Y}!${R} install step never completes (plugins/cache/codex-apd/ stays empty)."
-            echo "  ${Y}!${R} Codex log will show: \"plugin is not installed\" and \"skipping startup"
-            echo "  ${Y}!${R} remote plugin sync because curated marketplace is not ready\"."
-            echo "  ${Y}!${R} This is upstream openai/codex#18258 — APD's manifest is correct"
-            echo "  ${Y}!${R} and ready, but skills will NOT appear in the / slash menu until"
-            echo "  ${Y}!${R} the upstream fix ships."
-            echo "  ${Y}!${R}"
-            echo "  ${Y}!${R} Supported flow today: \`apd cdx skills install\` (direct-drop)."
+            echo "  ${G}Marketplace mode${R} — registers $MARKETPLACE_NAME locally and enables"
+            echo "  [plugins.\"$PLUGIN_KEY\"]. On Codex 0.124+ skills surface in the \`/\` slash"
+            echo "  menu under the APD plugin. After this command, in a fresh TUI run"
+            echo "  \`codex plugin marketplace upgrade $MARKETPLACE_NAME\` to refresh the cache."
             echo ""
             if _registered; then
                 existing=$(_registered_source)
@@ -277,15 +285,13 @@ case "$SUB" in
             echo ""
             echo "  ${G}registered${R} $MARKETPLACE_NAME marketplace"
             echo ""
-            echo "  ${Y}Expected on Codex 0.121.0:${R} the / slash menu will NOT list APD"
-            echo "  skills yet. Codex log shows \"plugin is not installed\" because the"
-            echo "  upstream startup_sync step is broken (openai/codex#18258). Run"
-            echo "  \`apd cdx skills install\` (direct-drop) for the working flow today."
-            echo "  Once the upstream fix ships, this command alone will be enough."
+            echo "  Next: in a fresh TUI run \`codex plugin marketplace upgrade $MARKETPLACE_NAME\`"
+            echo "  to populate the plugin cache. Skills will appear under the APD plugin"
+            echo "  entry in the \`/\` slash menu."
             exit 0
         fi
 
-        # -------- Direct-drop mode (default) --------
+        # -------- Direct-drop mode (--legacy-symlink, deprecated) --------
         DIRECT_MODE="symlink"
         FORCE="false"
         NAMES=()
@@ -406,24 +412,23 @@ PY
         echo ""
         echo "  Usage:"
         echo "    apd cdx skills status                       show install status (both modes)"
-        echo "    apd cdx skills install                      direct-drop (default, supported today)"
-        echo "    apd cdx skills install <name> ...           install named skills only"
-        echo "    apd cdx skills install --copy               copy instead of symlink"
-        echo "    apd cdx skills install --force              overwrite user-modified installs"
-        echo "    apd cdx skills install --marketplace        register local marketplace (EXPERIMENTAL)"
-        echo "    apd cdx skills uninstall                    remove direct-drop install"
-        echo "    apd cdx skills uninstall <name> ...         remove named only"
-        echo "    apd cdx skills uninstall --marketplace      unregister marketplace"
+        echo "    apd cdx skills install                      register local marketplace (default)"
+        echo "    apd cdx skills install --legacy-symlink     symlinks into ~/.codex/skills/ (deprecated)"
+        echo "    apd cdx skills install --legacy-symlink <name> ...   install named skills only"
+        echo "    apd cdx skills install --legacy-symlink --copy       copy instead of symlink"
+        echo "    apd cdx skills install --legacy-symlink --force      overwrite user-modified installs"
+        echo "    apd cdx skills uninstall                    unregister marketplace"
+        echo "    apd cdx skills uninstall --legacy-symlink   remove direct-drop install"
         echo ""
-        echo "  Default (direct-drop) installs symlinks into $CODEX_SKILLS_DIR/<name>/."
-        echo "  Skills load via \$apd-<name> references, do NOT appear in the / slash menu."
-        echo "  This is the SUPPORTED flow on Codex 0.121.0."
+        echo "  Default (marketplace) registers $MARKETPLACE_NAME locally and enables"
+        echo "  [plugins.\"$PLUGIN_KEY\"]. On Codex 0.124+ this surfaces every APD skill"
+        echo "  in the \`/\` slash menu under the APD plugin entry. This is the"
+        echo "  supported flow."
         echo ""
-        echo "  --marketplace is experimental and currently NON-FUNCTIONAL on 0.121.0:"
-        echo "  Codex registers the marketplace + clones the repo, but the plugin install"
-        echo "  step never runs (openai/codex#18258 — \"plugin is not installed\")."
-        echo "  Our manifest is correct and ready; pick this flag only to test what will"
-        echo "  work once the upstream fix ships. No code change needed on our side."
+        echo "  --legacy-symlink is the old default (Codex 0.121 era). It installs"
+        echo "  symlinks into $CODEX_SKILLS_DIR/<name>/. On 0.124+ these now coexist with"
+        echo "  the plugin cache and produce duplicates in the slash menu. Kept behind"
+        echo "  the flag for emergency / local-dev use; will be removed in a future major."
         echo ""
         echo "  Source:            $SKILL_SRC_DIR"
         echo "  Marketplace root:  $MARKETPLACE_DIR"

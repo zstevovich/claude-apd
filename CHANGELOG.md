@@ -1,5 +1,40 @@
 # Changelog
 
+## v5.0.8 — 2026-04-26
+
+First patch in the v5.1 chain. Surfaces a real install bug discovered during the v5.0.7 live marketplace test on `~/Projects/Test`.
+
+### What was broken
+
+`apd cdx skills install` defaulted to `direct-drop` mode (symlinks into `~/.codex/skills/apd-*`). That default was correct for Codex 0.121.0 because the marketplace install path was upstream-blocked (openai/codex#18258). On Codex 0.124+ the marketplace path works, the plugin cache populates correctly, and skills surface in the `/` slash menu — but the legacy `~/.codex/skills/apd-*` symlinks coexist with the plugin cache and produce **duplicates in the slash menu** (4 historical Codex skills shown twice; the 3 newly-ported v5.0.7 skills shown once because they had no legacy symlinks).
+
+### Fix
+
+- **`bin/adapter/cdx/skills-install` default flipped to marketplace.** `apd cdx skills install` (no flag) now registers the local marketplace and enables `[plugins."apd@codex-apd"]` instead of writing user-level symlinks. Reflected in subcommand dispatch: `MODE` now defaults to `marketplace`.
+- **`--legacy-symlink` flag retained** (alias `--direct`, `--symlink-mode`). Existing automation that explicitly opts into direct-drop continues to work, but the script now prints a deprecation banner on every run explaining why the mode is bad on 0.124+ and pointing the user at the new default. The flag will be removed in a future major.
+- **`--marketplace` install no longer prints the `EXPERIMENTAL` warning.** That warning was specific to 0.121's broken path-resolution; on 0.124+ the install is the supported flow. Replaced with a one-liner pointing the user at `codex plugin marketplace upgrade codex-apd` for the cache-refresh step.
+- **`status` output reordered.** Marketplace block now leads (labeled "default since v5.0.8"); direct-drop block follows under a "deprecated" header.
+
+### Doc updates
+
+- `docs/SPEC.md` §1 (install matrix) and §19 (skill install spec) — reworded to match the new defaults.
+- `bin/adapter/cdx/skills-install` header comment rewritten to lead with marketplace and label direct-drop as deprecated.
+- `bin/adapter/cdx/skills-install` help text updated to surface `--legacy-symlink` instead of bare `--copy` / `--force` flags.
+
+### Tests
+
+- `bin/core/test-codex-adapter` — three updates and two new checks. Old "default install creates 4 symlinks" reframed as "`--legacy-symlink` install creates 4 symlinks". New checks: `--legacy-symlink prints deprecation warning`, `status shows legacy Direct-drop section labelled deprecated`. Total 207 → 209 PASS / 0 FAIL.
+
+### Live cleanup for existing installs
+
+If you ran `apd cdx skills install` before v5.0.8 and now see duplicate APD skills in the slash menu, remove the legacy symlinks once:
+
+```bash
+rm ~/.codex/skills/apd-brainstorm ~/.codex/skills/apd-debug ~/.codex/skills/apd-finish ~/.codex/skills/apd-tdd
+```
+
+Then restart the TUI. The marketplace cache will continue to provide the skills.
+
 ## v5.0.7 — 2026-04-26
 
 Skill quality release — every APD skill on both runtimes now conforms to a single canonical template, with explicit triggers, exit criteria, and anti-patterns. Closes the long-standing structural drift across the eight CC skills and brings the Codex side from 4 → 7 skills.

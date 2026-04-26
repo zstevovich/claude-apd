@@ -24,8 +24,8 @@
 |---|---|---|
 | Plugin manifest | `.claude-plugin/plugin.json` (v4.7.21) | `plugins/apd/.codex-plugin/plugin.json` (v4.7.20 — one behind, manual sync needed) |
 | Marketplace registration | `.claude-plugin/marketplace.json` (`zstevovich-plugins` namespace) | `.agents/plugins/marketplace.json` (`codex-apd` namespace, `INSTALLED_BY_DEFAULT` policy) |
-| Install command | `/plugin marketplace add zstevovich/claude-apd` → `/plugin install` | `/plugin install …` (upstream-blocked on 0.121.0; openai/codex#18258) → fall back to direct-drop |
-| Direct-drop | n/a | `apd cdx skills install` symlinks `~/.codex/skills/apd-*` → `plugins/apd/skills/<name>` |
+| Install command | `/plugin marketplace add zstevovich/claude-apd` → `/plugin install` | `codex plugin marketplace add zstevovich/claude-apd` (Codex 0.124+; on 0.121 was upstream-blocked, openai/codex#18258 since fixed) |
+| Direct-drop | n/a | `apd cdx skills install --legacy-symlink` symlinks `~/.codex/skills/apd-*` → `plugins/apd/skills/<name>`. Deprecated since v5.0.8; default is now marketplace registration. |
 | Live source resolution | from CC plugin runtime cache | direct lokalni path (Test project's MCP server points at `apd-template/mcp/` directly; marketplace cache stale by design for dev workflow) |
 | In-place update (dev workflow) | n/a (use CC `/plugin update`) | `apd update [project]` — `git pull --ff-only` on framework + reinit project's `.codex/` hooks/config. Idempotent. Dry-run via `--check-only`. |
 
@@ -530,8 +530,8 @@ See §15 for actual numbers. `verifier_duration_s` is informational only (no thr
 ### 18.4 `skills-install`
 
 Modes:
-- **Direct-drop (default)**: symlinks into `~/.codex/skills/<name>/`. Flags: `--copy` (copy not symlink), `--force` (overwrite user-modified), `--symlink` (explicit). Defaults to all 4 skills if none named.
-- **`--marketplace` (experimental)**: registers plugin repo as local Codex marketplace via `codex marketplace add <plugin-root>`; updates config.toml with `[plugins."apd@codex-apd"]` enabled=true. Known broken on 0.121.0 (openai/codex#18258).
+- **Marketplace (default since v5.0.8)**: registers plugin repo as a local Codex marketplace and enables `[plugins."apd@codex-apd"]` in `~/.codex/config.toml`. On Codex 0.124+ this surfaces every APD skill in the `/` slash menu under the APD plugin entry. Equivalent to running `codex plugin marketplace add <plugin-root>` plus toggling the plugin block. After this, run `codex plugin marketplace upgrade codex-apd` in a fresh TUI to populate the plugin cache.
+- **`--legacy-symlink` (deprecated)**: symlinks into `~/.codex/skills/<name>/`. Flags: `--copy` (copy not symlink), `--force` (overwrite user-modified). Defaults to all 4 skills if none named. Was the default through v5.0.7 (Codex 0.121 era when marketplace was upstream-blocked); on 0.124+ these symlinks now coexist with the plugin cache and produce duplicates in the slash menu, so the mode prints a deprecation warning. Will be removed in a future major.
 
 Overwrite protection: symlinks always replaced (safe); real dirs replaced only if SKILL.md matches canonical OR `--force`.
 
