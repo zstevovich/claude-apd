@@ -106,17 +106,61 @@ def _is_project_root(path: Path) -> bool:
     return False
 
 
+def _codex_workspace_from_request() -> Path | None:
+    """Extract the user's project root from Codex's per-call MCP _meta.
+
+    Codex 0.124+ attaches `_meta["x-codex-turn-metadata"]` to every
+    tools/call request. The value contains a `workspaces` map keyed by
+    absolute repo-root path. Reading this is the only way to discover the
+    user's working directory after v6.0 plugin self-containment, because
+    Codex spawns the MCP server with cwd = plugin cache root, not the
+    user's project, and does not expose a CODEX_WORKING_DIR env var.
+
+    Falls through silently if not running in a request context, the
+    metadata header is missing, or `workspaces` is empty (non-git
+    project) — caller falls back to env/git/cwd resolution.
+    """
+    try:
+        from mcp.server.lowlevel.server import request_ctx
+    except ImportError:
+        return None
+    try:
+        ctx = request_ctx.get()
+    except LookupError:
+        return None
+    meta = getattr(ctx, "meta", None)
+    if meta is None:
+        return None
+    extra = getattr(meta, "model_extra", None) or {}
+    turn_meta = extra.get("x-codex-turn-metadata")
+    if not isinstance(turn_meta, dict):
+        return None
+    workspaces = turn_meta.get("workspaces")
+    if not isinstance(workspaces, dict) or not workspaces:
+        return None
+    # First key is the canonical repo root for this turn
+    return Path(next(iter(workspaces)))
+
+
 def _project_dir() -> Path:
     """Resolve the active project directory.
 
-    Priority: APD_PROJECT_DIR env → git toplevel (if it carries a project
-    marker) → walk up from cwd looking for a marker → cwd. Codex-native
-    markers (.codex/, AGENTS.md) are checked alongside legacy CC markers
-    (.claude/, CLAUDE.md) so hybrid and pure-Codex projects both resolve.
+    Priority: APD_PROJECT_DIR env → Codex MCP request _meta workspaces
+    (v6.0+) → git toplevel (if it carries a project marker) → walk up
+    from cwd looking for a marker → cwd. Codex-native markers (.codex/,
+    AGENTS.md) are checked alongside legacy CC markers (.claude/,
+    CLAUDE.md) so hybrid and pure-Codex projects both resolve.
+
+    The Codex _meta source is what makes the post-v6.0 plugin-cache cwd
+    layout work: without it the walk-up algorithm would resolve the user
+    home (~/.codex/) instead of the actual project.
     """
     env = os.environ.get("APD_PROJECT_DIR")
     if env:
         return Path(env)
+    codex_ws = _codex_workspace_from_request()
+    if codex_ws is not None:
+        return codex_ws
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
