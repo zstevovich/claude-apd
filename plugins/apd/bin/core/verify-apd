@@ -579,6 +579,48 @@ SUM_GUARDS=$(printf '%s, ' "${GUARD_LIST[@]}" | sed 's/, $//')
 # ============================================================
 section "8. Pipeline end-to-end test"
 
+# Hard guard: skip the synthetic end-to-end test if the project already has
+# an active real-task pipeline. The test writes APD-VERIFY-* entries into
+# spec-card.md / implementation-plan.md / .agents and creates a GitHub issue
+# (when gh-sync is wired) — running it on top of a live pipeline contaminates
+# state and forces a manual recovery. Skip whenever:
+#   - spec-card.md exists and its task is NOT an APD-VERIFY-* synthetic
+#   - or any *.done marker exists that doesn't belong to APD-VERIFY-*
+#   - or .lock exists (another pipeline operation is in flight)
+# This means verify-apd Section 8 only runs in genuinely idle projects.
+_apd_verify_pipeline_busy() {
+    local spec="$PIPELINE_DIR/spec-card.md"
+    if [ -f "$spec" ]; then
+        local task
+        task=$(grep -m1 '^# Task:' "$spec" 2>/dev/null | sed 's/^# Task:[[:space:]]*//')
+        case "$task" in
+            APD-VERIFY-*) ;;          # synthetic — safe to overwrite
+            "") return 0 ;;            # has spec-card but no recognizable task — treat as busy
+            *) return 0 ;;             # real task in progress
+        esac
+    fi
+    if [ -d "$PIPELINE_DIR/.lock" ]; then
+        return 0
+    fi
+    if ls "$PIPELINE_DIR"/*.done >/dev/null 2>&1; then
+        # If there's a spec.done with a non-VERIFY task, treat as busy
+        if [ -f "$PIPELINE_DIR/spec.done" ] && ! grep -q '|APD-VERIFY-' "$PIPELINE_DIR/spec.done" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+if _apd_verify_pipeline_busy; then
+    warn "active pipeline detected (spec-card.md or .done markers from a real task) — skipping end-to-end test to avoid contaminating state"
+    warn "run \`apd pipeline reset\` and re-run \`apd verify\` if you want to exercise the end-to-end test"
+    SUM_PIPELINE="skipped (active pipeline)"
+    # Skip the entire Section 8 by jumping to the summary
+    PIPELINE_TEST_SKIPPED=1
+fi
+
+if [ "${PIPELINE_TEST_SKIPPED:-0}" -ne 1 ]; then
+
 # Restore function for safe cleanup on interrupt
 CREATED_BUILDER=false
 CREATED_REVIEWER=false
@@ -919,6 +961,8 @@ if [ -n "$SESSION_LOG_BACKUP" ] && [ -f "$SESSION_LOG_BACKUP" ]; then
     cp "$SESSION_LOG_BACKUP" "$APD_MEMORY_DIR/session-log.md"
     rm -f "$SESSION_LOG_BACKUP"
 fi
+
+fi  # end of "if [ ${PIPELINE_TEST_SKIPPED:-0} -ne 1 ]"
 
 # ============================================================
 # 9. VERIFY-ALL.SH — configured or not

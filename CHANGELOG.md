@@ -1,5 +1,18 @@
 # Changelog
 
+## v6.0.1 — 2026-04-27
+
+`verify-apd` Section 8 (synthetic pipeline end-to-end test) now refuses to run when an active real-task pipeline is in flight. Previously, if the test got triggered (via `apd verify` re-run, or other code paths that invoke verify-apd) while a project was mid-pipeline, it would overwrite `spec-card.md` and `implementation-plan.md` with `APD-VERIFY-OPT-OUT`/`APD-VERIFY-TEST` content, append fake agent events to `.agents`, set the pipeline lock, and (when gh-sync is wired) open a GitHub issue — forcing a manual ~3-minute recovery to restore real state.
+
+Hard guard added at the top of Section 8: skips the entire end-to-end test when any of these are true:
+- `spec-card.md` exists with a task name not starting with `APD-VERIFY-` (or with no `# Task:` header at all)
+- `.lock` directory present (another pipeline operation in flight)
+- `spec.done` exists for a task other than an `APD-VERIFY-*` synthetic
+
+When skipped, `verify-apd` prints a clear warning telling the user to `apd pipeline reset` first if they want to exercise the test, and surfaces the skip in the summary as `Pipeline: skipped (active pipeline)`. The remaining 8 sections still run as usual.
+
+Reported live by a CC user during a real GDPR-delete task pipeline, with the same incident also having corrupted a previous welcome-bonus pipeline (commits `58dde25` etc.). No more silent overwrites.
+
 ## v6.0.0 — 2026-04-27 — Plugin self-containment
 
 **Major refactor.** Every framework binary, template, rule, and the MCP server itself now live inside `plugins/apd/`. The Codex plugin cache, which only mirrors the plugin folder, finally contains everything the MCP server needs — closing the v5.0.9–10 plugin-shipped `.mcp.json` gap that was reverted in v5.0.11. `install-codex-config` becomes cleanup-only for the MCP server section; per-project `<project>/.codex/config.toml` no longer carries `[mcp_servers.apd*]` blocks.
