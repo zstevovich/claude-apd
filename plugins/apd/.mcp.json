@@ -5,6 +5,7 @@
       "command": "uv",
       "args": ["run", "--with", "mcp", "python", "mcp/apd_mcp_server.py"],
       "cwd": ".",
+      "default_tools_approval_mode": "approve",
       "tools": {
         "apd_ping":             { "approval_mode": "approve" },
         "apd_doctor":           { "approval_mode": "approve" },
