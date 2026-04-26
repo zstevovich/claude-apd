@@ -1,5 +1,46 @@
 # Changelog
 
+## v5.0.11 — 2026-04-27
+
+Fourth patch in the v5.1 chain. Reverts the v5.0.9-10 plugin .mcp.json self-registration experiment after a second live-test crash.
+
+### What broke (again)
+
+After v5.0.10 shipped, `codex plugin marketplace upgrade codex-apd` pulled the new `plugins/apd/.mcp.json`. Codex started without the v5.0.9 `invalid transport` crash (good), but `apd_ping` failed with:
+
+```
+⚠ MCP client for `apd` failed to start: MCP startup failed: handshaking with MCP server failed: connection closed: initialize response
+```
+
+`~/.codex/log/codex-tui.log` shows the actual cause:
+
+```
+MCP server stderr (uv): can't open file '/Users/zoranstevovic/.codex/plugins/cache/codex-apd/mcp/apd_mcp_server.py': [Errno 2] No such file or directory
+```
+
+### Root cause
+
+The Codex plugin cache layout is narrower than we assumed. After `codex plugin marketplace upgrade`, the plugin lives at `~/.codex/plugins/cache/codex-apd/apd/<version>/` and contains only the contents of `plugins/apd/` from the repo — `.codex-plugin/`, `.mcp.json`, `skills/`. It does **not** include `mcp/apd_mcp_server.py`, `bin/core/*`, `bin/adapter/cdx/*`, or `VERSION`, all of which live at the repo root *outside* the plugin directory. With `cwd: "../.."` in our manifest, Codex resolved cwd to `~/.codex/plugins/cache/codex-apd/` and spawned `uv run python mcp/apd_mcp_server.py` from there — file not found.
+
+Plugin-shipped self-registration is fundamentally incompatible with our current layout. The fix is to move `mcp/`, `bin/`, and `VERSION` into `plugins/apd/` (plugin self-containment), which is a structural refactor — v6.0 territory, not a patch. Until then, the absolute-path writer in `install-codex-config` stays.
+
+### Revert
+
+- **Removed: `plugins/apd/.mcp.json`** — broken self-registration entry.
+- **`bin/adapter/cdx/install-codex-config`** — restored to v5.0.8 behaviour. Writes `[mcp_servers.apd]` (command + args, absolute path to the active checkout's `mcp/apd_mcp_server.py`) plus 8 per-tool `[mcp_servers.apd.tools.<name>]` approval blocks. The legacy block is no longer "removed on next run"; it is now the canonical block we want there.
+- **`bin/adapter/cdx/codex-doctor`** — MCP checks reverted to config.toml-based (looks for `[mcp_servers.apd]` + 8 per-tool blocks; warns when path doesn't match `APD_PLUGIN_ROOT`).
+- **`docs/SPEC.md` §3, §12, §18.1** — reverted to v5.0.8 wording, with a new explanatory paragraph at the end of §3 documenting the failed v5.0.9-10 attempt as a cautionary note pointing at the v6.0 plugin-self-containment refactor.
+- **`bin/core/test-codex-adapter`** — back to the v5.0.8 form. Total 211 → 209 PASS / 0 FAIL (the 2 plugin-mcp-specific checks added in v5.0.10 are gone with their feature).
+
+### Lessons
+
+- The "test through marketplace" rule held: v5.0.9 and v5.0.10 both passed all 211 unit tests because the framework tests run against the dev repo where `mcp/apd_mcp_server.py` exists at `${APD_PLUGIN_ROOT}/mcp/`. The marketplace cache is a different path layout entirely. Only the live `codex plugin marketplace upgrade` + TUI session catches this.
+- Feedback memory updated: don't assume the plugin cache mirrors the repo; check what files Codex actually copies into `~/.codex/plugins/cache/<marketplace>/<plugin>/<version>/` before designing plugin-relative paths.
+
+### Live unblock for users on v5.0.10
+
+If your project's `.codex/config.toml` was emptied during the v5.0.10 attempt, run `apd cdx init` once v5.0.11 ships — it will rewrite `[mcp_servers.apd]` and per-tool approvals back into the file.
+
 ## v5.0.10 — 2026-04-26
 
 Third patch in the v5.1 chain. Emergency fix for v5.0.9 — live test caught a Codex startup crash that local-cache testing would have missed.

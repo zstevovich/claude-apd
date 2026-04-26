@@ -103,32 +103,24 @@ else
     _ok ".codex/ exists"
 
     CFG="$CODEX_DIR/config.toml"
-    PLUGIN_MCP="$APD_PLUGIN_ROOT/plugins/apd/.mcp.json"
-    if [ -f "$PLUGIN_MCP" ] && grep -q '"apd"' "$PLUGIN_MCP"; then
-        _ok "plugins/apd/.mcp.json registers apd MCP server (plugin-shipped)"
-    else
-        _bad "plugins/apd/.mcp.json missing or doesn't register apd — plugin install will not expose MCP tools"
-    fi
-    if [ -f "$PLUGIN_MCP" ]; then
-        PLUGIN_TOOLS_OK=1
-        for _t in apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state; do
-            grep -q "\"${_t}\"" "$PLUGIN_MCP" || PLUGIN_TOOLS_OK=0
-        done
-        if [ "$PLUGIN_TOOLS_OK" -eq 1 ]; then
-            _ok "plugins/apd/.mcp.json includes per-tool approvals for all 8 APD tools"
+    if [ -f "$CFG" ] && grep -q '^\[mcp_servers\.apd\]' "$CFG"; then
+        _ok "config.toml has [mcp_servers.apd]"
+        if grep -qF "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py" "$CFG"; then
+            _ok "MCP server path points to this plugin"
         else
-            _warn "plugins/apd/.mcp.json missing per-tool approval entries — Codex will prompt every call"
+            _warn "MCP server path in config.toml doesn't match plugin root ($APD_PLUGIN_ROOT) — another APD install may be registered"
         fi
-    fi
-    if [ -f "$CFG" ] && grep -q '^\[mcp_servers\.apd\]$' "$CFG"; then
-        _warn "config.toml has a legacy [mcp_servers.apd] block — Codex will warn 'plugin MCP overwrote earlier server definition'. Run: apd cdx init  (the installer drops the legacy block)."
     else
-        _ok "config.toml has no legacy [mcp_servers.apd] block (server registered via plugin .mcp.json)"
+        _bad "[mcp_servers.apd] block missing from $CFG — run: apd cdx init"
     fi
-    if [ -f "$CFG" ] && grep -q '^\[mcp_servers\.apd\.tools\.' "$CFG"; then
-        _bad "config.toml has legacy [mcp_servers.apd.tools.*] block(s) — Codex will refuse to start with 'invalid transport in mcp_servers.apd'. Run: apd cdx init  (the installer drops these legacy blocks)."
+    APD_TOOLS_OK=1
+    for _t in apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state; do
+        grep -q "^\[mcp_servers\.apd\.tools\.${_t}\]" "$CFG" 2>/dev/null || APD_TOOLS_OK=0
+    done
+    if [ "$APD_TOOLS_OK" -eq 1 ]; then
+        _ok "config.toml has all 8 [mcp_servers.apd.tools.*] approval blocks"
     else
-        _ok "config.toml has no legacy [mcp_servers.apd.tools.*] blocks (per-tool approvals now in plugin .mcp.json)"
+        _warn "config.toml missing one or more APD per-tool approval blocks — run: apd cdx init"
     fi
 
     HOOKS="$CODEX_DIR/hooks.json"
