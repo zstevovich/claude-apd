@@ -1,5 +1,28 @@
 # Changelog
 
+## v6.0.3 — 2026-04-27
+
+Critical regression fix for CC users on v6.0.x. Session-start hook reported
+`guard-git`, `pipeline-advance`, and `pipeline-gate` as MISSING, breaking
+the pipeline.
+
+**Root cause.** v6.0 moved every framework binary into `<repo>/plugins/apd/`,
+but `bin/lib/resolve-project.sh` still set `APD_PLUGIN_ROOT = $CLAUDE_PLUGIN_ROOT`
+verbatim when CC was running the hook. CC sets `CLAUDE_PLUGIN_ROOT` to the
+plugin cache **repo root** (e.g. `~/.claude/plugins/cache/.../6.0.1/`),
+not the plugin folder. So `SCRIPT_DIR = $APD_PLUGIN_ROOT/bin/core` resolved
+to a path that no longer exists in v6.0+ (`bin/` lives under
+`plugins/apd/`, not at root). Direct script invocation kept working
+because the fallback branch walked up from `${BASH_SOURCE[0]}` to land
+inside `plugins/apd/`. The mismatch only surfaced under CC hook execution.
+
+**Fix.** `resolve-project.sh` now detects v6.0+ layout and adjusts:
+when `$CLAUDE_PLUGIN_ROOT/plugins/apd/bin` exists, set
+`APD_PLUGIN_ROOT = $CLAUDE_PLUGIN_ROOT/plugins/apd`. Falls back to the
+old behaviour for pre-v6.0 caches that still have `bin/` at the plugin
+root, so users on a stale cache during transition keep working until
+they `/plugin update`.
+
 ## v6.0.2 — 2026-04-27
 
 Fixes Codex TUI prompting for APD MCP tool approval even though `plugins/apd/.mcp.json` declared every APD tool with `approval_mode = "approve"`.

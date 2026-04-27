@@ -31,11 +31,21 @@ _read_apd_version() {
 }
 
 # --- Plugin root ---
-# ${CLAUDE_PLUGIN_ROOT} is set by Claude Code when executing plugin hooks
+# ${CLAUDE_PLUGIN_ROOT} is set by Claude Code when executing plugin hooks.
+# In v6.0+ everything APD-runtime moved into <repo>/plugins/apd/, so the
+# CC plugin root (= repo root in cache) is one level above APD_PLUGIN_ROOT.
+# Resolution order:
+#   1. CLAUDE_PLUGIN_ROOT/plugins/apd    — v6.0+ CC hook context
+#   2. CLAUDE_PLUGIN_ROOT                 — pre-v6.0 cache (still has bin/ at root)
+#   3. Walk up from this script           — direct invocation / Codex / tests
 if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
-    APD_PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT"
+    if [ -d "$CLAUDE_PLUGIN_ROOT/plugins/apd/bin" ]; then
+        APD_PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT/plugins/apd"
+    else
+        APD_PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT"
+    fi
 else
-    # Fallback: resolve from script location (bin/lib/ → repo root)
+    # Fallback: resolve from script location (bin/lib/ → plugin root)
     APD_PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fi
 
