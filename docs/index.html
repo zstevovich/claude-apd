@@ -4,7 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>APD — Agent Pipeline Development</title>
-<meta name="description" content="Enforced multi-agent pipelines with mechanical guardrails for AI-assisted software development. Claude Code plugin.">
+<meta name="description" content="Enforced multi-agent pipelines with mechanical guardrails for AI-assisted software development. Works with Claude Code and OpenAI Codex.">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="APD — Agent Pipeline Development">
+<meta property="og:description" content="Enforced multi-agent pipelines with mechanical guardrails. Works with Claude Code and OpenAI Codex.">
+<meta property="og:url" content="https://apd.run">
+<meta property="og:site_name" content="APD">
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="APD — Agent Pipeline Development">
+<meta name="twitter:description" content="Enforced multi-agent pipelines with mechanical guardrails. Works with Claude Code and OpenAI Codex.">
+
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
@@ -196,7 +209,7 @@ footer .copy{color:var(--text-faint);font-size:10px;letter-spacing:0.5px}
     <rect x="105" y="72" width="8" height="8" rx="1.5" fill="#7ec87e"/><text x="117" y="79" font-family="monospace" font-size="8" fill="#6a6a7a">→</text>
     <text x="130" y="80" font-family="monospace" font-size="10" fill="#7ec87e">✓</text>
   </svg>
-  <div class="kicker"><span class="dot"></span>Agent Pipeline Development · v5.0.0</div>
+  <div class="kicker"><span class="dot"></span>Agent Pipeline Development · v6.0.3</div>
 
   <div class="install-h1" id="install-copy" onclick="copyInstall(this)">
     <span class="copy-hint">CLICK TO COPY</span>
@@ -204,7 +217,7 @@ footer .copy{color:var(--text-faint);font-size:10px;letter-spacing:0.5px}
   </div>
 
   <p class="subtitle">
-    Enforced multi-agent pipelines with <b>mechanical guardrails</b> for AI-assisted software development. Distributed as a Claude Code plugin.
+    Enforced multi-agent pipelines with <b>mechanical guardrails</b> for AI-assisted software development. Available as a plugin for <b>Claude Code</b> and <b>OpenAI Codex</b>.
   </p>
 
   <div class="actions">
@@ -270,7 +283,7 @@ footer .copy{color:var(--text-faint);font-size:10px;letter-spacing:0.5px}
   <div class="container">
     <div class="sec-kicker">The Pipeline</div>
     <h2 class="sec-h1">Every step mechanically enforced.</h2>
-    <p class="sec-sub">No bypass from within Claude Code. Each step is blocked by a hook script that runs before it completes.</p>
+    <p class="sec-sub">No bypass from within Claude Code or Codex. Each step is blocked by a hook script (CC) or MCP guard tool (Codex) that runs before it completes.</p>
 
     <div class="pipe">
       <div class="pipe-row">
@@ -316,8 +329,8 @@ footer .copy{color:var(--text-faint);font-size:10px;letter-spacing:0.5px}
 <section class="sec">
   <div class="container">
     <div class="sec-kicker">Mechanical Enforcement</div>
-    <h2 class="sec-h1">Every rule backed by a hook script.</h2>
-    <p class="sec-sub">No honor system. No convention-based hope. Just scripts that exit non-zero when things go wrong.</p>
+    <h2 class="sec-h1">Every rule backed by a hook or MCP guard.</h2>
+    <p class="sec-sub">No honor system. No convention-based hope. CC enforces through hook scripts; Codex through MCP guard tools (<code>apd_guard_write</code>, <code>apd_advance_pipeline</code>). Both exit non-zero when things go wrong.</p>
 
     <div class="feat-grid">
       <div class="feat p">
@@ -356,6 +369,18 @@ footer .copy{color:var(--text-faint);font-size:10px;letter-spacing:0.5px}
         <h3>Pipeline Report</h3>
         <p>Full recap in CLI. Step timing, spec coverage bars, adversarial insights, trend analysis, session stats.</p>
       </div>
+      <div class="feat b">
+        <span class="bar"></span>
+        <span class="fname">apd_mcp_server.py</span>
+        <h3>Codex MCP Server</h3>
+        <p>8 tools — <code>apd_ping</code>, <code>apd_doctor</code>, <code>apd_advance_pipeline</code>, <code>apd_guard_write</code> — bring the same enforcement to Codex. Self-registers via plugin <code>.mcp.json</code>; no per-project install path needed.</p>
+      </div>
+      <div class="feat o">
+        <span class="bar"></span>
+        <span class="fname">plugins/apd/</span>
+        <h3>Self-Contained Plugin</h3>
+        <p>v6.0+ ships every framework binary inside <code>plugins/apd/</code> — Codex plugin cache contains everything the MCP server needs. <b>Plugin install is the only step.</b> No PATH hacks, no abs-path config, no follow-up `pip install`.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -388,7 +413,7 @@ footer .copy{color:var(--text-faint);font-size:10px;letter-spacing:0.5px}
         <div class="step-left">
           <div class="step-num">STEP 01</div>
           <div class="step-name">Add the marketplace</div>
-          <div class="step-desc">Register the APD plugin source with Claude Code.</div>
+          <div class="step-desc">Register the APD plugin source with Claude Code <span style="color:var(--gray)">— or with Codex via <code style="color:var(--blue)">codex plugin marketplace add zstevovich/claude-apd</code></span>.</div>
         </div>
         <div class="step-right"><span class="cmd">/plugin marketplace add zstevovich/claude-apd</span>
 <span class="out">Fetching plugin metadata…</span>
@@ -398,12 +423,12 @@ footer .copy{color:var(--text-faint);font-size:10px;letter-spacing:0.5px}
         <div class="step-left">
           <div class="step-num">STEP 02</div>
           <div class="step-name">Install the plugin</div>
-          <div class="step-desc">Install APD into your current Claude Code session.</div>
+          <div class="step-desc">Install APD into your current Claude Code session <span style="color:var(--gray)">— or enable in Codex via <code style="color:var(--blue)">[plugins."apd@codex-apd"] enabled = true</code></span>.</div>
         </div>
         <div class="step-right"><span class="cmd">/plugin install claude-apd@zstevovich-plugins</span>
-<span class="out">Installing claude-apd v5.0.0…</span>
-<span class="out">  → 22 hooks</span>
-<span class="out">  → 8 skills</span>
+<span class="out">Installing claude-apd v6.0.3…</span>
+<span class="out">  → 13 hooks</span>
+<span class="out">  → 8 skills (CC) / 7 skills + MCP server (Codex)</span>
 <span class="ok">✓ Plugin active</span></div>
       </div>
       <div class="step wide">
@@ -414,7 +439,7 @@ footer .copy{color:var(--text-faint);font-size:10px;letter-spacing:0.5px}
         </div>
         <div class="step-right"><span class="cmd">/apd-setup</span>
 <span class="out">Scaffolding .claude/ tree…</span>
-<span class="ok">✓ .claude/bin/, .claude/hooks/, .claude/skills/ written</span>
+<span class="ok">✓ .claude/bin/apd, .claude/agents/, .claude/rules/, .claude/memory/ written</span>
 
 <span class="cmd">bash .claude/bin/apd verify</span>
 <span class="arr">─── APD self-check ───</span>
