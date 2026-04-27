@@ -67,12 +67,32 @@ apd cdx doctor                                         # audit setup
 codex                                                  # start session; "run apd_ping"
 ```
 
-> **Upgrading APD on Codex.** For the marketplace install, refresh by removing + re-adding the marketplace (Codex lacks a `plugin marketplace upgrade` for non-git sources and won't auto-pull git sources):
-> ```bash
-> codex plugin marketplace remove codex-apd
-> codex plugin marketplace add zstevovich/claude-apd
-> ```
-> For the direct-drop install, use our convenience CLI from the target project: `bash .codex/bin/apd update` pulls the framework and re-runs `install-codex-config` idempotently. Add `--check-only` to dry-run or `--skip-pull` to only reinit the project.
+### Upgrading
+
+**Claude Code:**
+```bash
+/plugin update claude-apd@zstevovich-plugins                  # pulls latest from main
+# Restart the CC session — skill slash commands re-register on session start
+```
+
+**Codex — marketplace install (Git source):**
+```bash
+codex plugin marketplace upgrade codex-apd                    # pulls latest main, replaces cache atomically
+# Open a new TUI session — first user prompt picks up the new version
+```
+
+To pin the upgrade to a specific tag or branch (e.g. for pre-release testing):
+```bash
+codex plugin marketplace remove codex-apd
+codex plugin marketplace add zstevovich/claude-apd@v6.0.3     # or @<branch> for a feature branch
+```
+
+**Codex — direct-drop install:**
+```bash
+bash .codex/bin/apd update                                    # git pull --ff-only + idempotent re-init
+# --check-only      # dry-run, don't pull or write
+# --skip-pull       # only re-run install-codex-config locally
+```
 
 > **Codex SessionStart quirk (upstream).** Per openai/codex#15269, Codex 0.124 fires the TUI `SessionStart` hook when the user submits the first prompt, not at banner display. Practically: gap-analysis runs on first turn, not at open. MCP tools are available immediately.
 
