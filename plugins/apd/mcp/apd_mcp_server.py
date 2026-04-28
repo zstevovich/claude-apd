@@ -543,6 +543,12 @@ def apd_advance_pipeline(step: str, arg: str = "") -> dict:
 
     The script enforces lock-based serialization and writes timestamps to
     $PIPELINE_DIR. Exit code 0 = advance succeeded.
+
+    The `reviewer` step also writes `.adversarial-pending` (when the
+    project ships an adversarial-reviewer agent and the spec has not opted
+    out) — that marker is the green light for `apd:apd_adversarial_pass`.
+    Calling `apd_adversarial_pass` before `reviewer.done` is signed is
+    refused by the pre-flight gate (v6.1 B1).
     """
     allowed = {"spec", "builder", "reviewer", "verifier", "init",
                "status", "stats", "metrics", "reset", "rollback"}
@@ -725,6 +731,11 @@ def apd_adversarial_pass(total: int, accepted: int, dismissed: int, notes: str =
     On Codex there is no sub-agent dispatch log to verify the reviewer
     actually ran, so the empty-pass loophole — writing ADVERSARIAL:0:0:0
     without any review — is closed here at the recording step instead.
+
+    Pre-flight gate (v6.1 B1): refuses when `reviewer.done` is absent or
+    `.adversarial-pending` is missing. The order must be
+    builder → reviewer.done → adversarial → verifier; the marker is
+    written by `apd:apd_advance_pipeline('reviewer')`.
     """
     if total < 0 or accepted < 0 or dismissed < 0:
         return {"ok": False, "error": "counts must be non-negative"}
@@ -748,6 +759,33 @@ def apd_adversarial_pass(total: int, accepted: int, dismissed: int, notes: str =
     pipeline_dir = _project_dir() / ".apd" / "pipeline"
     if not pipeline_dir.is_dir():
         return {"ok": False, "error": f"pipeline dir does not exist: {pipeline_dir}"}
+
+    # Adversarial pre-flight gate (v6.1 B1) — record only after the regular
+    # reviewer has signed reviewer.done and pipeline-advance reviewer has
+    # written .adversarial-pending as the green light. Blocks the
+    # orchestrator from recording an adversarial pass against stale or
+    # not-yet-reviewed code.
+    if not (pipeline_dir / "reviewer.done").is_file():
+        return {
+            "ok": False,
+            "error": (
+                "adversarial pass refused: reviewer.done is not present. "
+                "Order: builder → reviewer (signs reviewer.done) → adversarial → "
+                "verifier. Run apd:apd_advance_pipeline('reviewer') first; it "
+                "creates .adversarial-pending as the green light to record."
+            ),
+        }
+    if not (pipeline_dir / ".adversarial-pending").is_file():
+        return {
+            "ok": False,
+            "error": (
+                "adversarial pass refused: .adversarial-pending marker is "
+                "absent. Either adversarial was opted out for this task "
+                "(small spec — see spec-card.md `adversarial: skip`) or it "
+                "has already been recorded. Inspect .adversarial-summary "
+                "to confirm."
+            ),
+        }
 
     summary = pipeline_dir / ".adversarial-summary"
     line = f"ADVERSARIAL:{total}:{accepted}:{dismissed}"

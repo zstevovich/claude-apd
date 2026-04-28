@@ -44,6 +44,30 @@ ac=$(_agent_color "$AGENT_TYPE")
 
 case "$EVENT" in
   SubagentStart)
+    # Adversarial pre-flight gate (v6.1 B1) — hard block when adversarial
+    # dispatched out of order. Runs BEFORE the start event is logged so a
+    # blocked dispatch leaves no fake start in .agents.
+    if echo "$AGENT_TYPE" | grep -qiE 'adversarial'; then
+        if [ ! -f "$PIPELINE_DIR/reviewer.done" ]; then
+            echo "" >&2
+            echo "  ${RED}${B}BLOCKED:${R} ${RED}adversarial-reviewer dispatched before reviewer.done.${R}" >&2
+            echo "  ${RED}Pipeline order: builder → reviewer (signs reviewer.done) → adversarial → verifier${R}" >&2
+            echo "  ${RED}Dispatch the regular code-reviewer first; pipeline-advance reviewer will then create .adversarial-pending as the green light.${R}" >&2
+            echo "" >&2
+            log_block "adversarial-reviewer dispatched before reviewer.done" "agent_type=${AGENT_TYPE}"
+            exit 2
+        fi
+        if [ ! -f "$PIPELINE_DIR/.adversarial-pending" ]; then
+            echo "" >&2
+            echo "  ${RED}${B}BLOCKED:${R} ${RED}adversarial-reviewer dispatched without .adversarial-pending marker.${R}" >&2
+            echo "  ${RED}Adversarial is either opted-out (small task) or already recorded.${R}" >&2
+            echo "  ${RED}Inspect: ls .apd/pipeline/ — if .adversarial-summary exists, adversarial is done.${R}" >&2
+            echo "" >&2
+            log_block "adversarial-reviewer dispatched without .adversarial-pending" "agent_type=${AGENT_TYPE}"
+            exit 2
+        fi
+    fi
+
     echo "${NOW_HUMAN}|start|${AGENT_TYPE}|${AGENT_ID}" >> "$AGENTS_LOG"
     printf "  %s☭%s %s%s%s%s\n" "$ac" "$R" "$ac" "$B" "$AGENT_TYPE" "$R" >&2
     # Pipeline step reminder — warn if orchestrator skipped pipeline-advance
@@ -55,17 +79,7 @@ case "$EVENT" in
         echo "  ${RED}Pipeline will BLOCK at reviewer step without builder.done${R}" >&2
         echo "" >&2
     elif [ -f "$PIPELINE_DIR/builder.done" ] && [ ! -f "$PIPELINE_DIR/reviewer.done" ]; then
-        # Warn if adversarial dispatched before reviewer completes
-        if echo "$AGENT_TYPE" | grep -qiE 'adversarial'; then
-            echo "" >&2
-            echo "  ${RED}${B}WARNING: adversarial-reviewer dispatched before reviewer step.${R}" >&2
-            echo "  ${RED}Pipeline flow: builder → reviewer → fix → adversarial${R}" >&2
-            echo "  ${RED}Verifier will BLOCK if adversarial ran before reviewer.done${R}" >&2
-            echo "" >&2
-            # Note: NOT using log_block here — this is a warning, not a block.
-            # SubagentStart hooks cannot prevent dispatch. Verifier will enforce.
-        fi
-        # Reminder for regular reviewer
+        # Reminder for regular reviewer dispatch
         if echo "$AGENT_TYPE" | grep -qiE 'review'; then
             echo "" >&2
             echo "  ${D}Reminder: Run 'bash $APD_SHORTCUT_DISPLAY pipeline reviewer' after review completes${R}" >&2

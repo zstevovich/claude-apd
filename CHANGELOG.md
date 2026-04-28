@@ -14,6 +14,13 @@ Skill quality + pipeline gate refinements per `docs/plans/v6.1-skills-and-pipeli
 - **A6 — Fully-qualified MCP tool names in Codex skills.** 83 bare references to APD MCP tools (`apd_advance_pipeline`, `apd_pipeline_state`, `apd_guard_write`, etc.) across 7 Codex `SKILL.md` + 7 `agents/openai.yaml` files now use Anthropic's `ServerName:tool_name` form (`apd:apd_advance_pipeline`, …). Audit also surfaced three references to a non-existent `apd_pipeline_metrics()` tool in `apd-miro`; replaced with a documented combination of `apd:apd_pipeline_state()` plus a direct `.apd/memory/metrics.csv` read until a metrics MCP tool ships.
 - **A7 — Time-sensitive language audit.** Single hit: `apd-tdd` Codex SKILL.md pinned the `apd_role` parameter workaround to Codex 0.121.0. Rephrased as version-free ("Codex's multi_agent role-mismatch approval prompt") so the note ages cleanly across Codex releases.
 
+**Track B — Pipeline gate refinements**
+
+- **B1 — Adversarial pre-flight gate.** Closes the bambi run #34 ~2m wasted dispatch surfaced when adversarial-reviewer was triggered before reviewer.done. Two-prong gate:
+    - **Hard (mechanical):** CC `track-agent` SubagentStart exits 2 when `adversarial-reviewer` is dispatched without `reviewer.done` OR without the `.adversarial-pending` marker (= adversarial opted out or already recorded). Codex `apd:apd_adversarial_pass` refuses early at the recording step with a parallel error.
+    - **Soft (instruction):** `plugins/apd/rules/workflow.md` step 6b spells out the order gate; both `apd-tdd` SKILL.md Hand-off blocks (CC + Codex) point at the marker as the green light; `apd:apd_advance_pipeline` and `apd:apd_adversarial_pass` MCP docstrings name the gate.
+    - test-codex-adapter section 23 covers all three branches per runtime (no marker → block, only reviewer.done → block, both markers → accept) plus a fourth check that regular `code-reviewer` dispatch is never caught by the adversarial gate. 232 → 239 checks.
+
 **Other**
 
 - `docs/SPEC.md` 7.2 updated to 7 Codex skills (was stale at 4); new 7.3 section documents the eval framework; test-codex-adapter check count updated.

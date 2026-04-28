@@ -97,5 +97,7 @@ You're done when:
 ## Hand-off
 
 - After this skill completes → call `apd:apd_advance_pipeline('builder')`
+- Then run the inline review and call `apd:apd_advance_pipeline('reviewer')` — that step writes `.adversarial-pending` as the green light for `apd:apd_adversarial_pass`
+- Do NOT call `apd:apd_adversarial_pass` before `reviewer.done` exists; the pre-flight gate refuses the call
 - If a test goes red unexpectedly → switch to `apd-debug` (Phase 4 of debug uses this skill again)
 - Never skip — even for "trivial" changes. Especially for trivial changes.

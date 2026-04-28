@@ -132,5 +132,7 @@ You're done when:
 ## Hand-off
 
 - After this skill completes → builder phase advances via `pipeline-advance builder`
+- Then dispatch the regular `code-reviewer` and run `pipeline-advance reviewer` — that step writes `.adversarial-pending` as the green light for adversarial dispatch
+- Do NOT dispatch `adversarial-reviewer` before `reviewer.done` exists; the pre-flight gate (`track-agent` hook) exits 2 and the dispatch is wasted
 - If a test goes red unexpectedly → switch to `apd-debug` (Phase 4 of debug uses this skill again)
 - Never skip — even for "trivial" changes. Especially for trivial changes.

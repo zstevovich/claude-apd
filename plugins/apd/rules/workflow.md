@@ -27,6 +27,10 @@
    → If reviewer finds critical issues → dispatch builder to fix → re-review
    ↓
 6b. DISPATCH ADVERSARIAL REVIEWER (Full mode only)
+   → ORDER GATE: only after reviewer.done is signed AND .adversarial-pending exists.
+     Pipeline-advance reviewer writes the .adversarial-pending marker as the green light.
+     Dispatching adversarial-reviewer earlier is mechanically blocked (CC: track-agent
+     hook exits 2; Codex: apd:apd_adversarial_pass refuses).
    → Dispatch adversarial-reviewer agent (sonnet/max, read-only, no spec context)
    → Agent sees only git diff + touched files, finds issues blind
    → Orchestrator evaluates findings: accept or dismiss each

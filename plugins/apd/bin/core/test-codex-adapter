@@ -1603,6 +1603,11 @@ mkdir -p "$ADV_DIR/.apd/pipeline"
 cat > "$ADV_DIR/.apd/config" <<'EOF'
 PROJECT_NAME=adv-test
 EOF
+# v6.1 B1 pre-flight gate: adversarial pass requires reviewer.done +
+# .adversarial-pending to be present. Seed both so this section keeps
+# testing only the empty-pass loophole guard.
+echo "$(date +%s)" > "$ADV_DIR/.apd/pipeline/reviewer.done"
+echo "$(date +%s)" > "$ADV_DIR/.apd/pipeline/.adversarial-pending"
 
 ADV_OUT="$(cd "$ADV_DIR" && python3 - <<PY
 import sys, types, json
@@ -2277,9 +2282,167 @@ fi
 rm -rf "$RPT_DIR"
 
 # -----------------------------------------------------------
-# 23. skill-eval framework — schema, ids, mirror counts
+# 23. Adversarial pre-flight gate (v6.1 B1)
+#     Codex: apd_adversarial_pass refuses without reviewer.done /
+#       .adversarial-pending markers.
+#     CC: track-agent SubagentStart hook exits 2 on out-of-order
+#       adversarial dispatch.
 # -----------------------------------------------------------
-section "23. skill-eval framework"
+section "23. Adversarial pre-flight gate"
+
+# --- Codex MCP side -----------------------------------------
+PRE_DIR="$(mktemp -d -t apd-preflight.XXXXXX)"
+mkdir -p "$PRE_DIR/.apd/pipeline"
+cat > "$PRE_DIR/.apd/config" <<'EOF'
+PROJECT_NAME=preflight-test
+EOF
+
+PRE_OUT="$(cd "$PRE_DIR" && python3 - <<PY
+import sys, types, json
+mcp_mod = types.ModuleType("mcp")
+server_mod = types.ModuleType("mcp.server")
+fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+class DummyFastMCP:
+    def __init__(self,*_a,**_kw): pass
+    def tool(self,*_a,**_kw):
+        def d(fn): return fn
+        return d
+    def run(self): return None
+fastmcp_mod.FastMCP = DummyFastMCP
+server_mod.fastmcp = fastmcp_mod
+mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod
+sys.modules["mcp.server"] = server_mod
+sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
+import importlib, apd_mcp_server as m
+import os
+from pathlib import Path
+LONG = "Reviewed regressions, concurrency, edge cases, contract drift, security surface — nothing flagged on this small surface."
+
+p = Path("$PRE_DIR/.apd/pipeline")
+
+# Case 1: neither marker → must refuse with reviewer.done message
+r1 = m.apd_adversarial_pass(0, 0, 0, LONG)
+
+# Case 2: only reviewer.done → must refuse with .adversarial-pending message
+(p / "reviewer.done").write_text("123\\n")
+r2 = m.apd_adversarial_pass(0, 0, 0, LONG)
+
+# Case 3: both markers → accepted
+(p / ".adversarial-pending").write_text("456\\n")
+r3 = m.apd_adversarial_pass(0, 0, 0, LONG)
+
+print(json.dumps({"no_markers": r1, "only_reviewer": r2, "both_markers": r3}))
+PY
+)"
+
+if echo "$PRE_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+sys.exit(0 if d['no_markers']['ok'] is False and 'reviewer.done' in d['no_markers']['error'] else 1)
+"; then
+    pass "Codex: refuses adversarial pass when reviewer.done absent"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex: did NOT refuse on missing reviewer.done"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$PRE_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+sys.exit(0 if d['only_reviewer']['ok'] is False and '.adversarial-pending' in d['only_reviewer']['error'] else 1)
+"; then
+    pass "Codex: refuses when .adversarial-pending absent"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex: did NOT refuse on missing .adversarial-pending"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$PRE_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+sys.exit(0 if d['both_markers']['ok'] is True else 1)
+"; then
+    pass "Codex: accepts when both markers are present"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex: rejected even with both markers present"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$PRE_DIR"
+
+# --- CC side: track-agent direct invocation -----------------
+CC_DIR="$(mktemp -d -t apd-cc-preflight.XXXXXX)"
+mkdir -p "$CC_DIR/.apd/pipeline" "$CC_DIR/.apd/memory"
+cat > "$CC_DIR/.apd/config" <<'EOF'
+PROJECT_NAME=cc-preflight
+EOF
+
+# Case A: no reviewer.done → exit 2
+(cd "$CC_DIR" && bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+    --event SubagentStart --agent-type adversarial-reviewer --agent-id test-1 \
+    >/dev/null 2>&1)
+RC=$?
+if [ "$RC" = "2" ]; then
+    pass "CC: track-agent exits 2 when adversarial dispatched without reviewer.done"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC: track-agent should exit 2 (got $RC) for adversarial without reviewer.done"
+    FAILS=$((FAILS + 1))
+fi
+
+# Case B: reviewer.done but no .adversarial-pending → exit 2
+echo "$(date +%s)" > "$CC_DIR/.apd/pipeline/reviewer.done"
+(cd "$CC_DIR" && bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+    --event SubagentStart --agent-type adversarial-reviewer --agent-id test-2 \
+    >/dev/null 2>&1)
+RC=$?
+if [ "$RC" = "2" ]; then
+    pass "CC: track-agent exits 2 when .adversarial-pending absent"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC: track-agent should exit 2 (got $RC) for adversarial without .adversarial-pending"
+    FAILS=$((FAILS + 1))
+fi
+
+# Case C: both markers → exit 0 (allowed)
+echo "$(date +%s)" > "$CC_DIR/.apd/pipeline/.adversarial-pending"
+(cd "$CC_DIR" && bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+    --event SubagentStart --agent-type adversarial-reviewer --agent-id test-3 \
+    >/dev/null 2>&1)
+RC=$?
+if [ "$RC" = "0" ]; then
+    pass "CC: track-agent allows adversarial dispatch when both markers present"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC: track-agent should allow (got exit $RC) when both markers present"
+    FAILS=$((FAILS + 1))
+fi
+
+# Case D: regular code-reviewer dispatch is NEVER blocked by this gate
+(cd "$CC_DIR" && rm -f "$CC_DIR/.apd/pipeline/reviewer.done" "$CC_DIR/.apd/pipeline/.adversarial-pending" \
+    && bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+    --event SubagentStart --agent-type code-reviewer --agent-id test-4 \
+    >/dev/null 2>&1)
+RC=$?
+if [ "$RC" = "0" ]; then
+    pass "CC: regular code-reviewer dispatch is not blocked by adversarial gate"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC: code-reviewer was blocked (exit $RC) — gate is too aggressive"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$CC_DIR"
+
+# -----------------------------------------------------------
+# 24. skill-eval framework — schema, ids, mirror counts
+# -----------------------------------------------------------
+section "24. skill-eval framework"
 
 EVAL_LIST_OUT=$(bash "$APD_PLUGIN_ROOT/bin/core/skill-eval" --list 2>&1 || true)
 if echo "$EVAL_LIST_OUT" | grep -q "24 scenarios"; then
