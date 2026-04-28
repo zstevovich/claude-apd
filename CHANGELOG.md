@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased — v6.1 work in progress
+## v6.1.0 — 2026-04-28
 
-Skill quality + pipeline gate refinements per `docs/plans/v6.1-skills-and-pipeline-improvements.md`.
+Skill quality + pipeline gate refinements per `docs/plans/v6.1-skills-and-pipeline-improvements.md`. Test count: 226 → 246.
 
 **Track A — Skills authoring quality**
 
