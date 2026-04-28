@@ -2,7 +2,7 @@
 name: code-reviewer
 description: Read-only reviewer — reports bugs, risks, and edge cases without editing code
 model: opus
-maxTurns: 60
+maxTurns: 80
 scope: []
 readonly: true
 ---

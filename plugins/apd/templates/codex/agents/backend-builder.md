@@ -2,7 +2,7 @@
 name: backend-builder
 description: Implements backend features — writes inside src/ and config/
 model: sonnet
-maxTurns: 40
+maxTurns: 60
 scope:
   - src/
   - config/

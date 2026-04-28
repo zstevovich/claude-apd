@@ -2,7 +2,7 @@
 name: adversarial-reviewer
 description: Second-pass reviewer — hunts for regressions and missed edge cases
 model: opus
-maxTurns: 60
+maxTurns: 80
 scope: []
 readonly: true
 ---

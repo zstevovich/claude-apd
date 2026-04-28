@@ -2,7 +2,7 @@
 name: frontend-builder
 description: Implements frontend features — writes inside assets/ and templates/
 model: sonnet
-maxTurns: 40
+maxTurns: 60
 scope:
   - assets/
   - templates/
