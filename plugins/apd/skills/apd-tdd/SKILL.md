@@ -1,6 +1,6 @@
 ---
 name: apd-tdd
-description: Use during the APD builder phase (between apd_advance_pipeline('spec', ...) and apd_advance_pipeline('builder')) whenever you're implementing a feature or fixing a bug. Write a FAILING test first, watch it fail, write minimal code to pass, refactor while green. Every file write must go through apd_guard_write(apd_role, file_path) — scope is enforced server-side from .apd/agents/<apd_role>.md.
+description: MANDATORY during the APD builder phase on Codex (between apd_advance_pipeline('spec', ...) and apd_advance_pipeline('builder')) whenever implementing a feature, fixing a bug, or writing new code. Write a FAILING test first, watch it fail, write minimal code to pass, refactor while green. Every file write goes through apd_guard_write(apd_role, file_path); scope is enforced server-side from .apd/agents/<apd_role>.md. Triggers on "implement", "add feature", "fix bug", "write code", "TDD", "test-first", "builder".
 ---
 
 # APD Test-Driven Development (Codex)

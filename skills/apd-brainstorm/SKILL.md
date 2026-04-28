@@ -1,6 +1,6 @@
 ---
 name: apd-brainstorm
-description: Use when the user's task is vague, broad, or has multiple possible approaches — before writing the APD spec card. Triggers on unclear scope, ambiguous requirements, or "improve X" style requests.
+description: Use BEFORE writing the APD spec card whenever the task is vague, broad, ambiguous, or has multiple reasonable approaches. Asks ONE question at a time, presents 2-3 options when there are real choices, converges on a design the user explicitly approves. Triggers on "improve X", "what should we", "thinking about", "options", "not sure", "maybe", "vague", "broad", "redesign", any spec card with unclear scope or fewer than 3 R-criteria.
 effort: max
 allowed-tools: Read Glob Grep
 ---

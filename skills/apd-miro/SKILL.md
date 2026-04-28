@@ -1,6 +1,6 @@
 ---
 name: apd-miro
-description: Use when the project has a Miro board configured and you need to update the pipeline dashboard. Visualizes current status, completed tasks, and metrics.
+description: Use when the project has a Miro board configured (MIRO_BOARD_URL in CLAUDE.md) and the APD pipeline dashboard needs updating. Visualizes current pipeline status, completed tasks, recent metrics, and active spec cards. Triggers on "Miro", "dashboard", "board update", "visualize pipeline", "pipeline view", "metrics", any pipeline phase change when a Miro URL is configured.
 effort: high
 allowed-tools: Read Bash
 ---

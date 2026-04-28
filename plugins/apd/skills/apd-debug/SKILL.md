@@ -1,6 +1,6 @@
 ---
 name: apd-debug
-description: Use on any APD test failure, build failure, verifier block, or critical reviewer finding. Four-phase systematic debugging — root cause investigation, pattern analysis, hypothesis + controlled test, fix with TDD. Escalate after three failed hypotheses instead of piling on more guesses.
+description: MANDATORY before re-dispatching the builder after any APD verifier block or critical reviewer finding on Codex. Use on any bug, test failure, build failure, error, crash, regression, or unexpected behavior. Four-phase systematic debugging — root cause investigation, pattern analysis, hypothesis + controlled test, fix with TDD. Escalate after three failed hypotheses instead of piling on more guesses. Triggers on "bug", "fail", "failing", "broken", "doesn't work", "error", "crash", "regression", "verifier blocked", "reviewer rejected".
 ---
 
 # APD Systematic Debugging (Codex)

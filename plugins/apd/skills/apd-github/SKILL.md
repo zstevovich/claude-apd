@@ -1,6 +1,6 @@
 ---
 name: apd-github
-description: Use when the project has GitHub Projects configured (GITHUB_PROJECTS_URL in AGENTS.md) and you need to sync APD pipeline tasks with the board on Codex. Creates issues for specs, moves cards through columns, closes on completion.
+description: Use when the project has GitHub Projects configured (GITHUB_PROJECTS_URL in AGENTS.md) on Codex and APD pipeline tasks need to sync with the board. Creates issues for specs, moves cards through columns (todo → in-progress → review → done), closes on commit. Triggers on "GitHub Projects", "issue", "board", "card", "sync", "kanban", "project board", any APD pipeline phase transition when a board URL is configured.
 ---
 
 # GitHub Projects — APD Pipeline Tracking (Codex)

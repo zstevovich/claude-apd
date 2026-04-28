@@ -1,6 +1,6 @@
 ---
 name: apd-finish
-description: Use after a successful APD pipeline commit on Codex — when apd_pipeline_state shows next_step='commit' and a commit was made. Verify tests from a clean state, show the pipeline report, present four options (push, push+PR, keep, discard), and execute only after the user picks.
+description: MANDATORY after every successful APD pipeline commit on Codex — when apd_pipeline_state shows next_step='commit' and a commit was made. Verify tests from a clean state, show the pipeline report, present four options (push, push+PR, keep local, discard), execute only after the user picks. Triggers on "after commit", "push", "PR", "pull request", "deploy", "next", "pipeline done", "shipped", commit hash present in pipeline state.
 ---
 
 # APD Finish (Codex)

@@ -1,6 +1,6 @@
 ---
 name: apd-audit
-description: Use when you need to verify APD is correctly configured in the current project on Codex. Qualitative audit of agents under .apd/agents/, AGENTS.md, MCP server registration, hooks.json, and pipeline health — goes deeper than apd_doctor.
+description: Use when verifying that APD is correctly configured on Codex in the current project — qualitative deep audit of agents under .apd/agents/, AGENTS.md, MCP server registration, .codex/hooks.json, and pipeline health. Goes deeper than apd_doctor. Triggers on "audit APD", "review setup", "is APD configured", "verify framework", "check APD", "APD health", "is everything wired", after any major framework upgrade or version bump.
 ---
 
 # APD Project Audit (Codex)

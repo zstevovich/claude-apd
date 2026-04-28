@@ -1,6 +1,6 @@
 ---
 name: apd-debug
-description: Use when encountering any bug, test failure, build failure, or unexpected behavior during APD pipeline. MANDATORY before re-dispatching builder after verifier failure or critical review finding.
+description: MANDATORY before re-dispatching the builder after any APD verifier failure or critical reviewer finding. Use on any bug, test failure, build failure, error, crash, regression, or unexpected behavior during the APD pipeline. Four-phase root-cause analysis — investigate, pattern-match, hypothesize + controlled test, fix with TDD. Triggers on "bug", "fail", "failing", "broken", "doesn't work", "error", "crash", "regression", "verifier blocked", "reviewer rejected".
 effort: max
 allowed-tools: Read Glob Grep Bash
 ---

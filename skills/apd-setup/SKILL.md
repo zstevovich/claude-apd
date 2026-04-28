@@ -1,6 +1,6 @@
 ---
 name: apd-setup
-description: Use when setting up APD in a new project or maintaining an existing one. Generates CLAUDE.md, agents, rules, memory, verify-all.sh. Also runs gap analysis and fixes missing pieces on existing projects.
+description: Use when setting up APD in a new project for the first time or maintaining an existing APD-enabled project — generates CLAUDE.md, per-agent .md files, rules, memory, verify-all.sh, and runs gap analysis to fix missing pieces. Triggers on "setup APD", "init APD", "scaffold APD", "configure APD", "first run", "install APD", "apd init", "set up the framework", "APD missing", any project where .apd/ is incomplete or absent.
 disable-model-invocation: true
 effort: max
 allowed-tools: Read Glob Grep Bash Edit Write

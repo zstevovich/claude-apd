@@ -1,6 +1,6 @@
 ---
 name: apd-brainstorm
-description: Use when an APD task is vague, broad, or has multiple reasonable interpretations — before writing the spec card and calling apd_advance_pipeline('spec', ...). Ask ONE question at a time, present 2-3 approaches when there are choices, converge on a design the user explicitly approves. Works hand in hand with `.apd/rules/brainstorm.md` when that file exists in the project.
+description: Use BEFORE writing the APD spec card and calling apd_advance_pipeline('spec', ...) on Codex whenever the task is vague, broad, ambiguous, or has multiple reasonable interpretations. Ask ONE question at a time, present 2-3 approaches when there are real choices, converge on a design the user explicitly approves. Works hand in hand with `.apd/rules/brainstorm.md` when that file exists. Triggers on "improve X", "what should we", "thinking about", "options", "not sure", "vague", "broad", "redesign", any task with unclear scope or fewer than 3 R-criteria.
 ---
 
 # APD Brainstorm (Codex)

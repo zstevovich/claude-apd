@@ -1,6 +1,6 @@
 ---
 name: apd-audit
-description: Use when you need to verify APD is correctly configured in the current project. Qualitative audit of agents, hooks, CLAUDE.md, pipeline, and guardrails — goes deeper than verify-apd.
+description: Use when verifying that APD is correctly configured in the current project — qualitative deep audit of agents, hooks, CLAUDE.md, pipeline state, MCP wiring, and guardrails. Goes further than verify-apd. Triggers on "audit APD", "review setup", "is APD configured", "verify framework", "check APD", "APD health", "is everything wired", after any major framework upgrade or version bump.
 effort: max
 allowed-tools: Read Glob Grep Bash
 ---

@@ -1,6 +1,6 @@
 ---
 name: apd-finish
-description: Use when a successful APD pipeline commit has just completed and a push/PR/keep decision is needed. MANDATORY after every pipeline commit.
+description: MANDATORY after every successful APD pipeline commit. Use as soon as the pipeline reports commit done — verifies tests from a clean state, shows the pipeline report, presents four options (push, push+PR, keep local, discard), executes the user's choice. Triggers on "after commit", "push", "PR", "pull request", "deploy", "next", "pipeline done", "shipped", commit hash present in pipeline state.
 effort: high
 allowed-tools: Read Bash
 ---
