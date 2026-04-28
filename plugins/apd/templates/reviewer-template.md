@@ -5,7 +5,7 @@ tools: Read, Glob, Grep, Bash
 model: opus
 effort: max
 color: orange
-maxTurns: 30
+maxTurns: 60
 permissionMode: plan
 memory: project
 hooks:

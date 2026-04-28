@@ -9,7 +9,7 @@ When CLAUDE.md or `.claude/` already exists, run these checks. Generate ONLY mis
 | Check | File | If missing |
 |---|---|---|
 | Reviewer agent | `.claude/agents/code-reviewer.md` | Generate from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/reviewer-template.md` |
-| Builder maxTurns | `.claude/agents/*.md` frontmatter | Add `maxTurns: 40` (builders) / `30` (reviewers) — bumps legacy 20/15 defaults |
+| Builder maxTurns | `.claude/agents/*.md` frontmatter | Add `maxTurns: 40` (builders) / `60` (reviewers, v6.1 B3) — bumps legacy 20/15/30 defaults |
 | Reviewer model | `code-reviewer.md` frontmatter | Must be `model: opus`, `effort: max`, `permissionMode: plan` |
 | Workflow rules | `.claude/rules/workflow.md` | Copy from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/rules/workflow.md` |
 | Principles | `.claude/rules/principles.md` | Generate from template |
@@ -26,7 +26,7 @@ APD gap analysis:
   ✓ CLAUDE.md exists
   ✓ 3 builder agents
   ✗ code-reviewer.md MISSING — will generate (opus/max/read-only)
-  ✗ maxTurns missing in builder agents — will add (40 builders / 30 reviewers)
+  ✗ maxTurns missing in builder agents — will add (40 builders / 60 reviewers)
   ✓ workflow.md exists
   ✓ verify-all.sh configured
   ✓ Memory files (4/4)

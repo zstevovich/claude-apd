@@ -50,7 +50,7 @@ ALWAYS generated, regardless of stack. Generated from `${CLAUDE_PLUGIN_ROOT}/plu
 | `tools` | `Read, Glob, Grep, Bash` — **no Write or Edit** |
 | `model` | `opus` |
 | `effort` | `max` |
-| `maxTurns` | `30` |
+| `maxTurns` | `60` |
 | `permissionMode` | `plan` (read-only) |
 | `color` | `orange` |
 

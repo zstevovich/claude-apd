@@ -359,8 +359,8 @@ Raising `maxTurns` makes pipelines **faster**, not slower. When an agent hits th
 
 APD defaults (v4.7.13+):
 - Builders (backend, frontend, mobile, database, devops, testing): **`maxTurns: 40`**
-- Code reviewer: **`maxTurns: 30`**
-- Adversarial reviewer: **`maxTurns: 30`**
+- Code reviewer: **`maxTurns: 60`** (v6.1 B3 — bumped from 30; reviewers walk full diff and exhausted on 7-R features)
+- Adversarial reviewer: **`maxTurns: 60`** (v6.1 B3 — same bump; context-free does not mean fewer turns)
 
 - Raise per-project if you see recurring exhaust in `apd report`. Edit `.claude/agents/<name>.md` frontmatter directly — `apd init --quick` only bumps the exact legacy defaults (20/15), custom values are preserved.
 - Real-world example: BambiProject runs builders at 60 and code-reviewer at 45, eliminated exhaust, dropped adversarial hit rate from 25 % to 0 % across two consecutive runs.
