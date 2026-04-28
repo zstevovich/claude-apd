@@ -1,13 +1,13 @@
 ---
 name: apd-tdd
-description: MANDATORY during the APD builder phase on Codex (between apd_advance_pipeline('spec', ...) and apd_advance_pipeline('builder')) whenever implementing a feature, fixing a bug, or writing new code. Write a FAILING test first, watch it fail, write minimal code to pass, refactor while green. Every file write goes through apd_guard_write(apd_role, file_path); scope is enforced server-side from .apd/agents/<apd_role>.md. Triggers on "implement", "add feature", "fix bug", "write code", "TDD", "test-first", "builder".
+description: MANDATORY during the APD builder phase on Codex (between apd:apd_advance_pipeline('spec', ...) and apd:apd_advance_pipeline('builder')) whenever implementing a feature, fixing a bug, or writing new code. Write a FAILING test first, watch it fail, write minimal code to pass, refactor while green. Every file write goes through apd:apd_guard_write(apd_role, file_path); scope is enforced server-side from .apd/agents/<apd_role>.md. Triggers on "implement", "add feature", "fix bug", "write code", "TDD", "test-first", "builder".
 ---
 
 # APD Test-Driven Development (Codex)
 
 On Codex the orchestrator IS the builder — this skill applies to every
-implementation between `apd_advance_pipeline('spec', ...)` and
-`apd_advance_pipeline('builder')`.
+implementation between `apd:apd_advance_pipeline('spec', ...)` and
+`apd:apd_advance_pipeline('builder')`.
 
 ## When to use / When to skip
 
@@ -38,10 +38,10 @@ Watch it fail.** If it passes on the first run, you are testing existing
 behavior — fix the test to actually describe the new requirement.
 
 Before each test-file write, call
-`apd_guard_write(apd_role="<role>", file_path="<path>")`. The server reads
+`apd:apd_guard_write(apd_role="<role>", file_path="<path>")`. The server reads
 scope from `.apd/agents/<role>.md` on every call — you only pass the role
-name and target path. Use `apd_list_agents()` to discover which roles are
-defined. (Argument is `apd_role`, not `role`, to dodge Codex 0.121.0's
+name and target path. Use `apd:apd_list_agents()` to discover which roles are
+defined. (Argument is `apd_role`, not `role`, to avoid Codex's
 multi_agent role-mismatch approval prompt.)
 
 ### 2. GREEN — minimal code to pass
@@ -65,7 +65,7 @@ Pick the next behavior. Write the next failing test. Repeat.
 
 Builder scope is declared in the agent frontmatter
 (`.apd/agents/<role>.md`, `scope:` list). Call
-`apd_guard_write(apd_role="<role>", file_path="<path>")` before every
+`apd:apd_guard_write(apd_role="<role>", file_path="<path>")` before every
 Write/Edit — the server reads scope from the agent file itself, so the
 role name is the only handle you need (and can't widen).
 
@@ -90,12 +90,12 @@ You're done when:
 - Every new function has a test you watched fail
 - All tests pass locally — both new and the prior suite (no regressions)
 - Edge cases are covered (empty input, invalid input, boundary values)
-- Every write went through `apd_guard_write(apd_role=..., file_path=...)`
+- Every write went through `apd:apd_guard_write(apd_role=..., file_path=...)`
 - No unrelated files touched outside the agent's `scope:`
 - Refactor pass left tests green
 
 ## Hand-off
 
-- After this skill completes → call `apd_advance_pipeline('builder')`
+- After this skill completes → call `apd:apd_advance_pipeline('builder')`
 - If a test goes red unexpectedly → switch to `apd-debug` (Phase 4 of debug uses this skill again)
 - Never skip — even for "trivial" changes. Especially for trivial changes.

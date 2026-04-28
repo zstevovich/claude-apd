@@ -1,11 +1,11 @@
 ---
 name: apd-brainstorm
-description: Use BEFORE writing the APD spec-card.md and calling apd_advance_pipeline('spec', ...) on Codex whenever the task is vague, broad, ambiguous, or has multiple reasonable interpretations. Ask ONE question at a time, present 2-3 approaches when there are real choices, converge on a design the user explicitly approves. Works hand in hand with `.apd/rules/brainstorm.md` when that file exists. Triggers on "improve X", "what should we", "thinking about", "options", "not sure", "vague", "broad", "redesign", any task with unclear scope or fewer than 3 R-criteria.
+description: Use BEFORE writing the APD spec-card.md and calling apd:apd_advance_pipeline('spec', ...) on Codex whenever the task is vague, broad, ambiguous, or has multiple reasonable interpretations. Ask ONE question at a time, present 2-3 approaches when there are real choices, converge on a design the user explicitly approves. Works hand in hand with `.apd/rules/brainstorm.md` when that file exists. Triggers on "improve X", "what should we", "thinking about", "options", "not sure", "vague", "broad", "redesign", any task with unclear scope or fewer than 3 R-criteria.
 ---
 
 # APD Brainstorm (Codex)
 
-Finish brainstorming BEFORE calling `apd_advance_pipeline('spec', ...)`.
+Finish brainstorming BEFORE calling `apd:apd_advance_pipeline('spec', ...)`.
 
 ## When to use / When to skip
 
@@ -41,12 +41,12 @@ spec-card.md. A vague spec produces vague code.
    Scope / Out of scope / Approach / Affected files. Wait for explicit
    approval.
 5. **Only then** write `.apd/pipeline/spec-card.md` and call
-   `apd_advance_pipeline('spec', '<name>')`.
+   `apd:apd_advance_pipeline('spec', '<name>')`.
 
 ## Do not do during brainstorming
 
 - Write code
-- Call `apd_guard_write`
+- Call `apd:apd_guard_write`
 - Edit any file outside `.apd/pipeline/`
 - Advance the pipeline
 
@@ -70,10 +70,10 @@ You're done when:
 - Approach is named (architectural pattern, library choice, integration point)
 - Affected files are listed (not just "wherever it goes")
 - The user has explicitly approved the design summary — no implicit approval
-- `.apd/pipeline/spec-card.md` has been written and `apd_advance_pipeline('spec', '<name>')` is the next call
+- `.apd/pipeline/spec-card.md` has been written and `apd:apd_advance_pipeline('spec', '<name>')` is the next call
 
 ## Hand-off
 
-- After explicit approval → write the spec-card.md and call `apd_advance_pipeline('spec', '<name>')` (the only valid exit)
+- After explicit approval → write the spec-card.md and call `apd:apd_advance_pipeline('spec', '<name>')` (the only valid exit)
 - Never leads to: code, agent edits, file writes outside `.apd/pipeline/` — those come from the builder phase
 - If the user asks for "just one quick thing" mid-brainstorm → finish the brainstorm first, then queue it

@@ -51,12 +51,12 @@ shell calls subject to `guard-bash-scope`.
 
 | APD step | GitHub Projects column | Action |
 |---|---|---|
-| `apd_advance_pipeline('spec', "Task")` | **Spec** | Create issue with spec-card.md content, add to board |
-| `apd_advance_pipeline('builder')` | **In Progress** | Move issue to In Progress |
-| `apd_advance_pipeline('reviewer')` | **Review** | Move issue to Review |
-| `apd_advance_pipeline('verifier')` | **Testing** | Move issue to Testing |
+| `apd:apd_advance_pipeline('spec', "Task")` | **Spec** | Create issue with spec-card.md content, add to board |
+| `apd:apd_advance_pipeline('builder')` | **In Progress** | Move issue to In Progress |
+| `apd:apd_advance_pipeline('reviewer')` | **Review** | Move issue to Review |
+| `apd:apd_advance_pipeline('verifier')` | **Testing** | Move issue to Testing |
 | Commit (successful) | **Done** | Close issue, link commit, move to Done |
-| `apd_advance_pipeline('skip', "<reason>")` | **Done** | Close issue with `apd-skip` label |
+| `apd:apd_advance_pipeline('skip', "<reason>")` | **Done** | Close issue with `apd-skip` label |
 
 ## Procedure
 
@@ -73,7 +73,7 @@ project board.
 
 ### 2. Move cards on phase transitions
 
-After each `apd_advance_pipeline()` call, run the matching `gh-sync` step.
+After each `apd:apd_advance_pipeline()` call, run the matching `gh-sync` step.
 The wrapper knows the active issue number from `.apd/pipeline/gh-issue` and
 moves the card to the next column.
 
@@ -107,15 +107,15 @@ bash ${APD_PLUGIN_ROOT}/bin/core/gh-sync skip <issue> "<reason>"
 
 *Input:* User asks to implement "User login". No active issue; pipeline starts at spec phase.
 
-*Output:* On each `apd_advance_pipeline()` call, run the matching `gh-sync` step:
+*Output:* On each `apd:apd_advance_pipeline()` call, run the matching `gh-sync` step:
 ```
-apd_advance_pipeline('spec', "User login") → gh-sync spec "User login"
+apd:apd_advance_pipeline('spec', "User login") → gh-sync spec "User login"
                                               opens #42, board column = Spec
-apd_advance_pipeline('builder')             → gh-sync builder
+apd:apd_advance_pipeline('builder')             → gh-sync builder
                                               moves #42 to In Progress
-apd_advance_pipeline('reviewer')            → gh-sync reviewer
+apd:apd_advance_pipeline('reviewer')            → gh-sync reviewer
                                               moves #42 to Review
-apd_advance_pipeline('verifier')            → gh-sync verifier
+apd:apd_advance_pipeline('verifier')            → gh-sync verifier
                                               moves #42 to Testing
 commit                                       → gh-sync done 42 abc1234
                                               closes #42 with "Commit: abc1234"
@@ -125,7 +125,7 @@ The orchestrator never passes the issue number — `gh-sync` reads it from `.apd
 
 **Example 2 — Hotfix bypasses the pipeline.**
 
-*Input:* Production incident — pipeline is skipped via `apd_advance_pipeline('skip', "Hotfix: payment 5xx")`. Issue #57 is open in the Spec column but the work goes straight to commit.
+*Input:* Production incident — pipeline is skipped via `apd:apd_advance_pipeline('skip', "Hotfix: payment 5xx")`. Issue #57 is open in the Spec column but the work goes straight to commit.
 
 *Output:* Close with skip label, do not move through the in-progress columns:
 ```
@@ -138,7 +138,7 @@ Cycle-time metrics still capture the skip — the board reflects reality, not th
 
 **Example 3 — Drift detected → escalate, don't auto-correct.**
 
-*Input:* Orchestrator runs `gh-sync status` after a builder phase. Output reports issue #42 in column "Done" while `apd_pipeline_state()` is in `builder` phase.
+*Input:* Orchestrator runs `gh-sync status` after a builder phase. Output reports issue #42 in column "Done" while `apd:apd_pipeline_state()` is in `builder` phase.
 
 *Output:* Stop and escalate to the user:
 ```
@@ -162,7 +162,7 @@ You're done when:
 ## Hand-off
 
 - This skill is **complementary**, not a gate — pipeline progress is authoritative; board is the projection
-- Called by orchestrator on every `apd_advance_pipeline()` step (workflow), not by humans directly
+- Called by orchestrator on every `apd:apd_advance_pipeline()` step (workflow), not by humans directly
 - If `gh-sync` reports an inconsistency (issue out of sync with pipeline state) → escalate to user; don't auto-correct
 
 ## Board setup recommendation

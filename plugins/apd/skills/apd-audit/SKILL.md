@@ -1,12 +1,12 @@
 ---
 name: apd-audit
-description: Use when verifying that APD is correctly configured on Codex in the current project — qualitative deep audit of agents under .apd/agents/, AGENTS.md, MCP server registration, .codex/hooks.json, and pipeline health. Goes deeper than apd_doctor. Triggers on "audit APD", "review setup", "is APD configured", "verify framework", "check APD", "APD health", "is everything wired", after any major framework upgrade or version bump.
+description: Use when verifying that APD is correctly configured on Codex in the current project — qualitative deep audit of agents under .apd/agents/, AGENTS.md, MCP server registration, .codex/hooks.json, and pipeline health. Goes deeper than apd:apd_doctor. Triggers on "audit APD", "review setup", "is APD configured", "verify framework", "check APD", "APD health", "is everything wired", after any major framework upgrade or version bump.
 ---
 
 # APD Project Audit (Codex)
 
 > Qualitative review of how APD is configured in the project — content quality,
-> not just file existence. Pairs with `apd_doctor()` MCP tool (mechanical checks).
+> not just file existence. Pairs with `apd:apd_doctor()` MCP tool (mechanical checks).
 
 ## When to use / When to skip
 
@@ -14,17 +14,17 @@ description: Use when verifying that APD is correctly configured on Codex in the
 - First session after `apd cdx init` — confirm everything is correct
 - After manually editing `.apd/agents/`, `AGENTS.md`, or `.codex/config.toml`
 - When the pipeline behaves unexpectedly
-- When `apd_doctor()` passes but something "feels off"
+- When `apd:apd_doctor()` passes but something "feels off"
 - Before handing the project to another developer
 
 **Skip when:**
-- `apd_doctor()` itself is failing — fix those mechanical issues first
-- You only need a yes/no health check — `apd_doctor()` is faster
+- `apd:apd_doctor()` itself is failing — fix those mechanical issues first
+- You only need a yes/no health check — `apd:apd_doctor()` is faster
 - Mid-pipeline — audit is for between cycles, not during
 
-## What This Checks (apd_doctor Does NOT)
+## What This Checks (apd:apd_doctor Does NOT)
 
-| apd_doctor | apd-audit |
+| apd:apd_doctor | apd-audit |
 |---|---|
 | Files exist? | Content correct and complete? |
 | TOML valid? | Hook config actually wires to live scripts? |
@@ -34,14 +34,14 @@ description: Use when verifying that APD is correctly configured on Codex in the
 
 ## Process
 
-### 1. Run apd_doctor first
+### 1. Run apd:apd_doctor first
 
 ```
-apd_doctor()
+apd:apd_doctor()
 ```
 
 If it reports errors → fix those first. This skill builds on top of
-`apd_doctor`, not replaces it.
+`apd:apd_doctor`, not replaces it.
 
 ### 2. Agent quality
 
@@ -55,7 +55,7 @@ For each agent in `.apd/agents/*.md`:
 **Body check:**
 - Has a FORBIDDEN section with commit prohibition for builders
 - Has a workflow description matching the role
-- Scope paths match `apd_guard_write` arguments used elsewhere
+- Scope paths match `apd:apd_guard_write` arguments used elsewhere
 
 ### 3. AGENTS.md quality
 
@@ -79,7 +79,7 @@ Verify `.codex/config.toml` has:
 - All eight `[mcp_servers.apd.tools.<name>]` blocks (one per APD MCP tool)
 - Approval modes are appropriate for the project's risk profile
 
-Run `apd_ping()` to confirm the MCP server actually answers.
+Run `apd:apd_ping()` to confirm the MCP server actually answers.
 
 ### 5. Hooks
 
@@ -91,7 +91,7 @@ Verify `.codex/hooks.json` has:
 ### 6. Pipeline health
 
 ```
-apd_pipeline_state()
+apd:apd_pipeline_state()
 ```
 
 - Returns without error
@@ -120,7 +120,7 @@ IMPORTANT:
 CLEAN:
   ✓ Agents (X builder + 1 reviewer)
   ✓ AGENTS.md sections complete
-  ✓ MCP registered + apd_ping responds
+  ✓ MCP registered + apd:apd_ping responds
   ✓ Hooks wired
   ✓ Pipeline healthy
   ✓ Memory files present
@@ -132,7 +132,7 @@ Result: X findings (Y critical, Z important)
 
 | Excuse | Reality |
 |--------|---------|
-| "apd_doctor passes so it's fine" | apd_doctor checks structure, not content quality |
+| "apd:apd_doctor passes so it's fine" | apd:apd_doctor checks structure, not content quality |
 | "Agents work, no need to audit" | Wrong scope or missing FORBIDDEN section wastes review cycles |
 | "AGENTS.md looks ok" | Missing sections mean orchestrator skips important rules |
 | "I'll fix it when it breaks" | Broken pipeline produces broken code silently |
@@ -141,13 +141,13 @@ Result: X findings (Y critical, Z important)
 
 **Example 1 — Builder agent scope drifted from layout.**
 
-*Input:* `.apd/agents/backend-api.md` lists `scope: src/api/**` but the project moved everything to `services/api/**`. `apd_doctor()` passed (file exists, parses); every `apd_guard_write` call rejects builder writes.
+*Input:* `.apd/agents/backend-api.md` lists `scope: src/api/**` but the project moved everything to `services/api/**`. `apd:apd_doctor()` passed (file exists, parses); every `apd:apd_guard_write` call rejects builder writes.
 
 *Output:*
 ```
 CRITICAL:
   1. [.apd/agents/backend-api.md:3] Scope path src/api/** does not exist
-     Effect: apd_guard_write rejects every builder write — pipeline cannot ship
+     Effect: apd:apd_guard_write rejects every builder write — pipeline cannot ship
      Fix: update to `scope: services/api/**` (or run `apd cdx init` to regenerate)
 ```
 
@@ -160,17 +160,17 @@ CRITICAL:
 IMPORTANT:
   1. [AGENTS.md:97] References .claude/bin/apd — Codex uses .apd/
      Effect: orchestrator follows a non-existent path, falls back to manual workflow
-     Fix: replace `.claude/bin/apd pipeline` with `apd_pipeline_state()` (MCP tool)
+     Fix: replace `.claude/bin/apd pipeline` with `apd:apd_pipeline_state()` (MCP tool)
 ```
 
 **Example 3 — Missing per-tool approval block.**
 
-*Input:* `.codex/config.toml` has `[mcp_servers.apd]` plus 7 of 8 `[mcp_servers.apd.tools.*]` blocks. `apd_advance_pipeline` block is missing. Codex prompts "Allow tool" on every pipeline transition.
+*Input:* `.codex/config.toml` has `[mcp_servers.apd]` plus 7 of 8 `[mcp_servers.apd.tools.*]` blocks. `apd:apd_advance_pipeline` block is missing. Codex prompts "Allow tool" on every pipeline transition.
 
 *Output:*
 ```
 IMPORTANT:
-  1. [.codex/config.toml] Missing approval block for apd_advance_pipeline
+  1. [.codex/config.toml] Missing approval block for apd:apd_advance_pipeline
      Effect: Codex prompts the user on every pipeline transition
      Fix: re-run `apd cdx init` to rewrite all 8 per-tool blocks idempotently
 ```
@@ -181,8 +181,8 @@ You're done when:
 - Every agent under `.apd/agents/` has been opened and frontmatter checked
 - Every required section in `AGENTS.md` is present and free of unreplaced `{{PLACEHOLDER}}` values
 - `.codex/config.toml` has the `[mcp_servers.apd]` block plus 8 per-tool approval blocks
-- `apd_ping()` returns a valid response
-- `apd_pipeline_state()` runs without error
+- `apd:apd_ping()` returns a valid response
+- `apd:apd_pipeline_state()` runs without error
 - Findings are sorted into CRITICAL / IMPORTANT / CLEAN buckets in the output format
 - If any CRITICAL is reported, the user has been told what to fix and in what order
 

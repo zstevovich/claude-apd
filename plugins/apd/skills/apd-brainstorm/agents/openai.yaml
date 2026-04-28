@@ -1,4 +1,4 @@
 interface:
   display_name: "APD Brainstorm"
   short_description: "Clarify a vague APD task before writing the spec card"
-  default_prompt: "Use $apd-brainstorm. The task just given looks vague, broad, or 'improve X' style. Read AGENTS.md plus .apd/memory/MEMORY.md and status.md, then ask ONE clarifying question at a time. When real choices exist present 2-3 options and let me pick. Do NOT write code, do NOT advance the pipeline. Converge on a Goal / Scope / Out of scope / Approach / Affected files summary, get my explicit approval, then write .apd/pipeline/spec-card.md and call apd_advance_pipeline('spec', '<name>')."
+  default_prompt: "Use $apd-brainstorm. The task just given looks vague, broad, or 'improve X' style. Read AGENTS.md plus .apd/memory/MEMORY.md and status.md, then ask ONE clarifying question at a time. When real choices exist present 2-3 options and let me pick. Do NOT write code, do NOT advance the pipeline. Converge on a Goal / Scope / Out of scope / Approach / Affected files summary, get my explicit approval, then write .apd/pipeline/spec-card.md and call apd:apd_advance_pipeline('spec', '<name>')."

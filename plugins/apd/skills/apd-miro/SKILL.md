@@ -34,12 +34,14 @@ Creates or updates a pipeline dashboard on the Miro board with:
 
 ### 1. Gather data
 
-Pull pipeline state and metrics through MCP tools:
+Pull pipeline state through the MCP tool, and historical metrics from the CSV that `apd report` writes:
 
 ```
-apd_pipeline_state()      # current step + history
-apd_pipeline_metrics()    # averages, skip rate (if available)
+apd:apd_pipeline_state()                    # current step + step timings
+cat .apd/memory/metrics.csv                 # historical durations + skip rate
 ```
+
+Compute averages and skip rate from the CSV — there is no MCP tool for historical metrics yet (tracked for v6.2).
 
 ### 2. Create dashboard table on the board
 
@@ -106,13 +108,13 @@ If the frame "APD Pipeline Dashboard" already exists on the board:
 - **Don't** create a new "APD Pipeline Dashboard" frame on every update **→ Do** reuse the existing frame and replace its contents
 - **Don't** push status to the board mid-step (transitions are fast) **→ Do** push only after a step completes (state is stable)
 - **Don't** assume the user wants a board update on every commit **→ Do** check for `MIRO_BOARD_URL` in AGENTS.md before invoking
-- **Don't** copy raw `apd_pipeline_state()` output onto the board **→ Do** transform it into the table/sticky shapes the dashboard uses
+- **Don't** copy raw `apd:apd_pipeline_state()` output onto the board **→ Do** transform it into the table/sticky shapes the dashboard uses
 
 ## Examples
 
 **Example 1 — First dashboard on a fresh board.**
 
-*Input:* `MIRO_BOARD_URL` configured but the board has no "APD Pipeline Dashboard" frame yet. `apd_pipeline_state()` reports spec=DONE, builder=ACTIVE, no metrics history.
+*Input:* `MIRO_BOARD_URL` configured but the board has no "APD Pipeline Dashboard" frame yet. `apd:apd_pipeline_state()` reports spec=DONE, builder=ACTIVE, no metrics history.
 
 *Output:* Create the frame and seed it with the current state:
 ```
@@ -165,7 +167,7 @@ Cap at 5 rows; trim oldest if needed.
 You're done when:
 - The "APD Pipeline Dashboard" frame exists on the board (created or reused)
 - Pipeline Status table reflects the current step state (✅/⏳/—)
-- Metrics document has the latest numbers from `apd_pipeline_metrics()`
+- Metrics document has the latest numbers from `.apd/memory/metrics.csv`
 - Recent tasks table shows the last 5 tasks with durations
 - The board URL has been returned to the user
 

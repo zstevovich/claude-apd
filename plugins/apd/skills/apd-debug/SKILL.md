@@ -66,7 +66,7 @@ propose a fix.
    skill (or read `.apd/rules/tdd.md` when in an APD project).
 2. Implement the minimum change that resolves the root cause. No
    unrelated cleanup in the same commit.
-3. Run `apd_verify_step()` and make sure no other test regressed.
+3. Run `apd:apd_verify_step()` and make sure no other test regressed.
 
 ## Common rationalizations
 
@@ -93,17 +93,17 @@ propose a fix.
 
 *Input:* Builder reports `TypeError: Cannot read property 'id' of undefined at UserService.findById:42`. Tempting fix: add `if (user)` guard at line 42.
 
-*Output (Phase 1):* Trace the data flow upstream. `findById` receives `userId` from `AuthMiddleware.parseToken()` which returns `undefined` when the token is missing the `sub` claim. Root cause: middleware silently passes `undefined` instead of rejecting malformed tokens. Right fix is at the middleware boundary, not the service guard. *Phase 4:* failing test "malformed token → 401", then validate in `parseToken`. Confirm with `apd_verify_step()`.
+*Output (Phase 1):* Trace the data flow upstream. `findById` receives `userId` from `AuthMiddleware.parseToken()` which returns `undefined` when the token is missing the `sub` claim. Root cause: middleware silently passes `undefined` instead of rejecting malformed tokens. Right fix is at the middleware boundary, not the service guard. *Phase 4:* failing test "malformed token → 401", then validate in `parseToken`. Confirm with `apd:apd_verify_step()`.
 
 **Example 2 — Pattern analysis spots the subtle difference.**
 
 *Input:* New endpoint `POST /orders/:id/refund` returns 500 in CI, works locally. Tempting fix: wrap it in `try/catch` and swallow the error.
 
-*Output (Phase 2):* Locate three working endpoints (`/orders/:id`, `/cancel`, `/ship`). Diff the registration order: working ones declare `router.use(authMiddleware)` BEFORE the route; the new one declares the route first. Express middleware order. *Phase 4:* failing integration test for unauthenticated `/refund` expecting 401 (currently 500), then reorder `router.use`. `apd_verify_step()` confirms no regressions.
+*Output (Phase 2):* Locate three working endpoints (`/orders/:id`, `/cancel`, `/ship`). Diff the registration order: working ones declare `router.use(authMiddleware)` BEFORE the route; the new one declares the route first. Express middleware order. *Phase 4:* failing integration test for unauthenticated `/refund` expecting 401 (currently 500), then reorder `router.use`. `apd:apd_verify_step()` confirms no regressions.
 
 **Example 3 — Three failed hypotheses → escalate, don't form H4.**
 
-*Input:* `apd_verify_step()` blocks pipeline with `migration 0042 failed: column already exists`. H1 (add IF NOT EXISTS guard) fails. H2 (previous migration not rolled back) — no evidence. H3 (stale schema cache) — DB restart, still fails.
+*Input:* `apd:apd_verify_step()` blocks pipeline with `migration 0042 failed: column already exists`. H1 (add IF NOT EXISTS guard) fails. H2 (previous migration not rolled back) — no evidence. H3 (stale schema cache) — DB restart, still fails.
 
 *Output:* STOP. Hand back to user with summary: "0042 fails 'column already exists'; tried IF-NOT-EXISTS, history check, cache restart. Need human inspection of CI schema state." Don't keep guessing — escalate per Iron Law.
 
@@ -113,7 +113,7 @@ You're done when:
 - Root cause is named in one sentence with file:line evidence
 - Failing test reproducing the bug exists and is committed (Phase 4)
 - The single targeted fix turns the failing test green
-- `apd_verify_step()` confirms no regressions
+- `apd:apd_verify_step()` confirms no regressions
 - No unrelated cleanup snuck into the same change
 
 ## Hand-off

@@ -1,6 +1,6 @@
 ---
 name: apd-finish
-description: MANDATORY after every successful APD pipeline commit on Codex — when apd_pipeline_state shows next_step='commit' and a commit was made. Verify tests from a clean state, show the pipeline report, present four options (push, push+PR, keep local, discard), execute only after the user picks. Triggers on "after commit", "push", "PR", "pull request", "deploy", "next", "pipeline done", "shipped", commit hash present in pipeline state.
+description: MANDATORY after every successful APD pipeline commit on Codex — when apd:apd_pipeline_state shows next_step='commit' and a commit was made. Verify tests from a clean state, show the pipeline report, present four options (push, push+PR, keep local, discard), execute only after the user picks. Triggers on "after commit", "push", "PR", "pull request", "deploy", "next", "pipeline done", "shipped", commit hash present in pipeline state.
 ---
 
 # APD Finish (Codex)
@@ -11,7 +11,7 @@ Run through this BEFORE push, PR, or moving to the next task.
 
 **Use when:**
 - A pipeline cycle just produced a successful commit
-- All four pipeline phases are complete; `apd_pipeline_state()` reports `next_step: "commit"`
+- All four pipeline phases are complete; `apd:apd_pipeline_state()` reports `next_step: "commit"`
 - The user has not yet made a push/PR/keep/discard decision
 
 **Skip when:**
@@ -35,7 +35,7 @@ next. Never auto-push, never assume.
 Re-run the project verifier to confirm nothing slipped through:
 
 ```
-apd_verify_step()   # runs .codex/bin/verify-all.sh
+apd:apd_verify_step()   # runs .codex/bin/verify-all.sh
 ```
 
 If it fails, stop — loop back into debug. Do NOT present finish options
@@ -43,7 +43,7 @@ on red tests.
 
 ### Step 2 — show what the pipeline did
 
-Pull `apd_pipeline_state()` and summarize for the user:
+Pull `apd:apd_pipeline_state()` and summarize for the user:
 
 - Task name (from spec)
 - Which steps completed, timing if available
@@ -132,7 +132,7 @@ git branch -D <branch>
 
 **Example 1 — Clean pipeline, user picks Push.**
 
-*Input:* `apd_pipeline_state()` shows `next_step: "commit"` after a successful commit. `apd_verify_step()` returns green.
+*Input:* `apd:apd_pipeline_state()` shows `next_step: "commit"` after a successful commit. `apd:apd_verify_step()` returns green.
 
 *Output:*
 ```
@@ -151,7 +151,7 @@ APD_ORCHESTRATOR_COMMIT=1 git push -u origin feature/order-refund
 
 **Example 2 — Verifier red blocks the finish menu.**
 
-*Input:* Commit landed, but rerunning `apd_verify_step()` from clean shows two failing integration tests (`OrderRefundSpec.refundFailsTwice`, `WebhookSpec.signatureMismatch`).
+*Input:* Commit landed, but rerunning `apd:apd_verify_step()` from clean shows two failing integration tests (`OrderRefundSpec.refundFailsTwice`, `WebhookSpec.signatureMismatch`).
 
 *Output:* Do NOT present the four options. Hand off to apd-debug:
 ```
@@ -189,7 +189,7 @@ Return the PR URL to the user; do not auto-start a new pipeline.
 ## Exit criteria
 
 You're done when:
-- `apd_verify_step()` was re-run and is green
+- `apd:apd_verify_step()` was re-run and is green
 - The pipeline report has been shown to the user
 - The user has explicitly picked one of the four options (typed, not implied)
 - The chosen option has been executed end-to-end (push completed, PR URL returned, branch deleted, etc.)
