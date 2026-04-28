@@ -19,7 +19,7 @@ The pipeline produced a commit. Now the user decides what happens with it. Never
 
 **Use when:**
 - A pipeline cycle just produced a successful commit
-- All four pipeline steps (spec → builder → reviewer → verifier) are complete
+- All four pipeline phases (spec → builder → reviewer → verifier) are complete
 - The user has not yet made a push/PR/keep/discard decision
 
 **Skip when:**
@@ -126,6 +126,63 @@ git branch -D <branch>
 - **Never force-push** (guard-git blocks this anyway)
 - **Always verify tests** before presenting options
 - **PR body must include APD pipeline summary** — proves the work was reviewed
+
+## Examples
+
+**Example 1 — Clean pipeline, user picks Push.**
+
+*Input:* `apd pipeline status` shows commit done. `verify-all.sh` returns green. User has not yet decided.
+
+*Output:*
+```
+Pipeline complete. What would you like to do?
+
+  1. Push to remote (current branch)
+  2. Push and create a Pull Request
+  3. Keep local (I'll handle it)
+  4. Discard this work
+
+> 1
+
+APD_ORCHESTRATOR_COMMIT=1 git push -u origin feature/order-refund
+→ https://github.com/org/repo/tree/feature/order-refund
+```
+
+**Example 2 — Verifier red blocks the finish menu.**
+
+*Input:* Pipeline reports commit done, but rerunning `verify-all.sh` from clean shows two failing integration tests (`OrderRefundSpec.refundFailsTwice`, `WebhookSpec.signatureMismatch`).
+
+*Output:* Do NOT present the four options. Hand off to apd-debug:
+```
+Verifier red after commit:
+  - test/integration/OrderRefundSpec.refundFailsTwice
+  - test/integration/WebhookSpec.signatureMismatch
+
+Switching to apd-debug — Phase 1: trace data flow on the two failures.
+```
+
+**Example 3 — User picks PR, body carries the pipeline summary.**
+
+*Input:* User picks option 2 after a clean pipeline (6 R-criteria, 11m 32s, adversarial 5/3/2).
+
+*Output:* PR opened with this body:
+```markdown
+## Summary
+Add idempotent POST /orders/:id/refund with audit log.
+
+## APD Pipeline
+- Spec: approved
+- Builder: backend-api (sonnet/xhigh)
+- Reviewer: code-reviewer (opus/max) — verdict: PASS
+- Adversarial: 5/3/2 (total/accepted/dismissed)
+- Verifier: all tests pass
+- Duration: 11m 32s
+
+## Test Plan
+- [ ] POST /refund twice with same Idempotency-Key → second is a no-op
+- [ ] webhook fires exactly once on the first call
+```
+Return the PR URL to the user; do not auto-start a new pipeline.
 
 ## Exit criteria
 

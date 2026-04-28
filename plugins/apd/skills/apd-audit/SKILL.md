@@ -125,7 +125,7 @@ CLEAN:
   ✓ Pipeline healthy
   ✓ Memory files present
 
-Result: X issues (Y critical, Z important)
+Result: X findings (Y critical, Z important)
 ```
 
 ## Common rationalizations
@@ -136,6 +136,44 @@ Result: X issues (Y critical, Z important)
 | "Agents work, no need to audit" | Wrong scope or missing FORBIDDEN section wastes review cycles |
 | "AGENTS.md looks ok" | Missing sections mean orchestrator skips important rules |
 | "I'll fix it when it breaks" | Broken pipeline produces broken code silently |
+
+## Examples
+
+**Example 1 — Builder agent scope drifted from layout.**
+
+*Input:* `.apd/agents/backend-api.md` lists `scope: src/api/**` but the project moved everything to `services/api/**`. `apd_doctor()` passed (file exists, parses); every `apd_guard_write` call rejects builder writes.
+
+*Output:*
+```
+CRITICAL:
+  1. [.apd/agents/backend-api.md:3] Scope path src/api/** does not exist
+     Effect: apd_guard_write rejects every builder write — pipeline cannot ship
+     Fix: update to `scope: services/api/**` (or run `apd cdx init` to regenerate)
+```
+
+**Example 2 — Stale `.claude/` reference in AGENTS.md.**
+
+*Input:* `AGENTS.md` Pipeline section references `.claude/bin/apd pipeline status`. The project is Codex-only — `.claude/` does not exist.
+
+*Output:*
+```
+IMPORTANT:
+  1. [AGENTS.md:97] References .claude/bin/apd — Codex uses .apd/
+     Effect: orchestrator follows a non-existent path, falls back to manual workflow
+     Fix: replace `.claude/bin/apd pipeline` with `apd_pipeline_state()` (MCP tool)
+```
+
+**Example 3 — Missing per-tool approval block.**
+
+*Input:* `.codex/config.toml` has `[mcp_servers.apd]` plus 7 of 8 `[mcp_servers.apd.tools.*]` blocks. `apd_advance_pipeline` block is missing. Codex prompts "Allow tool" on every pipeline transition.
+
+*Output:*
+```
+IMPORTANT:
+  1. [.codex/config.toml] Missing approval block for apd_advance_pipeline
+     Effect: Codex prompts the user on every pipeline transition
+     Fix: re-run `apd cdx init` to rewrite all 8 per-tool blocks idempotently
+```
 
 ## Exit criteria
 
@@ -152,4 +190,4 @@ You're done when:
 
 - After audit completes with CRITICAL findings → invoke `apd cdx init` (CLI, outside Codex) to regenerate missing pieces
 - After audit completes clean → continue with normal development
-- If audit reveals a structural issue not covered by `apd cdx init` → escalate to user with concrete file:line references
+- If audit reveals a structural finding not covered by `apd cdx init` → escalate to user with concrete file:line references

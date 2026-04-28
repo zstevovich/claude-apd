@@ -140,7 +140,7 @@ CLEAN:
   ✓ Pipeline healthy
   ✓ Memory files present
 
-Result: X issues (Y critical, Z important)
+Result: X findings (Y critical, Z important)
 ```
 
 ## Common rationalizations
@@ -151,6 +151,44 @@ Result: X issues (Y critical, Z important)
 | "Agents work, no need to audit" | Wrong model or missing maxTurns wastes time and money |
 | "CLAUDE.md looks ok" | Missing sections mean orchestrator skips important rules |
 | "I'll fix it when it breaks" | Broken pipeline produces broken code silently |
+
+## Examples
+
+**Example 1 — Builder agent missing maxTurns.**
+
+*Input:* `.claude/agents/backend-api.md` frontmatter has `model: sonnet`, `effort: xhigh`, `permissionMode: bypassPermissions`, but no `maxTurns:` line. Pipeline has been re-dispatching builders 2–3× per task.
+
+*Output:*
+```
+IMPORTANT:
+  1. [.claude/agents/backend-api.md:5] maxTurns missing — defaults to 20
+     Effect: builders hit maxTurn limit before finishing 3+ R-criteria → re-dispatch overhead
+     Fix: add `maxTurns: 40` after `effort: xhigh`
+```
+
+**Example 2 — Stale skill references in CLAUDE.md.**
+
+*Input:* `CLAUDE.md` `### Mandatory skills` table lists `/apd-init` and `/github-projects` as required. Both were renamed (`/apd-setup`, `/apd-github`).
+
+*Output:*
+```
+CRITICAL:
+  1. [CLAUDE.md:142] References renamed skill /apd-init
+     Effect: orchestrator looks for a non-existent skill, falls back to ad-hoc setup
+     Fix: replace `/apd-init` → `/apd-setup`, `/github-projects` → `/apd-github`
+```
+
+**Example 3 — Orphaned scope path on a builder.**
+
+*Input:* `.claude/agents/frontend-web.md` has `scope: src/components/**` but the project moved to `app/components/`. `verify-apd` passed because the agent file exists; `guard-scope` blocks every builder write.
+
+*Output:*
+```
+CRITICAL:
+  1. [.claude/agents/frontend-web.md:8] Scope path src/components/** does not exist
+     Effect: every builder write blocked by guard-scope — pipeline cannot ship
+     Fix: update to `scope: app/components/**` (or run /apd-setup gap analysis)
+```
 
 ## Exit criteria
 
@@ -166,4 +204,4 @@ You're done when:
 
 - After audit completes with CRITICAL findings → invoke `/apd-setup` to regenerate missing pieces
 - After audit completes clean → continue with normal development
-- If audit reveals a structural issue not covered by `/apd-setup` → escalate to user with concrete file:line references
+- If audit reveals a structural finding not covered by `/apd-setup` → escalate to user with concrete file:line references

@@ -7,7 +7,7 @@ allowed-tools: Read Bash
 
 # GitHub Projects — APD Pipeline Tracking
 
-Maps APD pipeline phases to GitHub Projects v2 columns. Each task becomes an issue with a spec card, and pipeline progress is reflected on the board.
+Maps APD pipeline phases to GitHub Projects v2 columns. Each task becomes an issue with the spec-card.md content embedded, and pipeline progress is reflected on the board.
 
 ## When to use / When to skip
 
@@ -50,7 +50,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/gh-sync status                  
 
 | APD step | GitHub Projects column | Action |
 |----------|----------------------|--------|
-| `pipeline-advance spec "Task"` | **Spec** | Create issue with spec card, add to board |
+| `pipeline-advance spec "Task"` | **Spec** | Create issue with spec-card.md content, add to board |
 | `pipeline-advance builder` | **In Progress** | Move issue to In Progress |
 | `pipeline-advance reviewer` | **Review** | Move issue to Review |
 | `pipeline-advance verifier` | **Testing** | Move issue to Testing |
@@ -61,7 +61,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/gh-sync status                  
 
 ### 1. Creating an issue for a new task (Spec phase)
 
-When the orchestrator creates a spec card, also create a GitHub issue:
+When the orchestrator writes spec-card.md, also create a GitHub issue:
 
 ```bash
 gh issue create \
@@ -128,7 +128,7 @@ The orchestrator can automate the entire flow:
 ```
 User: Implement user login
 Orchestrator:
-  1. Creates spec card
+  1. Writes spec-card.md
   2. → gh issue create --title "[APD] User login" --project "MyProject"
   3. → pipeline-advance spec "User login"
   4. Dispatches backend-builder
@@ -179,6 +179,50 @@ Labels:
 - **Don't** silently swallow `gh` auth failures **→ Do** escalate with `gh auth login` instructions
 - **Don't** close the issue with a generic "done" comment **→ Do** include the commit hash so the board links back to code
 - **Don't** pull labels/columns from a hard-coded list **→ Do** read the project's column names dynamically (project owners customise them)
+
+## Examples
+
+**Example 1 — Full happy-path lifecycle.**
+
+*Input:* User asks to implement "User login". No active issue; pipeline starts at spec phase.
+
+*Output:* On each `pipeline-advance`, run the matching `gh-sync` step:
+```
+spec     → gh-sync spec "User login"     → opens #42, board column = Spec
+builder  → gh-sync builder               → moves #42 to In Progress
+reviewer → gh-sync reviewer              → moves #42 to Review
+verifier → gh-sync verifier              → moves #42 to Testing
+commit   → gh-sync done 42 abc1234       → closes #42 with "Commit: abc1234"
+                                          board column = Done
+```
+The orchestrator never passes the issue number — `gh-sync` reads it from `.apd/pipeline/gh-issue`.
+
+**Example 2 — Hotfix bypasses the pipeline.**
+
+*Input:* Production incident — pipeline is skipped via `pipeline-advance skip`. Issue #57 is open in the Spec column but the work is going straight to commit.
+
+*Output:* Close with skip label, do not move through the in-progress columns:
+```
+gh-sync skip 57 "Hotfix: payment processor 5xx"
+→ #57 closed with comment "Pipeline skipped (hotfix): Hotfix: payment processor 5xx"
+→ label `apd-skip` added
+→ board column = Done
+```
+Cycle-time metrics still capture the skip — the board reflects reality, not the pipeline.
+
+**Example 3 — Drift detected → escalate, don't auto-correct.**
+
+*Input:* Orchestrator runs `gh-sync status` after a builder dispatch. Output reports issue #42 in column "Done" while the pipeline is in `builder` phase.
+
+*Output:* Stop and escalate to the user:
+```
+GitHub Projects board out of sync:
+  - Pipeline phase: builder
+  - Issue #42 column: Done
+Likely cause: someone closed the issue manually.
+Action: confirm with user whether to reopen #42 or open a fresh issue —
+do NOT silently move the card back.
+```
 
 ## Exit criteria
 

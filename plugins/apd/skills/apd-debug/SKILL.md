@@ -5,7 +5,7 @@ description: MANDATORY before re-dispatching the builder after any APD verifier 
 
 # APD Systematic Debugging (Codex)
 
-Do this BEFORE re-running any pipeline step.
+Do this BEFORE re-running any pipeline phase.
 
 ## When to use / When to skip
 
@@ -14,7 +14,7 @@ Do this BEFORE re-running any pipeline step.
 - A build or compile failed
 - The verifier step blocked the pipeline
 - The reviewer raised a critical finding
-- You are about to re-dispatch a pipeline step after a verifier failure (MANDATORY)
+- You are about to re-run a pipeline phase after a verifier failure (MANDATORY)
 
 **Skip when:**
 - The "failure" is actually expected behaviour (test marked skip/expected-fail)
@@ -87,6 +87,26 @@ propose a fix.
 - Copy-pasting a fix you don't understand
 - Starting a fourth hypothesis after three failed
 
+## Examples
+
+**Example 1 — Phase 1 saves you from the wrong fix.**
+
+*Input:* Builder reports `TypeError: Cannot read property 'id' of undefined at UserService.findById:42`. Tempting fix: add `if (user)` guard at line 42.
+
+*Output (Phase 1):* Trace the data flow upstream. `findById` receives `userId` from `AuthMiddleware.parseToken()` which returns `undefined` when the token is missing the `sub` claim. Root cause: middleware silently passes `undefined` instead of rejecting malformed tokens. Right fix is at the middleware boundary, not the service guard. *Phase 4:* failing test "malformed token → 401", then validate in `parseToken`. Confirm with `apd_verify_step()`.
+
+**Example 2 — Pattern analysis spots the subtle difference.**
+
+*Input:* New endpoint `POST /orders/:id/refund` returns 500 in CI, works locally. Tempting fix: wrap it in `try/catch` and swallow the error.
+
+*Output (Phase 2):* Locate three working endpoints (`/orders/:id`, `/cancel`, `/ship`). Diff the registration order: working ones declare `router.use(authMiddleware)` BEFORE the route; the new one declares the route first. Express middleware order. *Phase 4:* failing integration test for unauthenticated `/refund` expecting 401 (currently 500), then reorder `router.use`. `apd_verify_step()` confirms no regressions.
+
+**Example 3 — Three failed hypotheses → escalate, don't form H4.**
+
+*Input:* `apd_verify_step()` blocks pipeline with `migration 0042 failed: column already exists`. H1 (add IF NOT EXISTS guard) fails. H2 (previous migration not rolled back) — no evidence. H3 (stale schema cache) — DB restart, still fails.
+
+*Output:* STOP. Hand back to user with summary: "0042 fails 'column already exists'; tried IF-NOT-EXISTS, history check, cache restart. Need human inspection of CI schema state." Don't keep guessing — escalate per Iron Law.
+
 ## Exit criteria
 
 You're done when:
@@ -98,6 +118,6 @@ You're done when:
 
 ## Hand-off
 
-- After this skill completes → resume the pipeline step that failed (re-run the affected step)
+- After this skill completes → resume the pipeline phase that failed (re-run the affected phase)
 - During Phase 4 (writing the failing test) → invoke `apd-tdd`
 - After 3+ failed hypotheses → escalate to user with summary of what was tried; do NOT keep guessing

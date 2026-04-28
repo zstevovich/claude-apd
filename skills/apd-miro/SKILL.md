@@ -135,6 +135,58 @@ Dashboard updated: https://miro.com/app/board/...
 - **Don't** assume the user wants a board update on every commit **→ Do** check for `MIRO_BOARD_URL` in CLAUDE.md before invoking
 - **Don't** copy raw `apd pipeline status` output onto the board **→ Do** transform it into the table/sticky shapes the dashboard uses
 
+## Examples
+
+**Example 1 — First dashboard on a fresh board.**
+
+*Input:* `MIRO_BOARD_URL` configured but the board has no "APD Pipeline Dashboard" frame yet. `apd pipeline status` shows spec=DONE, builder=ACTIVE, no metrics history.
+
+*Output:* Create the frame and seed it with the current state:
+```
+Pipeline Status table:
+  | Spec     | ✅ | 14:02 |
+  | Builder  | ⏳ | 14:08 |
+  | Reviewer | —  |       |
+  | Verifier | —  |       |
+
+Metrics document: "No completed cycles yet"
+Recent tasks: empty
+```
+Return the board URL.
+
+**Example 2 — Mid-cycle update preserves the frame.**
+
+*Input:* Frame already exists from a previous run; pipeline just transitioned `builder → reviewer`. Old table shows builder=⏳, reviewer=—.
+
+*Output:* Reuse the frame — delete old shapes, write new ones in place:
+```
+Before:
+  | Spec     | ✅ | 14:02 |
+  | Builder  | ⏳ | 14:08 |
+  | Reviewer | —  |       |
+
+After:
+  | Spec     | ✅ | 14:02 |
+  | Builder  | ✅ | 14:23 |
+  | Reviewer | ⏳ | 14:23 |
+```
+Do NOT create a second frame — `find_frame_by_name("APD Pipeline Dashboard")` first.
+
+**Example 3 — Cycle complete updates Recent tasks.**
+
+*Input:* Pipeline cycle finished (commit `abc1234`, total 11m 32s). Old "Recent tasks" table had 4 rows; latest task should slot in at the top.
+
+*Output:* All status cells flip to ✅, Metrics document refreshes averages, Recent tasks gets a new top row:
+```
+Recent tasks (after):
+  | Add /orders/refund     | 11m 32s | ✅      |   ← new
+  | Migrate webhook auth   |  9m 14s | ✅      |
+  | Fix payment 5xx        |  3m 02s | ⚠️ skip |
+  | Email template refactor|  7m 48s | ✅      |
+  | OAuth callback fix     |  5m 21s | ✅      |
+```
+Cap at 5 rows; trim oldest if needed.
+
 ## Exit criteria
 
 You're done when:
