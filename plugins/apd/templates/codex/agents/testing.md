@@ -2,7 +2,7 @@
 name: testing
 description: Writes or updates tests — writes inside tests/ only
 model: sonnet
-maxTurns: 30
+maxTurns: 40
 scope:
   - tests/
 ---
