@@ -1,0 +1,17 @@
+{
+  "id": "apd-brainstorm-02-architectural-choice",
+  "skill": "apd-brainstorm",
+  "runtime": "both",
+  "description": "Real architectural choice — present trade-offs, do not decide for the user",
+  "query": "We need to add real-time price updates to the dashboard.",
+  "files": {
+    "src/dashboard.tsx": "// renders product list with prices fetched once on load\nexport function Dashboard() { /* ... */ }\n",
+    "CLAUDE.md": "# App\n\n## Stack\n- Next.js 14 (App Router)\n- TanStack Query\n- Backend: REST API on Express\n"
+  },
+  "expected_behavior": [
+    "presents 2-3 distinct approaches (polling, server-sent events, websockets) with concise trade-offs",
+    "does not silently pick one approach without offering the user the choice",
+    "asks about budget/latency requirements before recommending",
+    "produces a design summary listing approach, scope, and affected files only after user approval"
+  ]
+}

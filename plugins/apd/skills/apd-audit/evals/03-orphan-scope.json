@@ -1,0 +1,19 @@
+{
+  "id": "apd-audit-03-orphan-scope",
+  "skill": "apd-audit",
+  "runtime": "cc",
+  "description": "Builder scope path no longer exists — guard-scope blocks every write",
+  "query": "Audit APD configuration.",
+  "files": {
+    ".claude/agents/frontend-web.md": "---\nname: frontend-web\nmodel: sonnet\neffort: xhigh\nmaxTurns: 40\nscope: src/components/**\n---\n\n# frontend-web\n",
+    "app/components/Button.tsx": "export const Button = () => null;\n",
+    "CLAUDE.md": "# App\n\n## Stack\n- React (App Router)\n",
+    ".claude/settings.json": "{ \"enabledPlugins\": {} }\n"
+  },
+  "expected_behavior": [
+    "detects that scope: src/components/** does not exist (project moved to app/components/)",
+    "categorizes the finding as CRITICAL because guard-scope blocks every write",
+    "prescribes the fix: update scope to app/components/** OR run /apd-setup gap analysis",
+    "explicitly notes that mechanical verify-apd would NOT have caught this"
+  ]
+}

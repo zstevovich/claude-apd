@@ -1,0 +1,19 @@
+{
+  "id": "apd-miro-02-mid-cycle-update",
+  "skill": "apd-miro",
+  "runtime": "both",
+  "description": "Frame already exists — agent must reuse it, not create a duplicate",
+  "query": "Pipeline moved from builder to reviewer. Refresh the Miro dashboard.",
+  "files": {
+    "CLAUDE.md": "# App\n\n## APD\nMIRO_BOARD_URL: https://miro.com/app/board/abc123/\n",
+    ".apd/pipeline/spec.done": "feat-x|2026-04-28 14:02:00|Task\n",
+    ".apd/pipeline/builder.done": "backend-api|2026-04-28 14:23:00\n",
+    ".apd/pipeline/reviewer.active": "started:2026-04-28 14:23:05\n"
+  },
+  "expected_behavior": [
+    "looks up the existing 'APD Pipeline Dashboard' frame before creating anything",
+    "deletes the old shapes inside the frame and writes new ones in place",
+    "does NOT create a second frame with the same name",
+    "updates the Pipeline Status table to show builder=DONE and reviewer=ACTIVE"
+  ]
+}

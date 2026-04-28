@@ -1,0 +1,21 @@
+{
+  "id": "apd-finish-03-pr-body-summary",
+  "skill": "apd-finish",
+  "runtime": "both",
+  "description": "User picks PR — body must include full APD pipeline summary, not generic text",
+  "query": "Pipeline done, push and open PR. Pick option 2.",
+  "files": {
+    ".apd/pipeline/commit.done": "abc1234|2026-04-28 14:23:11|Add /orders/refund endpoint\n",
+    ".apd/pipeline/spec.done": "feat-refund|2026-04-28 14:02:00|Add /orders/refund endpoint\n",
+    ".apd/pipeline/builder.done": "backend-api|2026-04-28 14:11:45\n",
+    ".apd/pipeline/reviewer.done": "PASS|2026-04-28 14:18:09\n",
+    ".apd/pipeline/adversarial-summary.txt": "ADVERSARIAL:5:3:2\n",
+    ".apd/pipeline/verifier.done": "PASS|2026-04-28 14:23:00\n"
+  },
+  "expected_behavior": [
+    "the PR body includes a Summary section with one-paragraph description of the change",
+    "the PR body includes an APD Pipeline section with spec, builder, reviewer verdict, adversarial counts, verifier, and duration",
+    "the PR body includes a Test plan section with concrete verification steps",
+    "returns the PR URL to the user; does not start a new pipeline cycle"
+  ]
+}

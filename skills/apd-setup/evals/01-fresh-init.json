@@ -1,0 +1,17 @@
+{
+  "id": "apd-setup-01-fresh-init",
+  "skill": "apd-setup",
+  "runtime": "cc",
+  "description": "Greenfield project — no .apd/, no CLAUDE.md — agent scaffolds the full APD layout",
+  "query": "Set up APD in this project.",
+  "files": {
+    "package.json": "{\n  \"name\": \"my-app\",\n  \"dependencies\": { \"express\": \"^4.0.0\" }\n}\n",
+    "src/server.ts": "import express from 'express';\nconst app = express();\napp.listen(3000);\n"
+  },
+  "expected_behavior": [
+    "creates CLAUDE.md with Stack, APD, Pipeline, Guardrails, Mandatory skills, Anti-patterns sections",
+    "creates at least one builder agent under .claude/agents/ with model, effort, maxTurns, scope set",
+    "creates the .claude/memory/ directory with MEMORY.md and status.md",
+    "does NOT leave any {{PLACEHOLDER}} unreplaced in the generated files"
+  ]
+}

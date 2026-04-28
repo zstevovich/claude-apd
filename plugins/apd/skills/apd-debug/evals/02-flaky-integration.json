@@ -1,0 +1,16 @@
+{
+  "id": "apd-debug-02-flaky-integration",
+  "skill": "apd-debug",
+  "runtime": "both",
+  "description": "Test passes locally, fails in CI — pattern analysis should spot the registration order",
+  "query": "POST /orders/:id/refund returns 500 in CI but works locally. Make CI green.",
+  "files": {
+    "src/routes/orders.ts": "import { Router } from 'express';\nimport { authMiddleware } from '../middleware/auth';\n\nexport const router = Router();\n\n// Existing endpoints (working)\nrouter.use(authMiddleware);\nrouter.get('/orders/:id', (_req, res) => res.json({}));\nrouter.post('/orders/:id/cancel', (_req, res) => res.json({}));\n\n// New endpoint added below — note the registration order\nrouter.post('/orders/:id/refund', (_req, res) => res.json({}));\nrouter.use(authMiddleware); // ← second use, declared AFTER the new route\n"
+  },
+  "expected_behavior": [
+    "compares the broken endpoint to the working endpoints rather than guessing",
+    "identifies the express middleware ordering as the root cause",
+    "writes a failing integration test that reproduces the 500 in CI before patching",
+    "moves router.use up rather than wrapping the new endpoint in try/catch"
+  ]
+}

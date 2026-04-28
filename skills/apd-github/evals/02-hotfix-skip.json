@@ -1,0 +1,17 @@
+{
+  "id": "apd-github-02-hotfix-skip",
+  "skill": "apd-github",
+  "runtime": "both",
+  "description": "Hotfix bypasses the pipeline — issue must close with apd-skip label and reason",
+  "query": "Production payment processor is returning 5xx. Hotfix it. Issue #57 is open in Spec.",
+  "files": {
+    "CLAUDE.md": "# App\n\n## APD\n\n### GitHub Projects\nGITHUB_PROJECTS_URL: https://github.com/example/project/projects/1\n",
+    ".apd/pipeline/gh-issue": "57\n"
+  },
+  "expected_behavior": [
+    "closes issue #57 without moving it through In Progress, Review, Testing",
+    "applies the apd-skip label to the closed issue",
+    "the closing comment includes the skip reason ('Hotfix: payment processor 5xx')",
+    "uses gh-sync skip <issue> <reason> rather than manual gh commands"
+  ]
+}

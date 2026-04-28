@@ -1,0 +1,17 @@
+{
+  "id": "apd-tdd-03-edge-case-coverage",
+  "skill": "apd-tdd",
+  "runtime": "both",
+  "description": "Add validation — should test boundary conditions explicitly, not just the happy path",
+  "query": "Add a validateEmail(input: string) function that returns true for valid addresses and false otherwise.",
+  "files": {
+    "src/validators.ts": "// validators — add here\n",
+    "tests/validators.test.ts": "import { describe, it, expect } from 'vitest';\n\ndescribe('validators', () => {\n  // add tests here\n});\n"
+  },
+  "expected_behavior": [
+    "writes tests that cover the happy path AND at least two boundary cases (empty input, missing @, missing TLD)",
+    "watches each new test fail before writing the implementation",
+    "implements validateEmail only after at least one test is red",
+    "does not over-engineer the implementation beyond what the tests require"
+  ]
+}

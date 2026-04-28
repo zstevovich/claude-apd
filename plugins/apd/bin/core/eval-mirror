@@ -1,0 +1,61 @@
+#!/bin/bash
+# APD Eval Mirror — sync canonical eval scenarios into each skill's evals/ folder
+#
+# Canonical source: $APD_PLUGIN_ROOT/evals/<skill>/*.json
+# Mirror targets:
+#   - $REPO_ROOT/skills/<skill>/evals/             (CC, all 8 skills)
+#   - $APD_PLUGIN_ROOT/skills/<skill>/evals/        (Codex, 7 skills, no apd-setup)
+#
+# Idempotent. Replace-all semantics — extra files in mirror dirs are removed.
+
+set -e
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+
+CANONICAL="$APD_PLUGIN_ROOT/evals"
+REPO_ROOT="$APD_PLUGIN_ROOT/../.."
+CC_SKILLS=("apd-tdd" "apd-debug" "apd-brainstorm" "apd-finish" "apd-audit" "apd-github" "apd-miro" "apd-setup")
+CDX_SKILLS=("apd-tdd" "apd-debug" "apd-brainstorm" "apd-finish" "apd-audit" "apd-github" "apd-miro")
+
+apd_header "Eval Mirror"
+
+if [ ! -d "$CANONICAL" ]; then
+    err "Canonical evals dir not found: $CANONICAL"
+    exit 2
+fi
+
+mirror_one() {
+    local skill="$1"
+    local target_dir="$2"
+    local src_dir="$CANONICAL/$skill"
+    if [ ! -d "$src_dir" ]; then
+        skip "$skill (no canonical source)"
+        return
+    fi
+    rm -rf "$target_dir"
+    mkdir -p "$target_dir"
+    cp "$src_dir"/*.json "$target_dir/" 2>/dev/null || true
+    local count
+    count=$(find "$target_dir" -name '*.json' | wc -l | xargs)
+    pass "$skill → $target_dir ($count files)"
+}
+
+section "CC mirror — skills/<skill>/evals/"
+for skill in "${CC_SKILLS[@]}"; do
+    mirror_one "$skill" "$REPO_ROOT/skills/$skill/evals"
+done
+
+section "Codex mirror — plugins/apd/skills/<skill>/evals/"
+for skill in "${CDX_SKILLS[@]}"; do
+    mirror_one "$skill" "$APD_PLUGIN_ROOT/skills/$skill/evals"
+done
+
+section "Summary"
+canonical=$(find "$CANONICAL" -name '*.json' | wc -l | xargs)
+cc_total=$(find "$REPO_ROOT/skills" -path '*evals*' -name '*.json' | wc -l | xargs)
+cdx_total=$(find "$APD_PLUGIN_ROOT/skills" -path '*evals*' -name '*.json' | wc -l | xargs)
+printf "  canonical: %s\n" "$canonical"
+printf "  CC mirror:    %s\n" "$cc_total"
+printf "  Codex mirror: %s\n" "$cdx_total"
+[ "$FAIL_COUNT" -eq 0 ]

@@ -1,0 +1,18 @@
+{
+  "id": "apd-audit-02-stale-skill-ref",
+  "skill": "apd-audit",
+  "runtime": "cc",
+  "description": "CLAUDE.md references renamed skills — CRITICAL because orchestrator silently fails",
+  "query": "Run an APD audit.",
+  "files": {
+    "CLAUDE.md": "# App\n\n## APD\n\n### Mandatory skills\n- /apd-init       ← (renamed)\n- /github-projects ← (renamed)\n- /apd-tdd\n- /apd-debug\n",
+    ".claude/agents/backend-api.md": "---\nname: backend-api\nmodel: sonnet\neffort: xhigh\nmaxTurns: 40\n---\n\n# backend-api\n",
+    ".claude/settings.json": "{ \"enabledPlugins\": {} }\n"
+  },
+  "expected_behavior": [
+    "detects /apd-init and /github-projects as renamed skill references",
+    "categorizes the finding as CRITICAL because orchestrator falls back silently",
+    "prescribes the rename map: /apd-init → /apd-setup, /github-projects → /apd-github",
+    "produces the finding with file:line precision"
+  ]
+}

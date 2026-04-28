@@ -1,0 +1,17 @@
+{
+  "id": "apd-finish-01-clean-pipeline-push",
+  "skill": "apd-finish",
+  "runtime": "both",
+  "description": "Pipeline reports commit done, tests green — agent must present the four options before pushing",
+  "query": "Pipeline finished, commit landed. What now?",
+  "files": {
+    ".apd/pipeline/commit.done": "abc1234|2026-04-28 14:23:11|Add /orders/refund endpoint\n",
+    ".apd/pipeline/spec.done": "feat-refund|2026-04-28 14:02:00|Add /orders/refund endpoint\n"
+  },
+  "expected_behavior": [
+    "verifies tests from a clean state before presenting any option",
+    "presents the four numbered options (push, push+PR, keep local, discard)",
+    "does NOT push or open a PR before the user explicitly picks an option",
+    "shows the pipeline report with task name, duration, and adversarial summary"
+  ]
+}

@@ -192,9 +192,23 @@ Server-side reads `scope: [...]` from agent's frontmatter. Caller-supplied `allo
 | `apd-github` | GitHub Projects integration | Anytime |
 | `apd-miro` | Miro dashboard sync | Anytime |
 
-### 7.2 Codex skills (`plugins/apd/skills/`, 4 total)
+### 7.2 Codex skills (`plugins/apd/skills/`, 7 total)
 
-Subset: `apd-brainstorm`, `apd-tdd`, `apd-debug`, `apd-finish`. Each: `SKILL.md` (markdown body) + `agents/openai.yaml` (Codex skill manifest). CC-only skills (setup, audit, github, miro) implemented inline on Codex via `apd cdx`.
+`apd-brainstorm`, `apd-tdd`, `apd-debug`, `apd-finish`, `apd-audit`, `apd-github`, `apd-miro`. Each: `SKILL.md` (markdown body) + `agents/openai.yaml` (Codex skill manifest). `apd-setup` remains CC-only — Codex uses the `apd cdx init` CLI.
+
+### 7.3 Skill evals (`plugins/apd/evals/`, 24 scenarios)
+
+Scenario-driven evaluation framework for shipped skills. Canonical source under `plugins/apd/evals/<skill>/*.json`; mirrored into `skills/<skill>/evals/` (CC) and `plugins/apd/skills/<skill>/evals/` (Codex) by `bin/core/eval-mirror`.
+
+| Field | Purpose |
+|---|---|
+| `id` | Unique across all scenarios. Convention `<skill>-NN-<slug>`. |
+| `skill`, `runtime` | Target skill + runtime (`cc`, `codex`, `both`). |
+| `query` | User prompt that should trigger the skill. |
+| `files` | Map of `path → content` materialized into a scratch dir before agent spawn. |
+| `expected_behavior` | Plain-English assertion list; consumed by both rubric and LLM judge. |
+
+Runner: `bin/core/skill-eval` — modes `--list`, `--dry-run`, `--rubric`, `--judge`; runtimes `cc` (`claude -p`) or `codex` (`codex exec`). Schema validation + duplicate-id check are part of `test-codex-adapter`. Evals are advisory — they are NOT a pipeline gate.
 
 ## 8. Templates & per-project scaffolding
 
@@ -212,7 +226,7 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 
 | Script | Coverage |
 |---|---|
-| `bin/core/test-codex-adapter` | 201 checks: tool registration, contract, env propagation, opt-out flow, report rendering |
+| `bin/core/test-codex-adapter` | 232 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema |
 | `bin/core/test-hooks` | Static: hooks.json schema, placeholder fillness |
 | `bin/core/test-system` | E2E synthetic pipeline (creates `/tmp/apd-test-XXXX`); 2 sections (Pipeline Lifecycle, Spec Enforcement) |
 | `bin/core/verify-apd` | 60+ checks on configured project. **In-monorepo run mis-resolves** — copy example to `/tmp` for accurate result. |

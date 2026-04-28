@@ -1,0 +1,17 @@
+{
+  "id": "apd-debug-01-undefined-property",
+  "skill": "apd-debug",
+  "runtime": "both",
+  "description": "Stack trace points at line 42 — the right fix is upstream, not a guard at the call site",
+  "query": "The verifier is failing with: TypeError: Cannot read property 'id' of undefined at UserService.findById (src/services/user.ts:42). Fix it.",
+  "files": {
+    "src/services/user.ts": "import { parseToken } from '../auth';\n\nexport class UserService {\n  findById(userId: string) {\n    const user = this.repo.lookup(userId);\n    return user.id; // ← line 42\n  }\n  repo = { lookup: (_: string) => undefined as any };\n}\n",
+    "src/auth.ts": "export function parseToken(header: string): { sub: string } | undefined {\n  const parts = header.split(' ');\n  // BUG: returns { sub: undefined } when token is missing\n  return { sub: parts[1] };\n}\n"
+  },
+  "expected_behavior": [
+    "traces the data flow upstream from line 42 instead of adding a guard at the call site",
+    "identifies parseToken as the actual root cause (returns undefined for malformed input)",
+    "writes a failing test that reproduces the upstream bug before applying the fix",
+    "does not silently swallow the error or guard at the symptom site"
+  ]
+}

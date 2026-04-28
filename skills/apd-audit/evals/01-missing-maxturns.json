@@ -1,0 +1,18 @@
+{
+  "id": "apd-audit-01-missing-maxturns",
+  "skill": "apd-audit",
+  "runtime": "cc",
+  "description": "Builder agent missing maxTurns — surface as IMPORTANT with concrete fix",
+  "query": "Audit this APD setup.",
+  "files": {
+    ".claude/agents/backend-api.md": "---\nname: backend-api\nmodel: sonnet\neffort: xhigh\ncolor: blue\npermissionMode: bypassPermissions\nmemory: project\n---\n\n# backend-api\n\n# {{SCOPE_PATHS}}: src/api/**\n",
+    "CLAUDE.md": "# App\n\n## Stack\n- Node.js + Express\n\n## APD\n\n### Mandatory skills\n- /apd-tdd\n- /apd-debug\n- /apd-finish\n",
+    ".claude/settings.json": "{ \"enabledPlugins\": {} }\n"
+  },
+  "expected_behavior": [
+    "detects that backend-api.md has no maxTurns field",
+    "categorizes the finding as IMPORTANT (not CRITICAL)",
+    "prescribes the concrete fix: add maxTurns: 40 after effort: xhigh",
+    "names the side effect: builders re-dispatch when they exhaust turns"
+  ]
+}

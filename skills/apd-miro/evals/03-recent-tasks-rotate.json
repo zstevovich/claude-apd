@@ -1,0 +1,18 @@
+{
+  "id": "apd-miro-03-recent-tasks-rotate",
+  "skill": "apd-miro",
+  "runtime": "both",
+  "description": "Cycle complete — Recent tasks table rotates: new row at top, cap at 5",
+  "query": "Pipeline finished. Push the result to the Miro dashboard.",
+  "files": {
+    "CLAUDE.md": "# App\n\n## APD\nMIRO_BOARD_URL: https://miro.com/app/board/abc123/\n",
+    ".apd/pipeline/commit.done": "abc1234|2026-04-28 14:23:11|Add /orders/refund\n",
+    ".apd/memory/metrics.csv": "Task,Duration,Status\nMigrate webhook auth,9m 14s,OK\nFix payment 5xx,3m 02s,SKIP\nEmail template refactor,7m 48s,OK\nOAuth callback fix,5m 21s,OK\nLog rotation,12m 04s,OK\n"
+  },
+  "expected_behavior": [
+    "inserts the new task ('Add /orders/refund') as the top row of the Recent tasks table",
+    "trims the oldest row so the table stays at 5 entries",
+    "updates the Metrics document with refreshed averages and skip rate",
+    "flips all four Pipeline Status cells to DONE"
+  ]
+}

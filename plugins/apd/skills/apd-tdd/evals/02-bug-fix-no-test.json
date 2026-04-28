@@ -1,0 +1,17 @@
+{
+  "id": "apd-tdd-02-bug-fix-no-test",
+  "skill": "apd-tdd",
+  "runtime": "both",
+  "description": "User pastes a failing repro — should turn it into a test before touching the code",
+  "query": "I'm seeing parseToken('Bearer ') return undefined instead of throwing. Fix it.",
+  "files": {
+    "src/auth.ts": "export function parseToken(header: string): { sub: string } | undefined {\n  const parts = header.split(' ');\n  if (parts.length < 2) return undefined;\n  // TODO: actually validate the JWT\n  return { sub: parts[1] };\n}\n",
+    "tests/auth.test.ts": "import { describe, it, expect } from 'vitest';\nimport { parseToken } from '../src/auth';\n\ndescribe('parseToken', () => {\n  it('parses a valid bearer token', () => {\n    expect(parseToken('Bearer abc123')).toEqual({ sub: 'abc123' });\n  });\n});\n"
+  },
+  "expected_behavior": [
+    "writes a new failing test that captures the empty-token bug before changing parseToken",
+    "runs the test suite and shows the new test failing",
+    "implements the validation only after the test fails",
+    "leaves the existing passing test alone — no test was modified to mask the bug"
+  ]
+}

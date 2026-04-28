@@ -1,0 +1,18 @@
+{
+  "id": "apd-setup-03-stack-detection",
+  "skill": "apd-setup",
+  "runtime": "cc",
+  "description": "Different stack (Python) — generated agents and rules adapt to the language, not hardcoded JS",
+  "query": "Initialize APD here.",
+  "files": {
+    "pyproject.toml": "[project]\nname = \"my-app\"\ndependencies = [\"fastapi\", \"sqlalchemy\"]\n",
+    "src/main.py": "from fastapi import FastAPI\napp = FastAPI()\n",
+    "tests/test_main.py": "from fastapi.testclient import TestClient\nfrom src.main import app\n\ndef test_root(): TestClient(app).get('/')\n"
+  },
+  "expected_behavior": [
+    "detects the stack as Python (FastAPI + pytest) — does not assume JavaScript",
+    "the generated CLAUDE.md Stack section names FastAPI, pytest, and Python explicitly",
+    "the builder agent's scope and verify-all.sh reference Python tooling (pytest, ruff, etc.) not npm/vitest",
+    "names the language detection method in its summary so the user can confirm"
+  ]
+}

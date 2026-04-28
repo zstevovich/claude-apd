@@ -1,0 +1,17 @@
+{
+  "id": "apd-brainstorm-01-vague-improve",
+  "skill": "apd-brainstorm",
+  "runtime": "both",
+  "description": "Vague improvement request — agent must converge before writing the spec card",
+  "query": "Improve user search.",
+  "files": {
+    "src/search/user-search.ts": "// existing search — exact match on email only\nexport function findUser(email: string) { /* ... */ }\n",
+    "CLAUDE.md": "# App\n\n## Stack\n- TypeScript + Express\n- Postgres\n"
+  },
+  "expected_behavior": [
+    "asks ONE clarifying question at a time, not a list of five",
+    "presents 2-3 concrete options when there are real architectural choices (fuzzy matching, full-text search, name+email)",
+    "does NOT start writing code or editing files during brainstorm",
+    "ends only after the user explicitly approves a one-sentence design summary"
+  ]
+}

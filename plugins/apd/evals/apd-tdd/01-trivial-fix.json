@@ -1,0 +1,18 @@
+{
+  "id": "apd-tdd-01-trivial-fix",
+  "skill": "apd-tdd",
+  "runtime": "both",
+  "description": "Implement a trivial helper — should write the failing test first",
+  "query": "Add a function add(a, b) that returns a + b in src/math.ts. The repo uses vitest.",
+  "files": {
+    "src/math.ts": "// existing helper module — add helpers here\n",
+    "tests/math.test.ts": "import { describe, it, expect } from 'vitest';\n\ndescribe('math', () => {\n  // add tests here\n});\n",
+    "package.json": "{\n  \"name\": \"trivial\",\n  \"scripts\": { \"test\": \"vitest run\" },\n  \"devDependencies\": { \"vitest\": \"^1.0.0\" }\n}\n"
+  },
+  "expected_behavior": [
+    "writes a failing test for add before any production code",
+    "runs the test command and observes it fail with the expected error",
+    "writes the minimal implementation of add to make the test pass",
+    "does not bundle unrelated helpers or refactors into the same change"
+  ]
+}

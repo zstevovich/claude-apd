@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased — v6.1 work in progress
+
+Skill quality + pipeline gate refinements per `docs/plans/v6.1-skills-and-pipeline-improvements.md`.
+
+**Track A — Skills authoring quality**
+
+- **A1 — Pushy descriptions across 15 skills.** Description field now leads with a third-person trigger statement, lists explicit trigger phrases, and uses MANDATORY for hard-required skills (apd-tdd, apd-debug, apd-finish). Targets undertriggering surfaced by skill-creator audit. CC + Codex mirrors. Char counts 373–556, all under the 1024 description limit.
+- **A2 — Concrete examples in 5 skills.** Anthropic-format Input/Output Example blocks (2-3 per skill) added to apd-debug, apd-audit, apd-finish, apd-github, apd-miro for both CC and Codex mirrors. Each example grounds the skill methodology in a realistic scenario: failing-test → root-cause walks for apd-debug, audit recommendation blocks for apd-audit, decision trees for apd-finish, lifecycle states for apd-github, and frame-update before/after for apd-miro.
+- **A3 — Terminology consistency sweep.** Glossary normalized across all 15 skill files: `pipeline step → pipeline phase`, `acceptance criteria → R-criteria`, `Result: X issues → X findings`, `structural issue → structural finding`, `spec card → spec-card.md` for file references. The literal `## Spec card` heading inside sample issue bodies is left as-is.
+- **A4 — Eval framework.** Scenario-driven evaluation harness for every shipped skill. Canonical source `plugins/apd/evals/<skill>/*.json` (24 scenarios — 8 skills × 3 each); `bin/core/skill-eval` runner with `--list`, `--dry-run`, `--rubric`, `--judge` modes; `bin/core/eval-mirror` syncs canonical scenarios into `skills/<skill>/evals/` (CC) and `plugins/apd/skills/<skill>/evals/` (Codex). Evals are advisory, not a pipeline gate. Spec under `plugins/apd/evals/README.md`.
+
+**Other**
+
+- `docs/SPEC.md` 7.2 updated to 7 Codex skills (was stale at 4); new 7.3 section documents the eval framework; test-codex-adapter check count updated.
+
 ## v6.0.3 — 2026-04-27
 
 Critical regression fix for CC users on v6.0.x. Session-start hook reported

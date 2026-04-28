@@ -1,0 +1,17 @@
+{
+  "id": "apd-debug-03-three-failed-hypotheses",
+  "skill": "apd-debug",
+  "runtime": "both",
+  "description": "After three ruled-out hypotheses, agent must escalate — not form a fourth",
+  "query": "Migration 0042 fails with 'column already exists'. I tried adding IF NOT EXISTS, checked the migration history (no rollback), restarted the DB to flush schema cache. None worked. What's next?",
+  "files": {
+    "migrations/0042_add_status.sql": "ALTER TABLE orders ADD COLUMN status TEXT NOT NULL DEFAULT 'pending';\n",
+    "migrations/HISTORY.md": "0040 — initial schema\n0041 — add users.role\n0042 — IN PROGRESS: add orders.status\n"
+  },
+  "expected_behavior": [
+    "stops generating new fix attempts and explicitly escalates to the user",
+    "summarizes what was already tried (IF NOT EXISTS, history check, cache flush)",
+    "asks the user for a human inspection of the CI database schema state",
+    "does not propose a fourth speculative fix"
+  ]
+}

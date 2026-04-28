@@ -1,0 +1,18 @@
+{
+  "id": "apd-setup-02-gap-fill",
+  "skill": "apd-setup",
+  "runtime": "cc",
+  "description": "Partial setup — only some files exist; gap analysis must fill the rest without clobbering",
+  "query": "Run APD setup again — finish what's missing.",
+  "files": {
+    "CLAUDE.md": "# App\n\n## Stack\n- TypeScript\n",
+    ".claude/agents/backend-api.md": "---\nname: backend-api\nmodel: sonnet\neffort: xhigh\nmaxTurns: 40\n---\n\n# backend-api\n",
+    ".claude/settings.json": "{ \"enabledPlugins\": {} }\n"
+  },
+  "expected_behavior": [
+    "preserves the existing CLAUDE.md Stack section verbatim — does not overwrite user content",
+    "preserves the existing backend-api.md frontmatter — does not regenerate from scratch",
+    "adds the missing pieces (memory dir, mandatory-skills section, reviewer agent) without clobbering existing files",
+    "names exactly which gaps were filled in its summary"
+  ]
+}

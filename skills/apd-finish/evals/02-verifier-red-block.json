@@ -1,0 +1,18 @@
+{
+  "id": "apd-finish-02-verifier-red-block",
+  "skill": "apd-finish",
+  "runtime": "both",
+  "description": "Commit landed but rerunning the verifier shows red — agent must NOT show the menu",
+  "query": "Commit done, run finish.",
+  "files": {
+    ".apd/pipeline/commit.done": "def5678|2026-04-28 15:04:22|Migrate webhook auth\n",
+    ".apd/pipeline/verifier.done": "PASS|2026-04-28 15:03:50\n",
+    ".apd/scripts/verify-all.sh": "#!/bin/bash\necho 'FAIL: WebhookSpec.signatureMismatch'\necho 'FAIL: OrderRefundSpec.refundFailsTwice'\nexit 1\n"
+  },
+  "expected_behavior": [
+    "reruns the verifier from a clean state and detects the red tests",
+    "does NOT present the four push/PR/keep/discard options on red tests",
+    "lists the specific failing tests by name in its handoff",
+    "hands control to apd-debug instead of proceeding"
+  ]
+}

@@ -2277,6 +2277,76 @@ fi
 rm -rf "$RPT_DIR"
 
 # -----------------------------------------------------------
+# 23. skill-eval framework — schema, ids, mirror counts
+# -----------------------------------------------------------
+section "23. skill-eval framework"
+
+EVAL_LIST_OUT=$(bash "$APD_PLUGIN_ROOT/bin/core/skill-eval" --list 2>&1 || true)
+if echo "$EVAL_LIST_OUT" | grep -q "24 scenarios"; then
+    pass "skill-eval --list reports 24 scenarios"
+    PASSES=$((PASSES + 1))
+else
+    fail "skill-eval --list did not report 24 scenarios"
+    FAILS=$((FAILS + 1))
+fi
+
+EVAL_DRY_OUT=$(bash "$APD_PLUGIN_ROOT/bin/core/skill-eval" --dry-run 2>&1 || true)
+if echo "$EVAL_DRY_OUT" | grep -qE "valid:[[:space:]]+24" && echo "$EVAL_DRY_OUT" | grep -qE "invalid:[[:space:]]+0"; then
+    pass "skill-eval --dry-run validates all 24 scenarios"
+    PASSES=$((PASSES + 1))
+else
+    fail "skill-eval --dry-run did not pass all scenarios"
+    FAILS=$((FAILS + 1))
+fi
+
+# Each canonical scenario JSON has all required fields
+EVAL_FIELDS_OK=1
+for f in "$APD_PLUGIN_ROOT/evals/"*/*.json; do
+    for field in id skill runtime description query files expected_behavior; do
+        if ! jq -e --arg f "$field" 'has($f)' "$f" >/dev/null 2>&1; then
+            EVAL_FIELDS_OK=0
+            break 2
+        fi
+    done
+done
+if [ "$EVAL_FIELDS_OK" -eq 1 ]; then
+    pass "every canonical scenario has required schema fields"
+    PASSES=$((PASSES + 1))
+else
+    fail "at least one scenario is missing a required schema field"
+    FAILS=$((FAILS + 1))
+fi
+
+# IDs are unique across all canonical scenarios
+EVAL_DUPS=$(for f in "$APD_PLUGIN_ROOT/evals/"*/*.json; do jq -r .id "$f" 2>/dev/null; done | sort | uniq -d)
+if [ -z "$EVAL_DUPS" ]; then
+    pass "all scenario ids are unique"
+    PASSES=$((PASSES + 1))
+else
+    fail "duplicate scenario ids: $EVAL_DUPS"
+    FAILS=$((FAILS + 1))
+fi
+
+# eval-mirror writes the right count to each runtime
+bash "$APD_PLUGIN_ROOT/bin/core/eval-mirror" >/dev/null 2>&1 || true
+CC_MIRROR=$(find "$APD_PLUGIN_ROOT/../../skills" -path '*evals*' -name '*.json' 2>/dev/null | wc -l | xargs)
+CDX_MIRROR=$(find "$APD_PLUGIN_ROOT/skills" -path '*evals*' -name '*.json' 2>/dev/null | wc -l | xargs)
+if [ "$CC_MIRROR" = "24" ]; then
+    pass "eval-mirror populated CC: 24 scenarios"
+    PASSES=$((PASSES + 1))
+else
+    fail "eval-mirror CC count = $CC_MIRROR (expected 24)"
+    FAILS=$((FAILS + 1))
+fi
+if [ "$CDX_MIRROR" = "21" ]; then
+    pass "eval-mirror populated Codex: 21 scenarios (no apd-setup)"
+    PASSES=$((PASSES + 1))
+else
+    fail "eval-mirror Codex count = $CDX_MIRROR (expected 21)"
+    FAILS=$((FAILS + 1))
+fi
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

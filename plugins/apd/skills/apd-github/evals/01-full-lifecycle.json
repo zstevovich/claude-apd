@@ -1,0 +1,17 @@
+{
+  "id": "apd-github-01-full-lifecycle",
+  "skill": "apd-github",
+  "runtime": "both",
+  "description": "Happy-path lifecycle — issue moves through five columns and closes with the commit reference",
+  "query": "Implement user login. The project has GITHUB_PROJECTS_URL configured.",
+  "files": {
+    "CLAUDE.md": "# App\n\n## APD\n\n### GitHub Projects\nGITHUB_PROJECTS_URL: https://github.com/example/project/projects/1\n",
+    ".apd/pipeline/spec.done": ""
+  },
+  "expected_behavior": [
+    "creates a GitHub issue with the spec-card.md content embedded at the spec phase",
+    "moves the same issue through In Progress, Review, Testing on each pipeline transition",
+    "closes the issue with the commit hash in the closing comment after commit",
+    "uses gh-sync (not raw gh issue create) so the issue number tracks across phases"
+  ]
+}

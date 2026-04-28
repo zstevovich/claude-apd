@@ -1,0 +1,340 @@
+#!/bin/bash
+# APD Skill Eval Runner — scenario-driven evaluation of shipped skills
+#
+# Usage: skill-eval [options] [skill | scenario.json]
+#
+# Modes:
+#   --list                Enumerate all scenarios (no execution)
+#   --dry-run             Validate scenario JSON, print summary, no agent spawn
+#   --rubric              Keyword-match expected_behavior vs captured transcript
+#   --judge               LLM-as-judge — asks claude -p per assertion
+#   --runtime cc|codex    Spawn runtime (default: cc)
+#
+# Sources scenarios from $APD_PLUGIN_ROOT/evals/<skill>/*.json.
+# See evals/README.md for schema and authoring guide.
+
+set -e
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+
+EVALS_DIR="$APD_PLUGIN_ROOT/evals"
+
+MODE="dry-run"     # dry-run | rubric | judge | list
+RUNTIME="cc"
+TARGET=""          # skill name, scenario path, or empty (all)
+
+usage() {
+    cat <<EOF
+APD Skill Eval Runner
+
+Usage: skill-eval [options] [skill | scenario.json]
+
+Modes (pick one; default --dry-run):
+  --list              Enumerate scenarios, no execution
+  --dry-run           Validate JSON + summarize
+  --rubric            Run scenarios; keyword-check expected_behavior
+  --judge             Run scenarios; LLM-as-judge per assertion
+
+Options:
+  --runtime cc|codex  Runtime to spawn (default: cc)
+  -h, --help          Show this help
+
+Targets:
+  (none)              Run across all 8 skills
+  apd-tdd             All scenarios for the named skill
+  path/scenario.json  A single scenario file
+
+Examples:
+  skill-eval --list
+  skill-eval --dry-run apd-tdd
+  skill-eval --rubric --runtime cc apd-debug
+  skill-eval --judge plugins/apd/evals/apd-finish/02-verifier-red.json
+EOF
+}
+
+# --- Arg parsing ---
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --list)     MODE="list"; shift ;;
+        --dry-run)  MODE="dry-run"; shift ;;
+        --rubric)   MODE="rubric"; shift ;;
+        --judge)    MODE="judge"; shift ;;
+        --runtime)  RUNTIME="$2"; shift 2 ;;
+        -h|--help)  usage; exit 0 ;;
+        --*)        err "Unknown flag: $1"; usage; exit 2 ;;
+        *)          TARGET="$1"; shift ;;
+    esac
+done
+
+# --- Dependency check ---
+if ! command -v jq >/dev/null 2>&1; then
+    err "skill-eval requires jq. Install via: brew install jq"
+    exit 2
+fi
+
+if [ ! -d "$EVALS_DIR" ]; then
+    err "Evals dir not found: $EVALS_DIR"
+    exit 2
+fi
+
+# --- Scenario discovery ---
+discover_scenarios() {
+    if [ -z "$TARGET" ]; then
+        # All scenarios across all skills
+        find "$EVALS_DIR" -mindepth 2 -maxdepth 2 -name '*.json' -type f | sort
+    elif [ -f "$TARGET" ]; then
+        # Single explicit file
+        printf '%s\n' "$TARGET"
+    elif [ -d "$EVALS_DIR/$TARGET" ]; then
+        # All scenarios for a named skill
+        find "$EVALS_DIR/$TARGET" -maxdepth 1 -name '*.json' -type f | sort
+    else
+        err "Target not found: $TARGET (not a skill name under $EVALS_DIR, not a file)"
+        exit 2
+    fi
+}
+
+SCENARIOS=()
+while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    SCENARIOS+=("$line")
+done < <(discover_scenarios)
+
+if [ "${#SCENARIOS[@]}" -eq 0 ]; then
+    err "No scenarios matched."
+    exit 2
+fi
+
+# --- Schema validation ---
+validate_scenario() {
+    local file="$1"
+    local missing=()
+    for field in id skill runtime description query files expected_behavior; do
+        if ! jq -e --arg f "$field" 'has($f)' "$file" >/dev/null 2>&1; then
+            missing+=("$field")
+        fi
+    done
+    if [ "${#missing[@]}" -gt 0 ]; then
+        printf 'missing fields: %s' "${missing[*]}"
+        return 1
+    fi
+    # expected_behavior must be a non-empty array
+    local count
+    count=$(jq '.expected_behavior | length' "$file" 2>/dev/null || echo 0)
+    if [ "$count" -lt 1 ]; then
+        printf 'expected_behavior must be non-empty array'
+        return 1
+    fi
+    return 0
+}
+
+check_unique_ids() {
+    local dup
+    dup=$(for f in "${SCENARIOS[@]}"; do jq -r .id "$f" 2>/dev/null; done | sort | uniq -d)
+    if [ -n "$dup" ]; then
+        echo "$dup"
+        return 1
+    fi
+    return 0
+}
+
+# --- Modes ---
+mode_list() {
+    apd_header "Skill Evals — list"
+    printf "  %-32s  %-14s  %s\n" "ID" "SKILL" "DESCRIPTION"
+    printf "  %-32s  %-14s  %s\n" "--" "-----" "-----------"
+    for f in "${SCENARIOS[@]}"; do
+        local id sk desc
+        id=$(jq -r .id "$f" 2>/dev/null || echo "?")
+        sk=$(jq -r .skill "$f" 2>/dev/null || echo "?")
+        desc=$(jq -r .description "$f" 2>/dev/null || echo "?")
+        printf "  %-32s  %-14s  %s\n" "$id" "$sk" "$desc"
+    done
+    echo ""
+    ok "${#SCENARIOS[@]} scenarios"
+}
+
+mode_dry_run() {
+    apd_header "Skill Evals — dry-run"
+    local valid=0 invalid=0
+    for f in "${SCENARIOS[@]}"; do
+        local id err_msg
+        id=$(jq -r .id "$f" 2>/dev/null || echo "(unparseable)")
+        if err_msg=$(validate_scenario "$f"); then
+            pass "$id"
+            valid=$((valid + 1))
+        else
+            fail "$id — $err_msg"
+            invalid=$((invalid + 1))
+        fi
+    done
+
+    section "Cross-scenario checks"
+    if dup=$(check_unique_ids); then
+        pass "ids are unique across all scenarios"
+    else
+        fail "duplicate ids: $dup"
+    fi
+
+    section "Summary"
+    printf "  valid:    %s\n" "$valid"
+    printf "  invalid:  %s\n" "$invalid"
+    [ "$FAIL_COUNT" -eq 0 ] || return 1
+    return 0
+}
+
+# Spawn the agent for one scenario; capture transcript to $1
+spawn_agent() {
+    local scenario="$1"
+    local out_file="$2"
+    local query files
+    query=$(jq -r .query "$scenario")
+
+    local scratch
+    scratch=$(mktemp -d -t apd-eval-XXXXXX)
+
+    # Materialize files
+    while IFS= read -r entry; do
+        local path content
+        path=$(printf '%s' "$entry" | jq -r .key)
+        content=$(printf '%s' "$entry" | jq -r .value)
+        mkdir -p "$scratch/$(dirname "$path")"
+        printf '%s' "$content" > "$scratch/$path"
+    done < <(jq -c '.files | to_entries[]' "$scenario")
+
+    # Spawn the configured runtime in the scratch dir
+    case "$RUNTIME" in
+        cc)
+            (cd "$scratch" && claude -p "$query" 2>&1) > "$out_file" || true
+            ;;
+        codex)
+            (cd "$scratch" && codex exec "$query" 2>&1) > "$out_file" || true
+            ;;
+        *)
+            err "Unknown runtime: $RUNTIME"
+            rm -rf "$scratch"
+            return 2
+            ;;
+    esac
+
+    rm -rf "$scratch"
+}
+
+# Rubric judge: case-insensitive substring + simple regex on transcript.
+# Splits expected_behavior on key noun/verb tokens; passes if at least
+# half match. Loose by design — meant as a CI floor.
+rubric_judge_one() {
+    local behavior="$1"
+    local transcript="$2"
+
+    # Take 2-3 most distinctive words from the behavior
+    local tokens
+    tokens=$(printf '%s\n' "$behavior" \
+        | tr '[:upper:]' '[:lower:]' \
+        | tr -cs '[:alnum:]' ' ' \
+        | tr ' ' '\n' \
+        | awk 'length($0) > 3 && $0 !~ /^(and|the|with|that|this|from|into|when|then|first|before|after|does|must|will|been|have|been|each|every|other|than|more|less|some|once|same|true|false|null)$/' \
+        | head -3)
+
+    local hits=0 total=0
+    while IFS= read -r tok; do
+        [ -z "$tok" ] && continue
+        total=$((total + 1))
+        if printf '%s' "$transcript" | grep -qi -- "$tok"; then
+            hits=$((hits + 1))
+        fi
+    done <<< "$tokens"
+
+    [ "$total" -eq 0 ] && return 1
+    [ $((hits * 2)) -ge "$total" ]
+}
+
+# LLM-as-judge: ask claude -p whether the behavior occurred
+llm_judge_one() {
+    local behavior="$1"
+    local transcript_file="$2"
+
+    local prompt
+    prompt=$(cat <<EOF
+Read the transcript and answer ONLY with "yes" or "no".
+
+Behavior to verify: $behavior
+
+Did the agent satisfy this behavior? Answer with one word: yes or no.
+
+--- transcript begins ---
+$(cat "$transcript_file")
+--- transcript ends ---
+EOF
+)
+    local answer
+    answer=$(claude -p "$prompt" 2>/dev/null | head -1 | tr '[:upper:]' '[:lower:]' | tr -d '[:space:][:punct:]')
+    case "$answer" in
+        yes) return 0 ;;
+        *)   return 1 ;;
+    esac
+}
+
+mode_run() {
+    local judge_mode="$1"   # "rubric" or "judge"
+    apd_header "Skill Evals — $judge_mode (runtime: $RUNTIME)"
+
+    local total_scenarios=0 passed_scenarios=0
+
+    for f in "${SCENARIOS[@]}"; do
+        local id desc
+        id=$(jq -r .id "$f")
+        desc=$(jq -r .description "$f")
+
+        section "$id"
+        printf "  %s%s%s\n" "$D" "$desc" "$R"
+
+        local transcript
+        transcript=$(mktemp -t apd-eval-tx-XXXXXX)
+        spawn_agent "$f" "$transcript"
+
+        local b_total=0 b_passed=0
+        while IFS= read -r behavior; do
+            [ -z "$behavior" ] && continue
+            b_total=$((b_total + 1))
+            if [ "$judge_mode" = "rubric" ]; then
+                if rubric_judge_one "$behavior" "$(cat "$transcript")"; then
+                    pass "$behavior"
+                    b_passed=$((b_passed + 1))
+                else
+                    fail "$behavior"
+                fi
+            else
+                if llm_judge_one "$behavior" "$transcript"; then
+                    pass "$behavior"
+                    b_passed=$((b_passed + 1))
+                else
+                    fail "$behavior"
+                fi
+            fi
+        done < <(jq -r '.expected_behavior[]' "$f")
+
+        rm -f "$transcript"
+
+        total_scenarios=$((total_scenarios + 1))
+        if [ "$b_passed" -eq "$b_total" ]; then
+            passed_scenarios=$((passed_scenarios + 1))
+        fi
+    done
+
+    section "Summary"
+    printf "  scenarios passed: %s / %s\n" "$passed_scenarios" "$total_scenarios"
+    printf "  behaviors passed: %s\n" "$PASS_COUNT"
+    printf "  behaviors failed: %s\n" "$FAIL_COUNT"
+    [ "$FAIL_COUNT" -eq 0 ] || return 1
+    return 0
+}
+
+case "$MODE" in
+    list)     mode_list ;;
+    dry-run)  mode_dry_run ;;
+    rubric)   mode_run "rubric" ;;
+    judge)    mode_run "judge" ;;
+    *)        err "Unknown mode: $MODE"; exit 2 ;;
+esac

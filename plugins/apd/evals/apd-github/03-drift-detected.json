@@ -1,0 +1,18 @@
+{
+  "id": "apd-github-03-drift-detected",
+  "skill": "apd-github",
+  "runtime": "both",
+  "description": "Board state drifts from pipeline state — agent must escalate, not auto-correct",
+  "query": "Pipeline is in builder phase. Sync the GitHub board.",
+  "files": {
+    "CLAUDE.md": "# App\n\n## APD\n\n### GitHub Projects\nGITHUB_PROJECTS_URL: https://github.com/example/project/projects/1\n",
+    ".apd/pipeline/gh-issue": "42\n",
+    ".apd/pipeline/builder.done": ""
+  },
+  "expected_behavior": [
+    "detects that issue #42 is reported as Done while the pipeline is in builder phase",
+    "stops and reports the drift to the user with both states named",
+    "does NOT silently move the card back to In Progress",
+    "asks the user whether to reopen #42 or create a fresh issue"
+  ]
+}

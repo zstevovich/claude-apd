@@ -1,0 +1,17 @@
+{
+  "id": "apd-brainstorm-03-skip-when-clear",
+  "skill": "apd-brainstorm",
+  "runtime": "both",
+  "description": "Fully specified task — brainstorm should NOT trigger; agent goes straight to spec card",
+  "query": "In src/utils/string.ts, add a kebabCase(s: string) function that converts 'hello world' to 'hello-world'. Cover empty string, multiple spaces, and unicode. Use the existing vitest setup.",
+  "files": {
+    "src/utils/string.ts": "// string helpers\nexport function camelCase(s: string): string { /* ... */ return s; }\n",
+    "tests/utils/string.test.ts": "import { describe } from 'vitest';\ndescribe('string', () => { /* ... */ });\n"
+  },
+  "expected_behavior": [
+    "recognizes the request is fully specified (file path, function signature, edge cases listed)",
+    "does NOT enter a brainstorm Q&A loop",
+    "moves directly toward writing a spec card or dispatching the builder phase",
+    "explains briefly why brainstorm is being skipped if the user expected it"
+  ]
+}
