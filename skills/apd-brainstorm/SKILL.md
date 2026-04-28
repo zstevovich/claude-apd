@@ -1,6 +1,6 @@
 ---
 name: apd-brainstorm
-description: Use BEFORE writing the APD spec card whenever the task is vague, broad, ambiguous, or has multiple reasonable approaches. Asks ONE question at a time, presents 2-3 options when there are real choices, converges on a design the user explicitly approves. Triggers on "improve X", "what should we", "thinking about", "options", "not sure", "maybe", "vague", "broad", "redesign", any spec card with unclear scope or fewer than 3 R-criteria.
+description: Use BEFORE writing the APD spec-card.md whenever the task is vague, broad, ambiguous, or has multiple reasonable approaches. Asks ONE question at a time, presents 2-3 options when there are real choices, converges on a design the user explicitly approves. Triggers on "improve X", "what should we", "thinking about", "options", "not sure", "maybe", "vague", "broad", "redesign", any spec-card.md with unclear scope or fewer than 3 R-criteria.
 effort: max
 allowed-tools: Read Glob Grep
 ---
@@ -24,8 +24,8 @@ If you cannot explain the design in one sentence — you are not ready for a spe
 - You catch yourself making implementation choices the user hasn't seen
 
 **Skip when:**
-- The task is fully specified (file paths, function names, acceptance criteria)
-- The user has already approved a design — write the spec card directly
+- The task is fully specified (file paths, function names, R-criteria)
+- The user has already approved a design — write the spec-card.md directly
 - You are mid-pipeline (spec is locked; raise concerns to user, don't re-brainstorm)
 
 ## Process
@@ -90,12 +90,12 @@ Out of scope: [what's not]
 Approach: [technical approach]
 Affected files: [list]
 
-Ready to write the spec card?
+Ready to write the spec-card.md?
 ```
 
 ### 5. Hand Off to Spec
 
-Once user approves → write spec card and enter pipeline:
+Once user approves → write spec-card.md and enter pipeline:
 
 ```bash
 bash .claude/bin/apd pipeline spec "Feature name"
@@ -134,6 +134,6 @@ You're done when:
 
 ## Hand-off
 
-- After explicit approval → write the spec card and call `pipeline-advance spec "<name>"` (the only valid exit)
+- After explicit approval → write the spec-card.md and call `pipeline-advance spec "<name>"` (the only valid exit)
 - Never leads to: code, agents, implementation — those come from the builder phase
 - If the user asks for "just one quick thing" mid-brainstorm → finish the brainstorm first, then queue it

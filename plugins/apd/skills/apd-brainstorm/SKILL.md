@@ -1,6 +1,6 @@
 ---
 name: apd-brainstorm
-description: Use BEFORE writing the APD spec card and calling apd_advance_pipeline('spec', ...) on Codex whenever the task is vague, broad, ambiguous, or has multiple reasonable interpretations. Ask ONE question at a time, present 2-3 approaches when there are real choices, converge on a design the user explicitly approves. Works hand in hand with `.apd/rules/brainstorm.md` when that file exists. Triggers on "improve X", "what should we", "thinking about", "options", "not sure", "vague", "broad", "redesign", any task with unclear scope or fewer than 3 R-criteria.
+description: Use BEFORE writing the APD spec-card.md and calling apd_advance_pipeline('spec', ...) on Codex whenever the task is vague, broad, ambiguous, or has multiple reasonable interpretations. Ask ONE question at a time, present 2-3 approaches when there are real choices, converge on a design the user explicitly approves. Works hand in hand with `.apd/rules/brainstorm.md` when that file exists. Triggers on "improve X", "what should we", "thinking about", "options", "not sure", "vague", "broad", "redesign", any task with unclear scope or fewer than 3 R-criteria.
 ---
 
 # APD Brainstorm (Codex)
@@ -16,8 +16,8 @@ Finish brainstorming BEFORE calling `apd_advance_pipeline('spec', ...)`.
 - You catch yourself making implementation choices the user hasn't seen
 
 **Skip when:**
-- The task is fully specified (file paths, function names, acceptance criteria)
-- The user has already approved a design — write the spec card directly
+- The task is fully specified (file paths, function names, R-criteria)
+- The user has already approved a design — write the spec-card.md directly
 - You are mid-pipeline (spec is locked; raise concerns to user, don't re-brainstorm)
 
 ## The Iron Law
@@ -27,7 +27,7 @@ NO SPEC WITHOUT SHARED UNDERSTANDING FIRST
 ```
 
 If you cannot explain the design in one sentence, you are not ready for a
-spec card. A vague spec produces vague code.
+spec-card.md. A vague spec produces vague code.
 
 ## Process
 
@@ -74,6 +74,6 @@ You're done when:
 
 ## Hand-off
 
-- After explicit approval → write the spec card and call `apd_advance_pipeline('spec', '<name>')` (the only valid exit)
+- After explicit approval → write the spec-card.md and call `apd_advance_pipeline('spec', '<name>')` (the only valid exit)
 - Never leads to: code, agent edits, file writes outside `.apd/pipeline/` — those come from the builder phase
 - If the user asks for "just one quick thing" mid-brainstorm → finish the brainstorm first, then queue it

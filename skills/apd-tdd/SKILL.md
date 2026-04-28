@@ -1,6 +1,6 @@
 ---
 name: apd-tdd
-description: MANDATORY for every APD builder dispatch. Use when implementing any feature, fixing any bug, or writing new code as a builder agent — write a FAILING test first, watch it fail, write minimal code to pass, refactor while green. Triggers on "implement", "add feature", "fix bug", "write code", "TDD", "test-first", "builder", any APD spec card transitioning from spec → builder phase.
+description: MANDATORY for every APD builder dispatch. Use when implementing any feature, fixing any bug, or writing new code as a builder agent — write a FAILING test first, watch it fail, write minimal code to pass, refactor while green. Triggers on "implement", "add feature", "fix bug", "write code", "TDD", "test-first", "builder", any APD spec-card.md transitioning from spec → builder phase.
 effort: xhigh
 allowed-tools: Read Write Edit Glob Grep Bash
 ---
