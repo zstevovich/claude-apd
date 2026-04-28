@@ -547,6 +547,33 @@ case "$STEP" in
             fi
         fi
 
+        # Severity gate (v6.1 B2): block when adversarial dismissed-defect count
+        # exceeds the spec-card's `max_defects` budget.
+        # Format in spec-card.md:  `adversarial: max_defects=N`  or  `=unlimited`
+        # Default (field absent) = unlimited (backward compat with pre-v6.1).
+        if [ -f "$PIPELINE_DIR/.adversarial-summary" ] && [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+            MAX_DEFECTS_RAW=$(grep -iE '^adversarial:.*max_defects[[:space:]]*[:=][[:space:]]*([0-9]+|unlimited)' "$PIPELINE_DIR/spec-card.md" 2>/dev/null \
+                | sed -E 's/.*max_defects[[:space:]]*[:=][[:space:]]*//I' \
+                | tr '[:upper:]' '[:lower:]' \
+                | awk '{print $1}' \
+                | head -1)
+            if [ -n "$MAX_DEFECTS_RAW" ] && [ "$MAX_DEFECTS_RAW" != "unlimited" ]; then
+                ADV_LINE=$(grep '^ADVERSARIAL:' "$PIPELINE_DIR/.adversarial-summary" 2>/dev/null | head -1)
+                ADV_D=$(echo "$ADV_LINE" | cut -d: -f4)
+                ADV_D=${ADV_D:-0}
+                if [ "$ADV_D" -gt "$MAX_DEFECTS_RAW" ] 2>/dev/null; then
+                    echo "BLOCKED: adversarial summary has D=$ADV_D, spec-card.md sets max_defects=$MAX_DEFECTS_RAW." >&2
+                    echo "" >&2
+                    echo "  Three ways forward:" >&2
+                    echo "    (a) Address findings via builder fix → re-dispatch adversarial-reviewer → re-record." >&2
+                    echo "    (b) Raise threshold: rollback, edit spec-card.md  'adversarial: max_defects=N',  re-run." >&2
+                    echo "    (c) Opt out for small tasks (≤2 R-criteria): 'adversarial: skip — <reason>'." >&2
+                    log_block "max_defects-exceeded" "ADV_D=$ADV_D max_defects=$MAX_DEFECTS_RAW"
+                    exit 1
+                fi
+            fi
+        fi
+
         # Run build + tests. verify-all.sh lives IN THE PROJECT, not the plugin.
         # Search Codex-native location first, then legacy CC path, so pure-Codex
         # projects can keep their verifier entirely under .codex/.

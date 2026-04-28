@@ -2510,6 +2510,131 @@ else
 fi
 
 # -----------------------------------------------------------
+# 25. Severity gate — `adversarial: max_defects=N` (v6.1 B2)
+#     Tests pipeline-advance verifier parse+compare logic without
+#     spawning the full verifier (avoids verify-trace + verify-all.sh
+#     coupling). Replicates the gate's grep/sed/cut pipeline directly.
+# -----------------------------------------------------------
+section "25. Severity gate (max_defects)"
+
+# Helper: extract max_defects value the same way the gate does
+extract_max_defects() {
+    grep -iE '^adversarial:.*max_defects[[:space:]]*[:=][[:space:]]*([0-9]+|unlimited)' "$1" 2>/dev/null \
+        | sed -E 's/.*max_defects[[:space:]]*[:=][[:space:]]*//I' \
+        | tr '[:upper:]' '[:lower:]' \
+        | awk '{print $1}' \
+        | head -1
+}
+
+SEV_DIR="$(mktemp -d -t apd-sev.XXXXXX)"
+
+# Case 1: max_defects=2, D=8 → block expected
+cat > "$SEV_DIR/spec-card-1.md" <<'EOF'
+# Task
+
+adversarial: max_defects=2
+
+**Acceptance criteria:**
+- R1: do x
+- R2: do y
+EOF
+M=$(extract_max_defects "$SEV_DIR/spec-card-1.md")
+if [ "$M" = "2" ]; then
+    pass "parse: 'max_defects=2' extracted as 2"
+    PASSES=$((PASSES + 1))
+else
+    fail "parse: max_defects=2 yielded '$M' (expected '2')"
+    FAILS=$((FAILS + 1))
+fi
+# Comparison: D=8 > max=2 → block
+if [ 8 -gt "$M" ] 2>/dev/null; then
+    pass "decision: D=8 > max=2 → block"
+    PASSES=$((PASSES + 1))
+else
+    fail "decision: D=8 should exceed max=2"
+    FAILS=$((FAILS + 1))
+fi
+
+# Case 2: max_defects=2, D=2 → allow expected
+if [ 2 -gt "$M" ] 2>/dev/null; then
+    fail "decision: D=2 should NOT exceed max=2"
+    FAILS=$((FAILS + 1))
+else
+    pass "decision: D=2 == max=2 → allow"
+    PASSES=$((PASSES + 1))
+fi
+
+# Case 3: no adversarial line → skip gate (default unlimited)
+cat > "$SEV_DIR/spec-card-3.md" <<'EOF'
+# Task
+
+**Acceptance criteria:**
+- R1: do x
+EOF
+M=$(extract_max_defects "$SEV_DIR/spec-card-3.md")
+if [ -z "$M" ]; then
+    pass "parse: missing field → empty (gate skipped, default unlimited)"
+    PASSES=$((PASSES + 1))
+else
+    fail "parse: missing field returned '$M' (expected empty)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Case 4: explicit max_defects=unlimited → gate skipped
+cat > "$SEV_DIR/spec-card-4.md" <<'EOF'
+# Task
+
+adversarial: max_defects=unlimited
+
+**Acceptance criteria:**
+- R1: do x
+EOF
+M=$(extract_max_defects "$SEV_DIR/spec-card-4.md")
+if [ "$M" = "unlimited" ]; then
+    pass "parse: 'max_defects=unlimited' extracted (gate skipped)"
+    PASSES=$((PASSES + 1))
+else
+    fail "parse: max_defects=unlimited yielded '$M'"
+    FAILS=$((FAILS + 1))
+fi
+
+# Case 5: format with colon separator instead of equals: 'max_defects: 3'
+cat > "$SEV_DIR/spec-card-5.md" <<'EOF'
+# Task
+
+adversarial: max_defects: 3
+
+**Acceptance criteria:**
+- R1: do x
+EOF
+M=$(extract_max_defects "$SEV_DIR/spec-card-5.md")
+if [ "$M" = "3" ]; then
+    pass "parse: 'max_defects: 3' (colon variant) extracted as 3"
+    PASSES=$((PASSES + 1))
+else
+    fail "parse: max_defects: 3 yielded '$M' (expected '3')"
+    FAILS=$((FAILS + 1))
+fi
+
+# Case 6: BLOCKED message wording (smoke test on stderr from the gate
+# block in pipeline-advance — extracted by sourcing the relevant lines).
+# Skipping a full pipeline-advance verifier run because the .done files
+# require validate-agent HMAC signatures that test-only setups can't fake.
+GATE_MSG=$(grep -A 8 "spec-card.md sets max_defects" "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+    | head -8)
+if echo "$GATE_MSG" | grep -q "Address findings via builder fix" \
+   && echo "$GATE_MSG" | grep -q "Raise threshold" \
+   && echo "$GATE_MSG" | grep -q "Opt out for small tasks"; then
+    pass "block message names the three remediation paths (fix / raise / opt-out)"
+    PASSES=$((PASSES + 1))
+else
+    fail "block message missing remediation guidance"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$SEV_DIR"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

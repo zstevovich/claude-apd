@@ -136,6 +136,7 @@ See §17.2 for per-guard internals. Block convention: exit 2 = BLOCK, exit 0 = A
 | `*.done` (4 files) | each `pipeline-advance` step | Gate completion markers; line 1 = `<epoch>\|<human-time>[\|<task>]`, line 2 = HMAC signature (validate-agent) |
 | `.reviewed-files` | reviewer phase | Reviewer-scoped file list |
 | `.adversarial-pending` | reviewer phase | Full mode flag + green light for adversarial dispatch (v6.1 B1 pre-flight gate) |
+| `spec-card.md` `adversarial:` line | spec phase | Optional. `skip — <reason>` (opt-out, ≤2 R) or `max_defects=N\|unlimited` (v6.1 B2 severity gate). Default = unlimited |
 | `.adversarial-summary` | adversarial phase | `ADVERSARIAL:T:A:D` + Notes block |
 | `.trace-summary` | verifier phase | `TRACE:<covered>/<total>:<uncovered_ids>` |
 | `verified.timestamp` | verifier phase | 120s TTL cache |
@@ -226,7 +227,7 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 
 | Script | Coverage |
 |---|---|
-| `bin/core/test-codex-adapter` | 239 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema, adversarial pre-flight gate |
+| `bin/core/test-codex-adapter` | 246 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema, adversarial pre-flight gate, severity gate |
 | `bin/core/test-hooks` | Static: hooks.json schema, placeholder fillness |
 | `bin/core/test-system` | E2E synthetic pipeline (creates `/tmp/apd-test-XXXX`); 2 sections (Pipeline Lifecycle, Spec Enforcement) |
 | `bin/core/verify-apd` | 60+ checks on configured project. **In-monorepo run mis-resolves** — copy example to `/tmp` for accurate result. |

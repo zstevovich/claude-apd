@@ -40,6 +40,12 @@
    ↓
 7. RUN VERIFIER — build + test
    → bash .claude/bin/apd pipeline verifier
+   → SEVERITY GATE (v6.1 B2): blocks when adversarial dismissed-defect count
+     (D in ADVERSARIAL:T:A:D) exceeds spec-card.md `adversarial: max_defects=N`.
+     Default (field absent) = unlimited. Recommended:
+       hotfix (1–2 R) → max_defects=unlimited
+       real task (3–4 R) → max_defects=0
+       complex (5+ R) → max_defects=0 or N with rationale.
    → If verifier FAILS → MANDATORY: /apd-debug before re-dispatching builder
    ↓
 8. ONE COMMIT for the entire feature

@@ -89,9 +89,20 @@ Scope: [what's included]
 Out of scope: [what's not]
 Approach: [technical approach]
 Affected files: [list]
+Adversarial budget: [max_defects=unlimited | =0 | =N]
 
 Ready to write the spec-card.md?
 ```
+
+**Adversarial budget recommendation** (writes a `adversarial: max_defects=N` line into spec-card.md, enforced by the verifier):
+
+| R-criterion count | Recommended | Why |
+|---|---|---|
+| 1–2 (hotfix) | `max_defects=unlimited` | Small surface, accept residual risk to ship fast |
+| 3–4 (real task) | `max_defects=0` | Standard cycle — dismissed defects mean missed signal |
+| 5+ (complex) | `max_defects=0` or `N` with rationale | Large surface, gate forces a fix-and-re-review loop |
+
+If the user does not specify, omit the field — the verifier defaults to unlimited (backward compat).
 
 ### 5. Hand Off to Spec
 
