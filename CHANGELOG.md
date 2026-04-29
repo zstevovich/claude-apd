@@ -1,5 +1,11 @@
 # Changelog
 
+## v6.1.2 — 2026-04-29
+
+Hotfix from BambiProject live pipeline evidence: spec-card.md authored with markdown-bold around the `adversarial:` directive (`**adversarial:** skip — <reason>`) was not recognized by `pipeline-advance`'s opt-out parser. The verifier therefore demanded the adversarial pass even though the spec opted out — the user's workaround was to dispatch a trivial adversarial-reviewer to satisfy the gate.
+
+- **fix(pipeline): markdown-bold tolerance on adversarial directive parsing.** Both `pipeline-advance` parser sites — the reviewer-step `adversarial: skip` opt-out (introduced in v3.x) and the verifier-step `adversarial: max_defects=N` severity gate (introduced in v6.1 B2) — relaxed their regex from `^adversarial:` to `^[-*_ \t]*adversarial[-*_ \t]*:`. Six skip-variant inputs and three max_defects bold-variant inputs now match: `**adversarial:**`, `**adversarial**:`, `*adversarial:*`, `- adversarial:`, `**Adversarial:**`, plus the original plain form. Test section 26 covers all variants. Tests: 248 → 257.
+
 ## v6.1.1 — 2026-04-29
 
 Codex skill-payload quality fixes from the v6.1.0 audit. Test count: 246 → 248.
