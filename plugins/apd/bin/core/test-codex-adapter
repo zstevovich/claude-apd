@@ -2452,6 +2452,13 @@ else
     fail "skill-eval --list did not report 27 scenarios"
     FAILS=$((FAILS + 1))
 fi
+if echo "$EVAL_LIST_OUT" | grep -q "RUNTIME"; then
+    pass "skill-eval --list shows runtime column"
+    PASSES=$((PASSES + 1))
+else
+    fail "skill-eval --list omitted runtime column"
+    FAILS=$((FAILS + 1))
+fi
 
 EVAL_DRY_OUT=$(bash "$APD_PLUGIN_ROOT/bin/core/skill-eval" --dry-run 2>&1 || true)
 if echo "$EVAL_DRY_OUT" | grep -qE "valid:[[:space:]]+27" && echo "$EVAL_DRY_OUT" | grep -qE "invalid:[[:space:]]+0"; then
@@ -2459,6 +2466,16 @@ if echo "$EVAL_DRY_OUT" | grep -qE "valid:[[:space:]]+27" && echo "$EVAL_DRY_OUT
     PASSES=$((PASSES + 1))
 else
     fail "skill-eval --dry-run did not pass all scenarios"
+    FAILS=$((FAILS + 1))
+fi
+EVAL_DRY_CODEX_OUT=$(bash "$APD_PLUGIN_ROOT/bin/core/skill-eval" --rubric --runtime codex --dry-run 2>&1 || true)
+if echo "$EVAL_DRY_CODEX_OUT" | grep -qE "targeted:[[:space:]]+21 / 27" \
+    && echo "$EVAL_DRY_CODEX_OUT" | grep -qE "valid:[[:space:]]+21" \
+    && echo "$EVAL_DRY_CODEX_OUT" | grep -qE "invalid:[[:space:]]+0"; then
+    pass "skill-eval runtime filter targets Codex execution subset (21/27)"
+    PASSES=$((PASSES + 1))
+else
+    fail "skill-eval runtime filter did not target Codex subset"
     FAILS=$((FAILS + 1))
 fi
 

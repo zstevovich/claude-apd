@@ -4,11 +4,11 @@
 # Usage: skill-eval [options] [skill | scenario.json]
 #
 # Modes:
-#   --list                Enumerate all scenarios (no execution)
+#   --list                Enumerate all scenarios with runtime labels (no execution)
 #   --dry-run             Validate scenario JSON, print summary, no agent spawn
 #   --rubric              Keyword-match expected_behavior vs captured transcript
 #   --judge               LLM-as-judge — asks claude -p per assertion
-#   --runtime cc|codex    Spawn runtime (default: cc)
+#   --runtime cc|codex    Spawn/filter runtime (default: cc)
 #
 # Sources scenarios from $APD_PLUGIN_ROOT/evals/<skill>/*.json.
 # See evals/README.md for schema and authoring guide.
@@ -20,9 +20,10 @@ source "$(dirname "$0")/../lib/style.sh"
 
 EVALS_DIR="$APD_PLUGIN_ROOT/evals"
 
-MODE="dry-run"     # dry-run | rubric | judge | list
+MODE="dry-run"       # dry-run | rubric | judge | list
 RUNTIME="cc"
-TARGET=""          # skill name, scenario path, or empty (all)
+RUNTIME_EXPLICIT=0
+TARGET=""            # skill name, scenario path, or empty (all)
 
 usage() {
     cat <<EOF
@@ -31,13 +32,14 @@ APD Skill Eval Runner
 Usage: skill-eval [options] [skill | scenario.json]
 
 Modes (pick one; default --dry-run):
-  --list              Enumerate scenarios, no execution
-  --dry-run           Validate JSON + summarize
+  --list              Enumerate scenarios with runtime labels, no execution
+  --dry-run           Validate JSON + summarize; with explicit --runtime,
+                      validate only the scenarios that runtime would execute
   --rubric            Run scenarios; keyword-check expected_behavior
   --judge             Run scenarios; LLM-as-judge per assertion
 
 Options:
-  --runtime cc|codex  Runtime to spawn (default: cc)
+  --runtime cc|codex  Runtime to spawn/filter (default: cc)
   -h, --help          Show this help
 
 Targets:
@@ -60,12 +62,17 @@ while [ $# -gt 0 ]; do
         --dry-run)  MODE="dry-run"; shift ;;
         --rubric)   MODE="rubric"; shift ;;
         --judge)    MODE="judge"; shift ;;
-        --runtime)  RUNTIME="$2"; shift 2 ;;
+        --runtime)  RUNTIME="$2"; RUNTIME_EXPLICIT=1; shift 2 ;;
         -h|--help)  usage; exit 0 ;;
         --*)        err "Unknown flag: $1"; usage; exit 2 ;;
         *)          TARGET="$1"; shift ;;
     esac
 done
+
+case "$RUNTIME" in
+    cc|codex) ;;
+    *) err "Unknown runtime: $RUNTIME"; exit 2 ;;
+esac
 
 # --- Dependency check ---
 if ! command -v jq >/dev/null 2>&1; then
@@ -106,6 +113,34 @@ if [ "${#SCENARIOS[@]}" -eq 0 ]; then
     exit 2
 fi
 
+scenario_matches_runtime() {
+    local file="$1"
+    local scenario_runtime
+    scenario_runtime=$(jq -r '.runtime // "both"' "$file" 2>/dev/null || echo "both")
+    [ "$scenario_runtime" = "both" ] || [ "$scenario_runtime" = "$RUNTIME" ]
+}
+
+should_filter_scenarios() {
+    case "$MODE" in
+        rubric|judge) return 0 ;;
+        dry-run) [ "$RUNTIME_EXPLICIT" -eq 1 ] && return 0 || return 1 ;;
+        *) return 1 ;;
+    esac
+}
+
+ACTIVE_SCENARIOS=()
+for f in "${SCENARIOS[@]}"; do
+    if should_filter_scenarios && ! scenario_matches_runtime "$f"; then
+        continue
+    fi
+    ACTIVE_SCENARIOS+=("$f")
+done
+
+if should_filter_scenarios && [ "${#ACTIVE_SCENARIOS[@]}" -eq 0 ]; then
+    err "No scenarios matched runtime '$RUNTIME'."
+    exit 2
+fi
+
 # --- Schema validation ---
 validate_scenario() {
     local file="$1"
@@ -131,7 +166,7 @@ validate_scenario() {
 
 check_unique_ids() {
     local dup
-    dup=$(for f in "${SCENARIOS[@]}"; do jq -r .id "$f" 2>/dev/null; done | sort | uniq -d)
+    dup=$(for f in "${ACTIVE_SCENARIOS[@]}"; do jq -r .id "$f" 2>/dev/null; done | sort | uniq -d)
     if [ -n "$dup" ]; then
         echo "$dup"
         return 1
@@ -142,14 +177,15 @@ check_unique_ids() {
 # --- Modes ---
 mode_list() {
     apd_header "Skill Evals — list"
-    printf "  %-32s  %-14s  %s\n" "ID" "SKILL" "DESCRIPTION"
-    printf "  %-32s  %-14s  %s\n" "--" "-----" "-----------"
-    for f in "${SCENARIOS[@]}"; do
-        local id sk desc
+    printf "  %-32s  %-14s  %-7s  %s\n" "ID" "SKILL" "RUNTIME" "DESCRIPTION"
+    printf "  %-32s  %-14s  %-7s  %s\n" "--" "-----" "-------" "-----------"
+    for f in "${ACTIVE_SCENARIOS[@]}"; do
+        local id sk rt desc
         id=$(jq -r .id "$f" 2>/dev/null || echo "?")
         sk=$(jq -r .skill "$f" 2>/dev/null || echo "?")
+        rt=$(jq -r .runtime "$f" 2>/dev/null || echo "?")
         desc=$(jq -r .description "$f" 2>/dev/null || echo "?")
-        printf "  %-32s  %-14s  %s\n" "$id" "$sk" "$desc"
+        printf "  %-32s  %-14s  %-7s  %s\n" "$id" "$sk" "$rt" "$desc"
     done
     echo ""
     ok "${#SCENARIOS[@]} scenarios"
@@ -157,8 +193,14 @@ mode_list() {
 
 mode_dry_run() {
     apd_header "Skill Evals — dry-run"
+    if [ "$RUNTIME_EXPLICIT" -eq 1 ]; then
+        section "Runtime filter"
+        printf "  runtime:   %s\n" "$RUNTIME"
+        printf "  targeted:  %s / %s\n" "${#ACTIVE_SCENARIOS[@]}" "${#SCENARIOS[@]}"
+    fi
+
     local valid=0 invalid=0
-    for f in "${SCENARIOS[@]}"; do
+    for f in "${ACTIVE_SCENARIOS[@]}"; do
         local id err_msg
         id=$(jq -r .id "$f" 2>/dev/null || echo "(unparseable)")
         if err_msg=$(validate_scenario "$f"); then
