@@ -106,14 +106,20 @@ If the user does not specify, omit the field — the verifier defaults to unlimi
 
 ### 5. Hand Off to Spec
 
-Once user approves → write spec-card.md and enter pipeline:
+Do not advance the pipeline while asking questions, presenting options, or
+revising the design. Once the user explicitly approves the design summary,
+write spec-card.md and enter the pipeline; that advance is the only valid exit
+from brainstorming:
 
 ```bash
 bash .claude/bin/apd pipeline spec "Feature name"
 ```
 
 <HARD-GATE>
-Do NOT write code during brainstorming. This skill produces a DESIGN, not an implementation. Code comes from Builder agents after the spec is approved.
+Do NOT write code during brainstorming. Do NOT advance the pipeline mid-flow
+while questions or design choices are still open. This skill produces a
+DESIGN, then exits only by advancing the approved spec. Code comes from
+Builder agents after the spec is approved.
 </HARD-GATE>
 
 ## Red Flags — STOP
@@ -132,6 +138,7 @@ Do NOT write code during brainstorming. This skill produces a DESIGN, not an imp
 - Listen more than propose
 - Present trade-offs, don't decide for the user
 - No code during brainstorming
+- No pipeline advance while asking questions, presenting options, or revising the design
 - End with a clear design that feeds into the spec
 
 ## Exit criteria
@@ -142,9 +149,10 @@ You're done when:
 - Approach is named (architectural pattern, library choice, integration point)
 - Affected files are listed (not just "wherever it goes")
 - The user has explicitly approved the design summary — no implicit approval
+- The spec-card.md has been written and `pipeline-advance spec "<name>"` has been called as the final brainstorm action
 
 ## Hand-off
 
-- After explicit approval → write the spec-card.md and call `pipeline-advance spec "<name>"` (the only valid exit)
+- After explicit approval → write the spec-card.md and call `pipeline-advance spec "<name>"`; this is not a mid-brainstorm advance, it is the only valid exit
 - Never leads to: code, agents, implementation — those come from the builder phase
 - If the user asks for "just one quick thing" mid-brainstorm → finish the brainstorm first, then queue it

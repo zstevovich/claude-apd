@@ -5,7 +5,9 @@ description: Use BEFORE writing the APD spec-card.md and calling apd:apd_advance
 
 # APD Brainstorm (Codex)
 
-Finish brainstorming BEFORE calling `apd:apd_advance_pipeline('spec', ...)`.
+Finish the question / option / design-approval flow BEFORE calling
+`apd:apd_advance_pipeline('spec', ...)`. That call is the only valid exit
+after the user explicitly approves the design summary.
 
 ## When to use / When to skip
 
@@ -58,7 +60,9 @@ If the user does not specify, omit the field — the verifier defaults to unlimi
 - Write code
 - Call `apd:apd_guard_write`
 - Edit any file outside `.apd/pipeline/`
-- Advance the pipeline
+- Advance the pipeline while asking questions, presenting options, or revising
+  the design; the spec advance is allowed only after explicit approval and is
+  the only valid exit
 
 Brainstorming produces a DESIGN. Implementation is the builder phase.
 
@@ -80,10 +84,10 @@ You're done when:
 - Approach is named (architectural pattern, library choice, integration point)
 - Affected files are listed (not just "wherever it goes")
 - The user has explicitly approved the design summary — no implicit approval
-- `.apd/pipeline/spec-card.md` has been written and `apd:apd_advance_pipeline('spec', '<name>')` is the next call
+- `.apd/pipeline/spec-card.md` has been written and `apd:apd_advance_pipeline('spec', '<name>')` has been called as the final brainstorm action
 
 ## Hand-off
 
-- After explicit approval → write the spec-card.md and call `apd:apd_advance_pipeline('spec', '<name>')` (the only valid exit)
+- After explicit approval → write the spec-card.md and call `apd:apd_advance_pipeline('spec', '<name>')`; this is not a mid-brainstorm advance, it is the only valid exit
 - Never leads to: code, agent edits, file writes outside `.apd/pipeline/` — those come from the builder phase
 - If the user asks for "just one quick thing" mid-brainstorm → finish the brainstorm first, then queue it
