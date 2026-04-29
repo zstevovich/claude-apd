@@ -1,0 +1,23 @@
+{
+  "id": "apd-audit-04-codex-missing-scope",
+  "skill": "apd-audit",
+  "runtime": "codex",
+  "description": "Codex builder agent has no scope field, leaving guard-write unbounded",
+  "query": "Audit APD configuration on Codex.",
+  "files": {
+    "AGENTS.md": "# App\n\n## Stack\n| Layer | Tech |\n|---|---|\n| API | TypeScript + Express |\n\n## APD\n\n### Pipeline\nCodex uses apd:apd_advance_pipeline for spec, builder, reviewer, and verifier.\n\n### Guardrails\n- apd:apd_guard_write enforces .apd/agents scope.\n\n### Mandatory skills\n- apd-brainstorm\n- apd-tdd\n- apd-debug\n- apd-finish\n\n### Human gate\nAsk before push, PR, or discard.\n",
+    ".apd/agents/backend-builder.md": "---\nname: backend-builder\ndescription: Implements backend features\nmodel: gpt-5.4\nmaxTurns: 60\n---\n\n# backend-builder\n\n## Role\nImplement backend changes. Before every write call apd:apd_guard_write(apd_role=\"backend-builder\", file_path=\"...\").\n",
+    ".apd/agents/code-reviewer.md": "---\nname: code-reviewer\ndescription: Read-only reviewer\nmodel: gpt-5.4\neffort: max\nscope: []\nreadonly: true\n---\n\n# code-reviewer\n\nFORBIDDEN: do not edit files.\n",
+    ".codex/config.toml": "[mcp_servers.apd]\ncommand = \"uv\"\nargs = [\"run\", \"--with\", \"mcp\", \"python\", \"mcp/apd_mcp_server.py\"]\ncwd = \"plugins/apd\"\n\n[mcp_servers.apd.tools.apd_ping]\napproval_mode = \"approve\"\n[mcp_servers.apd.tools.apd_doctor]\napproval_mode = \"approve\"\n[mcp_servers.apd.tools.apd_advance_pipeline]\napproval_mode = \"approve\"\n[mcp_servers.apd.tools.apd_guard_write]\napproval_mode = \"approve\"\n[mcp_servers.apd.tools.apd_verify_step]\napproval_mode = \"approve\"\n[mcp_servers.apd.tools.apd_adversarial_pass]\napproval_mode = \"approve\"\n[mcp_servers.apd.tools.apd_list_agents]\napproval_mode = \"approve\"\n[mcp_servers.apd.tools.apd_pipeline_state]\napproval_mode = \"approve\"\n",
+    ".codex/hooks.json": "{ \"hooks\": { \"PreToolUse\": [{ \"matcher\": \"Bash\", \"hooks\": [{ \"type\": \"command\", \"command\": \"bash plugins/apd/bin/adapter/cdx/guard-bash-scope\" }] }], \"SessionStart\": [{ \"hooks\": [{ \"type\": \"command\", \"command\": \"bash plugins/apd/bin/adapter/cdx/session-start\" }] }] } }\n",
+    ".apd/memory/MEMORY.md": "# Memory\nProject context is initialized.\n",
+    ".apd/memory/status.md": "# Status\nidle\n",
+    ".apd/memory/session-log.md": ""
+  },
+  "expected_behavior": [
+    "opens .apd/agents/backend-builder.md and detects that the builder has no scope field",
+    "categorizes the missing scope as CRITICAL or IMPORTANT because apd_guard_write cannot enforce a bounded write set",
+    "reports the finding with a concrete .apd/agents/backend-builder.md file reference",
+    "recommends adding a scoped list such as scope: [src/, config/] or regenerating the agent with apd cdx agents add"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "id": "apd-audit-05-codex-stale-claude-ref",
+  "skill": "apd-audit",
+  "runtime": "codex",
+  "description": "Codex AGENTS.md contains stale .claude/ command paths",
+  "query": "Run an APD audit for this Codex project.",
+  "files": {
+    "AGENTS.md": "# App\n\n## Stack\n| Layer | Tech |\n|---|---|\n| API | FastAPI |\n\n## APD\n\n### Pipeline\nRun `bash .claude/bin/apd pipeline status` before each task.\n\n### Guardrails\nThe agents live under `.claude/agents/`.\n\n### Mandatory skills\n- /apd-tdd\n- /apd-debug\n- /apd-finish\n\n### Human gate\nAsk before push.\n",
+    ".apd/agents/backend-builder.md": "---\nname: backend-builder\ndescription: Implements backend features\nmodel: gpt-5.4\nmaxTurns: 60\nscope:\n  - app/\n---\n\n# backend-builder\n\nFORBIDDEN: do not commit. Before every write call apd:apd_guard_write(apd_role=\"backend-builder\", file_path=\"...\").\n",
+    ".apd/agents/code-reviewer.md": "---\nname: code-reviewer\ndescription: Read-only reviewer\nmodel: gpt-5.4\neffort: max\nscope: []\nreadonly: true\n---\n\n# code-reviewer\n\nFORBIDDEN: do not edit files.\n",
+    "app/main.py": "def app():\n    return 'ok'\n",
+    ".codex/config.toml": "[mcp_servers.apd]\ncommand = \"uv\"\nargs = [\"run\", \"--with\", \"mcp\", \"python\", \"mcp/apd_mcp_server.py\"]\ncwd = \"plugins/apd\"\n\n[mcp_servers.apd.tools.apd_ping]\napproval_mode = \"approve\"\n[mcp_servers.apd.tools.apd_doctor]\napproval_mode = \"approve\"\n[mcp_servers.apd.tools.apd_advance_pipeline]\napproval_mode = \"approve\"\n[mcp_servers.apd.tools.apd_guard_write]\napproval_mode = \"approve\"\n[mcp_servers.apd.tools.apd_verify_step]\napproval_mode = \"approve\"\n[mcp_servers.apd.tools.apd_adversarial_pass]\napproval_mode = \"approve\"\n[mcp_servers.apd.tools.apd_list_agents]\napproval_mode = \"approve\"\n[mcp_servers.apd.tools.apd_pipeline_state]\napproval_mode = \"approve\"\n",
+    ".codex/hooks.json": "{ \"hooks\": { \"PreToolUse\": [{ \"matcher\": \"Bash\", \"hooks\": [{ \"type\": \"command\", \"command\": \"bash plugins/apd/bin/adapter/cdx/guard-bash-scope\" }] }], \"SessionStart\": [{ \"hooks\": [{ \"type\": \"command\", \"command\": \"bash plugins/apd/bin/adapter/cdx/session-start\" }] }] } }\n",
+    ".apd/memory/MEMORY.md": "# Memory\nProject context is initialized.\n",
+    ".apd/memory/status.md": "# Status\nidle\n",
+    ".apd/memory/session-log.md": ""
+  },
+  "expected_behavior": [
+    "detects stale .claude/ references in AGENTS.md for a Codex-only project",
+    "categorizes the finding as IMPORTANT because the orchestrator would follow non-Codex paths",
+    "prescribes replacing .claude/bin/apd pipeline references with Codex MCP tools such as apd:apd_pipeline_state()",
+    "does not report this as a missing Claude setup problem; the project is Codex-native"
+  ]
+}

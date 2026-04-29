@@ -1,0 +1,25 @@
+{
+  "id": "apd-audit-06-codex-missing-mcp-approval",
+  "skill": "apd-audit",
+  "runtime": "codex",
+  "description": "Codex config has APD MCP transport but no per-tool approval blocks",
+  "query": "Audit APD setup; Codex keeps asking me to approve APD tools.",
+  "files": {
+    "AGENTS.md": "# App\n\n## Stack\n| Layer | Tech |\n|---|---|\n| API | Go |\n\n## APD\n\n### Pipeline\nUse apd:apd_advance_pipeline for APD phase transitions.\n\n### Guardrails\nUse apd:apd_guard_write before file writes.\n\n### Mandatory skills\n- apd-brainstorm\n- apd-tdd\n- apd-debug\n- apd-finish\n\n### Human gate\nAsk before push, PR, or discard.\n",
+    ".apd/agents/backend-builder.md": "---\nname: backend-builder\ndescription: Implements backend features\nmodel: gpt-5.4\nmaxTurns: 60\nscope:\n  - cmd/\n  - internal/\n---\n\n# backend-builder\n\nFORBIDDEN: do not commit. Before every write call apd:apd_guard_write(apd_role=\"backend-builder\", file_path=\"...\").\n",
+    ".apd/agents/code-reviewer.md": "---\nname: code-reviewer\ndescription: Read-only reviewer\nmodel: gpt-5.4\neffort: max\nscope: []\nreadonly: true\n---\n\n# code-reviewer\n\nFORBIDDEN: do not edit files.\n",
+    "cmd/server/main.go": "package main\n\nfunc main() {}\n",
+    "internal/app/service.go": "package app\n",
+    ".codex/config.toml": "[mcp_servers.apd]\ncommand = \"uv\"\nargs = [\"run\", \"--with\", \"mcp\", \"python\", \"mcp/apd_mcp_server.py\"]\ncwd = \"plugins/apd\"\ndefault_tools_approval_mode = \"approve\"\n",
+    ".codex/hooks.json": "{ \"hooks\": { \"PreToolUse\": [{ \"matcher\": \"Bash\", \"hooks\": [{ \"type\": \"command\", \"command\": \"bash plugins/apd/bin/adapter/cdx/guard-bash-scope\" }] }], \"SessionStart\": [{ \"hooks\": [{ \"type\": \"command\", \"command\": \"bash plugins/apd/bin/adapter/cdx/session-start\" }] }] } }\n",
+    ".apd/memory/MEMORY.md": "# Memory\nProject context is initialized.\n",
+    ".apd/memory/status.md": "# Status\nidle\n",
+    ".apd/memory/session-log.md": ""
+  },
+  "expected_behavior": [
+    "detects that .codex/config.toml has the parent [mcp_servers.apd] transport block",
+    "detects that the eight [mcp_servers.apd.tools.<name>] approval blocks are missing",
+    "categorizes the finding as IMPORTANT because Codex will keep prompting for APD MCP tool approval",
+    "recommends rerunning apd cdx init or install-codex-config to rewrite the per-tool approval blocks"
+  ]
+}

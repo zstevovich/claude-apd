@@ -2445,17 +2445,17 @@ rm -rf "$CC_DIR"
 section "24. skill-eval framework"
 
 EVAL_LIST_OUT=$(bash "$APD_PLUGIN_ROOT/bin/core/skill-eval" --list 2>&1 || true)
-if echo "$EVAL_LIST_OUT" | grep -q "24 scenarios"; then
-    pass "skill-eval --list reports 24 scenarios"
+if echo "$EVAL_LIST_OUT" | grep -q "27 scenarios"; then
+    pass "skill-eval --list reports 27 scenarios"
     PASSES=$((PASSES + 1))
 else
-    fail "skill-eval --list did not report 24 scenarios"
+    fail "skill-eval --list did not report 27 scenarios"
     FAILS=$((FAILS + 1))
 fi
 
 EVAL_DRY_OUT=$(bash "$APD_PLUGIN_ROOT/bin/core/skill-eval" --dry-run 2>&1 || true)
-if echo "$EVAL_DRY_OUT" | grep -qE "valid:[[:space:]]+24" && echo "$EVAL_DRY_OUT" | grep -qE "invalid:[[:space:]]+0"; then
-    pass "skill-eval --dry-run validates all 24 scenarios"
+if echo "$EVAL_DRY_OUT" | grep -qE "valid:[[:space:]]+27" && echo "$EVAL_DRY_OUT" | grep -qE "invalid:[[:space:]]+0"; then
+    pass "skill-eval --dry-run validates all 27 scenarios"
     PASSES=$((PASSES + 1))
 else
     fail "skill-eval --dry-run did not pass all scenarios"
@@ -2501,11 +2501,11 @@ else
     fail "eval-mirror CC count = $CC_MIRROR (expected 24)"
     FAILS=$((FAILS + 1))
 fi
-if [ "$CDX_MIRROR" = "21" ]; then
-    pass "eval-mirror populated Codex: 21 scenarios (no apd-setup)"
+if [ "$CDX_MIRROR" = "24" ]; then
+    pass "eval-mirror populated Codex: 24 scenarios (no apd-setup)"
     PASSES=$((PASSES + 1))
 else
-    fail "eval-mirror Codex count = $CDX_MIRROR (expected 21)"
+    fail "eval-mirror Codex count = $CDX_MIRROR (expected 24)"
     FAILS=$((FAILS + 1))
 fi
 

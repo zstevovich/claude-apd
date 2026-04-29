@@ -3,7 +3,7 @@
 #
 # Canonical source: $APD_PLUGIN_ROOT/evals/<skill>/*.json
 # Mirror targets:
-#   - $REPO_ROOT/skills/<skill>/evals/             (CC, all 8 skills)
+#   - $REPO_ROOT/skills/<skill>/evals/             (CC, all 8 skills; skips runtime=codex)
 #   - $APD_PLUGIN_ROOT/skills/<skill>/evals/        (Codex, 7 skills, no apd-setup)
 #
 # Idempotent. Replace-all semantics — extra files in mirror dirs are removed.
@@ -28,6 +28,7 @@ fi
 mirror_one() {
     local skill="$1"
     local target_dir="$2"
+    local target_runtime="${3:-all}"
     local src_dir="$CANONICAL/$skill"
     if [ ! -d "$src_dir" ]; then
         skip "$skill (no canonical source)"
@@ -35,7 +36,14 @@ mirror_one() {
     fi
     rm -rf "$target_dir"
     mkdir -p "$target_dir"
-    cp "$src_dir"/*.json "$target_dir/" 2>/dev/null || true
+    for f in "$src_dir"/*.json; do
+        [ -f "$f" ] || continue
+        runtime=$(jq -r '.runtime // "both"' "$f" 2>/dev/null || echo "both")
+        if [ "$target_runtime" = "cc" ] && [ "$runtime" = "codex" ]; then
+            continue
+        fi
+        cp "$f" "$target_dir/"
+    done
     local count
     count=$(find "$target_dir" -name '*.json' | wc -l | xargs)
     pass "$skill → $target_dir ($count files)"
@@ -43,12 +51,12 @@ mirror_one() {
 
 section "CC mirror — skills/<skill>/evals/"
 for skill in "${CC_SKILLS[@]}"; do
-    mirror_one "$skill" "$REPO_ROOT/skills/$skill/evals"
+    mirror_one "$skill" "$REPO_ROOT/skills/$skill/evals" "cc"
 done
 
 section "Codex mirror — plugins/apd/skills/<skill>/evals/"
 for skill in "${CDX_SKILLS[@]}"; do
-    mirror_one "$skill" "$APD_PLUGIN_ROOT/skills/$skill/evals"
+    mirror_one "$skill" "$APD_PLUGIN_ROOT/skills/$skill/evals" "codex"
 done
 
 section "Summary"
