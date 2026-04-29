@@ -6,6 +6,7 @@
   "query": "Implement user login. The project has GITHUB_PROJECTS_URL configured.",
   "files": {
     "CLAUDE.md": "# App\n\n## APD\n\n### GitHub Projects\nGITHUB_PROJECTS_URL: https://github.com/example/project/projects/1\n",
+    "AGENTS.md": "# App\n\n## APD\n\n### GitHub Projects\nGITHUB_PROJECTS_URL: https://github.com/example/project/projects/1\n",
     ".apd/pipeline/spec.done": ""
   },
   "expected_behavior": [

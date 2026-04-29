@@ -6,6 +6,7 @@
   "query": "Update the Miro dashboard. Spec just landed; builder is now active.",
   "files": {
     "CLAUDE.md": "# App\n\n## APD\nMIRO_BOARD_URL: https://miro.com/app/board/abc123/\n",
+    "AGENTS.md": "# App\n\n## APD\nMIRO_BOARD_URL: https://miro.com/app/board/abc123/\n",
     ".apd/pipeline/spec.done": "feat-x|2026-04-28 14:02:00|Add /orders/refund\n",
     ".apd/pipeline/builder.active": "started:2026-04-28 14:08:11\n"
   },

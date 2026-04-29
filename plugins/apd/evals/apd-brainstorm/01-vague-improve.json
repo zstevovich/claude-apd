@@ -6,7 +6,8 @@
   "query": "Improve user search.",
   "files": {
     "src/search/user-search.ts": "// existing search — exact match on email only\nexport function findUser(email: string) { /* ... */ }\n",
-    "CLAUDE.md": "# App\n\n## Stack\n- TypeScript + Express\n- Postgres\n"
+    "CLAUDE.md": "# App\n\n## Stack\n- TypeScript + Express\n- Postgres\n",
+    "AGENTS.md": "# App\n\n## Stack\n- TypeScript + Express\n- Postgres\n"
   },
   "expected_behavior": [
     "asks ONE clarifying question at a time, not a list of five",
