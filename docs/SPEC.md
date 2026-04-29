@@ -197,9 +197,9 @@ Server-side reads `scope: [...]` from agent's frontmatter. Caller-supplied `allo
 
 `apd-brainstorm`, `apd-tdd`, `apd-debug`, `apd-finish`, `apd-audit`, `apd-github`, `apd-miro`. Each: `SKILL.md` (markdown body) + `agents/openai.yaml` (Codex skill manifest). `apd-setup` remains CC-only — Codex uses the `apd cdx init` CLI.
 
-### 7.3 Skill evals (`plugins/apd/evals/`, 24 scenarios)
+### 7.3 Skill evals (`plugins/apd/evals/`, 27 scenarios)
 
-Scenario-driven evaluation framework for shipped skills. Canonical source under `plugins/apd/evals/<skill>/*.json`; mirrored into `skills/<skill>/evals/` (CC) and `plugins/apd/skills/<skill>/evals/` (Codex) by `bin/core/eval-mirror`.
+Scenario-driven evaluation framework for shipped skills. Canonical source under `plugins/apd/evals/<skill>/*.json`; mirrored into `skills/<skill>/evals/` (CC, 24 scenarios; Codex-only scenarios excluded) and `plugins/apd/skills/<skill>/evals/` (Codex, 24 scenarios; no apd-setup) by `bin/core/eval-mirror`.
 
 | Field | Purpose |
 |---|---|
@@ -209,7 +209,7 @@ Scenario-driven evaluation framework for shipped skills. Canonical source under 
 | `files` | Map of `path → content` materialized into a scratch dir before agent spawn. |
 | `expected_behavior` | Plain-English assertion list; consumed by both rubric and LLM judge. |
 
-Runner: `bin/core/skill-eval` — modes `--list`, `--dry-run`, `--rubric`, `--judge`; runtimes `cc` (`claude -p`) or `codex` (`codex exec`). Schema validation + duplicate-id check are part of `test-codex-adapter`. Evals are advisory — they are NOT a pipeline gate.
+Runner: `bin/core/skill-eval` — modes `--list`, `--dry-run`, `--rubric`, `--judge`; runtimes `cc` (`claude -p`) or `codex` (`codex exec`). `--list` shows each scenario's runtime. `--rubric` and `--judge` execute only scenarios whose `runtime` is `both` or matches `--runtime`; explicit `--dry-run --runtime <cc|codex>` validates that same no-spawn execution subset. Schema validation + duplicate-id check are part of `test-codex-adapter`. Evals are advisory — they are NOT a pipeline gate.
 
 ## 8. Templates & per-project scaffolding
 
@@ -227,7 +227,7 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 
 | Script | Coverage |
 |---|---|
-| `bin/core/test-codex-adapter` | 246 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema, adversarial pre-flight gate, severity gate |
+| `bin/core/test-codex-adapter` | 248 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema/runtime filtering, adversarial pre-flight gate, severity gate |
 | `bin/core/test-hooks` | Static: hooks.json schema, placeholder fillness |
 | `bin/core/test-system` | E2E synthetic pipeline (creates `/tmp/apd-test-XXXX`); 2 sections (Pipeline Lifecycle, Spec Enforcement) |
 | `bin/core/verify-apd` | 60+ checks on configured project. **In-monorepo run mis-resolves** — copy example to `/tmp` for accurate result. |

@@ -1,5 +1,15 @@
 # Changelog
 
+## v6.1.1 — 2026-04-29
+
+Codex skill-payload quality fixes from the v6.1.0 audit. Test count: 246 → 248.
+
+- **H1 — apd-brainstorm advance-vs-exit clarified.** Codex and CC brainstorm skill text now distinguishes "do not advance while asking questions / presenting options / revising design" from the required exit: after explicit user approval, write the spec-card.md and call the spec pipeline advance as the only valid exit. Codex `agents/openai.yaml` prompt now carries the same wording.
+- **H2 — Codex-native audit evals.** Added three `runtime: codex` apd-audit scenarios covering missing builder scope, stale `.claude/` references in `AGENTS.md`, and missing APD MCP per-tool approval blocks. Canonical evals now total 27; `eval-mirror` keeps CC mirror at 24 by excluding Codex-only scenarios and keeps Codex mirror at 24.
+- **H3 — Both-runtime eval fixtures seed AGENTS.md.** The brainstorm, GitHub Projects, and Miro "both" scenarios now materialize `AGENTS.md` alongside `CLAUDE.md`, so Codex skill behavior is not tested against Claude-only context.
+- **M5 — skill-eval runtime filtering.** `skill-eval --list` now shows the `runtime` field. `--rubric` and `--judge` execute only scenarios whose `runtime` is `both` or matches `--runtime`; explicit `--dry-run --runtime <cc|codex>` validates the same no-spawn execution subset. Section 24 adds coverage for the Codex subset (21/27), raising `test-codex-adapter` to 248 checks.
+- **Deferred M4 — Codex agent `model:` values.** Left `sonnet` / `opus` in Codex agent templates untouched. Needs an author decision on whether those fields are descriptive labels or runtime selectors before changing to `gpt-5.x`.
+
 ## v6.1.0 — 2026-04-28
 
 Skill quality + pipeline gate refinements per `docs/plans/v6.1-skills-and-pipeline-improvements.md`. Test count: 226 → 246.
