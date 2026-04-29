@@ -426,7 +426,10 @@ case "$STEP" in
         if [ -f "$APD_AGENTS_DIR/adversarial-reviewer.md" ]; then
             # Check for opt-out in spec-card — only allowed for small tasks (<=2 criteria)
             ADV_OPT_OUT=false
-            if [ -f "$PIPELINE_DIR/spec-card.md" ] && grep -qi '^adversarial:.*skip' "$PIPELINE_DIR/spec-card.md" 2>/dev/null; then
+            # v6.1.2: tolerate markdown bold/italic/list-item prefixes around
+            # the directive — `**adversarial:** skip` etc. should opt out the
+            # same as plain `adversarial: skip`.
+            if [ -f "$PIPELINE_DIR/spec-card.md" ] && grep -qiE '^[-*_ 	]*adversarial[-*_ 	]*:.*skip' "$PIPELINE_DIR/spec-card.md" 2>/dev/null; then
                 ADV_CRITERIA=$(sed -n '/Acceptance criteria/,/^\*\*[A-Z]/p' "$PIPELINE_DIR/spec-card.md" 2>/dev/null | grep -cE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' || echo 0)
                 if [ "$ADV_CRITERIA" -le 2 ] 2>/dev/null; then
                     ADV_OPT_OUT=true
@@ -552,7 +555,8 @@ case "$STEP" in
         # Format in spec-card.md:  `adversarial: max_defects=N`  or  `=unlimited`
         # Default (field absent) = unlimited (backward compat with pre-v6.1).
         if [ -f "$PIPELINE_DIR/.adversarial-summary" ] && [ -f "$PIPELINE_DIR/spec-card.md" ]; then
-            MAX_DEFECTS_RAW=$(grep -iE '^adversarial:.*max_defects[[:space:]]*[:=][[:space:]]*([0-9]+|unlimited)' "$PIPELINE_DIR/spec-card.md" 2>/dev/null \
+            # v6.1.2: same bold/italic tolerance as the reviewer-step skip parser.
+            MAX_DEFECTS_RAW=$(grep -iE '^[-*_ 	]*adversarial[-*_ 	]*:.*max_defects[[:space:]]*[:=][[:space:]]*([0-9]+|unlimited)' "$PIPELINE_DIR/spec-card.md" 2>/dev/null \
                 | sed -E 's/.*max_defects[[:space:]]*[:=][[:space:]]*//I' \
                 | tr '[:upper:]' '[:lower:]' \
                 | awk '{print $1}' \

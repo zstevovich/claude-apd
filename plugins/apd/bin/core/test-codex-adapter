@@ -2536,7 +2536,7 @@ section "25. Severity gate (max_defects)"
 
 # Helper: extract max_defects value the same way the gate does
 extract_max_defects() {
-    grep -iE '^adversarial:.*max_defects[[:space:]]*[:=][[:space:]]*([0-9]+|unlimited)' "$1" 2>/dev/null \
+    grep -iE '^[-*_ 	]*adversarial[-*_ 	]*:.*max_defects[[:space:]]*[:=][[:space:]]*([0-9]+|unlimited)' "$1" 2>/dev/null \
         | sed -E 's/.*max_defects[[:space:]]*[:=][[:space:]]*//I' \
         | tr '[:upper:]' '[:lower:]' \
         | awk '{print $1}' \
@@ -2650,6 +2650,72 @@ else
 fi
 
 rm -rf "$SEV_DIR"
+
+# -----------------------------------------------------------
+# 26. Markdown-bold tolerance for spec-card directives (v6.1.2)
+#     pipeline-advance must recognize `**adversarial:** skip` and
+#     `**adversarial:** max_defects=N` the same way as plain forms.
+# -----------------------------------------------------------
+section "26. Spec-card markdown-bold tolerance"
+
+BOLD_DIR="$(mktemp -d -t apd-bold.XXXXXX)"
+
+# Helper: replicate the reviewer-step skip detector
+detect_skip() {
+    grep -qiE '^[-*_ 	]*adversarial[-*_ 	]*:.*skip' "$1" 2>/dev/null && echo "yes" || echo "no"
+}
+
+# 26.1 — adversarial: skip variants (reviewer-step opt-out parser)
+for variant in "plain:adversarial: skip — small surface" \
+               "bold-pair:**adversarial:** skip — small surface" \
+               "bold-key:**adversarial**: skip — small surface" \
+               "italic:*adversarial:* skip — small surface" \
+               "list:- adversarial: skip — small surface" \
+               "title:**Adversarial:** skip — small surface"; do
+    label="${variant%%:*}"
+    line="${variant#*:}"
+    f="$BOLD_DIR/skip-$label.md"
+    cat > "$f" <<EOF
+# Task
+$line
+
+**Acceptance criteria:**
+- R1: x
+EOF
+    if [ "$(detect_skip "$f")" = "yes" ]; then
+        pass "skip detector: '$label' variant"
+        PASSES=$((PASSES + 1))
+    else
+        fail "skip detector: '$label' missed (regex too strict)"
+        FAILS=$((FAILS + 1))
+    fi
+done
+
+# 26.2 — max_defects parser tolerates bold prefix
+for variant in "bold-pair:**adversarial:** max_defects=2" \
+               "bold-key:**adversarial**: max_defects=2" \
+               "italic:*adversarial:* max_defects=2"; do
+    label="${variant%%:*}"
+    line="${variant#*:}"
+    f="$BOLD_DIR/md-$label.md"
+    cat > "$f" <<EOF
+# Task
+$line
+
+**Acceptance criteria:**
+- R1: x
+EOF
+    M=$(extract_max_defects "$f")
+    if [ "$M" = "2" ]; then
+        pass "max_defects parser: '$label' variant → 2"
+        PASSES=$((PASSES + 1))
+    else
+        fail "max_defects parser: '$label' yielded '$M' (expected '2')"
+        FAILS=$((FAILS + 1))
+    fi
+done
+
+rm -rf "$BOLD_DIR"
 
 # -----------------------------------------------------------
 # Summary
