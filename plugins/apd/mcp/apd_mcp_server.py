@@ -12,6 +12,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -275,6 +276,39 @@ def _parse_agent_frontmatter(path: Path) -> dict:
             except ValueError:
                 pass
     return result
+
+
+def _project_relative_path(project: Path, file_path: str) -> str | None:
+    """Return a normalized project-relative path, or None if it escapes."""
+    target = Path(file_path).expanduser()
+    if not target.is_absolute():
+        target = project / target
+    try:
+        resolved = target.resolve(strict=False)
+        project_resolved = project.resolve(strict=False)
+        return resolved.relative_to(project_resolved).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def _record_guarded_write(project: Path, apd_role: str, file_path: str) -> None:
+    """Record a short-lived proof that apd_guard_write cleared this target.
+
+    Codex file-edit hooks use this cache to enforce the "call guard before
+    every write" rule for apply_patch/Edit/Write tools. The cache lives under
+    .apd/pipeline so normal file edits cannot forge it without hitting the
+    protected pipeline-state guards.
+    """
+    rel = _project_relative_path(project, file_path)
+    if not rel:
+        return
+    pipeline_dir = project / ".apd" / "pipeline"
+    try:
+        pipeline_dir.mkdir(parents=True, exist_ok=True)
+        with (pipeline_dir / ".guarded-writes").open("a", encoding="utf-8") as fh:
+            fh.write(f"{int(time.time())}|{rel}|{apd_role}\n")
+    except OSError:
+        pass
 
 
 def _budget_status(value: int, green_max: int, yellow_max: int) -> str:
@@ -641,7 +675,10 @@ def apd_guard_write(apd_role: str, file_path: str) -> dict:
     if not isinstance(scope, list):
         scope = []
 
-    return _run_core("guard-scope", "--file-path", file_path, *scope, timeout=5)
+    result = _run_core("guard-scope", "--file-path", file_path, *scope, timeout=5)
+    if result.get("ok") is True:
+        _record_guarded_write(project, apd_role, file_path)
+    return result
 
 
 _VERIFY_SCOPES = ("full", "fast")

@@ -1,7 +1,8 @@
 ---
 name: code-reviewer
 description: Read-only reviewer — reports bugs, risks, and edge cases without editing code
-model: opus
+model: gpt-5.4
+model_reasoning_effort: high
 maxTurns: 80
 scope: []
 readonly: true

@@ -173,6 +173,12 @@ PY
         _bad "$HOOKS missing or not wired to guard-bash-scope"
     fi
 
+    if [ -f "$HOOKS" ] && grep -q 'guard-file-edit' "$HOOKS" && grep -q 'apply_patch|Edit|Write' "$HOOKS"; then
+        _ok "hooks.json wires PreToolUse apply_patch/Edit/Write → guard-file-edit"
+    else
+        _bad "$HOOKS missing or not wired to guard-file-edit for apply_patch/Edit/Write"
+    fi
+
     if [ -f "$HOOKS" ] && grep -q 'bin/adapter/cdx/session-start' "$HOOKS"; then
         _ok "hooks.json wires SessionStart → cdx session-start (TUI only; exec mode covered by MCP defaultPrompt)"
     else
@@ -193,7 +199,7 @@ fi
 section "APD content (.apd/)"
 
 if [ -d "$CLAUDE_DIR" ]; then
-    _warn ".claude/ present — this is a hybrid project. For full CC+APD audit run: apd doctor"
+    _warn ".claude/ present — hybrid project; Codex checks continue and CC-specific content is outside cdx doctor scope"
 fi
 
 APD_CFG="$PROJECT_DIR/.apd/config"
@@ -244,6 +250,20 @@ if [ -f "$PROJECT_DIR/AGENTS.md" ]; then
         _ok "AGENTS.md at project root (references APD pipeline)"
     else
         _warn "AGENTS.md present but does not reference APD pipeline — orchestrator may miss the rules"
+    fi
+    MISSING_AGENTS_SECTIONS=""
+    for section in "## Stack" "## APD" "### Pipeline" "### Guardrails" "### Mandatory skills" "### Human gate"; do
+        if ! grep -q "^${section}$" "$PROJECT_DIR/AGENTS.md" 2>/dev/null; then
+            MISSING_AGENTS_SECTIONS="${MISSING_AGENTS_SECTIONS}${section}, "
+        fi
+    done
+    if [ -z "$MISSING_AGENTS_SECTIONS" ]; then
+        _ok "AGENTS.md has required APD/Codex sections"
+    else
+        _warn "AGENTS.md missing sections: ${MISSING_AGENTS_SECTIONS%, }"
+    fi
+    if grep -q '<fill in>' "$PROJECT_DIR/AGENTS.md" 2>/dev/null; then
+        _warn "AGENTS.md still contains <fill in> placeholders"
     fi
 else
     _bad "AGENTS.md missing — Codex orchestrator has no project context. Run: apd cdx init"

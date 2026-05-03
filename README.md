@@ -218,9 +218,9 @@ ${CLAUDE_PLUGIN_ROOT}/                # = repo root for CC; CC auto-discovers ho
 ├── .claude-plugin/marketplace.json   # CC marketplace manifest
 ├── .agents/plugins/marketplace.json  # Codex marketplace manifest → ./plugins/apd
 ├── hooks/hooks.json                  # CC plugin hooks (auto-discovered)
-├── monitors/monitors.json            # CC plugin monitors
 ├── skills/                           # 8 CC skills (brainstorm, tdd, debug, finish, setup, audit, github, miro)
 └── plugins/apd/                      # Plugin payload — single source of truth for both runtimes
+    ├── .apd-version                  # CC version constraints (MIN_CC_VERSION, FUNC_CC_VERSION)
     ├── .codex-plugin/plugin.json     # Codex plugin manifest
     ├── .mcp.json                     # Codex MCP self-registration (cwd: ".", 8 tools)
     ├── VERSION                       # Plugin version (read by every script + MCP server)

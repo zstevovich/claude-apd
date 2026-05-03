@@ -35,6 +35,31 @@ SHELL_WRITE_CHECK=('>>' '>' 'tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' '
 # Write checks for plugin cache — exclude '>' and '>>' (false positives from 2>&1 redirects)
 PLUGIN_WRITE_CHECK=('tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ' 'mkdir ' 'mkdir -p' 'touch ' 'rm ' 'rm -f' 'rm -rf' 'rmdir ')
 
+_runtime_write_detected() {
+  local cmd="$1"
+  if echo "$cmd" | grep -qE '(^|[;&|] *)node\s+(-e|--eval|--print)\s' &&
+     echo "$cmd" | grep -qiE 'writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|mkdirSync|copyFile'; then
+    return 0
+  fi
+  if echo "$cmd" | grep -qE '(^|[;&|] *)python[3]?\s+(-c)\s' &&
+     echo "$cmd" | grep -qiE "open\s*\(|\.write\s*\(|Path\s*\(|shutil\.|os\.rename|os\.replace|pathlib"; then
+    return 0
+  fi
+  if echo "$cmd" | grep -qE '(^|[;&|] *)ruby\s+(-e)\s' &&
+     echo "$cmd" | grep -qiE 'File\.(write|open|rename)|FileUtils\.(cp|mv|mkdir)'; then
+    return 0
+  fi
+  if echo "$cmd" | grep -qE '(^|[;&|] *)php\s+(-r)\s' &&
+     echo "$cmd" | grep -qiE 'file_put_contents|fwrite|fopen|rename|copy|mkdir'; then
+    return 0
+  fi
+  if echo "$cmd" | grep -qE '(^|[;&|] *)perl\s+(-e)\s' &&
+     echo "$cmd" | grep -qiE 'open\s*\(|print\s+\$|File::Copy|rename'; then
+    return 0
+  fi
+  return 1
+}
+
 # Block writes to plugin cache (executing scripts from cache is allowed)
 for ppath in "${PROTECTED_PLUGIN[@]}"; do
   if [[ "$COMMAND" == *"$ppath"* ]]; then
@@ -49,6 +74,12 @@ for ppath in "${PROTECTED_PLUGIN[@]}"; do
     # Check redirect operators only when they TARGET the cache path (not 2>&1)
     if echo "$COMMAND" | grep -qE '>[^&].*plugins/cache|>>.*plugins/cache' 2>/dev/null; then
       echo "BLOCKED: Bash write to plugin cache directory." >&2
+      echo "  Plugin files are read-only. Do not modify." >&2
+      log_block "plugin-cache-write" "${COMMAND:0:100}"
+      exit 2
+    fi
+    if _runtime_write_detected "$COMMAND"; then
+      echo "BLOCKED: Runtime write to plugin cache directory." >&2
       echo "  Plugin files are read-only. Do not modify." >&2
       log_block "plugin-cache-write" "${COMMAND:0:100}"
       exit 2
@@ -82,6 +113,12 @@ for ppath in "${PROTECTED_PIPELINE[@]}"; do
       log_block "pipeline-state-write" "${COMMAND:0:100}"
       exit 2
     fi
+    if _runtime_write_detected "$COMMAND"; then
+      echo "BLOCKED: Runtime write to protected pipeline state directory." >&2
+      echo "  Do not write directly to .apd/pipeline/ — use the apd command instead." >&2
+      log_block "pipeline-state-write" "${COMMAND:0:100}"
+      exit 2
+    fi
   fi
 done
 
@@ -106,44 +143,9 @@ done
 # --- 2. Runtime write operations ---
 if [ "$HAS_WRITE_OP" = false ]; then
 
-  # Node.js: node -e / node --eval with write operations
-  if echo "$COMMAND" | grep -qE '(^|[;&|] *)node\s+(-e|--eval|--print)\s'; then
-    if echo "$COMMAND" | grep -qiE 'writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|mkdirSync|copyFile'; then
-      HAS_WRITE_OP=true
-      WRITE_TYPE="node"
-    fi
-  fi
-
-  # Python: python -c / python3 -c with write operations
-  if echo "$COMMAND" | grep -qE '(^|[;&|] *)python[3]?\s+(-c)\s'; then
-    if echo "$COMMAND" | grep -qiE "open\s*\(|\.write\s*\(|Path\s*\(|shutil\.|os\.rename|os\.replace|pathlib"; then
-      HAS_WRITE_OP=true
-      WRITE_TYPE="python"
-    fi
-  fi
-
-  # Ruby: ruby -e with write operations
-  if echo "$COMMAND" | grep -qE '(^|[;&|] *)ruby\s+(-e)\s'; then
-    if echo "$COMMAND" | grep -qiE 'File\.(write|open|rename)|FileUtils\.(cp|mv|mkdir)'; then
-      HAS_WRITE_OP=true
-      WRITE_TYPE="ruby"
-    fi
-  fi
-
-  # PHP: php -r with write operations
-  if echo "$COMMAND" | grep -qE '(^|[;&|] *)php\s+(-r)\s'; then
-    if echo "$COMMAND" | grep -qiE 'file_put_contents|fwrite|fopen|rename|copy|mkdir'; then
-      HAS_WRITE_OP=true
-      WRITE_TYPE="php"
-    fi
-  fi
-
-  # Perl: perl -e with write operations
-  if echo "$COMMAND" | grep -qE '(^|[;&|] *)perl\s+(-e)\s'; then
-    if echo "$COMMAND" | grep -qiE 'open\s*\(|print\s+\$|File::Copy|rename'; then
-      HAS_WRITE_OP=true
-      WRITE_TYPE="perl"
-    fi
+  if _runtime_write_detected "$COMMAND"; then
+    HAS_WRITE_OP=true
+    WRITE_TYPE="runtime"
   fi
 fi
 

@@ -1,7 +1,0 @@
-[
-  {
-    "name": "apd-session-context",
-    "description": "Load APD project context and run self-healing checks",
-    "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/session-start\""
-  }
-]

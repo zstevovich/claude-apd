@@ -54,7 +54,10 @@ if [ -x "$SCRIPT_DIR/apd-init" ]; then
 fi
 
 # ===== VERSION CHECK =====
-APD_MIN_VERSION="2.1.89"
+# 2.1.101 = first CC release where the SessionStart hook fires reliably for
+# plugins (earlier versions silently dropped it). Below this baseline APD's
+# auto context-load + self-healing don't run on every session.
+APD_MIN_VERSION="2.1.101"
 APD_FUNCTIONAL_VERSION="2.1.32"
 
 # Read min version from plugin if available
@@ -84,7 +87,7 @@ if command -v claude &>/dev/null; then
         elif [ "$CC_NUM" -lt "$MIN_NUM" ] 2>/dev/null; then
             apd_header "Claude Code $CC_VERSION — missing features"
             echo "    Recommended: v$APD_MIN_VERSION+ for full APD feature set"
-            echo "    Missing: conditional hooks, PostCompact, PermissionDenied, effort frontmatter"
+            echo "    Missing: reliable SessionStart hook, plus PostCompact / PermissionDenied / effort frontmatter on older builds"
             echo "    Update: npm install -g @anthropic-ai/claude-code"
             echo ""
         fi

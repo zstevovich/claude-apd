@@ -10,6 +10,7 @@
 #                            so project config carries the trusted override.
 #   2. .codex/bin/apd      → shortcut to plugin entry point
 #   3. .codex/hooks.json   → PreToolUse Bash → guard-bash-scope
+#                            PreToolUse apply_patch/Edit/Write → guard-file-edit
 #   4. Prints reminder to enable `codex_hooks` feature flag
 #
 # Per-agent filesystem isolation is handled at runtime by the MCP
@@ -50,6 +51,7 @@ CONFIG_FILE="$CODEX_DIR/config.toml"
 HOOKS_FILE="$CODEX_DIR/hooks.json"
 MCP_SERVER="$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
 GUARD_BASH="$APD_PLUGIN_ROOT/bin/adapter/cdx/guard-bash-scope"
+GUARD_FILE_EDIT="$APD_PLUGIN_ROOT/bin/adapter/cdx/guard-file-edit"
 SESSION_START="$APD_PLUGIN_ROOT/bin/adapter/cdx/session-start"
 
 if [ ! -f "$MCP_SERVER" ]; then
@@ -481,6 +483,131 @@ case "$HOOKS_RC" in
 esac
 
 # -----------------------------------------------------------
+# 5a. Repo-level hooks.json — merge PreToolUse apply_patch/Edit/Write →
+#     guard-file-edit. This enforces that file edit targets have a fresh
+#     apd_guard_write clearance recorded by the MCP server.
+# -----------------------------------------------------------
+FE_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-file-edit.XXXXXX")"
+set +e
+FE_STATUS="$(
+python3 - "$HOOKS_FILE" "$GUARD_FILE_EDIT" "$FE_TMP" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+hooks_path = Path(sys.argv[1])
+guard_file_edit = sys.argv[2]
+out_path = Path(sys.argv[3])
+
+desired = {
+    "type": "command",
+    "command": f"bash {guard_file_edit}",
+    "timeout": 5,
+}
+desired_matcher = "apply_patch|Edit|Write"
+
+if hooks_path.exists():
+    try:
+        data = json.loads(hooks_path.read_text())
+    except json.JSONDecodeError as exc:
+        print(f"invalid JSON in {hooks_path}: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+else:
+    data = {}
+
+if not isinstance(data, dict):
+    print(f"{hooks_path} must contain a JSON object", file=sys.stderr)
+    raise SystemExit(1)
+
+hooks = data.setdefault("hooks", {})
+if not isinstance(hooks, dict):
+    print(f"{hooks_path}: top-level 'hooks' must be an object", file=sys.stderr)
+    raise SystemExit(1)
+
+pre = hooks.setdefault("PreToolUse", [])
+if not isinstance(pre, list):
+    print(f"{hooks_path}: hooks.PreToolUse must be an array", file=sys.stderr)
+    raise SystemExit(1)
+
+marker = "guard-file-edit"
+action = "skip"
+desired_present = False
+stale_slot = None
+target_entry = None
+
+for entry in pre:
+    if not isinstance(entry, dict):
+        continue
+    matcher = entry.get("matcher")
+    entry_hooks = entry.setdefault("hooks", [])
+    if not isinstance(entry_hooks, list):
+        print(f"{hooks_path}: PreToolUse hook entry must contain a hooks array", file=sys.stderr)
+        raise SystemExit(1)
+    if matcher == desired_matcher:
+        target_entry = entry
+    for idx, hook in enumerate(entry_hooks):
+        if not isinstance(hook, dict):
+            continue
+        command = hook.get("command", "")
+        if hook.get("type") == "command" and command == desired["command"]:
+            desired_present = True
+            if hook.get("timeout") != desired["timeout"] or matcher != desired_matcher:
+                entry_hooks[idx] = desired
+                if matcher != desired_matcher:
+                    entry["matcher"] = desired_matcher
+                action = "updated"
+            break
+        if marker in command:
+            stale_slot = (entry_hooks, idx, entry)
+    if desired_present:
+        break
+
+if not desired_present:
+    if stale_slot is not None:
+        stale_slot[0][stale_slot[1]] = desired
+        stale_slot[2]["matcher"] = desired_matcher
+        action = "updated"
+    elif target_entry is not None:
+        target_entry["hooks"].append(desired)
+        action = "updated"
+    else:
+        pre.append({"matcher": desired_matcher, "hooks": [desired]})
+        action = "wrote"
+
+if action == "skip":
+    print("skip")
+    raise SystemExit(0)
+
+out_path.write_text(json.dumps(data, indent=2) + "\n")
+print(action)
+raise SystemExit(10)
+PY
+)"
+FE_RC=$?
+set -e
+case "$FE_RC" in
+    0)
+        rm -f "$FE_TMP"
+        echo "[skip] PreToolUse file-edit guard already wired in $HOOKS_FILE"
+        ;;
+    10)
+        _backup_if_exists "$HOOKS_FILE"
+        mv "$FE_TMP" "$HOOKS_FILE"
+        if [ "$FE_STATUS" = "updated" ]; then
+            echo "[updated] PreToolUse file-edit hook → $HOOKS_FILE"
+        else
+            echo "[wrote] PreToolUse file-edit hook → $HOOKS_FILE"
+        fi
+        CHANGES=$((CHANGES + 1))
+        ;;
+    *)
+        rm -f "$FE_TMP"
+        echo "ERROR: failed to merge APD file-edit hook into $HOOKS_FILE" >&2
+        exit 8
+        ;;
+esac
+
+# -----------------------------------------------------------
 # 6. SessionStart hook — merge into .codex/hooks.json
 #    Codex 0.121.0 fires SessionStart only in TUI mode (not `codex exec`);
 #    the MCP `defaultPrompt` tells the orchestrator to call apd_doctor at
@@ -598,7 +725,7 @@ case "$SS_RC" in
     *)
         rm -f "$SS_TMP"
         echo "ERROR: failed to merge SessionStart hook into $HOOKS_FILE" >&2
-        exit 8
+        exit 9
         ;;
 esac
 

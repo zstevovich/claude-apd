@@ -1,7 +1,8 @@
 ---
 name: frontend-builder
 description: Implements frontend features — writes inside assets/ and templates/
-model: sonnet
+model: gpt-5.4
+model_reasoning_effort: high
 maxTurns: 60
 scope:
   - assets/

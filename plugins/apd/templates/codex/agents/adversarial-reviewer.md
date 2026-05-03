@@ -1,7 +1,8 @@
 ---
 name: adversarial-reviewer
 description: Second-pass reviewer — hunts for regressions and missed edge cases
-model: opus
+model: gpt-5.4
+model_reasoning_effort: high
 maxTurns: 80
 scope: []
 readonly: true

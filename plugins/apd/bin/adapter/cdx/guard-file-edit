@@ -1,0 +1,36 @@
+#!/bin/bash
+# Codex adapter shim for guard-file-edit.
+# Reads Codex hook stdin JSON and passes apply_patch/Edit/Write targets to core.
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CORE_DIR="$SCRIPT_DIR/../../core"
+
+if ! command -v jq &>/dev/null; then
+  echo "ERROR: jq is not installed." >&2
+  exit 2
+fi
+
+INPUT=$(cat)
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // .toolInput.command // .command // empty' 2>/dev/null)
+
+ARGS=(--command "$COMMAND")
+while IFS= read -r path; do
+  [ -n "$path" ] && ARGS+=(--file-path "$path")
+done < <(
+  echo "$INPUT" | jq -r '
+    [
+      .tool_input.path?,
+      .tool_input.file_path?,
+      .tool_input.filePath?,
+      .toolInput.path?,
+      .toolInput.file_path?,
+      .toolInput.filePath?,
+      .path?,
+      .file_path?,
+      .filePath?
+    ] | .[] | select(type == "string" and length > 0)
+  ' 2>/dev/null
+)
+
+exec "$CORE_DIR/guard-file-edit" "${ARGS[@]}" "$@"

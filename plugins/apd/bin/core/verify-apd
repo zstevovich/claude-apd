@@ -64,8 +64,16 @@ else
 fi
 
 # Claude Code version
-APD_MIN_VERSION="2.1.89"
+# 2.1.101 = first release where SessionStart hook fires reliably for plugins.
+# Hardcoded fallback only used if plugin-shipped .apd-version is unreadable.
+APD_MIN_VERSION="2.1.101"
 APD_FUNCTIONAL_VERSION="2.1.32"
+if [ -f "$APD_PLUGIN_ROOT/.apd-version" ]; then
+    _PLUGIN_MIN=$(grep '^MIN_CC_VERSION=' "$APD_PLUGIN_ROOT/.apd-version" 2>/dev/null | cut -d= -f2-)
+    [ -n "$_PLUGIN_MIN" ] && APD_MIN_VERSION="$_PLUGIN_MIN"
+    _PLUGIN_FUNC=$(grep '^FUNC_CC_VERSION=' "$APD_PLUGIN_ROOT/.apd-version" 2>/dev/null | cut -d= -f2-)
+    [ -n "$_PLUGIN_FUNC" ] && APD_FUNCTIONAL_VERSION="$_PLUGIN_FUNC"
+fi
 if command -v claude &>/dev/null; then
     CC_VERSION=$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
     if [ -n "$CC_VERSION" ]; then

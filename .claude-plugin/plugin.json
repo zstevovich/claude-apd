@@ -8,7 +8,6 @@
   "homepage": "https://apd.run",
   "repository": "https://github.com/zstevovich/claude-apd",
   "license": "MIT",
-  "monitors": "./monitors/monitors.json",
   "userConfig": {
     "project_name": {
       "title": "Project name",

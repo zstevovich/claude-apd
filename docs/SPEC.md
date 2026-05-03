@@ -247,7 +247,7 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 
 ### 11.1 Session start (CC)
 
-`monitors/monitors.json` registers single monitor `apd-session-context` → `bin/core/session-start`. Runs on every CC SessionStart event (resolved in CC 2.1.101; re-confirmed on 2.1.119). Self-healing checks: jq install, script executability, settings.json validity, stale pipeline detection (>24h offers reset). 3600s TTL cache via `.last-init-check`.
+`hooks/hooks.json` registers `SessionStart` (matcher `startup`) and `PostCompact` against `bin/core/session-start`. Hook fires reliably from CC 2.1.101+ (re-confirmed on 2.1.119). Self-healing checks: jq install, script executability, settings.json validity, stale pipeline detection (>24h offers reset). 3600s TTL cache via `.last-init-check`.
 
 ### 11.2 Codex session-start (TUI hook only)
 
@@ -579,13 +579,12 @@ Status check output: `✓ symlink → path` / `✓ (copy)` / `— not installed`
 | Field | Value | Meaning |
 |---|---|---|
 | `name` | `claude-apd` | Marketplace identifier |
-| `version` | `4.7.21` | Current |
+| `version` | mirrors `plugins/apd/VERSION` (source of truth) | Bumped via `bump-version` |
 | `description` | "Agent Pipeline Development — enforced multi-agent pipelines with mechanical guardrails" | Positioning |
 | `author.name` | Zoran Stevovic | No AI co-authors |
 | `homepage` | https://apd.run | Marketing |
 | `repository` | https://github.com/zstevovich/claude-apd | Source |
 | `license` | MIT | OSS license |
-| `monitors` | `./monitors/monitors.json` | Monitor definitions path |
 | `userConfig` | 3 fields | Install-time prompts |
 
 userConfig fields (prompted during `/apd-setup`):
@@ -615,10 +614,6 @@ Single plugin entry under `zstevovich-plugins` namespace; mirrors plugin.json fi
 ### 19.4 `.agents/plugins/marketplace.json` (Codex marketplace)
 
 Single plugin entry under `codex-apd` namespace; `policy: INSTALLED_BY_DEFAULT`. Codex auto-registers APD as first-class plugin; no manual install step.
-
-### 19.5 `monitors/monitors.json`
-
-Single monitor: `apd-session-context` runs `bash ${CLAUDE_PLUGIN_ROOT}/bin/core/session-start` on every CC session start.
 
 ## 20. Templates schema deep dive
 

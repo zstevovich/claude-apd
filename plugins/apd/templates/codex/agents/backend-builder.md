@@ -1,7 +1,8 @@
 ---
 name: backend-builder
 description: Implements backend features — writes inside src/ and config/
-model: sonnet
+model: gpt-5.4
+model_reasoning_effort: high
 maxTurns: 60
 scope:
   - src/

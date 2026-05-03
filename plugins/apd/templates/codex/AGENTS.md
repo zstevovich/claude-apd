@@ -4,7 +4,22 @@ This project uses the **APD framework** (Agent Pipeline Development) for
 disciplined, test-driven work on Codex. Read this file at the start of every
 session — it defines the enforced workflow you must follow.
 
-## Pipeline model
+## Stack
+
+| Area | Project value | Notes |
+|------|---------------|-------|
+| Stack | Project-specific | Fill during project setup with languages, frameworks, and package managers. |
+| Entry points | Project-specific | Name the app, CLI, worker, or service entry points. |
+| Test command | Project-specific | Name the fastest useful test command and the full verifier. |
+| Conventions | Project-specific | Name formatting, architecture, and review conventions. |
+
+## APD
+
+Codex is the APD orchestrator for this project. It owns the pipeline state,
+calls the APD MCP tools, performs the inline builder/reviewer work unless the
+user explicitly asks for subagents, and never bypasses the mechanical gates.
+
+### Pipeline
 
 Every change moves through four gates:
 
@@ -23,6 +38,29 @@ these tools:
 | `apd_adversarial_pass(total, accepted, dismissed, notes="")` | Record adversarial review outcome — `notes` is REQUIRED when `total=0` (>= 80 chars) so the server can tell a real "0 findings" pass from a rubber-stamp |
 | `apd_list_agents()` | List every agent definition in `.apd/agents/` with scope, model, maxTurns — call once to discover which roles exist; scope is enforced by `apd_guard_write` itself, not by re-sending it |
 | `apd_pipeline_state()` | Structured snapshot of the current pipeline: which `.done` files exist, spec-card criteria count + freeze hash, implementation-plan presence, adversarial summary, reviewed-files count, verifier cache age, the next step to advance, and a `budgets` field (spec criteria, reviewed files, verifier duration) with advisory green/yellow/red status to inform the Lean vs Full choice |
+
+### Guardrails
+
+- `apd_advance_pipeline` is the only supported way to sign APD gate files.
+- `apd_guard_write` must clear every implementation file before editing it.
+- `spec-card.md` is frozen after the spec gate; scope changes require rollback.
+- Reviewer and adversarial phases are read-only unless the task loops back to builder.
+- The verifier gate must run full verification before commit.
+
+### Mandatory skills
+
+| Situation | Read/use |
+|-----------|----------|
+| Vague, broad, or multi-option task | `apd-brainstorm` and `.apd/rules/brainstorm.md` |
+| Implementing or fixing code | `apd-tdd` and `.apd/rules/tdd.md` |
+| Test failure, build failure, verifier block, or critical review finding | `apd-debug` and `.apd/rules/debug.md` |
+| Pipeline complete and commit made | `apd-finish` and `.apd/rules/finish.md` |
+
+### Human gate
+
+Ask before broadening scope, skipping adversarial outside the Lean rules,
+pushing to a remote, opening a PR, or discarding work. Destructive git actions
+require explicit user confirmation.
 
 ## Recon (before the spec card)
 
@@ -88,8 +126,9 @@ substantial enough that the adversarial gate stays on regardless — the
 3. **Write the implementation plan** at
    `.apd/pipeline/implementation-plan.md` — a bulleted list of files you
    will touch with one-sentence reasons. This is required before builder.
-4. **Implement.** On Codex the orchestrator IS the builder — there is no
-   sub-agent dispatch. Before every write, call
+4. **Implement.** By default the Codex orchestrator acts as the builder.
+   Use Codex subagents only when the user explicitly asks for delegated work,
+   and keep APD scope enforcement on every file they touch. Before every write, call
    `apd_guard_write(apd_role="<role-name>", file_path="<path>")`. The server
    reads scope from `.apd/agents/<role-name>.md` frontmatter; you cannot
    widen it from the call.
@@ -186,12 +225,3 @@ every call — pass only the role name and the target path. Use
 is informational, not a parameter you forward. A role with
 `readonly: true` blocks every write
 regardless of scope.
-
-## Project context
-
-<!-- Replace this block with stack, entry points, test commands, conventions. -->
-
-- **Stack:** <fill in>
-- **Entry points:** <fill in>
-- **Run tests:** <fill in>
-- **Conventions:** <fill in>

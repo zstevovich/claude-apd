@@ -1,7 +1,8 @@
 ---
 name: testing
 description: Writes or updates tests — writes inside tests/ only
-model: sonnet
+model: gpt-5.4
+model_reasoning_effort: high
 maxTurns: 60
 scope:
   - tests/

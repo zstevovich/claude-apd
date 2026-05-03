@@ -85,6 +85,7 @@ Run `apd:apd_ping()` to confirm the MCP server actually answers.
 
 Verify `.codex/hooks.json` has:
 - `PreToolUse` Bash matcher → `bin/adapter/cdx/guard-bash-scope`
+- `PreToolUse` `apply_patch|Edit|Write` matcher → `bin/adapter/cdx/guard-file-edit`
 - `SessionStart` → `bin/adapter/cdx/session-start`
 - No stale paths from previous APD versions
 

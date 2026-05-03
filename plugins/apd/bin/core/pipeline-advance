@@ -273,10 +273,10 @@ case "$STEP" in
                 fi
             done < "$AGENTS_LOG"
         fi
-        # Codex runtime has no sub-agent dispatch — the orchestrator IS the
-        # builder. Skip the agent-presence check when the caller is Codex
-        # (MCP server sets APD_RUNTIME=codex). Verifier step still enforces
-        # build + tests at the end of the flow.
+        # Codex runtime defaults to inline orchestration for APD builder work.
+        # Subagents may exist, but APD cannot require them without an explicit
+        # user delegation request. Skip the legacy CC agent-presence check when
+        # the caller is Codex; verifier still enforces build + tests.
         if [ -z "${BUILDER_RAN:-}" ] && [ "${APD_RUNTIME:-}" = "codex" ]; then
             BUILDER_RAN="codex-orchestrator"
         fi
@@ -379,7 +379,8 @@ case "$STEP" in
                 fi
             done < "$AGENTS_LOG"
         fi
-        # Codex runtime: orchestrator performs the review inline.
+        # Codex runtime: orchestrator performs the review inline unless the
+        # user explicitly requested delegated subagent review.
         if [ -z "${REVIEWER_RAN:-}" ] && [ "${APD_RUNTIME:-}" = "codex" ]; then
             REVIEWER_RAN="codex-orchestrator"
         fi
@@ -826,7 +827,7 @@ EOF
         # .agents was already archived above (before metrics write).
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes"
         # Reset completed cleanly — drop the in-progress marker.
         rm -f "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
         echo "Pipeline reset. Ready for new task."

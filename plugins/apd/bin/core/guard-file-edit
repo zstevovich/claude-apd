@@ -1,0 +1,147 @@
+#!/bin/bash
+# APD File Edit Guard — blocks apply_patch/Edit/Write targets that were not
+# explicitly cleared by apd_guard_write.
+#
+# Interface:
+#   guard-file-edit --command <patch> [--file-path <path> ...]
+
+set -euo pipefail
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
+
+COMMAND=""
+FILE_PATHS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --command) COMMAND="${2:-}"; shift 2 ;;
+    --file-path) FILE_PATHS+=("${2:-}"); shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+python3 - "$PROJECT_DIR" "$PIPELINE_DIR" "$COMMAND" "${FILE_PATHS[@]}" <<'PY'
+from __future__ import annotations
+
+import os
+import sys
+import time
+from pathlib import Path
+
+project = Path(sys.argv[1]).resolve()
+pipeline = Path(sys.argv[2])
+command = sys.argv[3]
+explicit_paths = sys.argv[4:]
+
+PATCH_PREFIXES = (
+    "*** Add File: ",
+    "*** Update File: ",
+    "*** Delete File: ",
+    "*** Move to: ",
+)
+AUTHORING_ALLOWLIST = {
+    ".apd/pipeline/spec-card.md",
+    ".apd/pipeline/implementation-plan.md",
+}
+GUARD_CACHE_MAX_AGE_SECONDS = 600
+
+
+def collect_paths() -> list[str]:
+    paths: list[str] = []
+    paths.extend(p for p in explicit_paths if p)
+    for raw in command.splitlines():
+        line = raw.strip()
+        for prefix in PATCH_PREFIXES:
+            if line.startswith(prefix):
+                paths.append(line[len(prefix):].strip())
+                break
+    # Stable de-duplication.
+    seen: set[str] = set()
+    out: list[str] = []
+    for path in paths:
+        cleaned = path.strip().strip('"').strip("'")
+        if not cleaned or cleaned == "/dev/null" or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        out.append(cleaned)
+    return out
+
+
+def rel_path(raw: str) -> tuple[str | None, str | None]:
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = project / path
+    try:
+        resolved = path.resolve(strict=False)
+    except OSError as exc:
+        return None, f"cannot resolve edit target {raw!r}: {exc}"
+
+    try:
+        rel = resolved.relative_to(project)
+    except ValueError:
+        return None, f"File {raw} is outside the project directory."
+    rel_text = rel.as_posix()
+    if rel_text == "." or not rel_text:
+        return None, "refusing to edit project root"
+    return rel_text, None
+
+
+def load_guarded_paths() -> set[str]:
+    cache = pipeline / ".guarded-writes"
+    guarded: set[str] = set()
+    now = int(time.time())
+    try:
+        lines = cache.read_text().splitlines()
+    except OSError:
+        return guarded
+    for line in lines:
+        parts = line.split("|", 2)
+        if len(parts) < 2:
+            continue
+        try:
+            ts = int(parts[0])
+        except ValueError:
+            continue
+        if now - ts > GUARD_CACHE_MAX_AGE_SECONDS:
+            continue
+        rel = parts[1].strip()
+        if rel:
+            guarded.add(rel)
+    return guarded
+
+
+targets = collect_paths()
+if not targets:
+    raise SystemExit(0)
+
+guarded = load_guarded_paths()
+
+for target in targets:
+    rel, error = rel_path(target)
+    if error:
+        print(f"BLOCKED: {error}", file=sys.stderr)
+        raise SystemExit(2)
+    assert rel is not None
+
+    if rel in AUTHORING_ALLOWLIST:
+        continue
+
+    if rel.startswith(".apd/pipeline/"):
+        print("BLOCKED: File edit targets protected APD pipeline state.", file=sys.stderr)
+        print("  Use APD MCP tools for .done files, hashes, review markers, and verifier cache.", file=sys.stderr)
+        raise SystemExit(2)
+
+    if rel.startswith((".claude/plugins/cache/", ".codex/plugins/cache/", "plugins/cache/")):
+        print("BLOCKED: File edit targets a plugin cache directory.", file=sys.stderr)
+        print("  Plugin cache files are read-only during APD work.", file=sys.stderr)
+        raise SystemExit(2)
+
+    if rel not in guarded:
+        print("BLOCKED: File edit target was not cleared by apd_guard_write.", file=sys.stderr)
+        print(f"  Target: {rel}", file=sys.stderr)
+        print('  Call apd_guard_write(apd_role="<role>", file_path="<target>") before editing.', file=sys.stderr)
+        raise SystemExit(2)
+
+raise SystemExit(0)
+PY

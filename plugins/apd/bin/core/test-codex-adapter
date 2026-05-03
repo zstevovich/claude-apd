@@ -90,6 +90,7 @@ FIRST_EXIT=$?
 echo "$FIRST_OUT" | grep -q "\[wrote\] \[mcp_servers.apd\]" && pass "wrote APD MCP block with tool approvals" && PASSES=$((PASSES + 1)) || { fail "fresh install did not write APD MCP block"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "per-agent sandbox profiles skipped" && pass "sandbox profiles deferred (MCP guard-scope path)" && PASSES=$((PASSES + 1)) || { fail "sandbox skip notice missing"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "PreToolUse Bash hook" && pass "wrote hooks.json" && PASSES=$((PASSES + 1)) || { fail "no hooks.json written"; FAILS=$((FAILS + 1)); }
+echo "$FIRST_OUT" | grep -q "PreToolUse file-edit hook" && pass "wrote file-edit hook" && PASSES=$((PASSES + 1)) || { fail "no file-edit hook written"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "SessionStart hook" && pass "wrote SessionStart hook" && PASSES=$((PASSES + 1)) || { fail "no SessionStart hook written"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "\.codex/bin/apd shortcut" && pass "wrote .codex/bin/apd shortcut" && PASSES=$((PASSES + 1)) || { fail "no apd shortcut created"; FAILS=$((FAILS + 1)); }
 _check ".codex/bin/apd is executable" test -x "$SCRATCH/.codex/bin/apd"
@@ -123,6 +124,16 @@ _check ".apd/.apd-version scaffolded" test -f "$SCRATCH/.apd/.apd-version"
 _check "AGENTS.md scaffolded at project root" test -f "$SCRATCH/AGENTS.md"
 _check_file_contains "AGENTS.md references APD pipeline" "$SCRATCH/AGENTS.md" 'apd_advance_pipeline'
 _check_file_contains "AGENTS.md has project name substituted" "$SCRATCH/AGENTS.md" "^# $(basename "$SCRATCH")$"
+for section in "## Stack" "## APD" "### Pipeline" "### Guardrails" "### Mandatory skills" "### Human gate"; do
+    _check_file_contains "AGENTS.md has $section" "$SCRATCH/AGENTS.md" "^$section$"
+done
+if grep -q '<fill in>' "$SCRATCH/AGENTS.md" 2>/dev/null; then
+    fail "AGENTS.md still contains <fill in> placeholders"
+    FAILS=$((FAILS + 1))
+else
+    pass "AGENTS.md has no <fill in> placeholders"
+    PASSES=$((PASSES + 1))
+fi
 ! grep -q "^\[permissions\." "$SCRATCH/.codex/config.toml" && pass "no broken [permissions.*] blocks emitted" && PASSES=$((PASSES + 1)) || { fail "broken permissions blocks present"; FAILS=$((FAILS + 1)); }
 
 # -----------------------------------------------------------
@@ -173,6 +184,8 @@ else
 fi
 _check_file_contains "hooks.json has PreToolUse" "$HOOKS" 'PreToolUse'
 _check_file_contains "hooks.json routes to guard-bash-scope" "$HOOKS" 'guard-bash-scope'
+_check_file_contains "hooks.json routes file edits to guard-file-edit" "$HOOKS" 'guard-file-edit'
+_check_file_contains "hooks.json matches apply_patch/Edit/Write" "$HOOKS" 'apply_patch\|Edit\|Write'
 _check_file_contains "hooks.json has SessionStart" "$HOOKS" 'SessionStart'
 _check_file_contains "hooks.json routes SessionStart to adapter" "$HOOKS" 'bin/adapter/cdx/session-start'
 _check "session-start script is executable" test -x "$APD_PLUGIN_ROOT/bin/adapter/cdx/session-start"
@@ -280,6 +293,15 @@ if grep -qF "$APD_PLUGIN_ROOT/bin/adapter/cdx/guard-bash-scope" "$REPAIR/.codex/
     PASSES=$((PASSES + 1))
 else
     fail "APD Bash hook missing after merge"
+    FAILS=$((FAILS + 1))
+fi
+
+if grep -qF "$APD_PLUGIN_ROOT/bin/adapter/cdx/guard-file-edit" "$REPAIR/.codex/hooks.json" 2>/dev/null && \
+   grep -qF 'apply_patch|Edit|Write' "$REPAIR/.codex/hooks.json" 2>/dev/null; then
+    pass "APD file-edit hook present after merge"
+    PASSES=$((PASSES + 1))
+else
+    fail "APD file-edit hook missing after merge"
     FAILS=$((FAILS + 1))
 fi
 
@@ -397,6 +419,12 @@ case $? in
     *) fail "BLOCK test did not return exit 2 (got $?)"; FAILS=$((FAILS + 1)) ;;
 esac
 
+(cd "$SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --command 'python3 -c "open(\".apd/pipeline/.guarded-writes\", \"w\").write(\"forged\")"' >/dev/null 2>&1)
+case $? in
+    2) pass "BLOCK: runtime write to .apd/pipeline rejected (exit 2)" ; PASSES=$((PASSES + 1)) ;;
+    *) fail "runtime pipeline write did not return exit 2 (got $?)"; FAILS=$((FAILS + 1)) ;;
+esac
+
 # -----------------------------------------------------------
 # 6b. apd_guard_write server-side registry enforcement
 #     (scope comes from .apd/agents/<role>.md, not from client args)
@@ -499,6 +527,14 @@ else
     FAILS=$((FAILS + 1))
 fi
 
+if grep -q 'src/api/users.py|backend-builder' "$GUARD_SCRATCH/.apd/pipeline/.guarded-writes" 2>/dev/null; then
+    pass "apd_guard_write records fresh file-edit clearance"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd_guard_write did not record .guarded-writes clearance"
+    FAILS=$((FAILS + 1))
+fi
+
 # Path traversal attack — attacker places outside.md with scope:[/] and tries
 # to make apd_guard_write treat it as authoritative. Role must be a bare
 # identifier; parent refs, absolute paths, and slashes must all be rejected.
@@ -596,6 +632,66 @@ if [ "$SIG_OUT" = "apd_role,file_path" ]; then
     PASSES=$((PASSES + 1))
 else
     fail "apd_guard_write signature drifted: got '$SIG_OUT' (expected 'apd_role,file_path')"
+    FAILS=$((FAILS + 1))
+fi
+
+# -----------------------------------------------------------
+# 6c. guard-file-edit enforcement for Codex apply_patch/Edit/Write
+# -----------------------------------------------------------
+section "6c. guard-file-edit enforcement"
+
+PATCH_OK=$'*** Begin Patch\n*** Update File: src/api/users.py\n@@\n+ok\n*** End Patch'
+if APD_PROJECT_DIR="$GUARD_SCRATCH" bash "$APD_PLUGIN_ROOT/bin/core/guard-file-edit" --command "$PATCH_OK" >/dev/null 2>&1; then
+    pass "file-edit ALLOW: target cleared by apd_guard_write"
+    PASSES=$((PASSES + 1))
+else
+    fail "file-edit should allow src/api/users.py after guard clearance"
+    FAILS=$((FAILS + 1))
+fi
+
+PATCH_UNCLEARED=$'*** Begin Patch\n*** Update File: src/no-clearance.py\n@@\n+blocked\n*** End Patch'
+if APD_PROJECT_DIR="$GUARD_SCRATCH" bash "$APD_PLUGIN_ROOT/bin/core/guard-file-edit" --command "$PATCH_UNCLEARED" >/dev/null 2>&1; then
+    fail "file-edit allowed a target without apd_guard_write clearance"
+    FAILS=$((FAILS + 1))
+else
+    pass "file-edit BLOCK: target without guard clearance"
+    PASSES=$((PASSES + 1))
+fi
+
+PATCH_SPEC=$'*** Begin Patch\n*** Update File: .apd/pipeline/spec-card.md\n@@\n+R1\n*** End Patch'
+if APD_PROJECT_DIR="$GUARD_SCRATCH" bash "$APD_PLUGIN_ROOT/bin/core/guard-file-edit" --command "$PATCH_SPEC" >/dev/null 2>&1; then
+    pass "file-edit ALLOW: spec-card authoring file"
+    PASSES=$((PASSES + 1))
+else
+    fail "file-edit blocked spec-card.md authoring"
+    FAILS=$((FAILS + 1))
+fi
+
+PATCH_STATE=$'*** Begin Patch\n*** Update File: .apd/pipeline/verifier.done\n@@\n+forged\n*** End Patch'
+if APD_PROJECT_DIR="$GUARD_SCRATCH" bash "$APD_PLUGIN_ROOT/bin/core/guard-file-edit" --command "$PATCH_STATE" >/dev/null 2>&1; then
+    fail "file-edit allowed protected pipeline state"
+    FAILS=$((FAILS + 1))
+else
+    pass "file-edit BLOCK: protected pipeline state"
+    PASSES=$((PASSES + 1))
+fi
+
+PATCH_OUTSIDE=$'*** Begin Patch\n*** Update File: /tmp/apd-outside.py\n@@\n+blocked\n*** End Patch'
+if APD_PROJECT_DIR="$GUARD_SCRATCH" bash "$APD_PLUGIN_ROOT/bin/core/guard-file-edit" --command "$PATCH_OUTSIDE" >/dev/null 2>&1; then
+    fail "file-edit allowed path outside project"
+    FAILS=$((FAILS + 1))
+else
+    pass "file-edit BLOCK: path outside project"
+    PASSES=$((PASSES + 1))
+fi
+
+printf '1|src/stale.py|backend-builder\n' > "$GUARD_SCRATCH/.apd/pipeline/.guarded-writes"
+if APD_PROJECT_DIR="$GUARD_SCRATCH" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1 && \
+   [ ! -f "$GUARD_SCRATCH/.apd/pipeline/.guarded-writes" ]; then
+    pass "pipeline reset clears .guarded-writes"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline reset did not clear .guarded-writes"
     FAILS=$((FAILS + 1))
 fi
 
@@ -878,14 +974,16 @@ EOF
 cat > "$NT/.apd/agents/backend-builder.md" <<'EOF'
 ---
 name: backend-builder
-model: sonnet
+model: gpt-5.4
+model_reasoning_effort: high
 ---
 # SCOPE_PATHS: src/
 EOF
 cat > "$NT/.apd/agents/code-reviewer.md" <<'EOF'
 ---
 name: code-reviewer
-model: opus
+model: gpt-5.4
+model_reasoning_effort: high
 ---
 # read-only
 EOF
@@ -904,7 +1002,7 @@ fi
 
 # pipeline-doctor should list agents from .apd/agents/
 DOC_OUT="$(APD_PROJECT_DIR="$NT" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-doctor" 2>&1)"
-if echo "$DOC_OUT" | grep -qE "backend-builder.*sonnet"; then
+if echo "$DOC_OUT" | grep -qE "backend-builder.*gpt-5.4"; then
     pass "pipeline-doctor lists agents from .apd/agents/"
     PASSES=$((PASSES + 1))
 else
@@ -1018,6 +1116,14 @@ else
     fail "code-reviewer frontmatter missing name"
     FAILS=$((FAILS + 1))
 fi
+if grep -q '^model: gpt-5\.4$' "$AG/.apd/agents/code-reviewer.md" 2>/dev/null && \
+   grep -q '^model_reasoning_effort: high$' "$AG/.apd/agents/code-reviewer.md" 2>/dev/null; then
+    pass "code-reviewer template uses Codex/OpenAI model frontmatter"
+    PASSES=$((PASSES + 1))
+else
+    fail "code-reviewer template still has stale model frontmatter"
+    FAILS=$((FAILS + 1))
+fi
 
 # add with custom scope paths
 APD_PROJECT_DIR="$AG" bash "$APD_PLUGIN_ROOT/bin/apd" cdx agents add backend-builder src/ api/ >/dev/null 2>&1
@@ -1102,7 +1208,7 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-for label in "uv installed" "apd_mcp_server.py present" "MCP tools registered" "plugin .mcp.json self-registers" "hooks.json wires PreToolUse" "AGENTS.md at project root"; do
+for label in "uv installed" "apd_mcp_server.py present" "MCP tools registered" "plugin .mcp.json self-registers" "hooks.json wires PreToolUse" "guard-file-edit" "AGENTS.md at project root"; do
     if echo "$DOC_OUT" | grep -qE "$label"; then
         pass "doctor checks '$label'"
         PASSES=$((PASSES + 1))
@@ -1160,7 +1266,7 @@ echo "PROJECT_NAME=hyd" > "$HYD/.claude/.apd-config"
 bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$HYD" >/dev/null 2>&1
 HYD_OUT="$(APD_PROJECT_DIR="$HYD" bash "$APD_PLUGIN_ROOT/bin/apd" cdx doctor 2>&1)"
 if echo "$HYD_OUT" | grep -q "hybrid project"; then
-    pass "doctor identifies hybrid project and points to \`apd doctor\`"
+    pass "doctor identifies hybrid project without switching to CC audit scope"
     PASSES=$((PASSES + 1))
 else
     fail "doctor did not flag hybrid project"
@@ -1396,7 +1502,8 @@ cat > "$LA/.apd/agents/backend-builder.md" <<'EOF'
 ---
 name: backend-builder
 description: Backend writes — src/ + config/
-model: sonnet
+model: gpt-5.4
+model_reasoning_effort: high
 maxTurns: 40
 scope:
   - src/
@@ -1408,7 +1515,8 @@ cat > "$LA/.apd/agents/code-reviewer.md" <<'EOF'
 ---
 name: code-reviewer
 description: Read-only reviewer
-model: opus
+model: gpt-5.4
+model_reasoning_effort: high
 maxTurns: 30
 scope: []
 readonly: true
