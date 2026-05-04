@@ -1,5 +1,18 @@
 # Changelog
 
+## v6.1.3 — 2026-05-04
+
+CC + Codex plugin audit cleanup. Test count: 257 → 278. Verified against `developers.openai.com/codex/{hooks,subagents,mcp,plugins/build}`.
+
+- **fix(cc): drop redundant monitor declaration.** `monitors/monitors.json` ran the same `session-start` script that already fires as `SessionStart` + `PostCompact` hooks. The monitor produced a "Monitor stream ended" notification every session with zero added behavior. Removed the file and the `monitors:` field in `plugin.json`; SPEC §11.1 + §19 + README + CLAUDE.md aligned with the monitor-less layout.
+- **fix(cc): bump `APD_MIN_VERSION` to 2.1.101.** First CC release where the `SessionStart` hook fires reliably for plugins. `session-start` + `verify-apd` now read `MIN_CC_VERSION` from `plugins/apd/.apd-version` (relocated from repo root, where it had been orphaned since v6.0 plugin self-containment).
+- **feat(codex): apply_patch / Edit / Write enforcement.** New `bin/core/guard-file-edit` (core) + `bin/adapter/cdx/guard-file-edit` (cdx shim) block file-edit targets that have not been pre-cleared by `apd_guard_write`. The MCP tool records cleared targets into `.apd/pipeline/.guarded-writes` (10 min TTL); the file-edit hook reads that cache. `install-codex-config` block 5a wires the `PreToolUse apply_patch|Edit|Write` hook into project `.codex/hooks.json`. `spec-card.md` + `implementation-plan.md` allowlisted; `.apd/pipeline/` state and outside-project paths block hard. Canonical payload `tool_name: "apply_patch"` per Codex docs.
+- **fix(guard): runtime-write detection in protected dirs.** `guard-bash-scope` now also runs the runtime-write detector (node / python / ruby / php / perl `-e` writes) when the command targets the plugin cache or `.apd/pipeline/`, closing a shell-bypass for those paths. DRY refactor extracted `_runtime_write_detected` helper.
+- **fix(codex): canonical agent frontmatter.** All 5 `templates/codex/agents/*.md` use `model: gpt-5.4` (was `sonnet`/`opus`) and `model_reasoning_effort: high` (was `effort: xhigh`). Documented Codex 0.128 model values are `gpt-5.3-codex-spark` / `gpt-5.4` / `gpt-5.4-mini`; canonical effort field is `model_reasoning_effort`. Closes the v6.1.1 deferred M4 item.
+- **fix(codex): `AGENTS.md` template structure.** Replaced `<fill in>` placeholders with required `## Stack` / `## APD` / `### Pipeline` / `### Guardrails` / `### Mandatory skills` / `### Human gate` sections so freshly scaffolded projects pass `apd-audit` + `codex-doctor` checks. Skill refs use bare names (`apd-brainstorm`) instead of MCP-tool-style `apd:apd-brainstorm`.
+- **fix(codex): `codex-doctor` extended checks.** Added `AGENTS.md` required-sections + `<fill in>` + file-edit hook wiring checks. Hybrid checkout `.claude/` warning softened.
+- **fix(pipeline): reset clears `.guarded-writes`.** `pipeline-advance reset` rm-line includes the new clearance cache file.
+
 ## v6.1.2 — 2026-04-29
 
 Hotfix from BambiProject live pipeline evidence: spec-card.md authored with markdown-bold around the `adversarial:` directive (`**adversarial:** skip — <reason>`) was not recognized by `pipeline-advance`'s opt-out parser. The verifier therefore demanded the adversarial pass even though the spec opted out — the user's workaround was to dispatch a trivial adversarial-reviewer to satisfy the gate.
