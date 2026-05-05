@@ -302,6 +302,41 @@ else
 fi
 
 # -----------------------------------------------------------
+# 7. Plugin cache (stale-version detection)
+# -----------------------------------------------------------
+section "Plugin cache"
+
+CODEX_PLUGIN_CACHE="$CODEX_HOME/plugins/cache"
+case "$APD_PLUGIN_ROOT" in
+    "$CODEX_PLUGIN_CACHE"/*)
+        VERSION_PARENT=$(dirname "$APD_PLUGIN_ROOT")
+        ACTIVE_BASENAME=$(basename "$APD_PLUGIN_ROOT")
+        STALE_COUNT=0
+        for sibling in "$VERSION_PARENT"/*/; do
+            [ -d "$sibling" ] || continue
+            sibling_name=$(basename "$sibling")
+            [ "$sibling_name" = "$ACTIVE_BASENAME" ] && continue
+            if [ "$STALE_COUNT" -eq 0 ]; then
+                _warn "Stale Codex plugin cache versions detected:"
+            fi
+            sibling_size=$(du -sh "$sibling" 2>/dev/null | awk '{print $1}')
+            sibling_path="${sibling%/}"
+            echo "      $sibling_path ($sibling_size)"
+            STALE_COUNT=$((STALE_COUNT + 1))
+        done
+        if [ "$STALE_COUNT" -eq 0 ]; then
+            _ok "active version $ACTIVE_BASENAME is sole cached version"
+        else
+            echo "      Manual cleanup: rm -rf <stale paths above>"
+            echo "      No Codex CLI command removes these (verified 2026-05-05)."
+        fi
+        ;;
+    *)
+        _ok "running from non-cache path (skip stale-version check)"
+        ;;
+esac
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

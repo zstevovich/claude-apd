@@ -1,5 +1,16 @@
 # Changelog
 
+## DRAFT — pending version assignment (2026-05-06)
+
+Diagnostics symmetry across both runtimes for stale plugin cache cleanup, plus SPEC threat-model rationale motivated by the CC 2.1.121–128 scan. Test count: 278 → 280.
+
+- **docs(spec): rationale for guard-based enforcement.** Added a paragraph to §4.3 explaining why APD relies on guard `exit 2` + the compiled `validate-agent` Go binary instead of CC permission prompts. Motivated by CC 2.1.121 + 2.1.126: `--dangerously-skip-permissions` now skips writes to `.claude/skills/`, `.claude/agents/`, `.claude/commands/`, and the entire `.claude/`, `.git/`, `.vscode/`, and shell config files. Anyone running CC in that mode bypasses every permission rule, so APD's enforcement boundary cannot live there.
+- **feat(cc): stale plugin cache detection in `pipeline-doctor`.** New block in §10 reads `~/.claude/plugins/installed_plugins.json`, finds the active `claude-apd@<marketplace>` install path, and lists sibling per-version cache directories not referenced by the JSON. Each is shown with `du -sh` size and a manual `rm -rf` hint. Read-only — no destructive action from the doctor. Detected 48 MB of stale cache on the development machine (3 dirs: 6.1.0, 6.1.1, 6.1.2). Verified `claude plugin prune` does not handle this scenario — it only cleans auto-installed dependencies.
+- **fix(cc): remove broken `CACHE_NAME` warn from `pipeline-doctor` §10.** The pre-existing `basename(dirname($APD_PLUGIN_ROOT))` check had been a false-positive every run since v6.0 self-containment moved the plugin payload into `plugins/apd/` (`CACHE_NAME` always resolved to `plugins`, never to a version string). New stale-cache detection above covers the meaningful diagnostic; the broken block deleted.
+- **feat(codex): symmetric stale plugin cache detection in `codex-doctor`.** New "Plugin cache" section between MCP server and Summary checks `$CODEX_HOME/plugins/cache/*` for sibling version dirs. Codex's v6.0+ self-contained cache layout makes the walk simpler: `$APD_PLUGIN_ROOT` is itself the version dir, so `dirname` lands on the version-parent directly. Dev-mode runs (`$APD_PLUGIN_ROOT` outside the cache prefix) print `_ok` "running from non-cache path" instead of false-positiving.
+- **test: 2 new assertions in `test-codex-adapter` §15.** Asserts that `apd cdx doctor` output contains a `Plugin cache` section and that the dev-mode `running from non-cache path` skip fires (tests scaffold via `mktemp`, so APD_PLUGIN_ROOT is the dev repo path). Count 278 → 280.
+- **docs(spec): §14 audit cleanup.** Removed 5 stale entries (Codex 0.121.0 marketplace blocker, slash-menu skill listing, .mcp.json gap, manifest version lag from §13 + §14) — all resolved in 0.124+ or v6.0. Reworded 3 entries (`SessionStart`, `codex exec`, pipeline reset) to drop stale version references ("v5.1 candidate", "v4.7.21+F2 docs"). 13 → 9 limitations.
+
 ## v6.1.3 — 2026-05-04
 
 CC + Codex plugin audit cleanup. Test count: 257 → 278. Verified against `developers.openai.com/codex/{hooks,subagents,mcp,plugins/build}`.

@@ -265,11 +265,49 @@ section "Plugin"
 PLUGIN_VER="${APD_VERSION:-unknown}"
 ok "APD v$PLUGIN_VER (${APD_PLUGIN_ROOT})"
 
-# Check cache freshness
-CACHE_DIR=$(dirname "$APD_PLUGIN_ROOT" 2>/dev/null)
-CACHE_NAME=$(basename "$CACHE_DIR" 2>/dev/null)
-if [ "$CACHE_NAME" != "$PLUGIN_VER" ] 2>/dev/null; then
-    warn "Cache folder ($CACHE_NAME) differs from version ($PLUGIN_VER) — cosmetic, content is correct"
+# Stale per-version cache dirs (CC plugin install only)
+INSTALLED_JSON="$HOME/.claude/plugins/installed_plugins.json"
+if [ -f "$INSTALLED_JSON" ] && command -v python3 >/dev/null 2>&1; then
+    ACTIVE_INSTALL_PATH=$(python3 - "$INSTALLED_JSON" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        d = json.load(f)
+    plugins = d.get('plugins', {})
+    if not isinstance(plugins, dict):
+        sys.exit(0)
+    for key, entries in plugins.items():
+        if not key.startswith('claude-apd@'):
+            continue
+        for e in entries:
+            if e.get('scope') == 'user':
+                print(e.get('installPath', ''))
+                sys.exit(0)
+except Exception:
+    pass
+PY
+)
+    if [ -n "$ACTIVE_INSTALL_PATH" ] && [ -d "$ACTIVE_INSTALL_PATH" ]; then
+        VERSION_PARENT=$(dirname "$ACTIVE_INSTALL_PATH")
+        ACTIVE_BASENAME=$(basename "$ACTIVE_INSTALL_PATH")
+        STALE_COUNT=0
+        for sibling in "$VERSION_PARENT"/*/; do
+            [ -d "$sibling" ] || continue
+            sibling_name=$(basename "$sibling")
+            [ "$sibling_name" = "$ACTIVE_BASENAME" ] && continue
+            if [ "$STALE_COUNT" -eq 0 ]; then
+                warn "Stale CC plugin cache versions detected:"
+            fi
+            sibling_size=$(du -sh "$sibling" 2>/dev/null | awk '{print $1}')
+            sibling_path="${sibling%/}"
+            echo "    ${D}  $sibling_path ($sibling_size)${R}"
+            STALE_COUNT=$((STALE_COUNT + 1))
+        done
+        if [ "$STALE_COUNT" -gt 0 ]; then
+            echo "    ${D}  Manual cleanup: rm -rf <stale paths above>${R}"
+            echo "    ${D}  No CC built-in command removes these (verified 2026-05-05).${R}"
+        fi
+    fi
 fi
 
 # ============================================================

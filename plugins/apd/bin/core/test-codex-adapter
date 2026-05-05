@@ -1208,7 +1208,7 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-for label in "uv installed" "apd_mcp_server.py present" "MCP tools registered" "plugin .mcp.json self-registers" "hooks.json wires PreToolUse" "guard-file-edit" "AGENTS.md at project root"; do
+for label in "uv installed" "apd_mcp_server.py present" "MCP tools registered" "plugin .mcp.json self-registers" "hooks.json wires PreToolUse" "guard-file-edit" "AGENTS.md at project root" "Plugin cache"; do
     if echo "$DOC_OUT" | grep -qE "$label"; then
         pass "doctor checks '$label'"
         PASSES=$((PASSES + 1))
@@ -1217,6 +1217,14 @@ for label in "uv installed" "apd_mcp_server.py present" "MCP tools registered" "
         FAILS=$((FAILS + 1))
     fi
 done
+
+if echo "$DOC_OUT" | grep -q "running from non-cache path"; then
+    pass "doctor skips stale-cache check when not in plugin cache"
+    PASSES=$((PASSES + 1))
+else
+    fail "stale-cache skip path missing for dev repo run"
+    FAILS=$((FAILS + 1))
+fi
 
 if echo "$DOC_OUT" | grep -q "apd cdx agents add"; then
     pass "doctor points to apd cdx agents when .apd/agents/ is empty"

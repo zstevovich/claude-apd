@@ -109,6 +109,8 @@ Requires global `codex features enable codex_hooks` (stable as of 0.124; was "un
 
 See §17.2 for per-guard internals. Block convention: exit 2 = BLOCK, exit 0 = ALLOW. All blocks logged to `<memory>/guard-audit.log` via shared `log_block` helper in `bin/lib/style.sh` (sanitises newlines/CR per F3 since v4.7.21+).
 
+**Why guards, not CC permission prompts.** APD's enforcement boundary is `exit 2` from a guard plus the compiled `validate-agent` Go binary (§16.4) — never a CC permission prompt. Permission rules are bypassable: `--dangerously-skip-permissions` skips writes to `.claude/skills/`, `.claude/agents/`, `.claude/commands/` (CC 2.1.121+) and the entire `.claude/`, `.git/`, `.vscode/`, and shell config files (CC 2.1.126+). Guards run inside CC's hook engine and cannot be skipped without disabling hooks at the harness level. Compiled validators raise the bar further: the exit code is the contract, regardless of what the orchestrator claims to the harness.
+
 ## 5. Pipeline lifecycle
 
 ### 5.1 Phase order (7 phases)
@@ -278,23 +280,18 @@ Codex 0.124+ fires `SessionStart` in TUI mode only, and timed to the first user 
 - `bump-version` script (gitignored) updates VERSION + manifest version + CHANGELOG entry
 - Semantic versioning: major (breaking), minor (feature), patch (fix)
 - **No bumps without explicit user request** (durable rule)
-- Codex plugin manifest sometimes lags (currently v4.7.20 vs CC v4.7.21)
 
 ## 14. Known limitations & gaps
 
-- **Codex 0.121.0 marketplace install** upstream-blocked (openai/codex#18258). Direct-drop is supported.
-- **Codex `/` slash menu** doesn't list APD skills (same upstream).
 - **`pipeline-advance` spec case** has CC-specific Next-steps block — works for CC, ignored by Codex orchestrator.
-- **`SessionStart` hook** — CC side RESOLVED in CC 2.1.101 (re-confirmed on 2.1.119). Codex 0.124+ fires `SessionStart` only in TUI mode, and only on first user prompt (not TUI banner) per openai/codex#15269. TUI path live-validated on 0.124.0 (2026-04-26) and re-validated on 0.125.0 (same day, same project).
-- **`codex exec` has no APD bootstrap** — `SessionStart` does not fire in exec mode, and `interface.defaultPrompt` is hard-capped at 3 × 128 chars in 0.124+ (treated as user-facing starter prompts). Earlier hypothesis that the orchestrator picked up a long `defaultPrompt` as a system instruction is no longer valid in 0.124+. exec-mode users must invoke `apd_doctor` manually until a real post-install or pre-turn entry point ships upstream. Candidate for v5.1: ship `.mcp.json` so the MCP server can self-bootstrap on install.
-- **Codex plugin manifest gap (`.mcp.json`)** — other Codex plugins (cloudflare, build-ios-apps) ship an `.mcp.json` at plugin root to auto-register an MCP server on install. APD's `plugins/apd/` does not yet; MCP registration currently happens lazily on first MCP tool call. Candidate for v5.1.
+- **`SessionStart` hook in Codex TUI** — fires only on first user prompt, not at TUI banner (openai/codex#15269). Live-validated on 0.124.0 + 0.125.0; not re-tested on 0.128. CC side resolved in CC 2.1.101.
+- **`codex exec` has no APD bootstrap** — `SessionStart` does not fire in exec mode, and `interface.defaultPrompt` is hard-capped at 3 × 128 chars (treated as user-facing starter prompts). exec-mode users must invoke `apd_doctor` manually. No upstream entry point yet.
 - **`guard-parallel-same-agent` missing** — 3× parallel dispatch caused conflicts (backlog).
 - **In-monorepo `verify-apd`** mis-resolves project root.
 - **CC `SubagentStop` hook** is the only `.agents` log telemetry source on CC; Codex has no equivalent (relies on inline orchestrator state).
-- **Pipeline reset is NOT auto-triggered** — orchestrator must explicitly call (corrected in v4.7.21+F2 docs).
+- **Pipeline reset is NOT auto-triggered** — orchestrator must explicitly call. Design choice, not a bug.
 - **`mkdir .pipeline/` orchestrator bypass** — backlog: address via `permissions.deny`.
 - **Superpowers plugin conflict** — mechanical blocking needed (backlog).
-- **Codex plugin manifest version lag** — v4.7.20 vs CC v4.7.21; manual sync.
 
 ---
 
