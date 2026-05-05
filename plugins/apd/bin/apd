@@ -94,6 +94,7 @@ case "$CMD" in
                 echo "    agents list                  Show available templates and installed agents"
                 echo "    agents add <name> [scope..]  Copy a template into .apd/agents/<name>.md"
                 echo "    agents add <name> --force    Overwrite an existing agent file"
+                echo "    agents migrate [--dry-run]   Convert .apd/agents/*.md → .codex/agents/*.toml (C2)"
                 echo ""
                 echo "    Templates: code-reviewer, backend-builder, frontend-builder,"
                 echo "               testing, adversarial-reviewer"

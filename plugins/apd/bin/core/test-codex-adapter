@@ -3421,6 +3421,86 @@ fi
 rm -rf "$TML_DIR"
 
 # -----------------------------------------------------------
+# 36. C2 Phase 2b — agents migrate utility
+#     `apd cdx agents migrate` converts .apd/agents/*.md →
+#     .codex/agents/*.toml. Source .md preserved; idempotent.
+# -----------------------------------------------------------
+section "36. C2 Phase 2b agents migrate"
+
+MIG_DIR="$(mktemp -d -t apd-mig.XXXXXX)"
+mkdir -p "$MIG_DIR/.apd/agents"
+echo "PROJECT_NAME=mig-test" > "$MIG_DIR/.apd/config"
+
+cat > "$MIG_DIR/.apd/agents/backend-builder.md" <<'EOF'
+---
+name: backend-builder
+description: Backend builder
+model: gpt-5.4
+model_reasoning_effort: high
+maxTurns: 60
+scope:
+  - src/
+  - config/
+---
+
+You are the backend builder.
+EOF
+
+# A: --dry-run does not write target files
+APD_PROJECT_DIR="$MIG_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/agents-scaffold" migrate --dry-run >/dev/null 2>&1
+if [ ! -e "$MIG_DIR/.codex/agents/backend-builder.toml" ]; then
+    pass "agents migrate --dry-run does not create target files"
+    PASSES=$((PASSES + 1))
+else
+    fail "agents migrate --dry-run created target file"
+    FAILS=$((FAILS + 1))
+fi
+
+# B: real migrate creates the .toml
+APD_PROJECT_DIR="$MIG_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/agents-scaffold" migrate >/dev/null 2>&1
+if [ -f "$MIG_DIR/.codex/agents/backend-builder.toml" ]; then
+    pass "agents migrate creates .codex/agents/<name>.toml"
+    PASSES=$((PASSES + 1))
+else
+    fail "agents migrate did not create target"
+    FAILS=$((FAILS + 1))
+fi
+
+# C: TOML has expected fields
+TML=$(cat "$MIG_DIR/.codex/agents/backend-builder.toml" 2>/dev/null)
+if echo "$TML" | grep -q '^name = "backend-builder"$' && \
+   echo "$TML" | grep -q '^model = "gpt-5.4"$' && \
+   echo "$TML" | grep -q '^max_turns = 60$' && \
+   echo "$TML" | grep -q 'scope = \["src/", "config/"\]'; then
+    pass "migrated TOML has expected fields"
+    PASSES=$((PASSES + 1))
+else
+    fail "migrated TOML missing expected fields"
+    FAILS=$((FAILS + 1))
+fi
+
+# D: idempotent — re-run skips existing target
+RERUN_OUT=$(APD_PROJECT_DIR="$MIG_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/agents-scaffold" migrate 2>&1)
+if echo "$RERUN_OUT" | grep -q "skip.*backend-builder"; then
+    pass "agents migrate skips existing target without --force"
+    PASSES=$((PASSES + 1))
+else
+    fail "agents migrate should skip existing target"
+    FAILS=$((FAILS + 1))
+fi
+
+# E: source .md preserved (fallback intact)
+if [ -f "$MIG_DIR/.apd/agents/backend-builder.md" ]; then
+    pass "agents migrate preserves source .md (fallback intact)"
+    PASSES=$((PASSES + 1))
+else
+    fail "agents migrate should not delete source .md"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$MIG_DIR"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

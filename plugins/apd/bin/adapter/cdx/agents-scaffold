@@ -161,6 +161,165 @@ PY
         echo ""
         echo "  Next: open the file and refine role/model/maxTurns as needed."
         ;;
+    migrate)
+        DRY_RUN=0
+        FORCE_MIG=0
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                --dry-run) DRY_RUN=1; shift ;;
+                --force|-f) FORCE_MIG=1; shift ;;
+                *) echo "Unknown flag: $1" >&2; exit 1 ;;
+            esac
+        done
+
+        SOURCE_DIR="$PROJECT_DIR/.apd/agents"
+        TARGET_DIR="$PROJECT_DIR/.codex/agents"
+
+        if [ ! -d "$SOURCE_DIR" ]; then
+            echo "  ${D}No .apd/agents/ directory — nothing to migrate.${R}"
+            exit 0
+        fi
+
+        shopt -s nullglob
+        SOURCE_FILES=("$SOURCE_DIR"/*.md)
+        shopt -u nullglob
+        if [ "${#SOURCE_FILES[@]}" -eq 0 ]; then
+            echo "  ${D}.apd/agents/ has no .md files — nothing to migrate.${R}"
+            exit 0
+        fi
+
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  ${V}DRY RUN${R} — no files written."
+        else
+            mkdir -p "$TARGET_DIR"
+        fi
+
+        MIGRATED=0
+        SKIPPED=0
+        for src in "${SOURCE_FILES[@]}"; do
+            [ -f "$src" ] || continue
+            name=$(basename "$src" .md)
+            target="$TARGET_DIR/$name.toml"
+
+            if [ -f "$target" ] && [ "$FORCE_MIG" != "1" ]; then
+                echo "  ${D}skip${R}  $name (target exists; --force to overwrite)"
+                SKIPPED=$((SKIPPED + 1))
+                continue
+            fi
+
+            if [ "$DRY_RUN" = "1" ]; then
+                echo "  ${G}would migrate${R}  $src → $target"
+                MIGRATED=$((MIGRATED + 1))
+                continue
+            fi
+
+            python3 - "$src" "$target" <<'PY'
+import os, sys
+
+src_path, tgt_path = sys.argv[1], sys.argv[2]
+text = open(src_path).read()
+
+if not text.startswith("---"):
+    print(f"ERROR: {src_path} has no frontmatter", file=sys.stderr)
+    sys.exit(1)
+parts = text.split("\n---", 2)
+if len(parts) < 2:
+    print(f"ERROR: {src_path} has no closing ---", file=sys.stderr)
+    sys.exit(1)
+fm_block = parts[0].lstrip("-\n")
+body = parts[1].lstrip("\n") if len(parts) >= 2 else ""
+
+fm = {}
+current_list = None
+for line in fm_block.split("\n"):
+    line = line.rstrip()
+    if not line:
+        current_list = None
+        continue
+    if current_list and line.startswith(("  - ", "    - ", "\t- ")):
+        item = line.lstrip(" \t-").strip()
+        fm[current_list].append(item)
+        continue
+    current_list = None
+    if ":" not in line:
+        continue
+    key, _, val = line.partition(":")
+    key, val = key.strip(), val.strip()
+    if val == "":
+        current_list = key
+        fm[key] = []
+    elif val.startswith("[") and val.endswith("]"):
+        inner = val[1:-1].strip()
+        items = [s.strip().strip('"').strip("'") for s in inner.split(",")] if inner else []
+        fm[key] = items
+    else:
+        if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+            val = val[1:-1]
+        fm[key] = val
+
+def toml_string(s):
+    s = str(s).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    return f'"{s}"'
+
+def toml_list(lst):
+    return "[" + ", ".join(toml_string(s) for s in lst) + "]"
+
+out = []
+out.append(f'name = {toml_string(fm.get("name", os.path.basename(src_path).rsplit(".", 1)[0]))}')
+if "description" in fm:
+    out.append(f'description = {toml_string(fm["description"])}')
+if "model" in fm:
+    out.append(f'model = {toml_string(fm["model"])}')
+if "model_reasoning_effort" in fm:
+    out.append(f'model_reasoning_effort = {toml_string(fm["model_reasoning_effort"])}')
+
+extension_lines = []
+if "maxTurns" in fm:
+    try:
+        extension_lines.append(f'max_turns = {int(fm["maxTurns"])}')
+    except (ValueError, TypeError):
+        pass
+if "scope" in fm and isinstance(fm["scope"], list):
+    extension_lines.append(f'scope = {toml_list(fm["scope"])}')
+if "readonly" in fm:
+    rd = fm["readonly"]
+    if isinstance(rd, str):
+        rd = rd.lower() in ("true", "yes", "1")
+    extension_lines.append(f'readonly = {"true" if rd else "false"}')
+
+if extension_lines:
+    out.append("")
+    out.append("# APD extensions (not in documented Codex schema)")
+    out.extend(extension_lines)
+
+out.append("")
+body_stripped = body.rstrip()
+if '"""' in body_stripped:
+    out.append("developer_instructions = '''")
+    out.append(body_stripped)
+    out.append("'''")
+else:
+    out.append('developer_instructions = """')
+    out.append(body_stripped)
+    out.append('"""')
+
+with open(tgt_path, "w") as f:
+    f.write("\n".join(out) + "\n")
+PY
+            if [ $? -eq 0 ]; then
+                echo "  ${G}wrote${R}  $target"
+                MIGRATED=$((MIGRATED + 1))
+            else
+                echo "  ${R}fail${R}  $name (see error above)"
+            fi
+        done
+
+        echo ""
+        echo "  Migrated: $MIGRATED  Skipped: $SKIPPED"
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  Re-run without --dry-run to apply."
+        fi
+        ;;
     help|--help|-h|"")
         echo ""
         echo "  ${V}apd cdx agents${R} — scaffold agent definitions into .apd/agents/"
@@ -168,14 +327,17 @@ PY
         echo "  Subcommands:"
         echo "    list                     show available templates and installed agents"
         echo "    add <name> [scope ...]   copy a template into .apd/agents/<name>.md"
+        echo "    migrate [--dry-run]      convert .apd/agents/*.md → .codex/agents/*.toml (C2)"
         echo ""
         echo "  Examples:"
         echo "    apd cdx agents list"
         echo "    apd cdx agents add code-reviewer"
         echo "    apd cdx agents add backend-builder src/ config/"
         echo "    apd cdx agents add testing tests/ src/test/"
+        echo "    apd cdx agents migrate --dry-run"
+        echo "    apd cdx agents migrate --force"
         echo ""
-        echo "  Pass --force to overwrite an existing agent file."
+        echo "  Pass --force to overwrite an existing agent file or migration target."
         echo ""
         ;;
     *)
