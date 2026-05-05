@@ -4,6 +4,7 @@ CLAUDE.md
 .codex/
 .vscode/
 .apd/
+.copilot/
 
 # Dev tools — local only
 bump-version
