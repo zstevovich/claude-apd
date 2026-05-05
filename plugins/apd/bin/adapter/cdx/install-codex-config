@@ -115,6 +115,7 @@ text = cfg_path.read_text() if cfg_path.exists() else ""
 _APD_TOOLS = (
     "apd_ping", "apd_doctor", "apd_advance_pipeline", "apd_guard_write",
     "apd_verify_step", "apd_adversarial_pass", "apd_list_agents", "apd_pipeline_state",
+    "apd_pipeline_metrics",
 )
 # Each sub-list is one TOML section. The server block is intentionally
 # complete so Codex does not synthesize an invalid implicit parent from

@@ -833,6 +833,82 @@ def apd_adversarial_pass(total: int, accepted: int, dismissed: int, notes: str =
     return {"ok": True, "path": str(summary), "line": line}
 
 
+@mcp.tool()
+def apd_pipeline_metrics(limit: int = 0) -> dict:
+    """Read recent pipeline run metrics from .apd/memory/pipeline-metrics.log.
+
+    Each line records one completed pipeline cycle: timestamps for every
+    phase, status, adversarial summary, and agent counts. The log is
+    pipe-delimited:
+
+        epoch|task|spec_ts|builder_ts|reviewer_ts|verifier_ts|status
+              |adv_total|adv_accepted|adv_dismissed
+              |agents_total|agents_exhausted
+
+    Args:
+        limit: Return only the most recent N runs (0 = all, capped at 200).
+
+    Returns:
+        {"ok": True, "total": <int>, "runs": [<run dict>, ...]}
+        Each run dict has timestamp, task, spec_ts, builder_ts, reviewer_ts,
+        verifier_ts, status, adversarial_total, adversarial_accepted,
+        adversarial_dismissed, agents_total, agents_exhausted.
+        On parse failures the malformed line is skipped.
+    """
+    project = _project_dir()
+    if not project:
+        return {"ok": False, "error": "no project resolved"}
+
+    metrics_log = project / ".apd" / "memory" / "pipeline-metrics.log"
+    if not metrics_log.exists() or metrics_log.stat().st_size == 0:
+        return {"ok": True, "total": 0, "runs": []}
+
+    if limit < 0:
+        limit = 0
+    if limit > 200:
+        limit = 200
+
+    try:
+        raw = metrics_log.read_text().splitlines()
+    except OSError as e:
+        return {"ok": False, "error": str(e)}
+
+    lines = [ln for ln in raw if ln.strip() and not ln.startswith("#")]
+    total = len(lines)
+    if limit > 0:
+        lines = lines[-limit:]
+
+    def _int(s: str) -> int:
+        try:
+            return int(s)
+        except (ValueError, TypeError):
+            return 0
+
+    runs: list[dict] = []
+    for ln in lines:
+        parts = ln.split("|")
+        if len(parts) < 7:
+            continue
+        while len(parts) < 12:
+            parts.append("")
+        runs.append({
+            "timestamp": parts[0],
+            "task": parts[1],
+            "spec_ts": _int(parts[2]),
+            "builder_ts": _int(parts[3]),
+            "reviewer_ts": _int(parts[4]),
+            "verifier_ts": _int(parts[5]),
+            "status": parts[6],
+            "adversarial_total": _int(parts[7]),
+            "adversarial_accepted": _int(parts[8]),
+            "adversarial_dismissed": _int(parts[9]),
+            "agents_total": _int(parts[10]),
+            "agents_exhausted": _int(parts[11]),
+        })
+
+    return {"ok": True, "total": total, "runs": runs}
+
+
 def _bootstrap_shortcut() -> None:
     """Create .codex/bin/apd shortcut on server start.
 

@@ -68,6 +68,35 @@ case "$EVENT" in
         fi
     fi
 
+    # Parallel same-type dispatch gate (framework backlog: BambiProject #48,
+    # 2026-04-16). Block if a same-type agent started within the last N
+    # seconds and has no matching stop event yet. Window configurable via
+    # APD_PARALLEL_WINDOW (default 30s; set to 0 to disable). CC-only —
+    # Codex has no SubagentStart hook for this surface.
+    PARALLEL_WINDOW_SEC=${APD_PARALLEL_WINDOW:-30}
+    if [ -f "$AGENTS_LOG" ] && [ "$PARALLEL_WINDOW_SEC" -gt 0 ] 2>/dev/null; then
+        LAST_LINE=$(awk -F'|' -v t="$AGENT_TYPE" '$2=="start" && $3==t' "$AGENTS_LOG" | tail -1)
+        if [ -n "$LAST_LINE" ]; then
+            LAST_TS=$(echo "$LAST_LINE" | cut -d'|' -f1)
+            LAST_ID=$(echo "$LAST_LINE" | cut -d'|' -f4)
+            if ! awk -F'|' -v id="$LAST_ID" '$2=="stop" && $4==id {found=1} END{exit !found}' "$AGENTS_LOG"; then
+                LAST_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$LAST_TS" +%s 2>/dev/null || \
+                             date -d "$LAST_TS" +%s 2>/dev/null || echo 0)
+                NOW_EPOCH=$(date +%s)
+                ELAPSED=$((NOW_EPOCH - LAST_EPOCH))
+                if [ "$LAST_EPOCH" -ne 0 ] && [ "$ELAPSED" -lt "$PARALLEL_WINDOW_SEC" ]; then
+                    echo "" >&2
+                    echo "  ${RED}${B}BLOCKED:${R} ${RED}parallel dispatch of '${AGENT_TYPE}' within ${ELAPSED}s of previous start (window: ${PARALLEL_WINDOW_SEC}s).${R}" >&2
+                    echo "  ${RED}Same-type parallelism causes Write/Edit races on the same files.${R}" >&2
+                    echo "  ${RED}Wait for the previous '${AGENT_TYPE}' to stop, or dispatch a different agent type.${R}" >&2
+                    echo "" >&2
+                    log_block "parallel-same-agent" "agent_type=${AGENT_TYPE} elapsed=${ELAPSED}s prev_id=${LAST_ID:0:8}"
+                    exit 2
+                fi
+            fi
+        fi
+    fi
+
     echo "${NOW_HUMAN}|start|${AGENT_TYPE}|${AGENT_ID}" >> "$AGENTS_LOG"
     printf "  %s☭%s %s%s%s%s\n" "$ac" "$R" "$ac" "$B" "$AGENT_TYPE" "$R" >&2
     # Pipeline step reminder — warn if orchestrator skipped pipeline-advance

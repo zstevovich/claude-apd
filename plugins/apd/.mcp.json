@@ -14,7 +14,8 @@
         "apd_verify_step":      { "approval_mode": "approve" },
         "apd_adversarial_pass": { "approval_mode": "approve" },
         "apd_list_agents":      { "approval_mode": "approve" },
-        "apd_pipeline_state":   { "approval_mode": "approve" }
+        "apd_pipeline_state":   { "approval_mode": "approve" },
+        "apd_pipeline_metrics": { "approval_mode": "approve" }
       }
     }
   }

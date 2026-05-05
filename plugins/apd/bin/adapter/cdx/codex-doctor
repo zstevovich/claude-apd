@@ -284,7 +284,7 @@ if [ -f "$MCP_PY" ]; then
     fi
 
     MISSING=""
-    EXPECTED_TOOLS="apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state"
+    EXPECTED_TOOLS="apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state apd_pipeline_metrics"
     TOOL_COUNT=0
     for tool in $EXPECTED_TOOLS; do
         TOOL_COUNT=$((TOOL_COUNT + 1))

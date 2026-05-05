@@ -172,14 +172,15 @@ else
     FAILS=$((FAILS + 1))
 fi
 for _t in apd_ping apd_doctor apd_advance_pipeline apd_guard_write \
-         apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state; do
+         apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state \
+         apd_pipeline_metrics; do
     _check_file_contains "config.toml auto-approves $_t" "$CFG" "^\\[mcp_servers\\.apd\\.tools\\.$_t\\]$"
 done
-if [ "$(grep -c '^approval_mode = "approve"$' "$CFG" 2>/dev/null | tr -d ' ')" = "8" ]; then
-    pass "config.toml has exactly 8 APD approval_mode entries"
+if [ "$(grep -c '^approval_mode = "approve"$' "$CFG" 2>/dev/null | tr -d ' ')" = "9" ]; then
+    pass "config.toml has exactly 9 APD approval_mode entries"
     PASSES=$((PASSES + 1))
 else
-    fail "config.toml approval_mode entry count is not 8"
+    fail "config.toml approval_mode entry count is not 9"
     FAILS=$((FAILS + 1))
 fi
 _check_file_contains "hooks.json has PreToolUse" "$HOOKS" 'PreToolUse'
@@ -2832,6 +2833,451 @@ EOF
 done
 
 rm -rf "$BOLD_DIR"
+
+# -----------------------------------------------------------
+# 27. guard-bash-scope read/write distinction on .apd/pipeline/
+#     Regression for project-guard-read-false-positive (Bambi Run #9, 2026-04-10).
+#     Reads must be ALLOWED; writes must be BLOCKED.
+# -----------------------------------------------------------
+section "27. guard-bash-scope read/write distinction"
+
+READ_SCRATCH="$(mktemp -d -t apd-rw.XXXXXX)"
+mkdir -p "$READ_SCRATCH/.apd/pipeline"
+echo "PROJECT_NAME=read-write" > "$READ_SCRATCH/.apd/config"
+touch "$READ_SCRATCH/.apd/pipeline/spec-card.md"
+
+for cmd in "cat .apd/pipeline/spec-card.md" \
+           "grep R1 .apd/pipeline/spec-card.md" \
+           "head -5 .apd/pipeline/spec-card.md" \
+           "tail -5 .apd/pipeline/spec-card.md" \
+           "wc -l .apd/pipeline/spec-card.md" \
+           "less .apd/pipeline/spec-card.md"; do
+    (cd "$READ_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --command "$cmd" .apd/pipeline >/dev/null 2>&1)
+    if [ $? -eq 0 ]; then
+        pass "ALLOW read: $cmd"
+        PASSES=$((PASSES + 1))
+    else
+        fail "read incorrectly blocked: $cmd"
+        FAILS=$((FAILS + 1))
+    fi
+done
+
+for cmd in "echo X > .apd/pipeline/spec-card.md" \
+           "cp /etc/hosts .apd/pipeline/spec-card.md" \
+           "rm .apd/pipeline/spec-card.md" \
+           "echo X >> .apd/pipeline/spec-card.md"; do
+    (cd "$READ_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --command "$cmd" .apd/pipeline >/dev/null 2>&1)
+    if [ $? -eq 2 ]; then
+        pass "BLOCK write: $cmd"
+        PASSES=$((PASSES + 1))
+    else
+        fail "write incorrectly allowed: $cmd"
+        FAILS=$((FAILS + 1))
+    fi
+done
+
+rm -rf "$READ_SCRATCH"
+
+# -----------------------------------------------------------
+# 28. pipeline-gate stage completeness check
+#     Warns (does not block) when modified files in dispatched builder
+#     scope are not staged. Regression for project-git-add-completeness-check
+#     (BambiProject "Verifikacija emaila" #31, missed RegisterScreen.kt).
+# -----------------------------------------------------------
+section "28. pipeline-gate stage completeness"
+
+GATE_SCRATCH="$(mktemp -d -t apd-gate.XXXXXX)"
+mkdir -p "$GATE_SCRATCH/.apd/pipeline" "$GATE_SCRATCH/.apd/agents" "$GATE_SCRATCH/src"
+echo "PROJECT_NAME=stage-test" > "$GATE_SCRATCH/.apd/config"
+cat > "$GATE_SCRATCH/.apd/agents/backend-builder.md" <<'EOF'
+---
+name: backend-builder
+scope:
+  - src/
+---
+EOF
+git -C "$GATE_SCRATCH" init -q
+echo "x" > "$GATE_SCRATCH/src/foo.js"
+git -C "$GATE_SCRATCH" add "src/foo.js"
+git -C "$GATE_SCRATCH" -c user.email=a@b -c user.name=t commit -q -m init
+echo "y" > "$GATE_SCRATCH/src/foo.js"
+
+# Sign all 4 .done files via validate-agent so pipeline-gate accepts them
+_os=$(uname -s | tr '[:upper:]' '[:lower:]')
+_arch=$(uname -m)
+[ "$_arch" = "x86_64" ] && _arch="amd64"
+GATE_VALIDATOR="$APD_PLUGIN_ROOT/bin/compiled/validate-agent-${_os}-${_arch}"
+for s in spec builder reviewer verifier; do
+    "$GATE_VALIDATOR" advance -step "$s" -task stage-test -pipeline-dir "$GATE_SCRATCH/.apd/pipeline" >/dev/null 2>&1
+done
+echo "$(date +%s)|start|backend-builder|abc123" > "$GATE_SCRATCH/.apd/pipeline/.agents"
+
+GATE_OUT=$(APD_PROJECT_DIR="$GATE_SCRATCH" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-gate" 2>&1)
+if echo "$GATE_OUT" | grep -q "Modified files in builder scope but NOT staged"; then
+    pass "stage check warns on unstaged in-scope file"
+    PASSES=$((PASSES + 1))
+else
+    fail "stage check did not warn on unstaged in-scope file"
+    FAILS=$((FAILS + 1))
+fi
+if echo "$GATE_OUT" | grep -q "src/foo.js"; then
+    pass "stage check names the unstaged file"
+    PASSES=$((PASSES + 1))
+else
+    fail "stage check did not name src/foo.js"
+    FAILS=$((FAILS + 1))
+fi
+
+git -C "$GATE_SCRATCH" add "src/foo.js"
+GATE_OUT2=$(APD_PROJECT_DIR="$GATE_SCRATCH" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-gate" 2>&1)
+if echo "$GATE_OUT2" | grep -q "Modified files in builder scope but NOT staged"; then
+    fail "stage check false-positive when file IS staged"
+    FAILS=$((FAILS + 1))
+else
+    pass "stage check silent when in-scope file is staged"
+    PASSES=$((PASSES + 1))
+fi
+
+git -C "$GATE_SCRATCH" -c user.email=a@b -c user.name=t commit -q -m "stage src"
+mkdir -p "$GATE_SCRATCH/docs"
+echo "z" > "$GATE_SCRATCH/docs/note.md"
+GATE_OUT3=$(APD_PROJECT_DIR="$GATE_SCRATCH" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-gate" 2>&1)
+if echo "$GATE_OUT3" | grep -q "Modified files in builder scope but NOT staged"; then
+    fail "stage check false-positive on out-of-scope file"
+    FAILS=$((FAILS + 1))
+else
+    pass "stage check silent for out-of-scope file"
+    PASSES=$((PASSES + 1))
+fi
+
+rm -rf "$GATE_SCRATCH"
+
+# -----------------------------------------------------------
+# 29. Parallel same-type dispatch gate
+#     CC SubagentStart blocks second dispatch of same agent_type within
+#     APD_PARALLEL_WINDOW (default 30s) when previous instance has not stopped.
+#     Regression for feedback-parallel-same-agent-dispatch (BambiProject #48,
+#     2026-04-16: 3× backend-api in 34s caused conflicts + panic-reset).
+# -----------------------------------------------------------
+section "29. Parallel same-type dispatch gate"
+
+PAR_DIR="$(mktemp -d -t apd-par.XXXXXX)"
+mkdir -p "$PAR_DIR/.apd/pipeline" "$PAR_DIR/.apd/memory"
+echo "PROJECT_NAME=parallel-test" > "$PAR_DIR/.apd/config"
+
+# A: first dispatch — ALLOW (no prior entry)
+(cd "$PAR_DIR" && bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+    --event SubagentStart --agent-type backend-builder --agent-id A1 \
+    >/dev/null 2>&1)
+RC=$?
+if [ "$RC" = "0" ]; then
+    pass "first dispatch of agent type allowed"
+    PASSES=$((PASSES + 1))
+else
+    fail "first dispatch should allow (got $RC)"
+    FAILS=$((FAILS + 1))
+fi
+
+# B: immediate second dispatch of same type, no stop — BLOCK
+(cd "$PAR_DIR" && bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+    --event SubagentStart --agent-type backend-builder --agent-id A2 \
+    >/dev/null 2>&1)
+RC=$?
+if [ "$RC" = "2" ]; then
+    pass "parallel same-type within window blocked"
+    PASSES=$((PASSES + 1))
+else
+    fail "parallel same-type should block (got $RC)"
+    FAILS=$((FAILS + 1))
+fi
+
+# C: different agent_type in parallel — ALLOW
+(cd "$PAR_DIR" && bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+    --event SubagentStart --agent-type frontend-builder --agent-id F1 \
+    >/dev/null 2>&1)
+RC=$?
+if [ "$RC" = "0" ]; then
+    pass "different agent type in parallel allowed"
+    PASSES=$((PASSES + 1))
+else
+    fail "different agent type should allow (got $RC)"
+    FAILS=$((FAILS + 1))
+fi
+
+# D: previous instance stopped — ALLOW new dispatch of same type
+(cd "$PAR_DIR" && bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+    --event SubagentStop --agent-type backend-builder --agent-id A1 \
+    >/dev/null 2>&1)
+(cd "$PAR_DIR" && bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+    --event SubagentStart --agent-type backend-builder --agent-id A3 \
+    >/dev/null 2>&1)
+RC=$?
+if [ "$RC" = "0" ]; then
+    pass "new dispatch allowed after previous instance stopped"
+    PASSES=$((PASSES + 1))
+else
+    fail "new dispatch after stop should allow (got $RC)"
+    FAILS=$((FAILS + 1))
+fi
+
+# E: APD_PARALLEL_WINDOW=0 — gate disabled
+(cd "$PAR_DIR" && APD_PARALLEL_WINDOW=0 bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+    --event SubagentStart --agent-type backend-builder --agent-id A4 \
+    >/dev/null 2>&1)
+RC=$?
+if [ "$RC" = "0" ]; then
+    pass "APD_PARALLEL_WINDOW=0 disables the gate"
+    PASSES=$((PASSES + 1))
+else
+    fail "APD_PARALLEL_WINDOW=0 should disable gate (got $RC)"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$PAR_DIR"
+
+# -----------------------------------------------------------
+# 30. apd-init permissions.deny — mkdir .apd/pipeline coverage
+#     Closes project-mkdir-pipeline-bypass: existing patterns required */
+#     prefix and missed the bare `mkdir .apd/pipeline` form.
+# -----------------------------------------------------------
+section "30. apd-init mkdir deny patterns"
+
+INIT_DIR="$(mktemp -d -t apd-init-deny.XXXXXX)"
+mkdir -p "$INIT_DIR/.claude" "$INIT_DIR/.apd"
+
+CLAUDE_PLUGIN_OPTION_PROJECT_NAME=test \
+CLAUDE_PLUGIN_OPTION_STACK=nodejs \
+APD_PROJECT_DIR="$INIT_DIR" \
+    bash "$APD_PLUGIN_ROOT/bin/core/apd-init" >/dev/null 2>&1 || true
+
+SETTINGS="$INIT_DIR/.claude/settings.json"
+if [ -f "$SETTINGS" ]; then
+    pass "apd-init produced settings.json"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-init did not produce settings.json"
+    FAILS=$((FAILS + 1))
+fi
+
+for pattern in \
+    'Bash(mkdir */.apd/pipeline/*)' \
+    'Bash(mkdir -p */.apd/pipeline/*)' \
+    'Bash(mkdir */.apd/pipeline)' \
+    'Bash(mkdir -p */.apd/pipeline)' \
+    'Bash(mkdir .apd/pipeline/*)' \
+    'Bash(mkdir -p .apd/pipeline/*)' \
+    'Bash(mkdir .apd/pipeline)' \
+    'Bash(mkdir -p .apd/pipeline)'; do
+    if grep -qF "$pattern" "$SETTINGS" 2>/dev/null; then
+        pass "deny pattern present: $pattern"
+        PASSES=$((PASSES + 1))
+    else
+        fail "deny pattern MISSING: $pattern"
+        FAILS=$((FAILS + 1))
+    fi
+done
+
+rm -rf "$INIT_DIR"
+
+# -----------------------------------------------------------
+# 31. pipeline-advance spec hard block on missing/invalid spec-card
+#     Lock-in for behavior already in pipeline-advance lines 184-198.
+#     Closes project-enforcement-gaps (spec-card hard block side; the
+#     adversarial-summary soft-warn side is superseded by v6.1 B1/B2
+#     .adversarial-pending hard gate).
+# -----------------------------------------------------------
+section "31. spec hard block on spec-card"
+
+SPEC_DIR="$(mktemp -d -t apd-spec.XXXXXX)"
+mkdir -p "$SPEC_DIR/.apd"
+echo "PROJECT_NAME=spec-test" > "$SPEC_DIR/.apd/config"
+
+(cd "$SPEC_DIR" && APD_PROJECT_DIR="$SPEC_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task" >/dev/null 2>&1)
+RC=$?
+if [ "$RC" = "1" ]; then
+    pass "spec exits 1 on missing spec-card.md"
+    PASSES=$((PASSES + 1))
+else
+    fail "spec should exit 1 on missing spec-card.md (got $RC)"
+    FAILS=$((FAILS + 1))
+fi
+
+mkdir -p "$SPEC_DIR/.apd/pipeline"
+cat > "$SPEC_DIR/.apd/pipeline/spec-card.md" <<'EOF'
+# Test
+No R criteria here.
+EOF
+(cd "$SPEC_DIR" && APD_PROJECT_DIR="$SPEC_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task" >/dev/null 2>&1)
+RC=$?
+if [ "$RC" = "1" ]; then
+    pass "spec exits 1 on spec-card without R* criteria"
+    PASSES=$((PASSES + 1))
+else
+    fail "spec should exit 1 on no-R spec-card (got $RC)"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$SPEC_DIR"
+
+# -----------------------------------------------------------
+# 32. pipeline-advance builder hard block on missing implementation-plan
+#     Lock-in for behavior already in pipeline-advance lines 240-244.
+#     Closes project-implementation-plan-step.
+# -----------------------------------------------------------
+section "32. builder hard block on implementation-plan"
+
+PLAN_DIR="$(mktemp -d -t apd-plan.XXXXXX)"
+mkdir -p "$PLAN_DIR/.apd/pipeline"
+echo "PROJECT_NAME=plan-test" > "$PLAN_DIR/.apd/config"
+cat > "$PLAN_DIR/.apd/pipeline/spec-card.md" <<'EOF'
+# Test
+**Acceptance criteria:**
+- R1: x
+EOF
+
+(cd "$PLAN_DIR" && APD_PROJECT_DIR="$PLAN_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task" >/dev/null 2>&1)
+(cd "$PLAN_DIR" && APD_PROJECT_DIR="$PLAN_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder >/dev/null 2>&1)
+RC=$?
+if [ "$RC" = "1" ]; then
+    pass "builder exits 1 on missing implementation-plan.md"
+    PASSES=$((PASSES + 1))
+else
+    fail "builder should exit 1 on missing plan (got $RC)"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$PLAN_DIR"
+
+# -----------------------------------------------------------
+# 33. pipeline-advance rejects superpowers: agent prefix
+#     Lock-in for behavior already in pipeline-advance lines 257-265
+#     (reviewer) and 363-371 (builder). Closes feedback-superpowers-conflict.
+# -----------------------------------------------------------
+section "33. superpowers: prefix rejection"
+
+SP_DIR="$(mktemp -d -t apd-sp.XXXXXX)"
+mkdir -p "$SP_DIR/.apd/pipeline"
+echo "PROJECT_NAME=sp-test" > "$SP_DIR/.apd/config"
+cat > "$SP_DIR/.apd/pipeline/spec-card.md" <<'EOF'
+# Test
+**Acceptance criteria:**
+- R1: x
+EOF
+cat > "$SP_DIR/.apd/pipeline/implementation-plan.md" <<'EOF'
+# Plan
+### Agents
+- backend-builder: x
+EOF
+
+_os=$(uname -s | tr '[:upper:]' '[:lower:]')
+_arch=$(uname -m)
+[ "$_arch" = "x86_64" ] && _arch=amd64
+SP_VAL="$APD_PLUGIN_ROOT/bin/compiled/validate-agent-${_os}-${_arch}"
+"$SP_VAL" advance -step spec -task sp-test -pipeline-dir "$SP_DIR/.apd/pipeline" >/dev/null
+"$SP_VAL" advance -step builder -pipeline-dir "$SP_DIR/.apd/pipeline" >/dev/null
+
+echo "$(date +%s)|stop|superpowers:code-reviewer|abc" > "$SP_DIR/.apd/pipeline/.agents"
+SP_OUT=$(APD_PROJECT_DIR="$SP_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reviewer 2>&1)
+RC=$?
+
+if [ "$RC" -ne 0 ] && echo "$SP_OUT" | grep -q "superpowers:code-reviewer"; then
+    pass "reviewer rejects superpowers: agent prefix"
+    PASSES=$((PASSES + 1))
+else
+    fail "reviewer should reject superpowers: prefix (rc=$RC)"
+    FAILS=$((FAILS + 1))
+fi
+if echo "$SP_OUT" | grep -q "Dispatch the project code-reviewer"; then
+    pass "rejection message guides to project agent"
+    PASSES=$((PASSES + 1))
+else
+    fail "rejection message did not guide to project agent"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$SP_DIR"
+
+# -----------------------------------------------------------
+# 34. apd_pipeline_metrics MCP tool
+#     Reads pipeline-metrics.log, returns structured runs.
+# -----------------------------------------------------------
+section "34. apd_pipeline_metrics MCP tool"
+
+PM_DIR="$(mktemp -d -t apd-pm.XXXXXX)"
+mkdir -p "$PM_DIR/.apd/pipeline" "$PM_DIR/.apd/memory"
+echo "PROJECT_NAME=pm-test" > "$PM_DIR/.apd/config"
+
+{
+    echo "1700000001|task1|1|2|3|4|ok|1|1|0|2|0"
+    echo "1700000002|task2|10|20|30|40|fail|0|0|0|1|0"
+    echo "1700000003|task3|100|200|300|400|ok|3|2|1|4|1"
+} > "$PM_DIR/.apd/memory/pipeline-metrics.log"
+
+PM_OUT="$(cd "$PM_DIR" && python3 - <<PY
+import sys, types, json
+mcp_mod = types.ModuleType("mcp")
+server_mod = types.ModuleType("mcp.server")
+fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+class DummyFastMCP:
+    def __init__(self,*_a,**_kw): pass
+    def tool(self,*_a,**_kw):
+        def d(fn): return fn
+        return d
+    def run(self): return None
+fastmcp_mod.FastMCP = DummyFastMCP
+server_mod.fastmcp = fastmcp_mod
+mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod
+sys.modules["mcp.server"] = server_mod
+sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
+import apd_mcp_server as m
+
+r_all = m.apd_pipeline_metrics()
+r_limit = m.apd_pipeline_metrics(limit=2)
+print(json.dumps({"all": r_all, "limit2": r_limit}))
+PY
+)"
+
+if echo "$PM_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+sys.exit(0 if d['all']['ok'] is True and d['all']['total'] == 3 and len(d['all']['runs']) == 3 else 1)
+"; then
+    pass "apd_pipeline_metrics returns all 3 runs"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd_pipeline_metrics did not return 3 runs"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$PM_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+runs = d['limit2']['runs']
+sys.exit(0 if d['limit2']['total'] == 3 and len(runs) == 2 and runs[0]['task'] == 'task2' and runs[1]['task'] == 'task3' else 1)
+"; then
+    pass "apd_pipeline_metrics limit=2 returns most recent 2"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd_pipeline_metrics limit=2 incorrect"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$PM_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+r3 = d['all']['runs'][2]
+sys.exit(0 if r3['adversarial_total']==3 and r3['adversarial_dismissed']==1 and r3['agents_exhausted']==1 else 1)
+"; then
+    pass "apd_pipeline_metrics parses numeric fields correctly"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd_pipeline_metrics numeric parse incorrect"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$PM_DIR"
 
 # -----------------------------------------------------------
 # Summary

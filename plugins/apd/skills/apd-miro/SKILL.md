@@ -34,14 +34,14 @@ Creates or updates a pipeline dashboard on the Miro board with:
 
 ### 1. Gather data
 
-Pull pipeline state through the MCP tool, and historical metrics from the CSV that `apd report` writes:
+Pull pipeline state and historical metrics through MCP tools:
 
 ```
 apd:apd_pipeline_state()                    # current step + step timings
-cat .apd/memory/metrics.csv                 # historical durations + skip rate
+apd:apd_pipeline_metrics()                  # historical runs (timestamp, phase ts, status, adversarial T/A/D, agent counts)
 ```
 
-Compute averages and skip rate from the CSV — there is no MCP tool for historical metrics yet (tracked for v6.2).
+Compute averages and skip rate from the `runs` list returned by `apd:apd_pipeline_metrics()`. Pass `limit=N` to cap the most recent N runs (0 = all, max 200).
 
 ### 2. Create dashboard table on the board
 
@@ -167,7 +167,7 @@ Cap at 5 rows; trim oldest if needed.
 You're done when:
 - The "APD Pipeline Dashboard" frame exists on the board (created or reused)
 - Pipeline Status table reflects the current step state (✅/⏳/—)
-- Metrics document has the latest numbers from `.apd/memory/metrics.csv`
+- Metrics document has the latest numbers from `apd:apd_pipeline_metrics()`
 - Recent tasks table shows the last 5 tasks with durations
 - The board URL has been returned to the user
 

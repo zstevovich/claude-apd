@@ -47,5 +47,52 @@ if [ ${#MISSING[@]} -gt 0 ] || [ ${#FORGED[@]} -gt 0 ]; then
     exit 2
 fi
 
+# Stage completeness check (soft warn) — list modified files in any
+# dispatched builder's scope that are not staged. Fires only when git
+# repo + .agents log + at least one builder dispatched.
+if command -v git >/dev/null 2>&1 && git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    AGENTS_LOG="$PIPELINE_DIR/.agents"
+    if [ -f "$AGENTS_LOG" ]; then
+        UNSTAGED=$(git -C "$PROJECT_DIR" diff --name-only 2>/dev/null; \
+                   git -C "$PROJECT_DIR" ls-files --others --exclude-standard 2>/dev/null)
+        if [ -n "$UNSTAGED" ]; then
+            BUILDERS=$(awk -F'|' '$2=="start" && $3 ~ /builder/ {print $3}' "$AGENTS_LOG" | sort -u)
+            DECLARED=()
+            for builder in $BUILDERS; do
+                AGENT_FILE=""
+                for c in "$PROJECT_DIR/.apd/agents/$builder.md" "$PROJECT_DIR/.claude/agents/$builder.md"; do
+                    [ -f "$c" ] && { AGENT_FILE="$c"; break; }
+                done
+                [ -n "$AGENT_FILE" ] || continue
+                # Codex scope: YAML list
+                SCOPES=$(awk '/^scope:/{flag=1; next} /^[^[:space:]-]/{flag=0} flag && /^[[:space:]]*-[[:space:]]/{sub(/^[[:space:]]*-[[:space:]]*/, ""); print}' "$AGENT_FILE")
+                # CC inline: guard-scope <paths>
+                if [ -z "$SCOPES" ]; then
+                    SCOPES=$(grep -oE 'guard-scope[[:space:]]+[^"]+' "$AGENT_FILE" | head -1 | sed 's/guard-scope[[:space:]]*//' | tr ' ' '\n')
+                fi
+                while IFS= read -r scope; do
+                    [ -z "$scope" ] && continue
+                    scope="${scope%/}/"
+                    while IFS= read -r f; do
+                        [ -z "$f" ] && continue
+                        case "$f/" in
+                            "$scope"*) DECLARED+=("$f|$builder") ;;
+                        esac
+                    done <<< "$UNSTAGED"
+                done <<< "$SCOPES"
+            done
+            if [ ${#DECLARED[@]} -gt 0 ]; then
+                echo "" >&2
+                warn "Modified files in builder scope but NOT staged:" >&2
+                printf '%s\n' "${DECLARED[@]}" | sort -u | while IFS='|' read -r f builder; do
+                    echo "    ${D}$f${R} ${D}(${builder} scope)${R}" >&2
+                done
+                echo "    ${D}If they belong to this commit, stage them. Otherwise stash or discard.${R}" >&2
+                echo "" >&2
+            fi
+        fi
+    fi
+fi
+
 echo "  ${MARK_DONE} Pipeline gate: all steps complete" >&2
 exit 0
