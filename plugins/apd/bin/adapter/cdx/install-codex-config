@@ -125,7 +125,7 @@ desired_sections: list[list[str]] = [
     [
         "[mcp_servers.apd]",
         'command = "uv"',
-        'args = ["run", "--with", "mcp", "python", "mcp/apd_mcp_server.py"]',
+        'args = ["run", "--with", "mcp", "--with", "tomli", "python", "mcp/apd_mcp_server.py"]',
         f"cwd = {json.dumps(plugin_root)}",
     ],
 ]

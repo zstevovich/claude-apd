@@ -3,7 +3,7 @@
     "apd": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "--with", "mcp", "python", "mcp/apd_mcp_server.py"],
+      "args": ["run", "--with", "mcp", "--with", "tomli", "python", "mcp/apd_mcp_server.py"],
       "cwd": ".",
       "default_tools_approval_mode": "approve",
       "tools": {

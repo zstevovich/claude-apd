@@ -163,7 +163,7 @@ if [ -f "$PLUGIN_MCP_JSON" ]; then
 fi
 _check_file_contains "config.toml has APD MCP server block" "$CFG" '^\[mcp_servers\.apd\]$'
 _check_file_contains "config.toml APD command uses uv" "$CFG" '^command = "uv"$'
-_check_file_contains "config.toml APD args use relative plugin MCP path" "$CFG" 'args = \["run", "--with", "mcp", "python", "mcp/apd_mcp_server\.py"\]'
+_check_file_contains "config.toml APD args use relative plugin MCP path" "$CFG" 'args = \["run", "--with", "mcp", "--with", "tomli", "python", "mcp/apd_mcp_server\.py"\]'
 if grep -qF "cwd = \"$APD_PLUGIN_ROOT\"" "$CFG" 2>/dev/null; then
     pass "config.toml APD cwd points at plugin root"
     PASSES=$((PASSES + 1))
@@ -256,7 +256,7 @@ else
 fi
 
 if grep -q '^\[mcp_servers\.apd\]' "$REPAIR/.codex/config.toml" 2>/dev/null && \
-   grep -qF 'args = ["run", "--with", "mcp", "python", "mcp/apd_mcp_server.py"]' "$REPAIR/.codex/config.toml" 2>/dev/null && \
+   grep -qF 'args = ["run", "--with", "mcp", "--with", "tomli", "python", "mcp/apd_mcp_server.py"]' "$REPAIR/.codex/config.toml" 2>/dev/null && \
    grep -qF "cwd = \"$APD_PLUGIN_ROOT\"" "$REPAIR/.codex/config.toml" 2>/dev/null; then
     pass "config.toml carries repaired APD MCP block"
     PASSES=$((PASSES + 1))
@@ -3278,6 +3278,147 @@ else
 fi
 
 rm -rf "$PM_DIR"
+
+# -----------------------------------------------------------
+# 35. C2 Phase 2a — TOML agent parser support
+#     New .codex/agents/<name>.toml format read alongside legacy .md.
+#     Tests apd_list_agents discovery + apd_guard_write scope from TOML
+#     + backward-compat for .apd/agents/<name>.md.
+# -----------------------------------------------------------
+section "35. C2 Phase 2a TOML parser"
+
+TML_DIR="$(mktemp -d -t apd-toml.XXXXXX)"
+mkdir -p "$TML_DIR/.codex/agents" "$TML_DIR/.apd/pipeline" "$TML_DIR/src" "$TML_DIR/config"
+echo "PROJECT_NAME=toml-test" > "$TML_DIR/.apd/config"
+
+cat > "$TML_DIR/.codex/agents/backend-builder.toml" <<'EOF'
+name = "backend-builder"
+description = "Backend builder for TOML test"
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+max_turns = 60
+scope = ["src/", "config/"]
+readonly = false
+
+developer_instructions = """
+Test agent body.
+"""
+EOF
+
+TML_OUT="$(cd "$TML_DIR" && python3 - <<PY
+import sys, types, json
+mcp_mod = types.ModuleType("mcp")
+server_mod = types.ModuleType("mcp.server")
+fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+class DummyFastMCP:
+    def __init__(self,*_a,**_kw): pass
+    def tool(self,*_a,**_kw):
+        def d(fn): return fn
+        return d
+    def run(self): return None
+fastmcp_mod.FastMCP = DummyFastMCP
+server_mod.fastmcp = fastmcp_mod
+mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod
+sys.modules["mcp.server"] = server_mod
+sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
+import apd_mcp_server as m
+listed = m.apd_list_agents()
+gw_in  = m.apd_guard_write("backend-builder", "src/foo.py")
+gw_out = m.apd_guard_write("backend-builder", "tests/foo.py")
+print(json.dumps({"list": listed, "in": gw_in, "out": gw_out}))
+PY
+)"
+
+if echo "$TML_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+agents = d['list'].get('agents', [])
+sys.exit(0 if any(a.get('name') == 'backend-builder' and 'src/' in a.get('scope', []) for a in agents) else 1)
+"; then
+    pass "apd_list_agents discovers .toml agent in .codex/agents/"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd_list_agents did not discover .toml agent"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$TML_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+sys.exit(0 if d['in'].get('ok') is True else 1)
+"; then
+    pass "apd_guard_write allows in-scope write for .toml agent"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd_guard_write should allow src/foo.py for backend-builder"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$TML_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+sys.exit(0 if d['out'].get('ok') is False else 1)
+"; then
+    pass "apd_guard_write blocks out-of-scope write for .toml agent"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd_guard_write should block tests/foo.py for backend-builder"
+    FAILS=$((FAILS + 1))
+fi
+
+# Backward-compat: legacy .md in .apd/agents/ still discovered when
+# .codex/agents/ is absent.
+rm -rf "$TML_DIR/.codex"
+mkdir -p "$TML_DIR/.apd/agents"
+cat > "$TML_DIR/.apd/agents/legacy-builder.md" <<'EOF'
+---
+name: legacy-builder
+scope:
+  - src/
+---
+EOF
+
+LEG_OUT="$(cd "$TML_DIR" && python3 - <<PY
+import sys, types, json
+mcp_mod = types.ModuleType("mcp")
+server_mod = types.ModuleType("mcp.server")
+fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+class DummyFastMCP:
+    def __init__(self,*_a,**_kw): pass
+    def tool(self,*_a,**_kw):
+        def d(fn): return fn
+        return d
+    def run(self): return None
+fastmcp_mod.FastMCP = DummyFastMCP
+server_mod.fastmcp = fastmcp_mod
+mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod
+sys.modules["mcp.server"] = server_mod
+sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
+import apd_mcp_server as m
+import importlib
+importlib.reload(m)
+print(json.dumps(m.apd_list_agents()))
+PY
+)"
+
+if echo "$LEG_OUT" | python3 -c "
+import sys, json
+d = json.loads(sys.stdin.read())
+agents = d.get('agents', [])
+sys.exit(0 if any(a.get('name') == 'legacy-builder' for a in agents) else 1)
+"; then
+    pass "legacy .md agent in .apd/agents/ still discovered"
+    PASSES=$((PASSES + 1))
+else
+    fail "legacy .md agent regression"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$TML_DIR"
 
 # -----------------------------------------------------------
 # Summary

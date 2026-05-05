@@ -131,7 +131,7 @@ for raw in cfg.read_text().splitlines():
 server = sections.get("[mcp_servers.apd]", [])
 required = {
     'command = "uv"',
-    'args = ["run", "--with", "mcp", "python", "mcp/apd_mcp_server.py"]',
+    'args = ["run", "--with", "mcp", "--with", "tomli", "python", "mcp/apd_mcp_server.py"]',
     f'cwd = "{plugin_root}"',
 }
 missing_server = sorted(required - set(server))

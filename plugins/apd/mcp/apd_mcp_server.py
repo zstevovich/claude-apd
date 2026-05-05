@@ -12,8 +12,17 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    try:
+        import tomli as tomllib  # type: ignore
+    except ImportError:
+        tomllib = None  # type: ignore
 
 from mcp.server.fastmcp import FastMCP
 
@@ -207,15 +216,50 @@ def apd_doctor() -> dict:
 
 
 def _agents_dir(project: Path) -> Path | None:
-    """Pick the agent registry dir the resolver would — .claude/agents first
-    (CC is source of truth on hybrid projects), .apd/agents fallback."""
+    """Pick the agent registry dir.
+
+    Priority:
+      1. .claude/agents/ — CC source of truth on hybrid projects
+      2. .codex/agents/ — Codex-canonical (TOML loader, since C2 Phase 2a)
+      3. .apd/agents/ — APD-internal fallback (legacy + current default)
+    """
     cc = project / ".claude" / "agents"
     if cc.is_dir():
         return cc
+    codex = project / ".codex" / "agents"
+    if codex.is_dir():
+        return codex
     neutral = project / ".apd" / "agents"
     if neutral.is_dir():
         return neutral
     return None
+
+
+def _parse_agent_toml(path: Path) -> dict:
+    """Read a Codex-canonical agent TOML file (.codex/agents/<name>.toml).
+
+    Returns a normalized dict shaped like _parse_agent_frontmatter so the
+    rest of APD can use either source. TOML's `max_turns` is also aliased
+    as `maxTurns` for compatibility with the YAML frontmatter field name.
+    Returns {} if tomllib/tomli is unavailable or the file fails to parse.
+    """
+    if tomllib is None:
+        return {}
+    try:
+        with path.open("rb") as f:
+            raw = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    if "max_turns" in raw and "maxTurns" not in raw:
+        raw["maxTurns"] = raw["max_turns"]
+    return raw
+
+
+def _parse_agent(path: Path) -> dict:
+    """Dispatch to the right reader based on file extension."""
+    if path.suffix == ".toml":
+        return _parse_agent_toml(path)
+    return _parse_agent_frontmatter(path)
 
 
 def _parse_agent_frontmatter(path: Path) -> dict:
@@ -544,19 +588,22 @@ def apd_list_agents() -> dict:
             "note": "no agent registry found — create .apd/agents/ or .claude/agents/",
         }
     agents: list[dict] = []
-    for md in sorted(agents_dir.glob("*.md")):
-        fm = _parse_agent_frontmatter(md)
+    agent_files = sorted(
+        list(agents_dir.glob("*.md")) + list(agents_dir.glob("*.toml"))
+    )
+    for af in agent_files:
+        fm = _parse_agent(af)
         if not fm:
             continue
         # Normalize: ensure name falls back to filename stem, scope is always a list
-        fm.setdefault("name", md.stem)
+        fm.setdefault("name", af.stem)
         if "scope" in fm and not isinstance(fm["scope"], list):
             fm["scope"] = []
         fm.setdefault("scope", [])
         # Coerce readonly to bool
         if "readonly" in fm and isinstance(fm["readonly"], str):
             fm["readonly"] = fm["readonly"].lower() in ("true", "yes", "1")
-        fm["file"] = str(md)
+        fm["file"] = str(af)
         agents.append(fm)
     return {
         "ok": True,
@@ -632,28 +679,34 @@ def apd_guard_write(apd_role: str, file_path: str) -> dict:
             "error": "no agent registry found — create .apd/agents/ or .claude/agents/",
         }
 
-    agent_file = agents_dir / f"{apd_role}.md"
-    # Defense in depth: the resolved agent file must live directly inside
-    # agents_dir. If the basename whitelist ever misses something, this
-    # still confines registry lookups to the project-owned agents dir.
-    try:
-        agents_dir_resolved = agents_dir.resolve()
-        agent_file_resolved = agent_file.resolve()
-        if agent_file_resolved.parent != agents_dir_resolved:
-            raise ValueError("escapes agents dir")
-    except (OSError, ValueError):
+    # Try .toml (Codex-canonical, C2 Phase 2a) before .md (legacy).
+    agent_file: Path | None = None
+    for _ext in (".toml", ".md"):
+        candidate = agents_dir / f"{apd_role}{_ext}"
+        # Defense in depth: the resolved agent file must live directly inside
+        # agents_dir. If the basename whitelist ever misses something, this
+        # still confines registry lookups to the project-owned agents dir.
+        try:
+            agents_dir_resolved = agents_dir.resolve()
+            candidate_resolved = candidate.resolve()
+            if candidate_resolved.parent != agents_dir_resolved:
+                raise ValueError("escapes agents dir")
+        except (OSError, ValueError):
+            return {
+                "ok": False,
+                "error": f"apd_role '{apd_role}' resolves outside {agents_dir}",
+            }
+        if candidate.exists():
+            agent_file = candidate
+            break
+
+    if agent_file is None:
         return {
             "ok": False,
-            "error": f"apd_role '{apd_role}' resolves outside {agents_dir}",
+            "error": f"unknown apd_role '{apd_role}' — no .toml or .md file in {agents_dir}",
         }
 
-    if not agent_file.exists():
-        return {
-            "ok": False,
-            "error": f"unknown apd_role '{apd_role}' — no file at {agent_file}",
-        }
-
-    fm = _parse_agent_frontmatter(agent_file)
+    fm = _parse_agent(agent_file)
     if not fm:
         return {
             "ok": False,
