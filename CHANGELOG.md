@@ -1,6 +1,6 @@
 # Changelog
 
-## DRAFT — pending version assignment (2026-05-06)
+## v6.2.0 — 2026-05-06
 
 Diagnostics symmetry across both runtimes for stale plugin cache cleanup, plus SPEC threat-model rationale motivated by the CC 2.1.121–128 scan. Test count: 278 → 280.
 
