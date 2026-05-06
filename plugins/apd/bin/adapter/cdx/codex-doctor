@@ -233,6 +233,19 @@ else
     _warn "$APD_AGENTS_DIR missing — run: apd cdx init"
 fi
 
+# C2 migration availability hint (since v6.1.x Phase 2a/2b)
+CODEX_AGENTS_DIR="$PROJECT_DIR/.codex/agents"
+if [ -d "$APD_AGENTS_DIR" ]; then
+    APD_MD_COUNT=$(find "$APD_AGENTS_DIR" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' ')
+    CODEX_TOML_COUNT=0
+    if [ -d "$CODEX_AGENTS_DIR" ]; then
+        CODEX_TOML_COUNT=$(find "$CODEX_AGENTS_DIR" -maxdepth 1 -name '*.toml' -type f 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    if [ "$APD_MD_COUNT" -gt 0 ] && [ "$CODEX_TOML_COUNT" -eq 0 ]; then
+        _warn ".apd/agents/ has $APD_MD_COUNT .md agent(s) but .codex/agents/ is empty — run: apd cdx agents migrate"
+    fi
+fi
+
 VER_FILE="$PROJECT_DIR/.apd/.apd-version"
 if [ -f "$VER_FILE" ]; then
     _ok ".apd/.apd-version ($(tr -d '[:space:]' < "$VER_FILE"))"

@@ -3501,6 +3501,49 @@ fi
 rm -rf "$MIG_DIR"
 
 # -----------------------------------------------------------
+# 37. codex-doctor C2 migrate hint
+#     Doctor warns when .apd/agents/*.md exist and .codex/agents/
+#     has no .toml files yet, suggesting `apd cdx agents migrate`.
+#     The hint disappears after migration completes.
+# -----------------------------------------------------------
+section "37. codex-doctor C2 migrate hint"
+
+CD_DIR="$(mktemp -d -t apd-cdmig.XXXXXX)"
+mkdir -p "$CD_DIR/.codex" "$CD_DIR/.apd/agents"
+echo "PROJECT_NAME=cdmig-test" > "$CD_DIR/.apd/config"
+bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$CD_DIR" >/dev/null 2>&1
+
+cat > "$CD_DIR/.apd/agents/backend-builder.md" <<'EOF'
+---
+name: backend-builder
+scope:
+  - src/
+---
+EOF
+
+CD_OUT=$(APD_PROJECT_DIR="$CD_DIR" bash "$APD_PLUGIN_ROOT/bin/apd" cdx doctor 2>&1)
+if echo "$CD_OUT" | grep -q "apd cdx agents migrate"; then
+    pass "doctor surfaces migrate hint when .apd/agents has .md and .codex/agents empty"
+    PASSES=$((PASSES + 1))
+else
+    fail "doctor missing migrate hint"
+    FAILS=$((FAILS + 1))
+fi
+
+# After migration the hint clears
+APD_PROJECT_DIR="$CD_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/agents-scaffold" migrate >/dev/null 2>&1
+CD_OUT2=$(APD_PROJECT_DIR="$CD_DIR" bash "$APD_PLUGIN_ROOT/bin/apd" cdx doctor 2>&1)
+if echo "$CD_OUT2" | grep -q "apd cdx agents migrate"; then
+    fail "doctor still suggests migrate after migration"
+    FAILS=$((FAILS + 1))
+else
+    pass "doctor migrate hint clears after migration completes"
+    PASSES=$((PASSES + 1))
+fi
+
+rm -rf "$CD_DIR"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
