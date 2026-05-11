@@ -27,10 +27,9 @@ Pick the runtime you use. The pipeline semantics (spec → builder → reviewer 
 
 ## Step 1 — Add the marketplace (one time)
 
-> **Codex 0.121.0 users:** marketplace plugin install is upstream-blocked
-> (openai/codex#18258 — `/plugin install` registers the marketplace but the
-> plugin doesn't activate). Use **Part B (direct-drop)** below until the
-> upstream fix ships. CC users: marketplace works as documented here.
+> **Codex users:** see **Part B** below. Marketplace install works on
+> Codex 0.124+ (the earlier 0.121.0 block from openai/codex#18258 was
+> resolved upstream). CC users: marketplace works as documented here.
 
 ```console
 > /plugin marketplace add zstevovich/claude-apd
@@ -278,10 +277,10 @@ All commands: `bash .claude/bin/apd <command>`
 
 APD runs on Codex through an MCP server. The orchestrator (main Codex model) plays all pipeline roles inline — there is no sub-agent dispatch — and APD enforces scope via the `apd_guard_write` MCP tool before every file write.
 
-> **This direct-drop path is the recommended Codex install today.** Stable
-> and supported on 0.121.0. The marketplace path in Part A above is
-> upstream-blocked for Codex; switch to it once OpenAI ships the fix
-> (openai/codex#18258).
+> **Marketplace install is the recommended path on Codex 0.124+** —
+> upstream resolved openai/codex#18258. The direct-drop path below is
+> preserved as a legacy/dev option (clone-and-PATH for working on the
+> framework itself, or for stuck pre-0.124 environments).
 
 ## B-Prerequisites
 
@@ -296,18 +295,28 @@ Linux: install `uv`, `python3`, `jq`, and `codex` through your distro's package 
 
 ## B-Step 0 — Get APD on your machine
 
-Codex 0.121.0 has no first-class plugin marketplace install for non-curated plugins (openai/codex#18258 — Codex registers + clones the marketplace but never completes the runtime install into `~/.codex/plugins/cache/`). Until that ships, the supported way to use APD on Codex is to clone the plugin repo and put `apd` on your PATH:
+**Recommended (Codex 0.124+):** marketplace install.
 
 ```bash
-git clone https://github.com/zstevovich/claude-apd ~/apd
-export PATH="$HOME/apd/bin:$PATH"   # add to ~/.zshrc or ~/.bashrc to persist
+codex plugin marketplace add zstevovich/claude-apd
+codex plugin marketplace upgrade codex-apd
 ```
 
-> **Marketplace-style install (future-ready, not functional today):**
+Then enable in `~/.codex/config.toml`:
+
+```toml
+[plugins."apd@codex-apd"]
+enabled = true
+```
+
+APD's manifest lives at `.agents/plugins/marketplace.json` per Codex spec; the MCP server self-registers via the plugin-shipped `.mcp.json` (no manual `[mcp_servers.apd]` block required for the plugin runtime — `install-codex-config` still writes a project-level override so the Codex TUI approval prompt is suppressed).
+
+> **Legacy / dev path (pre-0.124 or framework development):** clone the repo and put `apd` on your PATH.
 > ```bash
-> codex marketplace add zstevovich/claude-apd
+> git clone https://github.com/zstevovich/claude-apd ~/apd
+> export PATH="$HOME/apd/bin:$PATH"   # add to ~/.zshrc or ~/.bashrc
 > ```
-> The marketplace registers and Codex clones our manifest into `~/.codex/.tmp/marketplaces/codex-apd/`, but the plugin install step does NOT run on 0.121.0 — `~/.codex/plugins/cache/codex-apd/` stays empty and the `/` slash menu won't list APD skills. APD's manifest is correct (lives at `<repo-root>/.agents/plugins/marketplace.json` per Codex spec); the gap is upstream. Once #18258 is fixed, this single command will replace the git-clone above with no APD-side change.
+> Useful for working on the framework itself (`~/Projects/apd-template`) or for old Codex builds where openai/codex#18258 was still open.
 
 ## B-Step 1 — Install APD on your project
 
@@ -372,7 +381,7 @@ apd cdx skills install                              # symlinks the four skills
 apd cdx skills status                               # show install state
 ```
 
-In a Codex session the orchestrator can then invoke them as `$apd-tdd`, `$apd-brainstorm`, etc. Skills do NOT appear in the `/` slash menu on Codex 0.121.0 — that surface is plugin-scoped only and the plugin install path is currently blocked upstream (see B-Step 0). Direct-drop is the working flow today; once openai/codex#18258 ships, `apd cdx skills install --marketplace` will register the same skills via the plugin system and they will surface in `/`.
+In a Codex session the orchestrator can then invoke them as `$apd-tdd`, `$apd-brainstorm`, etc. On Codex 0.124+, the marketplace install (B-Step 0 above) also surfaces these skills in the `/` slash menu; `apd cdx skills install` (default since v5.0.8) wires the same registration. The `--legacy-symlink` mode is preserved for backward compatibility but deprecated — prefer the marketplace path.
 
 ## B-Step 5 — Start a Codex session
 
@@ -419,14 +428,14 @@ The flow mirrors Part A's Step 5 exactly, but commands go through MCP tools inst
 | `apd cdx init` | Install APD into `.codex/` + scaffold `.apd/` on pure-Codex projects |
 | `apd cdx agents list` | Show templates and installed agents |
 | `apd cdx agents add <name> [scope ...]` | Scaffold an agent definition |
-| `apd cdx skills install` | Symlink phase skills (`apd-brainstorm/tdd/debug/finish`) into `~/.codex/skills/` (direct-drop, supported on 0.121.0) |
-| `apd cdx skills install --marketplace` | Register APD as a local Codex plugin marketplace — future-ready, blocked by openai/codex#18258 today |
+| `apd cdx skills install` | Register phase skills via the local Codex plugin marketplace (default since v5.0.8; surfaces them in `/` on 0.124+) |
+| `apd cdx skills install --legacy-symlink` | Direct-drop symlink mode (deprecated fallback for pre-0.124 environments) |
 | `apd cdx skills status` | Show install state for both modes |
 | `apd cdx doctor` | Runtime-aware setup audit |
 | `apd cdx test` | E2E smoke test (no Codex CLI required) |
 | `apd cdx help` | Full help with prerequisites + typical flow |
 
-Via MCP inside a Codex session: `apd_ping`, `apd_doctor`, `apd_advance_pipeline(step, arg?)`, `apd_guard_write(apd_role, file_path)`, `apd_verify_step()`, `apd_adversarial_pass(total, accepted, dismissed, notes="")`, `apd_list_agents()`, `apd_pipeline_state()`.
+Via MCP inside a Codex session: `apd_ping`, `apd_doctor`, `apd_advance_pipeline(step, arg?)`, `apd_guard_write(apd_role, file_path)`, `apd_verify_step()`, `apd_adversarial_pass(total, accepted, dismissed, notes="")`, `apd_list_agents()`, `apd_pipeline_state()`, `apd_pipeline_metrics(limit=N)`.
 
 ---
 

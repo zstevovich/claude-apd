@@ -42,9 +42,12 @@ case "$STEP" in
             exit 1
         fi
 
-        # Find existing issue or create new one
+        # Find existing issue or create new one. Use --arg to pass task name as
+        # a string parameter — interpolating $ARG2 directly into the filter is a
+        # jq-injection footgun (quotes/$/regex metacharacters in task name silently
+        # break the filter, leading to duplicate-issue creation).
         EXISTING_ISSUE=$(gh issue list --label "apd-pipeline" --state open --json number,title 2>/dev/null | \
-            jq -r ".[] | select(.title | test(\"$ARG2\")) | .number" 2>/dev/null | head -1)
+            jq -r --arg t "$ARG2" '.[] | select(.title | contains($t)) | .number' 2>/dev/null | head -1)
 
         if [ -n "$EXISTING_ISSUE" ]; then
             echo "$EXISTING_ISSUE" > "$GH_ISSUE_FILE"

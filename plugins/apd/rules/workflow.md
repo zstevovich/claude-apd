@@ -181,7 +181,7 @@ doesn't fit in 2 criteria, it's not a Lean task.
 
 ## 0b. Phase cycle caps
 
-`pipeline-advance builder` and `pipeline-advance reviewer` each count dispatches per task and block runaway re-dispatch loops. Default cap = 2 per phase (one initial + one re-dispatch). Counters persist across rollback + re-advance — every dispatch costs a cycle. `pipeline-advance reset` wipes them.
+`pipeline-advance builder` and `pipeline-advance reviewer` each track how many times that phase has advanced for the current task and block runaway re-dispatch loops. Default cap = 2 per phase (one initial + one re-dispatch). Every `pipeline-advance <phase>` call costs a cycle, including re-advances after rollback — the counter increments per advance, not per agent dispatch. `pipeline-advance reset` wipes them. Spec re-advance for a new task also wipes them (different task = fresh budget).
 
 Override per spec via line in `.apd/pipeline/spec-card.md`:
 

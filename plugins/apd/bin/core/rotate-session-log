@@ -53,9 +53,12 @@ fi
 
 # Generate meta-summary for archived entries
 ARCHIVE_TASKS=$(echo "$ARCHIVE_CONTENT" | grep '^## \[' | wc -l | tr -d ' ')
-ARCHIVE_PROBLEMS=$(echo "$ARCHIVE_CONTENT" | grep -i '^\*\*Problems:\*\*' | grep -cv 'No problems' 2>/dev/null || echo 0)
-ARCHIVE_GUARDS=$(echo "$ARCHIVE_CONTENT" | grep -i '^\*\*Guardrail' | grep -cv 'N/A' 2>/dev/null || echo 0)
-ARCHIVE_RULES=$(echo "$ARCHIVE_CONTENT" | grep -i '^\*\*New rule:\*\*' | grep -cv 'None' 2>/dev/null || echo 0)
+# v6.3 audit fix: `grep -cv X || echo 0` produces multi-line "0\n0" when no lines
+# match the first filter (grep -c emits "0" + exit 1, then || echo 0 also fires).
+# Use `wc -l` for a guaranteed single-number output.
+ARCHIVE_PROBLEMS=$(echo "$ARCHIVE_CONTENT" | grep -i '^\*\*Problems:\*\*' | grep -v 'No problems' 2>/dev/null | wc -l | tr -d ' ')
+ARCHIVE_GUARDS=$(echo "$ARCHIVE_CONTENT" | grep -i '^\*\*Guardrail' | grep -v 'N/A' 2>/dev/null | wc -l | tr -d ' ')
+ARCHIVE_RULES=$(echo "$ARCHIVE_CONTENT" | grep -i '^\*\*New rule:\*\*' | grep -v 'None' 2>/dev/null | wc -l | tr -d ' ')
 ARCHIVE_DATE_FIRST=$(echo "$ARCHIVE_CONTENT" | grep -oE '^\#\# \[[0-9]{4}-[0-9]{2}-[0-9]{2}\]' | head -1 | tr -d '[]#' | tr -d ' ')
 ARCHIVE_DATE_LAST=$(echo "$ARCHIVE_CONTENT" | grep -oE '^\#\# \[[0-9]{4}-[0-9]{2}-[0-9]{2}\]' | tail -1 | tr -d '[]#' | tr -d ' ')
 

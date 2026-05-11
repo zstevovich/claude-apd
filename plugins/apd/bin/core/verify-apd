@@ -599,8 +599,21 @@ section "8. Pipeline end-to-end test"
 _apd_verify_pipeline_busy() {
     local spec="$PIPELINE_DIR/spec-card.md"
     if [ -f "$spec" ]; then
-        local task
-        task=$(grep -m1 '^# Task:' "$spec" 2>/dev/null | sed 's/^# Task:[[:space:]]*//')
+        # Prefer the authoritative task name from spec.done if available;
+        # otherwise extract from the spec-card.md heading. The previous
+        # implementation matched `^# Task:` which the template never produces
+        # (real format is `## [Name]` or `# <Name>` — sometimes plain) so the
+        # task parse always returned empty and Section 8 was always skipped.
+        local task=""
+        if [ -f "$PIPELINE_DIR/spec.done" ]; then
+            task=$(head -1 "$PIPELINE_DIR/spec.done" 2>/dev/null | cut -d'|' -f3)
+        fi
+        if [ -z "$task" ]; then
+            # Fall back to first `## ` heading in the spec card.
+            task=$(grep -m1 -E '^##? ' "$spec" 2>/dev/null \
+                | sed -E 's/^##? *//; s/^\[//; s/\]$//' \
+                | tr -d '[:space:]' | head -c 40)
+        fi
         case "$task" in
             APD-VERIFY-*) ;;          # synthetic — safe to overwrite
             "") return 0 ;;            # has spec-card but no recognizable task — treat as busy

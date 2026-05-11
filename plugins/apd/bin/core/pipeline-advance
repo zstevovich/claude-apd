@@ -248,7 +248,10 @@ case "$STEP" in
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files"
+        # v6.3 audit fix: also wipe .builder-count / .reviewer-count so a new
+        # task doesn't inherit cycle counts from a prior task (would block first
+        # dispatch with a misleading "task X has hit its budget" message).
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count"
         create_done "spec" "$ARG"
         # Freeze spec-card.md — hash for tamper detection
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
@@ -967,7 +970,11 @@ EOF
                 rm -f "$PIPELINE_DIR/$step.done"
                 # If verifier rolled back, also remove cache timestamp and trace summary
                 [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary"
-                [ "$step" = "reviewer" ] && rm -f "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.reviewed-files"
+                # Rollback to reviewer must also clear the adversarial summary, else
+                # the next verifier sees stale summary + new .adversarial-pending and
+                # mis-reports "Adversarial ran BEFORE reviewer step completed" when
+                # the real problem is the summary is from the previous run.
+                [ "$step" = "reviewer" ] && rm -f "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.adversarial-summary"
                 # implementation-plan.md is NOT deleted on rollback — it's part of the frozen spec
                 apd_header "Rollback: $step"
                 show_pipeline "$step"

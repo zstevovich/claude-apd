@@ -30,7 +30,12 @@ QUICK=false
 # would skip it. Sync up front so the banner is always correct.
 if [ -d "$CLAUDE_DIR" ] && [ -n "$APD_VER" ] && [ "$APD_VER" != "0.0.0" ]; then
     PROJ_V=$(cat "$CLAUDE_DIR/.apd-version" 2>/dev/null | tr -d '[:space:]')
-    if [ -n "$PROJ_V" ] && [ "$PROJ_V" != "$APD_VER" ]; then
+    # Sync when content differs from the live plugin version. Includes the empty
+    # case (no .apd-version yet) so an early-exit code path (e.g. --version) still
+    # leaves the project with a correct .apd-version for the next session-start
+    # banner. v6.3 audit fix: was previously gated on `[ -n "$PROJ_V" ]` which
+    # skipped first-write entirely.
+    if [ "$PROJ_V" != "$APD_VER" ]; then
         echo "$APD_VER" > "$CLAUDE_DIR/.apd-version"
     fi
 fi

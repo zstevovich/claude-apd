@@ -127,13 +127,33 @@ case "$EVENT" in
     # carried the matched pattern in argv. Informational only — never blocks.
     # Disable: APD_ZOMBIE_SWEEP=0
     if [ "${APD_ZOMBIE_SWEEP:-1}" != "0" ] && command -v ps >/dev/null 2>&1; then
-        # `ps -axo "pid= command="` works on both BSD (macOS) and procps-ng (Linux)
-        # and gives headerless `<PID> <full-command>` rows. BSD pgrep lacks `-a`,
-        # so we don't use pgrep here.
+        # `ps -axo "pid= ppid= command="` works on both BSD (macOS) and procps-ng (Linux).
+        # v6.3 audit fix: filter by ancestor-PID chain so unrelated dev-server / build
+        # daemons in other terminals don't produce false positives. A zombie counts only
+        # if its PPID is in the chain from us back to init.
         ZOMBIE_PATTERNS='gradle|tail -f|while.*pgrep|while.*true|while.*sleep|watch[[:space:]]+-n'
-        ZOMBIE_HITS=$(ps -axo "pid= command=" 2>/dev/null \
+        ANCESTOR_PIDS="$$"
+        _walk_pid=$$
+        _walk_depth=0
+        while [ "$_walk_depth" -lt 20 ]; do
+            _walk_pid=$(ps -o ppid= -p "$_walk_pid" 2>/dev/null | tr -d ' ')
+            [ -z "$_walk_pid" ] && break
+            [ "$_walk_pid" = "1" ] || [ "$_walk_pid" = "0" ] && break
+            ANCESTOR_PIDS="$ANCESTOR_PIDS $_walk_pid"
+            _walk_depth=$((_walk_depth + 1))
+        done
+        ZOMBIE_HITS=$(ps -axo "pid= ppid= command=" 2>/dev/null \
             | grep -E "$ZOMBIE_PATTERNS" \
             | grep -vE "track-agent|/claude($|[[:space:]])|grep -E|ps -axo" \
+            | awk -v anc="$ANCESTOR_PIDS" '{
+                n = split(anc, a, " ")
+                for (i = 1; i <= n; i++) ancestor[a[i]] = 1
+                if (ancestor[$2]) {
+                    line = $1
+                    for (j = 3; j <= NF; j++) line = line " " $j
+                    print line
+                }
+            }' \
             | head -5)
         if [ -n "$ZOMBIE_HITS" ]; then
             echo "" >&2

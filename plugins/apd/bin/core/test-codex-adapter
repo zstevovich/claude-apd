@@ -3903,20 +3903,26 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# E: with explicit max_cycles=4, third + fourth dispatch allowed.
-# Need to wipe spec-max-defects-history first because the new task name will
-# differ from the one we just used. Actually we keep the SAME task — only the
-# cap changes. Re-write spec-card with new max_cycles.
+# E: spec re-advance wipes the counter (v6.3 audit fix: prevents counter
+# from carrying over into a new task and blocking its first dispatch).
 _c_write_spec 4
-# Rollback to spec, edit spec-card, re-advance. Simpler: just bump spec.
 APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
+if [ ! -f "$C_DIR/.apd/pipeline/.builder-count" ]; then
+    pass "spec re-advance wipes .builder-count (audit fix)"
+    PASSES=$((PASSES + 1))
+else
+    fail "spec re-advance should wipe .builder-count"
+    FAILS=$((FAILS + 1))
+fi
+
+# E2: with explicit max_cycles=4 and fresh counter, third + fourth dispatch allowed
+_c_advance_builder >/dev/null 2>&1
+_c_advance_builder >/dev/null 2>&1
 OUT_E=$(_c_advance_builder)
 RC=$?
 CNT=$(cat "$C_DIR/.apd/pipeline/.builder-count" 2>/dev/null)
-# After re-advance spec, counter starts from existing 2 (NOT wiped — only reset wipes).
-# So this is dispatch #3 → counter=3, allowed under cap=4
 if [ "$RC" = "0" ] && [ "$CNT" = "3" ]; then
-    pass "with cap=4 + counter=2, next advance allowed → counter=3"
+    pass "with explicit max_cycles=4, third advance allowed → counter=3"
     PASSES=$((PASSES + 1))
 else
     fail "advance with raised cap should succeed (RC=$RC, count='$CNT')"
@@ -3926,15 +3932,16 @@ fi
 # F: max_cycles=unlimited disables the cap
 _c_write_spec unlimited
 APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
+# After spec re-advance, counter is wiped → 0
 for _ in 1 2 3 4 5; do
     _c_advance_builder >/dev/null 2>&1
 done
 CNT=$(cat "$C_DIR/.apd/pipeline/.builder-count" 2>/dev/null)
-if [ "$CNT" = "8" ]; then
-    pass "max_cycles=unlimited allows arbitrary dispatches (counter=8)"
+if [ "$CNT" = "5" ]; then
+    pass "max_cycles=unlimited allows arbitrary dispatches (counter=5 after 5 advances)"
     PASSES=$((PASSES + 1))
 else
-    fail "unlimited cap should not block (count='$CNT', expected 8)"
+    fail "unlimited cap should not block (count='$CNT', expected 5)"
     FAILS=$((FAILS + 1))
 fi
 
@@ -4123,6 +4130,83 @@ for tpl in "${F4_TEMPLATES[@]}"; do
         FAILS=$((FAILS + 1))
     fi
 done
+
+# -----------------------------------------------------------
+# 44. v6.3 audit fix — guard-bash-scope write-target identification
+#     CRITICAL pre-audit bug: `cp src/innocent /etc/passwd` was allowed
+#     when scope=src/ because the guard checked "any path in scope" rather
+#     than "the write TARGET in scope". Lock-in: verify destination checks.
+# -----------------------------------------------------------
+section "44. guard-bash-scope write-target check (audit fix #1)"
+
+GBS_DIR="$(mktemp -d -t apd-gbs.XXXXXX)"
+mkdir -p "$GBS_DIR/.apd" && touch "$GBS_DIR/.apd/config"
+GBS="$APD_PLUGIN_ROOT/bin/core/guard-bash-scope"
+
+_gbs_check() {
+    # $1 = label, $2 = expected exit (0=allow, 2=block), $3 = command, rest = allowed paths
+    local label="$1" expected="$2" cmd="$3"; shift 3
+    APD_PROJECT_DIR="$GBS_DIR" bash "$GBS" --command "$cmd" "$@" >/dev/null 2>&1
+    local rc=$?
+    if [ "$rc" = "$expected" ]; then
+        pass "$label (rc=$rc)"
+        PASSES=$((PASSES + 1))
+    else
+        fail "$label expected rc=$expected got rc=$rc"
+        FAILS=$((FAILS + 1))
+    fi
+}
+
+# Pre-audit BUG cases — these used to ALLOW (rc=0), must now BLOCK (rc=2)
+_gbs_check "cp in-scope source → out-of-scope target BLOCKS" 2 "cp src/innocent.txt /etc/passwd" src/
+_gbs_check "mv in-scope source → out-of-scope target BLOCKS" 2 "mv src/file /etc/destination" src/
+_gbs_check "sed -i (BSD) out-of-scope file BLOCKS"           2 "sed -i '' 's/a/b/' /etc/hosts"  src/
+_gbs_check "sed -i (GNU) out-of-scope file BLOCKS"           2 "sed -i 's/a/b/' /etc/hosts"     src/
+_gbs_check "rm out-of-scope BLOCKS"                          2 "rm /etc/something"              src/
+_gbs_check "mkdir out-of-scope BLOCKS"                       2 "mkdir /etc/newdir"              src/
+_gbs_check "tee out-of-scope BLOCKS"                         2 "echo x | tee /etc/foo"          src/
+_gbs_check "dd of= out-of-scope BLOCKS"                      2 "dd if=src/foo of=/dev/disk0"    src/
+
+# Legitimate in-scope cases — must ALLOW (rc=0)
+_gbs_check "cp in-scope ALLOWS"                              0 "cp src/foo src/bar"             src/
+_gbs_check "redirect in-scope ALLOWS"                        0 "echo data > src/file"           src/
+_gbs_check "mv into scope from /tmp ALLOWS"                  0 "mv /tmp/file src/file"          src/
+_gbs_check "sed -i (BSD) in-scope ALLOWS"                    0 "sed -i '' 's/a/b/' src/file"    src/
+_gbs_check "sed -i.bak in-scope ALLOWS"                      0 "sed -i.bak 's/a/b/' src/file"   src/
+_gbs_check "multi-file sed both in-scope ALLOWS"             0 "sed -i '' 's/a/b/' src/f1 src/f2" src/
+_gbs_check "multi-file sed mixed scope BLOCKS"               2 "sed -i '' 's/a/b/' src/f1 /etc/f2" src/
+
+rm -rf "$GBS_DIR"
+
+# -----------------------------------------------------------
+# 45. v6.3 audit fix — reviewer rollback clears .adversarial-summary
+# -----------------------------------------------------------
+section "45. reviewer rollback clears adversarial-summary (audit fix #7)"
+
+RB_DIR="$(mktemp -d -t apd-rb.XXXXXX)"
+mkdir -p "$RB_DIR/.apd/pipeline"
+echo "PROJECT_NAME=rb-test" > "$RB_DIR/.apd/config"
+cat > "$RB_DIR/.apd/pipeline/spec-card.md" <<'EOF'
+# Rollback test
+**Acceptance criteria:**
+- R1: x
+EOF
+echo "implementation plan" > "$RB_DIR/.apd/pipeline/implementation-plan.md"
+APD_PROJECT_DIR="$RB_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "rb-task" >/dev/null 2>&1
+APD_PROJECT_DIR="$RB_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder >/dev/null 2>&1
+APD_PROJECT_DIR="$RB_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reviewer >/dev/null 2>&1
+echo "ADVERSARIAL:5:3:2" > "$RB_DIR/.apd/pipeline/.adversarial-summary"
+
+APD_PROJECT_DIR="$RB_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" rollback >/dev/null 2>&1
+if [ ! -f "$RB_DIR/.apd/pipeline/.adversarial-summary" ]; then
+    pass "rollback to reviewer clears stale .adversarial-summary"
+    PASSES=$((PASSES + 1))
+else
+    fail "stale .adversarial-summary should be removed on reviewer rollback"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$RB_DIR"
 
 # -----------------------------------------------------------
 # Summary

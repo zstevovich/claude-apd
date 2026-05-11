@@ -127,7 +127,9 @@ if [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
 fi
 
 # --- 1. Shell write operations ---
-SHELL_WRITE_PATTERNS=('>>' '>' 'tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ')
+# Add destructive ops too (rm, mkdir, touch, rmdir) — scope guard covers
+# any filesystem modification, not just creation.
+SHELL_WRITE_PATTERNS=('>>' '>' 'tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ' 'rm ' 'rmdir ' 'mkdir ' 'touch ')
 
 HAS_WRITE_OP=false
 WRITE_TYPE=""
@@ -153,23 +155,114 @@ if [ "$HAS_WRITE_OP" = false ]; then
   exit 0
 fi
 
-# --- Check if paths in the command fall within the allowed scope ---
-# Prefix-match, not substring: an allowed path of `src/` must not match
-# `other-project/src/foo` just because "src/" appears somewhere in the string.
-PATHS_IN_CMD=$(echo "$COMMAND" | grep -oE '([~/./]?[a-zA-Z0-9_./-]{2,})' 2>/dev/null || true)
+# --- Check WRITE TARGETS against allowed scope ---
+# Previous implementation extracted ALL path-shaped tokens and allowed if ANY
+# matched scope — meant `cp src/innocent /etc/passwd` passed because "src/innocent"
+# matched. v6.3 audit fix: identify the actual destination of each write op and
+# check ONLY those. For runtime writes (node -e / python -c) the target lives
+# inside a string literal we can't parse safely; fall back to strict per-token
+# check there.
 
-while IFS= read -r path; do
-  [ -z "$path" ] && continue
-  # Normalize leading ./ and ~/ so they don't break prefix match.
-  clean="${path#./}"
+_path_in_scope() {
+  local clean="$1"
+  clean="${clean#./}"
   clean="${clean#~/}"
+  local allowed
   for allowed in "${ALLOWED_PATHS[@]}"; do
     allowed="${allowed%/}/"
     case "$clean/" in
-      "$allowed"*) exit 0 ;;
+      "$allowed"*) return 0 ;;
     esac
   done
+  return 1
+}
+
+# Collect candidate write targets (one per line)
+WRITE_TARGETS=$(
+  # 1. Redirect targets: > or >> followed by path (skip &> /dev/null, 2>&1)
+  echo "$COMMAND" | grep -oE '[0-9]?>{1,2}[[:space:]]*[^&[:space:]|;`"]+' 2>/dev/null \
+    | sed -E 's/^[0-9]?>+[[:space:]]*//' \
+    | grep -vE '^&' || true
+  # 2. tee <file>: target is the first non-flag arg
+  echo "$COMMAND" | grep -oE '\btee\b[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*[^-[:space:]|;&]+' 2>/dev/null \
+    | awk '{for(i=2;i<=NF;i++) if ($i !~ /^-/) {print $i; exit}}' || true
+  # 3. cp/mv/install <flags> src dst: target is the LAST positional arg
+  echo "$COMMAND" | grep -oE '\b(cp|mv|install)\b[[:space:]]+[^|;&]+' 2>/dev/null \
+    | while IFS= read -r seg; do
+        # strip leading op name + flags, keep positional tail
+        echo "$seg" | awk '{
+          for (i=2; i<=NF; i++) if ($i !~ /^-/) tail=tail" "$i
+          n = split(tail, a, /[[:space:]]+/)
+          if (n >= 2) print a[n]  # last positional
+        }'
+      done || true
+  # 4. dd ... of=<target>
+  echo "$COMMAND" | grep -oE '\bof=[^[:space:]|;&]+' 2>/dev/null | cut -d= -f2 || true
+  # 5. mkdir/touch/rm/rmdir: every non-flag arg is a target
+  echo "$COMMAND" | grep -oE '\b(mkdir|touch|rm|rmdir)\b[[:space:]]+[^|;&]+' 2>/dev/null \
+    | while IFS= read -r seg; do
+        echo "$seg" | awk '{for(i=2;i<=NF;i++) if ($i !~ /^-/) print $i}'
+      done || true
+  # 6. sed -i <pattern> <files...>: every non-flag arg AFTER the pattern is a target.
+  # Handles GNU (`-i 'pat' file`) and BSD (`-i '' 'pat' file`, `-i.bak 'pat' file`).
+  # \47 is octal for '. \42 is octal for ". Bash single-quoting prevents literal
+  # quote characters in the awk source, so we encode them as octal.
+  echo "$COMMAND" | grep -oE '\bsed\b[[:space:]]+(-i[^[:space:]|;&]*|--in-place[^|;&]*)[^|;&]*' 2>/dev/null \
+    | while IFS= read -r seg; do
+        echo "$seg" | awk '{
+          seen_pattern = 0
+          for (i=1; i<=NF; i++) {
+            if ($i ~ /^(sed|--in-place|-i)/) continue
+            if ($i ~ /^-/) continue
+            if ($i == "\47\47" || $i == "\42\42") continue
+            if (!seen_pattern) { seen_pattern = 1; continue }
+            print $i
+          }
+        }'
+      done || true
+)
+
+# If we identified at least one target, check ONLY those.
+TARGETS_FOUND=$(echo "$WRITE_TARGETS" | grep -v '^$' | grep -v '^/dev/null$' | head -50)
+
+if [ -n "$TARGETS_FOUND" ]; then
+  while IFS= read -r target; do
+    [ -z "$target" ] && continue
+    if ! _path_in_scope "$target"; then
+      if [ "$WRITE_TYPE" = "shell" ]; then
+        echo "BLOCKED: Bash command writes outside the allowed scope." >&2
+        echo "  Out-of-scope target: $target" >&2
+      else
+        echo "BLOCKED: Runtime write ($WRITE_TYPE) detected outside the allowed scope." >&2
+      fi
+      echo "  Allowed paths: ${ALLOWED_PATHS[*]}" >&2
+      log_block "out-of-scope-bash-write" "${COMMAND:0:100}"
+      exit 2
+    fi
+  done <<< "$TARGETS_FOUND"
+  exit 0
+fi
+
+# No identifiable write targets found — fall back to strict per-token check.
+# This catches runtime writes (node -e, python -c) where the target lives in
+# a string literal; require every path-shaped token to be in scope.
+PATHS_IN_CMD=$(echo "$COMMAND" | grep -oE '([~/./]?[a-zA-Z0-9_./-]{2,})' 2>/dev/null || true)
+ANY_PATH=false
+while IFS= read -r path; do
+  [ -z "$path" ] && continue
+  case "$path" in
+    -*|/dev/null|/dev/stdin|/dev/stdout|/dev/stderr) continue ;;
+  esac
+  ANY_PATH=true
+  if _path_in_scope "$path"; then
+    exit 0
+  fi
 done <<< "$PATHS_IN_CMD"
+
+if [ "$ANY_PATH" = false ]; then
+  # No path-shaped tokens at all (e.g. `mkdir` with no arg) — allow
+  exit 0
+fi
 
 if [ "$WRITE_TYPE" = "shell" ]; then
   echo "BLOCKED: Bash command writes outside the allowed scope." >&2

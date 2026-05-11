@@ -318,7 +318,6 @@ Allowed paths: src/ tests/
 | `/apd-audit` | Qualitative framework audit | Optional |
 | `/apd-github` | GitHub Projects board sync | Optional |
 | `/apd-miro` | Miro board dashboard sync | Optional |
-| `/apd-miro` | Miro dashboard updates | Optional |
 
 ## Codex adapter surface
 

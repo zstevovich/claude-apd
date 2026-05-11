@@ -59,7 +59,10 @@ if [ ! -f "$MCP_SERVER" ]; then
     exit 2
 fi
 if ! command -v uv &>/dev/null; then
-    echo "ERROR: \`uv\` is not installed. Install with: brew install uv" >&2
+    echo "ERROR: \`uv\` is not installed. The MCP server runs as a uv-managed" >&2
+    echo "       Python script — uv is required to launch it." >&2
+    echo "       macOS:  brew install uv" >&2
+    echo "       Linux:  curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
     exit 3
 fi
 if ! command -v python3 &>/dev/null; then
