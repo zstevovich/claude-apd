@@ -135,7 +135,8 @@ See §17.2 for per-guard internals. Block convention: exit 2 = BLOCK, exit 0 = A
 | `spec-card.md` | spec phase | Frozen task spec |
 | `.spec-hash` | spec phase | SHA256 of spec body for tamper detection |
 | `.spec-max-defects-history` | spec phase | `<task>\|<value>` snapshot of last accepted `max_defects` for the task; pipeline-advance blocks re-spec that RAISES the value for the same task (v6.3 D). Reset wipes — explicit pivot escape valve |
-| `.builder-count` | builder phase | Plain integer counter; pipeline-advance builder increments per dispatch and blocks on exceeding `builder: max_cycles=N` from spec-card (default 2, v6.3 C). Preserved across rollback + re-advance; reset wipes |
+| `.builder-count` | builder phase | Plain integer counter; pipeline-advance builder increments per dispatch and blocks on exceeding `builder: max_cycles=N` from spec-card (default 2, v6.3 C). `pipeline_mode: polish` lowers default to 1 (v6.3 B). Preserved across rollback + re-advance; reset wipes |
+| `.reviewer-count` | reviewer phase | Plain integer counter; pipeline-advance reviewer increments per dispatch and blocks on exceeding `reviewer: max_cycles=N` (default 2, v6.3 B). `pipeline_mode: polish` lowers default to 1. Preserved across rollback + re-advance; reset wipes |
 | `implementation-plan.md` | orchestrator pre-builder | Files + agents to dispatch |
 | `*.done` (4 files) | each `pipeline-advance` step | Gate completion markers; line 1 = `<epoch>\|<human-time>[\|<task>]`, line 2 = HMAC signature (validate-agent) |
 | `.reviewed-files` | reviewer phase | Reviewer-scoped file list |
@@ -232,7 +233,7 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 
 | Script | Coverage |
 |---|---|
-| `bin/core/test-codex-adapter` | 353 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema/runtime filtering, adversarial pre-flight gate, severity gate, spec-card markdown-bold tolerance, guard-bash-scope read/write distinction, pipeline-gate stage completeness, parallel same-type dispatch gate, mkdir deny patterns, spec/builder/superpowers lock-in, apd_pipeline_metrics MCP tool, C2 Phase 2a/2b parser+migrate, codex-doctor C2 hint, v6.3 D max_defects immutability, v6.3 E communication discipline, v6.3 A SubagentStop zombie sweep, v6.3 C builder cycle cap |
+| `bin/core/test-codex-adapter` | 361 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema/runtime filtering, adversarial pre-flight gate, severity gate, spec-card markdown-bold tolerance, guard-bash-scope read/write distinction, pipeline-gate stage completeness, parallel same-type dispatch gate, mkdir deny patterns, spec/builder/superpowers lock-in, apd_pipeline_metrics MCP tool, C2 Phase 2a/2b parser+migrate, codex-doctor C2 hint, v6.3 D max_defects immutability, v6.3 E communication discipline, v6.3 A SubagentStop zombie sweep, v6.3 C builder cycle cap, v6.3 B reviewer cycle cap + pipeline_mode polish |
 | `bin/core/test-hooks` | Static: hooks.json schema, placeholder fillness |
 | `bin/core/test-system` | E2E synthetic pipeline (creates `/tmp/apd-test-XXXX`); 2 sections (Pipeline Lifecycle, Spec Enforcement) |
 | `bin/core/verify-apd` | 60+ checks on configured project. **In-monorepo run mis-resolves** — copy example to `/tmp` for accurate result. |
@@ -336,8 +337,8 @@ Codex 0.124+ fires `SessionStart` in TUI mode only, and timed to the first user 
 
 **`pipeline-advance`** — single entry for all gate operations. Steps:
 - `spec <task>` — validates ≤7 criteria, archives prior `.agents`, writes spec.done + `.spec-hash` + `.spec-max-defects-history`. v6.3 D: BLOCKS if `max_defects` is raised for the same task across re-advance (rollback+re-spec loophole). Reset wipes the snapshot.
-- `builder` — checks `implementation-plan.md` present + `### Agents` section dispatched (CC), else BLOCK. v6.3 C: enforces `builder: max_cycles=N` (default 2) — increments `.builder-count` per call; exits 1 with escalation message when count would exceed cap. Writes builder.done.
-- `reviewer` — sets `.adversarial-pending` flag (Full) OR honors `adversarial: skip` if ≤2 criteria (Lean opt-out); writes reviewer.done
+- `builder` — checks `implementation-plan.md` present + `### Agents` section dispatched (CC), else BLOCK. v6.3 C: enforces `builder: max_cycles=N` (default 2) — increments `.builder-count` per call; exits 1 with escalation message when count would exceed cap. v6.3 B: `pipeline_mode: polish` lowers default to 1. Writes builder.done.
+- `reviewer` — sets `.adversarial-pending` flag (Full) OR honors `adversarial: skip` if ≤2 criteria (Lean opt-out); writes reviewer.done. v6.3 B: enforces `reviewer: max_cycles=N` (default 2; `pipeline_mode: polish` → 1) — increments `.reviewer-count` per call; exits 1 when count exceeds cap.
 - `verifier` — runs `verify-all.sh`; blocks on failure; in Full mode blocks on missing `.adversarial-summary`; writes verifier.done + `verified.timestamp`
 - `reset [learning-text]` — full archive + cleanup flow (see §16.4 telemetry)
 - `rollback` — undoes last completed step (sequential: verifier → reviewer → builder → spec)

@@ -382,13 +382,24 @@ case "$STEP" in
         # `builder: max_cycles=N` or `builder: max_cycles=unlimited`. Wiped
         # by `pipeline-advance reset`; preserved across rollback + re-advance
         # so re-dispatch always costs a cycle.
+        # v6.3 B — `pipeline_mode: polish` lowers default cap to 1 for polish
+        # iterations (small fixes that should NOT need re-dispatch).
+        PIPELINE_MODE=$(grep -iE '^[-*_ 	]*pipeline_mode[[:space:]]*[:=][[:space:]]*' "$PIPELINE_DIR/spec-card.md" 2>/dev/null \
+            | sed -E 's/.*pipeline_mode[[:space:]]*[:=][[:space:]]*//I' \
+            | awk '{print $1}' \
+            | tr '[:upper:]' '[:lower:]' \
+            | head -1)
+        case "$PIPELINE_MODE" in
+            polish) DEFAULT_BUILDER_CAP=1 ;;
+            *)      DEFAULT_BUILDER_CAP=2 ;;
+        esac
         BUILDER_COUNTER_FILE="$PIPELINE_DIR/.builder-count"
         BUILDER_MAX_CYCLES_RAW=$(grep -iE '^[-*_ 	]*builder[-*_ 	]*:.*max_cycles[[:space:]]*[:=][[:space:]]*([0-9]+|unlimited)' "$PIPELINE_DIR/spec-card.md" 2>/dev/null \
             | sed -E 's/.*max_cycles[[:space:]]*[:=][[:space:]]*//I' \
             | tr '[:upper:]' '[:lower:]' \
             | awk '{print $1}' \
             | head -1)
-        BUILDER_MAX_CYCLES="${BUILDER_MAX_CYCLES_RAW:-2}"
+        BUILDER_MAX_CYCLES="${BUILDER_MAX_CYCLES_RAW:-$DEFAULT_BUILDER_CAP}"
         CURRENT_BUILDER_COUNT=$(cat "$BUILDER_COUNTER_FILE" 2>/dev/null || echo 0)
         case "$CURRENT_BUILDER_COUNT" in *[!0-9]*) CURRENT_BUILDER_COUNT=0 ;; esac
         NEW_BUILDER_COUNT=$((CURRENT_BUILDER_COUNT + 1))
@@ -478,6 +489,48 @@ case "$STEP" in
             echo "  If reviewer step fails, do NOT rollback code — fix the dispatch and retry." >&2
             exit 1
         fi
+
+        # v6.3 B — reviewer cycle cap (mirror of v6.3 C builder cap).
+        # Counts pipeline-advance reviewer calls per task; default cap = 2
+        # (one initial + one re-dispatch). Override via spec-card:
+        # `reviewer: max_cycles=N` or `reviewer: max_cycles=unlimited`.
+        # `pipeline_mode: polish` lowers default to 1.
+        PIPELINE_MODE_R=$(grep -iE '^[-*_ 	]*pipeline_mode[[:space:]]*[:=][[:space:]]*' "$PIPELINE_DIR/spec-card.md" 2>/dev/null \
+            | sed -E 's/.*pipeline_mode[[:space:]]*[:=][[:space:]]*//I' \
+            | awk '{print $1}' \
+            | tr '[:upper:]' '[:lower:]' \
+            | head -1)
+        case "$PIPELINE_MODE_R" in
+            polish) DEFAULT_REVIEWER_CAP=1 ;;
+            *)      DEFAULT_REVIEWER_CAP=2 ;;
+        esac
+        REVIEWER_COUNTER_FILE="$PIPELINE_DIR/.reviewer-count"
+        REVIEWER_MAX_CYCLES_RAW=$(grep -iE '^[-*_ 	]*reviewer[-*_ 	]*:.*max_cycles[[:space:]]*[:=][[:space:]]*([0-9]+|unlimited)' "$PIPELINE_DIR/spec-card.md" 2>/dev/null \
+            | sed -E 's/.*max_cycles[[:space:]]*[:=][[:space:]]*//I' \
+            | tr '[:upper:]' '[:lower:]' \
+            | awk '{print $1}' \
+            | head -1)
+        REVIEWER_MAX_CYCLES="${REVIEWER_MAX_CYCLES_RAW:-$DEFAULT_REVIEWER_CAP}"
+        CURRENT_REVIEWER_COUNT=$(cat "$REVIEWER_COUNTER_FILE" 2>/dev/null || echo 0)
+        case "$CURRENT_REVIEWER_COUNT" in *[!0-9]*) CURRENT_REVIEWER_COUNT=0 ;; esac
+        NEW_REVIEWER_COUNT=$((CURRENT_REVIEWER_COUNT + 1))
+        if [ "$REVIEWER_MAX_CYCLES" != "unlimited" ] && [ "$NEW_REVIEWER_COUNT" -gt "$REVIEWER_MAX_CYCLES" ] 2>/dev/null; then
+            CURRENT_TASK=$(head -1 "$PIPELINE_DIR/spec.done" 2>/dev/null | cut -d'|' -f3)
+            echo "BLOCKED: reviewer dispatch #$NEW_REVIEWER_COUNT exceeds max_cycles=$REVIEWER_MAX_CYCLES." >&2
+            echo "" >&2
+            echo "  Task '$CURRENT_TASK' has hit its reviewer-cycle budget." >&2
+            echo "  Repeated reviewer dispatches signal that the work isn't converging." >&2
+            echo "" >&2
+            echo "  Three ways forward:" >&2
+            echo "    (a) STOP and review — is the reviewer flagging real bugs the" >&2
+            echo "        builder isn't fixing? Or scope drift from the spec?" >&2
+            echo "    (b) Decompose — reset, split into smaller tasks." >&2
+            echo "    (c) Raise cap — edit spec-card.md 'reviewer: max_cycles=N'" >&2
+            echo "        with rationale, rollback to builder, re-advance." >&2
+            log_block "max_reviewer_cycles-exceeded" "task=$CURRENT_TASK count=$NEW_REVIEWER_COUNT cap=$REVIEWER_MAX_CYCLES"
+            exit 1
+        fi
+        echo "$NEW_REVIEWER_COUNT" > "$REVIEWER_COUNTER_FILE"
 
         BUILDER_TS=$(head -1 "$PIPELINE_DIR/builder.done" | cut -d'|' -f1)
         ELAPSED=$(format_duration $((NOW - BUILDER_TS)))
@@ -900,7 +953,7 @@ EOF
         # .agents was already archived above (before metrics write).
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes"
         # Reset completed cleanly — drop the in-progress marker.
         rm -f "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
         echo "Pipeline reset. Ready for new task."

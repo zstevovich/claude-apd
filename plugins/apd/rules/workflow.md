@@ -179,18 +179,29 @@ substantial enough that adversarial stays required; the opt-out line is
 ignored in that case. The cap is a deliberate nudge — if the spec
 doesn't fit in 2 criteria, it's not a Lean task.
 
-## 0b. Builder cycle cap
+## 0b. Phase cycle caps
 
-`pipeline-advance builder` counts dispatches per task and blocks runaway re-dispatch loops. Default cap = 2 (one initial + one re-dispatch after reviewer rejection). The counter persists across rollback + re-advance — every dispatch costs a cycle. `pipeline-advance reset` wipes it.
+`pipeline-advance builder` and `pipeline-advance reviewer` each count dispatches per task and block runaway re-dispatch loops. Default cap = 2 per phase (one initial + one re-dispatch). Counters persist across rollback + re-advance — every dispatch costs a cycle. `pipeline-advance reset` wipes them.
 
 Override per spec via line in `.apd/pipeline/spec-card.md`:
 
 ```
-builder: max_cycles=3        # explicit higher cap with rationale
+builder: max_cycles=3         # explicit higher cap with rationale
+reviewer: max_cycles=3        # same — independent of builder
 builder: max_cycles=unlimited # no cap (use only with strong reason)
 ```
 
-When blocked, three ways forward: STOP and review (is the plan complete? is adversarial flagging the same issue twice?), decompose into smaller tasks and reset, or raise the cap with explicit rationale via rollback + re-advance.
+When blocked, three ways forward: STOP and review (is the plan complete? scope drift? same issue flagged repeatedly?), decompose into smaller tasks and reset, or raise the cap with explicit rationale via rollback + re-advance.
+
+### Polish mode
+
+Polish iterations — typo fixes, copy tweaks, small UI polish — should NOT need re-dispatch. Mark them up front:
+
+```
+pipeline_mode: polish
+```
+
+This lowers both builder and reviewer default caps to 1 (no re-dispatch). Explicit `builder: max_cycles=N` / `reviewer: max_cycles=N` still take precedence. Distinct from the `adversarial: skip` opt-out below — polish mode runs the full builder → reviewer → adversarial → verifier sequence, just once.
 
 ## 1. Spec card before code
 

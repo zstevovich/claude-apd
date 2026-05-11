@@ -3748,17 +3748,22 @@ _z_cleanup() {
     pgrep -f "$Z_MARKER" 2>/dev/null | while read -r pid; do kill "$pid" 2>/dev/null; done
 }
 
-# Wait for process table
-for _ in 1 2 3 4 5; do
-    pgrep -f "$Z_MARKER" >/dev/null 2>&1 && break
+# Wait until ps -axo (the exact call the sweep uses) sees the marker.
+# Without this exact-call check, run-to-run timing variance produces flaky
+# results where pgrep sees the zombie but ps hasn't yet flushed the process
+# table to userspace.
+for _ in $(seq 1 20); do
+    if ps -axo "pid= command=" 2>/dev/null | grep -q "$Z_MARKER"; then
+        break
+    fi
     sleep 0.1
 done
 
-if pgrep -f "$Z_MARKER" >/dev/null 2>&1; then
+if ps -axo "pid= command=" 2>/dev/null | grep -q "$Z_MARKER"; then
     pass "fake zombie spawned with marker '$Z_MARKER'"
     PASSES=$((PASSES + 1))
 else
-    fail "fake zombie not visible to pgrep — section may be unreliable"
+    fail "fake zombie not visible to ps — section is unreliable"
     FAILS=$((FAILS + 1))
 fi
 
@@ -3770,7 +3775,7 @@ if echo "$Z_OUT" | grep -q "zombie sweep" && echo "$Z_OUT" | grep -q "$Z_MARKER"
     pass "sweep surfaces fake zombie via while.*sleep pattern"
     PASSES=$((PASSES + 1))
 else
-    fail "sweep did not surface fake zombie"
+    fail "sweep did not surface fake zombie (out: ${Z_OUT:0:300})"
     FAILS=$((FAILS + 1))
 fi
 
@@ -3944,6 +3949,148 @@ else
 fi
 
 rm -rf "$C_DIR"
+
+# -----------------------------------------------------------
+# 42. v6.3 B — reviewer cycle cap + `pipeline_mode: polish` preset
+#     Mirror of v6.3 C builder cap for reviewer phase. Polish mode
+#     lowers default caps to 1 for both builder and reviewer.
+# -----------------------------------------------------------
+section "42. Reviewer cycle cap + polish mode (v6.3 B)"
+
+R_DIR="$(mktemp -d -t apd-b.XXXXXX)"
+mkdir -p "$R_DIR/.apd/pipeline"
+echo "PROJECT_NAME=b-test" > "$R_DIR/.apd/config"
+
+_b_write_spec() {
+    # $1 = pipeline_mode (or empty), $2 = reviewer max_cycles (or empty)
+    local mode_line=""
+    local rev_line=""
+    [ -n "$1" ] && mode_line="pipeline_mode: $1"
+    [ -n "$2" ] && rev_line="reviewer: max_cycles=$2"
+    cat > "$R_DIR/.apd/pipeline/spec-card.md" <<EOF
+# Polish-mode test
+
+**Acceptance criteria:**
+- R1: x
+
+$mode_line
+$rev_line
+EOF
+    cat > "$R_DIR/.apd/pipeline/implementation-plan.md" <<EOF
+# Plan
+- src/foo.x — change
+
+### Agents
+- backend-builder
+EOF
+}
+
+_b_advance() {
+    APD_PROJECT_DIR="$R_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" "$@" 2>&1
+}
+
+# A: default reviewer cap = 2, first + second advance allowed
+_b_write_spec "" ""
+_b_advance spec "b-task" >/dev/null 2>&1   # writes spec.done
+_b_advance builder >/dev/null 2>&1 # writes builder.done, counter B=1
+OUT_A=$(_b_advance reviewer)
+RC_A=$?
+R_CNT=$(cat "$R_DIR/.apd/pipeline/.reviewer-count" 2>/dev/null)
+if [ "$RC_A" = "0" ] && [ "$R_CNT" = "1" ]; then
+    pass "first reviewer advance allowed, .reviewer-count=1"
+    PASSES=$((PASSES + 1))
+else
+    fail "first reviewer advance should succeed (RC=$RC_A, count='$R_CNT', out: ${OUT_A:0:120})"
+    FAILS=$((FAILS + 1))
+fi
+
+OUT_A2=$(_b_advance reviewer)
+RC_A2=$?
+R_CNT=$(cat "$R_DIR/.apd/pipeline/.reviewer-count" 2>/dev/null)
+if [ "$RC_A2" = "0" ] && [ "$R_CNT" = "2" ]; then
+    pass "second reviewer advance allowed at default cap=2, counter=2"
+    PASSES=$((PASSES + 1))
+else
+    fail "second reviewer advance should succeed (RC=$RC_A2, count='$R_CNT')"
+    FAILS=$((FAILS + 1))
+fi
+
+# B: third reviewer advance BLOCKED at default cap=2
+OUT_B=$(_b_advance reviewer)
+RC_B=$?
+if [ "$RC_B" = "1" ] && echo "$OUT_B" | grep -q "reviewer dispatch #3 exceeds max_cycles=2"; then
+    pass "third reviewer advance BLOCKED at default cap=2"
+    PASSES=$((PASSES + 1))
+else
+    fail "third reviewer should block (RC=$RC_B, out: ${OUT_B:0:160})"
+    FAILS=$((FAILS + 1))
+fi
+
+# Counter NOT bumped when blocked
+R_CNT=$(cat "$R_DIR/.apd/pipeline/.reviewer-count" 2>/dev/null)
+if [ "$R_CNT" = "2" ]; then
+    pass "blocked reviewer advance does not bump counter (stays 2)"
+    PASSES=$((PASSES + 1))
+else
+    fail "counter should stay 2 when blocked (got '$R_CNT')"
+    FAILS=$((FAILS + 1))
+fi
+
+# C: reset wipes .reviewer-count
+APD_PROJECT_DIR="$R_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
+if [ ! -f "$R_DIR/.apd/pipeline/.reviewer-count" ]; then
+    pass "reset wipes .reviewer-count"
+    PASSES=$((PASSES + 1))
+else
+    fail "reset should wipe .reviewer-count"
+    FAILS=$((FAILS + 1))
+fi
+
+# D: pipeline_mode: polish — builder + reviewer defaults both drop to 1
+_b_write_spec "polish" ""
+_b_advance spec "b-task" >/dev/null 2>&1
+_b_advance builder >/dev/null 2>&1  # counter B=1
+OUT_D=$(_b_advance builder)
+RC_D=$?
+if [ "$RC_D" = "1" ] && echo "$OUT_D" | grep -q "builder dispatch #2 exceeds max_cycles=1"; then
+    pass "polish mode caps builder at 1 (second builder blocked)"
+    PASSES=$((PASSES + 1))
+else
+    fail "polish should cap builder at 1 (RC=$RC_D, out: ${OUT_D:0:160})"
+    FAILS=$((FAILS + 1))
+fi
+
+# Reviewer side: under polish, second reviewer should also be blocked
+_b_advance reviewer >/dev/null 2>&1  # counter R=1
+OUT_E=$(_b_advance reviewer)
+RC_E=$?
+if [ "$RC_E" = "1" ] && echo "$OUT_E" | grep -q "reviewer dispatch #2 exceeds max_cycles=1"; then
+    pass "polish mode caps reviewer at 1 (second reviewer blocked)"
+    PASSES=$((PASSES + 1))
+else
+    fail "polish should cap reviewer at 1 (RC=$RC_E, out: ${OUT_E:0:160})"
+    FAILS=$((FAILS + 1))
+fi
+
+# E: explicit reviewer: max_cycles=3 overrides polish preset
+APD_PROJECT_DIR="$R_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
+_b_write_spec "polish" "3"
+_b_advance spec "b-task" >/dev/null 2>&1
+_b_advance builder >/dev/null 2>&1   # builder still capped at 1 — single dispatch needed for reviewer to run
+_b_advance reviewer >/dev/null 2>&1  # R=1
+_b_advance reviewer >/dev/null 2>&1  # R=2
+OUT_F=$(_b_advance reviewer)         # R=3 — should be allowed under explicit cap=3
+RC_F=$?
+R_CNT=$(cat "$R_DIR/.apd/pipeline/.reviewer-count" 2>/dev/null)
+if [ "$RC_F" = "0" ] && [ "$R_CNT" = "3" ]; then
+    pass "explicit reviewer: max_cycles=3 overrides polish preset"
+    PASSES=$((PASSES + 1))
+else
+    fail "explicit cap should override polish (RC=$RC_F, count='$R_CNT')"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$R_DIR"
 
 # -----------------------------------------------------------
 # Summary
