@@ -46,6 +46,15 @@ if [ -x "$SCRIPT_DIR/apd-init" ]; then
             RUN_CHECK=false
         fi
     fi
+    # Bypass cache after plugin upgrade — apd-init re-syncs .apd-version,
+    # config, agents, etc. against the new plugin payload.
+    if [ "$RUN_CHECK" = false ] && [ -f "$CLAUDE_DIR/.apd-version" ]; then
+        _PROJ_VER=$(cat "$CLAUDE_DIR/.apd-version" 2>/dev/null | tr -d '[:space:]')
+        if [ -n "$_PROJ_VER" ] && [ -n "$APD_VERSION" ] && [ "$_PROJ_VER" != "$APD_VERSION" ]; then
+            RUN_CHECK=true
+            _ss_log "cache override: plugin upgrade $_PROJ_VER → $APD_VERSION"
+        fi
+    fi
     if [ "$RUN_CHECK" = true ]; then
         bash "$SCRIPT_DIR/apd-init" --quick 2>&1 || _ss_log "WARN: apd-init --quick exited $?"
         mkdir -p "$PIPELINE_DIR" 2>/dev/null

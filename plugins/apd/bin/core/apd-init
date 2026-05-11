@@ -23,6 +23,18 @@ fi
 QUICK=false
 [ "${1:-}" = "--quick" ] && QUICK=true
 
+# --- Eager version sync ---
+# Plugin upgrade leaves $CLAUDE_DIR/.apd-version stale until the per-MODE path
+# rewrites it. session-start reads it for the banner, and the per-MODE write
+# (MODE=update §593) runs late — anything that exits early (errors, --version)
+# would skip it. Sync up front so the banner is always correct.
+if [ -d "$CLAUDE_DIR" ] && [ -n "$APD_VER" ] && [ "$APD_VER" != "0.0.0" ]; then
+    PROJ_V=$(cat "$CLAUDE_DIR/.apd-version" 2>/dev/null | tr -d '[:space:]')
+    if [ -n "$PROJ_V" ] && [ "$PROJ_V" != "$APD_VER" ]; then
+        echo "$APD_VER" > "$CLAUDE_DIR/.apd-version"
+    fi
+fi
+
 # --- Visual helpers ---
 source "$(dirname "$0")/../lib/style.sh"
 
