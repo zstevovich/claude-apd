@@ -179,6 +179,19 @@ substantial enough that adversarial stays required; the opt-out line is
 ignored in that case. The cap is a deliberate nudge — if the spec
 doesn't fit in 2 criteria, it's not a Lean task.
 
+## 0b. Builder cycle cap
+
+`pipeline-advance builder` counts dispatches per task and blocks runaway re-dispatch loops. Default cap = 2 (one initial + one re-dispatch after reviewer rejection). The counter persists across rollback + re-advance — every dispatch costs a cycle. `pipeline-advance reset` wipes it.
+
+Override per spec via line in `.apd/pipeline/spec-card.md`:
+
+```
+builder: max_cycles=3        # explicit higher cap with rationale
+builder: max_cycles=unlimited # no cap (use only with strong reason)
+```
+
+When blocked, three ways forward: STOP and review (is the plan complete? is adversarial flagging the same issue twice?), decompose into smaller tasks and reset, or raise the cap with explicit rationale via rollback + re-advance.
+
 ## 1. Spec card before code
 
 Before EVERY task, create a mini-spec:

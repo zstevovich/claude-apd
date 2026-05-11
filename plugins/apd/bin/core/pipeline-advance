@@ -376,6 +376,41 @@ case "$STEP" in
             fi
         fi
 
+        # v6.3 C — builder cycle cap. Counts pipeline-advance builder calls
+        # per task; blocks runaway re-dispatch loops. Default cap = 2 (allow
+        # one re-dispatch after reviewer rejection). Override via spec-card:
+        # `builder: max_cycles=N` or `builder: max_cycles=unlimited`. Wiped
+        # by `pipeline-advance reset`; preserved across rollback + re-advance
+        # so re-dispatch always costs a cycle.
+        BUILDER_COUNTER_FILE="$PIPELINE_DIR/.builder-count"
+        BUILDER_MAX_CYCLES_RAW=$(grep -iE '^[-*_ 	]*builder[-*_ 	]*:.*max_cycles[[:space:]]*[:=][[:space:]]*([0-9]+|unlimited)' "$PIPELINE_DIR/spec-card.md" 2>/dev/null \
+            | sed -E 's/.*max_cycles[[:space:]]*[:=][[:space:]]*//I' \
+            | tr '[:upper:]' '[:lower:]' \
+            | awk '{print $1}' \
+            | head -1)
+        BUILDER_MAX_CYCLES="${BUILDER_MAX_CYCLES_RAW:-2}"
+        CURRENT_BUILDER_COUNT=$(cat "$BUILDER_COUNTER_FILE" 2>/dev/null || echo 0)
+        case "$CURRENT_BUILDER_COUNT" in *[!0-9]*) CURRENT_BUILDER_COUNT=0 ;; esac
+        NEW_BUILDER_COUNT=$((CURRENT_BUILDER_COUNT + 1))
+        if [ "$BUILDER_MAX_CYCLES" != "unlimited" ] && [ "$NEW_BUILDER_COUNT" -gt "$BUILDER_MAX_CYCLES" ] 2>/dev/null; then
+            CURRENT_TASK=$(head -1 "$PIPELINE_DIR/spec.done" 2>/dev/null | cut -d'|' -f3)
+            echo "BLOCKED: builder dispatch #$NEW_BUILDER_COUNT exceeds max_cycles=$BUILDER_MAX_CYCLES." >&2
+            echo "" >&2
+            echo "  Task '$CURRENT_TASK' has hit its builder-cycle budget." >&2
+            echo "  Re-dispatching now risks the runaway pattern from BambiProject" >&2
+            echo "  Cycle 1 (3 builder cycles, ~28 min agent time, polish task)." >&2
+            echo "" >&2
+            echo "  Three ways forward:" >&2
+            echo "    (a) STOP and review — is implementation-plan.md complete?" >&2
+            echo "        Spec ambiguous? Adversarial flagging the same issue twice?" >&2
+            echo "    (b) Decompose — split the spec into 2 smaller tasks, reset, restart." >&2
+            echo "    (c) Raise cap — edit spec-card.md 'builder: max_cycles=N' with" >&2
+            echo "        rationale, rollback to spec, re-advance." >&2
+            log_block "max_builder_cycles-exceeded" "task=$CURRENT_TASK count=$NEW_BUILDER_COUNT cap=$BUILDER_MAX_CYCLES"
+            exit 1
+        fi
+        echo "$NEW_BUILDER_COUNT" > "$BUILDER_COUNTER_FILE"
+
         ELAPSED=$(format_duration $((NOW - SPEC_TS)))
         create_done "builder"
         apd_header "Builder Complete" "+$ELAPSED"
@@ -865,7 +900,7 @@ EOF
         # .agents was already archived above (before metrics write).
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes"
         # Reset completed cleanly — drop the in-progress marker.
         rm -f "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
         echo "Pipeline reset. Ready for new task."

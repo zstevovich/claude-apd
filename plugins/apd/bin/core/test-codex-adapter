@@ -3815,6 +3815,137 @@ fi
 rm -rf "$Z_DIR"
 
 # -----------------------------------------------------------
+# 41. v6.3 C — max_builder_cycles hard-cap
+#     pipeline-advance builder counts dispatches per task; default cap=2.
+#     Override via spec-card 'builder: max_cycles=N|unlimited'. Reset wipes
+#     the counter. Closes BambiProject Cycle 1 runaway re-dispatch pattern
+#     (3 builder cycles for a polish task).
+# -----------------------------------------------------------
+section "41. Builder cycle cap (v6.3 C)"
+
+C_DIR="$(mktemp -d -t apd-c.XXXXXX)"
+mkdir -p "$C_DIR/.apd/pipeline"
+echo "PROJECT_NAME=c-test" > "$C_DIR/.apd/config"
+
+_c_write_spec() {
+    local field=""
+    [ -n "$1" ] && field="builder: max_cycles=$1"
+    cat > "$C_DIR/.apd/pipeline/spec-card.md" <<EOF
+# Cycle-cap test
+
+**Acceptance criteria:**
+- R1: x
+
+$field
+EOF
+    cat > "$C_DIR/.apd/pipeline/implementation-plan.md" <<EOF
+# Plan
+- src/foo.x — change
+
+### Agents
+- backend-builder
+EOF
+}
+
+_c_advance_builder() {
+    APD_PROJECT_DIR="$C_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder 2>&1
+}
+
+# A: default cap=2 — first dispatch allowed, counter=1
+_c_write_spec ""
+APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
+OUT_A=$(_c_advance_builder)
+RC=$?
+CNT=$(cat "$C_DIR/.apd/pipeline/.builder-count" 2>/dev/null)
+if [ "$RC" = "0" ] && [ "$CNT" = "1" ]; then
+    pass "first builder advance allowed, counter=1"
+    PASSES=$((PASSES + 1))
+else
+    fail "first advance should succeed (RC=$RC, count='$CNT', out: ${OUT_A:0:120})"
+    FAILS=$((FAILS + 1))
+fi
+
+# B: second dispatch under default cap=2 — allowed, counter=2
+OUT_B=$(_c_advance_builder)
+RC=$?
+CNT=$(cat "$C_DIR/.apd/pipeline/.builder-count" 2>/dev/null)
+if [ "$RC" = "0" ] && [ "$CNT" = "2" ]; then
+    pass "second builder advance allowed at default cap=2, counter=2"
+    PASSES=$((PASSES + 1))
+else
+    fail "second advance should succeed (RC=$RC, count='$CNT')"
+    FAILS=$((FAILS + 1))
+fi
+
+# C: third dispatch under default cap=2 — BLOCKED with correct message
+OUT_C=$(_c_advance_builder)
+RC=$?
+if [ "$RC" = "1" ] && echo "$OUT_C" | grep -q "builder dispatch #3 exceeds max_cycles=2"; then
+    pass "third advance BLOCKED at default cap=2, exits 1 with correct message"
+    PASSES=$((PASSES + 1))
+else
+    fail "third advance should block (RC=$RC, out: ${OUT_C:0:160})"
+    FAILS=$((FAILS + 1))
+fi
+
+# D: counter NOT incremented when blocked
+CNT=$(cat "$C_DIR/.apd/pipeline/.builder-count" 2>/dev/null)
+if [ "$CNT" = "2" ]; then
+    pass "blocked advance does not bump counter (stays 2)"
+    PASSES=$((PASSES + 1))
+else
+    fail "counter should stay 2 when blocked (got '$CNT')"
+    FAILS=$((FAILS + 1))
+fi
+
+# E: with explicit max_cycles=4, third + fourth dispatch allowed.
+# Need to wipe spec-max-defects-history first because the new task name will
+# differ from the one we just used. Actually we keep the SAME task — only the
+# cap changes. Re-write spec-card with new max_cycles.
+_c_write_spec 4
+# Rollback to spec, edit spec-card, re-advance. Simpler: just bump spec.
+APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
+OUT_E=$(_c_advance_builder)
+RC=$?
+CNT=$(cat "$C_DIR/.apd/pipeline/.builder-count" 2>/dev/null)
+# After re-advance spec, counter starts from existing 2 (NOT wiped — only reset wipes).
+# So this is dispatch #3 → counter=3, allowed under cap=4
+if [ "$RC" = "0" ] && [ "$CNT" = "3" ]; then
+    pass "with cap=4 + counter=2, next advance allowed → counter=3"
+    PASSES=$((PASSES + 1))
+else
+    fail "advance with raised cap should succeed (RC=$RC, count='$CNT')"
+    FAILS=$((FAILS + 1))
+fi
+
+# F: max_cycles=unlimited disables the cap
+_c_write_spec unlimited
+APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
+for _ in 1 2 3 4 5; do
+    _c_advance_builder >/dev/null 2>&1
+done
+CNT=$(cat "$C_DIR/.apd/pipeline/.builder-count" 2>/dev/null)
+if [ "$CNT" = "8" ]; then
+    pass "max_cycles=unlimited allows arbitrary dispatches (counter=8)"
+    PASSES=$((PASSES + 1))
+else
+    fail "unlimited cap should not block (count='$CNT', expected 8)"
+    FAILS=$((FAILS + 1))
+fi
+
+# G: reset wipes the counter
+APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
+if [ ! -f "$C_DIR/.apd/pipeline/.builder-count" ]; then
+    pass "pipeline-advance reset wipes .builder-count"
+    PASSES=$((PASSES + 1))
+else
+    fail "reset should wipe .builder-count"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$C_DIR"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
