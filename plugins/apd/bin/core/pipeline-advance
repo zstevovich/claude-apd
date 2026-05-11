@@ -208,6 +208,42 @@ case "$STEP" in
             exit 1
         fi
 
+        # v6.3 D — max_defects immutability across rollback+re-advance for same task.
+        # Existing .spec-hash check at verifier catches direct edits AFTER spec.done.
+        # This check catches the loophole: rollback → edit spec-card.md → re-advance spec.
+        # Reset wipes the snapshot — it is the explicit escape valve for a real pivot.
+        SNAPSHOT_FILE="$PIPELINE_DIR/.spec-max-defects-history"
+        CURRENT_MAX=$(grep -iE '^[-*_ 	]*adversarial[-*_ 	]*:.*max_defects[[:space:]]*[:=][[:space:]]*([0-9]+|unlimited)' "$PIPELINE_DIR/spec-card.md" 2>/dev/null \
+            | sed -E 's/.*max_defects[[:space:]]*[:=][[:space:]]*//I' \
+            | tr '[:upper:]' '[:lower:]' \
+            | awk '{print $1}' \
+            | head -1)
+        [ -z "$CURRENT_MAX" ] && CURRENT_MAX="unlimited"
+        if [ -f "$SNAPSHOT_FILE" ]; then
+            PREV_TASK=$(cut -d'|' -f1 "$SNAPSHOT_FILE" 2>/dev/null)
+            PREV_MAX=$(cut -d'|' -f2 "$SNAPSHOT_FILE" 2>/dev/null)
+            if [ "$PREV_TASK" = "$ARG" ] && [ -n "$PREV_MAX" ] && [ "$PREV_MAX" != "unlimited" ]; then
+                RAISED=false
+                if [ "$CURRENT_MAX" = "unlimited" ]; then
+                    RAISED=true
+                elif [ "$CURRENT_MAX" -gt "$PREV_MAX" ] 2>/dev/null; then
+                    RAISED=true
+                fi
+                if [ "$RAISED" = true ]; then
+                    echo "BLOCKED: max_defects raised from $PREV_MAX to $CURRENT_MAX for the same task." >&2
+                    echo "" >&2
+                    echo "  Task '$ARG' was previously specced with max_defects=$PREV_MAX." >&2
+                    echo "  Raising mid-pipeline defeats the severity gate (v6.1 B2)." >&2
+                    echo "" >&2
+                    echo "  Two ways forward:" >&2
+                    echo "    (a) Lower (or keep) max_defects in spec-card.md and re-advance." >&2
+                    echo "    (b) Reset the pipeline: pipeline-advance reset '<pivot rationale>'." >&2
+                    log_block "max_defects-raised-mid-pipeline" "task=$ARG prev=$PREV_MAX new=$CURRENT_MAX"
+                    exit 1
+                fi
+            fi
+        fi
+
         # Archive agent log before clearing (permanent audit trail)
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
@@ -216,6 +252,8 @@ case "$STEP" in
         create_done "spec" "$ARG"
         # Freeze spec-card.md — hash for tamper detection
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
+        # v6.3 D — snapshot max_defects for next spec advance to compare against
+        printf '%s|%s\n' "$ARG" "$CURRENT_MAX" > "$SNAPSHOT_FILE"
         apd_spec_header "$ARG"
         show_pipeline "builder"
         # GitHub sync (best-effort — never blocks pipeline)
@@ -827,7 +865,7 @@ EOF
         # .agents was already archived above (before metrics write).
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes"
         # Reset completed cleanly — drop the in-progress marker.
         rm -f "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
         echo "Pipeline reset. Ready for new task."

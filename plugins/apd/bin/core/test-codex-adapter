@@ -3544,6 +3544,119 @@ fi
 rm -rf "$CD_DIR"
 
 # -----------------------------------------------------------
+# 38. v6.3 D — spec-card max_defects immutability across re-advance
+#     pipeline-advance blocks raising max_defects within the same
+#     task (closes rollback+re-advance loophole). Reset wipes the
+#     snapshot as the explicit escape valve for a real pivot.
+# -----------------------------------------------------------
+section "38. max_defects immutability (v6.3 D)"
+
+D_DIR="$(mktemp -d -t apd-d.XXXXXX)"
+mkdir -p "$D_DIR/.apd/pipeline"
+echo "PROJECT_NAME=d-test" > "$D_DIR/.apd/config"
+
+_write_spec_d() {
+    local field=""
+    [ -n "$1" ] && field="adversarial: max_defects=$1"
+    cat > "$D_DIR/.apd/pipeline/spec-card.md" <<EOF
+# Test task
+
+**Acceptance criteria:**
+- R1: x
+
+$field
+EOF
+}
+
+# A: first advance with max_defects=1 → snapshot file created with task-A|1
+_write_spec_d 1
+(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" >/dev/null 2>&1)
+RC=$?
+SNAP=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
+if [ "$RC" = "0" ] && [ "$SNAP" = "task-A|1" ]; then
+    pass "first spec advance writes snapshot 'task-A|1'"
+    PASSES=$((PASSES + 1))
+else
+    fail "first spec advance should create snapshot 'task-A|1' (RC=$RC, snap='$SNAP')"
+    FAILS=$((FAILS + 1))
+fi
+
+# B: same task, raise max_defects (1→3) → BLOCK with explanatory message
+_write_spec_d 3
+B_OUT=$(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" 2>&1)
+RC=$?
+if [ "$RC" = "1" ] && echo "$B_OUT" | grep -q "max_defects raised from 1 to 3"; then
+    pass "same task + raise 1→3 → BLOCKED with correct message"
+    PASSES=$((PASSES + 1))
+else
+    fail "raising max_defects 1→3 should block (RC=$RC, out='$B_OUT')"
+    FAILS=$((FAILS + 1))
+fi
+
+# C: same task, raise to unlimited → BLOCK
+_write_spec_d unlimited
+C_OUT=$(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" 2>&1)
+RC=$?
+if [ "$RC" = "1" ] && echo "$C_OUT" | grep -q "max_defects raised from 1 to unlimited"; then
+    pass "same task + raise 1→unlimited → BLOCKED"
+    PASSES=$((PASSES + 1))
+else
+    fail "raising 1→unlimited should block (RC=$RC, out='$C_OUT')"
+    FAILS=$((FAILS + 1))
+fi
+
+# D: same task, lower max_defects (1→0) → allow + snapshot updated
+_write_spec_d 0
+(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" >/dev/null 2>&1)
+RC=$?
+SNAP_D=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
+if [ "$RC" = "0" ] && [ "$SNAP_D" = "task-A|0" ]; then
+    pass "same task + lower 1→0 → allow, snapshot updated to 0"
+    PASSES=$((PASSES + 1))
+else
+    fail "lowering should be allowed (RC=$RC, snap='$SNAP_D')"
+    FAILS=$((FAILS + 1))
+fi
+
+# E: different task name → snapshot replaced freely (no constraint across tasks)
+_write_spec_d 5
+(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-B" >/dev/null 2>&1)
+RC=$?
+SNAP_E=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
+if [ "$RC" = "0" ] && [ "$SNAP_E" = "task-B|5" ]; then
+    pass "different task name + raise 0→5 → allow, snapshot replaced"
+    PASSES=$((PASSES + 1))
+else
+    fail "different task should bypass constraint (RC=$RC, snap='$SNAP_E')"
+    FAILS=$((FAILS + 1))
+fi
+
+# F: reset wipes snapshot — explicit escape valve
+(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1)
+if [ ! -f "$D_DIR/.apd/pipeline/.spec-max-defects-history" ]; then
+    pass "pipeline-advance reset wipes .spec-max-defects-history"
+    PASSES=$((PASSES + 1))
+else
+    fail "reset should wipe snapshot file"
+    FAILS=$((FAILS + 1))
+fi
+
+# G: after reset, same task name can pick any max_defects (snapshot fresh)
+_write_spec_d 9
+(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" >/dev/null 2>&1)
+RC=$?
+SNAP_G=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
+if [ "$RC" = "0" ] && [ "$SNAP_G" = "task-A|9" ]; then
+    pass "after reset, same task name allows any max_defects (fresh snapshot)"
+    PASSES=$((PASSES + 1))
+else
+    fail "post-reset re-spec should start fresh (RC=$RC, snap='$SNAP_G')"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$D_DIR"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

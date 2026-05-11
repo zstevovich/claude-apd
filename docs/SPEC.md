@@ -134,6 +134,7 @@ See §17.2 for per-guard internals. Block convention: exit 2 = BLOCK, exit 0 = A
 |---|---|---|
 | `spec-card.md` | spec phase | Frozen task spec |
 | `.spec-hash` | spec phase | SHA256 of spec body for tamper detection |
+| `.spec-max-defects-history` | spec phase | `<task>\|<value>` snapshot of last accepted `max_defects` for the task; pipeline-advance blocks re-spec that RAISES the value for the same task (v6.3 D). Reset wipes — explicit pivot escape valve |
 | `implementation-plan.md` | orchestrator pre-builder | Files + agents to dispatch |
 | `*.done` (4 files) | each `pipeline-advance` step | Gate completion markers; line 1 = `<epoch>\|<human-time>[\|<task>]`, line 2 = HMAC signature (validate-agent) |
 | `.reviewed-files` | reviewer phase | Reviewer-scoped file list |
@@ -229,7 +230,7 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 
 | Script | Coverage |
 |---|---|
-| `bin/core/test-codex-adapter` | 257 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema/runtime filtering, adversarial pre-flight gate, severity gate, spec-card markdown-bold tolerance |
+| `bin/core/test-codex-adapter` | 335 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema/runtime filtering, adversarial pre-flight gate, severity gate, spec-card markdown-bold tolerance, guard-bash-scope read/write distinction, pipeline-gate stage completeness, parallel same-type dispatch gate, mkdir deny patterns, spec/builder/superpowers lock-in, apd_pipeline_metrics MCP tool, C2 Phase 2a/2b parser+migrate, codex-doctor C2 hint, v6.3 D max_defects immutability |
 | `bin/core/test-hooks` | Static: hooks.json schema, placeholder fillness |
 | `bin/core/test-system` | E2E synthetic pipeline (creates `/tmp/apd-test-XXXX`); 2 sections (Pipeline Lifecycle, Spec Enforcement) |
 | `bin/core/verify-apd` | 60+ checks on configured project. **In-monorepo run mis-resolves** — copy example to `/tmp` for accurate result. |
@@ -332,7 +333,7 @@ Codex 0.124+ fires `SessionStart` in TUI mode only, and timed to the first user 
 - Version embedded at build time via `APD_VERSION` env var
 
 **`pipeline-advance`** — single entry for all gate operations. Steps:
-- `spec <task>` — validates ≤7 criteria, archives prior `.agents`, writes spec.done + `.spec-hash`
+- `spec <task>` — validates ≤7 criteria, archives prior `.agents`, writes spec.done + `.spec-hash` + `.spec-max-defects-history`. v6.3 D: BLOCKS if `max_defects` is raised for the same task across re-advance (rollback+re-spec loophole). Reset wipes the snapshot.
 - `builder` — checks `implementation-plan.md` present + `### Agents` section dispatched (CC), else BLOCK; writes builder.done
 - `reviewer` — sets `.adversarial-pending` flag (Full) OR honors `adversarial: skip` if ≤2 criteria (Lean opt-out); writes reviewer.done
 - `verifier` — runs `verify-all.sh`; blocks on failure; in Full mode blocks on missing `.adversarial-summary`; writes verifier.done + `verified.timestamp`
