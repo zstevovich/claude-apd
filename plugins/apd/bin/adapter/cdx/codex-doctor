@@ -18,11 +18,22 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APD_PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
-# Optional first argument: project path. If provided, cd there so
+# Optional first positional argument: project path. If provided, cd there so
 # resolve-project.sh resolves to that project instead of cwd.
 # This lets `apd cdx doctor <project>` work from anywhere.
-if [ $# -ge 1 ] && [ "${1#-}" = "$1" ] && [ -d "$1" ]; then
-    cd "$1" || { echo "ERROR: cannot cd into $1" >&2; exit 1; }
+# Optional --fix flag: when version-mismatch detected, re-run install-codex-config
+# against the latest installed plugin cache version.
+FIX_MODE=false
+POSITIONAL=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --fix) FIX_MODE=true; shift ;;
+        --*)   shift ;;
+        *)     POSITIONAL+=("$1"); shift ;;
+    esac
+done
+if [ ${#POSITIONAL[@]} -ge 1 ] && [ -d "${POSITIONAL[0]}" ]; then
+    cd "${POSITIONAL[0]}" || { echo "ERROR: cannot cd into ${POSITIONAL[0]}" >&2; exit 1; }
 fi
 
 source "$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh"
@@ -106,6 +117,51 @@ else
     if [ ! -f "$CFG" ]; then
         _bad "$CFG missing — run: apd cdx init"
     else
+        # v6.4 G1 — version-mismatch check. After `codex plugin marketplace upgrade`
+        # the project's config.toml cwd often points at the prior plugin cache version
+        # which the marketplace cleaned out, producing "MCP startup failed: No such
+        # file or directory" on session start. Detect + offer recovery before falling
+        # through to the generic config check (which would only report a generic mismatch).
+        CFG_CWD=$(awk '
+            /^\[mcp_servers\.apd\]/ { in_block = 1; next }
+            /^\[/ && !/^\[mcp_servers\.apd\]/ { in_block = 0 }
+            in_block && /^cwd[[:space:]]*=/ {
+                sub(/^cwd[[:space:]]*=[[:space:]]*"/, "")
+                sub(/"[[:space:]]*$/, "")
+                print
+                exit
+            }
+        ' "$CFG" 2>/dev/null)
+        CACHE_BASE="$CODEX_HOME/plugins/cache/codex-apd/apd"
+        if [ -n "$CFG_CWD" ] && [ -d "$CACHE_BASE" ]; then
+            CFG_VER=$(echo "$CFG_CWD" | sed -nE 's|.*/cache/codex-apd/apd/([0-9]+\.[0-9]+\.[0-9]+).*|\1|p')
+            LATEST_INSTALLED=$(ls -1 "$CACHE_BASE" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+            if [ -n "$CFG_VER" ] && [ -n "$LATEST_INSTALLED" ]; then
+                if [ ! -d "$CACHE_BASE/$CFG_VER" ]; then
+                    _bad "config.toml cwd points at v${CFG_VER} but that cache dir is gone (marketplace cleaned it). MCP will fail with 'No such file or directory'."
+                    if [ "$FIX_MODE" = "true" ]; then
+                        echo "    [--fix] regenerating config.toml against v${LATEST_INSTALLED}…" >&2
+                        if "$CACHE_BASE/$LATEST_INSTALLED/bin/apd" cdx init "$PROJECT_DIR" >/dev/null 2>&1; then
+                            _ok "config.toml regenerated against v${LATEST_INSTALLED} (restart Codex sessions to pick up)"
+                        else
+                            _bad "auto-fix failed — run manually: bash $CACHE_BASE/$LATEST_INSTALLED/bin/apd cdx init $PROJECT_DIR"
+                        fi
+                    else
+                        echo "    Recovery: bash $CACHE_BASE/$LATEST_INSTALLED/bin/apd cdx init $PROJECT_DIR" >&2
+                        echo "    Or re-run doctor with --fix to apply automatically." >&2
+                    fi
+                elif [ "$CFG_VER" != "$LATEST_INSTALLED" ]; then
+                    _warn "config.toml cwd points at v${CFG_VER}, latest installed is v${LATEST_INSTALLED}. APD still works (old cache is intact) but project is on an older version. Run \`apd cdx init\` to migrate, or doctor --fix."
+                    if [ "$FIX_MODE" = "true" ]; then
+                        echo "    [--fix] regenerating config.toml against v${LATEST_INSTALLED}…" >&2
+                        if "$CACHE_BASE/$LATEST_INSTALLED/bin/apd" cdx init "$PROJECT_DIR" >/dev/null 2>&1; then
+                            _ok "config.toml regenerated against v${LATEST_INSTALLED}"
+                        fi
+                    fi
+                fi
+            fi
+        fi
+
         MCP_CFG_STATUS="$(
 python3 - "$CFG" "$APD_PLUGIN_ROOT" <<'PY'
 import sys

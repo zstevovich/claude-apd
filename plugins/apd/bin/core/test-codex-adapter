@@ -4209,6 +4209,105 @@ fi
 rm -rf "$RB_DIR"
 
 # -----------------------------------------------------------
+# 46. v6.4 G1 — codex-doctor version-mismatch detection + --fix
+#     After marketplace upgrade cleans out the prior plugin cache version,
+#     project .codex/config.toml's cwd points at a path that no longer
+#     exists. Codex then fails MCP startup with "No such file or directory".
+#     Doctor must surface this clearly + offer auto-recovery.
+# -----------------------------------------------------------
+section "46. codex-doctor version-mismatch (v6.4 G1)"
+
+VM_DIR="$(mktemp -d -t apd-vm.XXXXXX)"
+VM_HOME="$(mktemp -d -t apd-vmhome.XXXXXX)"
+mkdir -p "$VM_DIR/.codex" "$VM_DIR/.apd" "$VM_HOME/plugins/cache/codex-apd/apd/9.9.9/bin"
+touch "$VM_DIR/.apd/config"
+# Fake "installed" plugin cache that doctor can find
+cat > "$VM_HOME/plugins/cache/codex-apd/apd/9.9.9/bin/apd" <<'EOF'
+#!/bin/bash
+# Fake apd entry that's expected to be runnable for the --fix codepath
+echo "fake-apd called: $*"
+exit 0
+EOF
+chmod +x "$VM_HOME/plugins/cache/codex-apd/apd/9.9.9/bin/apd"
+
+# Stale config.toml pointing at a version that doesn't exist on disk
+cat > "$VM_DIR/.codex/config.toml" <<EOF
+[mcp_servers.apd]
+command = "uv"
+args = ["run", "--with", "mcp", "--with", "tomli", "python", "mcp/apd_mcp_server.py"]
+cwd = "$VM_HOME/plugins/cache/codex-apd/apd/0.0.1"
+EOF
+
+# A: detection — doctor should report a BAD finding mentioning the stale version
+VM_OUT=$(CODEX_HOME="$VM_HOME" APD_PROJECT_DIR="$VM_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/codex-doctor" 2>&1)
+if echo "$VM_OUT" | grep -q "config.toml cwd points at v0.0.1"; then
+    pass "stale-version detection fires (cwd=v0.0.1, installed=v9.9.9)"
+    PASSES=$((PASSES + 1))
+else
+    fail "stale-version detection missing"
+    FAILS=$((FAILS + 1))
+fi
+
+# B: recovery hint present (no --fix mode)
+if echo "$VM_OUT" | grep -q "Recovery:.*cache/codex-apd/apd/9.9.9/bin/apd cdx init"; then
+    pass "recovery hint names the latest-installed plugin path"
+    PASSES=$((PASSES + 1))
+else
+    fail "recovery hint missing or wrong path"
+    FAILS=$((FAILS + 1))
+fi
+
+# C: older-but-installed version → WARN, not BAD
+cat > "$VM_DIR/.codex/config.toml" <<EOF
+[mcp_servers.apd]
+command = "uv"
+cwd = "$VM_HOME/plugins/cache/codex-apd/apd/9.9.9"
+EOF
+# Add a NEWER installed version
+mkdir -p "$VM_HOME/plugins/cache/codex-apd/apd/9.9.10/bin"
+cp "$VM_HOME/plugins/cache/codex-apd/apd/9.9.9/bin/apd" "$VM_HOME/plugins/cache/codex-apd/apd/9.9.10/bin/apd"
+VM_OUT_OLD=$(CODEX_HOME="$VM_HOME" APD_PROJECT_DIR="$VM_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/codex-doctor" 2>&1)
+if echo "$VM_OUT_OLD" | grep -q "config.toml cwd points at v9.9.9, latest installed is v9.9.10"; then
+    pass "older-but-installed version produces soft warn (not bad)"
+    PASSES=$((PASSES + 1))
+else
+    fail "older-version warn missing"
+    FAILS=$((FAILS + 1))
+fi
+
+# D: matching version → no warn / no bad about version
+cat > "$VM_DIR/.codex/config.toml" <<EOF
+[mcp_servers.apd]
+command = "uv"
+cwd = "$VM_HOME/plugins/cache/codex-apd/apd/9.9.10"
+EOF
+VM_OUT_MATCH=$(CODEX_HOME="$VM_HOME" APD_PROJECT_DIR="$VM_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/codex-doctor" 2>&1)
+if ! echo "$VM_OUT_MATCH" | grep -q "config.toml cwd points at"; then
+    pass "matching version produces no version-mismatch warning"
+    PASSES=$((PASSES + 1))
+else
+    fail "matching version should not trigger version warning"
+    FAILS=$((FAILS + 1))
+fi
+
+# E: --fix mode invokes the recovery init
+cat > "$VM_DIR/.codex/config.toml" <<EOF
+[mcp_servers.apd]
+command = "uv"
+cwd = "$VM_HOME/plugins/cache/codex-apd/apd/0.0.1"
+EOF
+VM_OUT_FIX=$(CODEX_HOME="$VM_HOME" APD_PROJECT_DIR="$VM_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/codex-doctor" --fix 2>&1)
+if echo "$VM_OUT_FIX" | grep -q "\[--fix\] regenerating config.toml against v9.9.10"; then
+    pass "--fix invokes recovery init against latest version"
+    PASSES=$((PASSES + 1))
+else
+    fail "--fix did not invoke recovery (out: ${VM_OUT_FIX:0:200})"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$VM_DIR" "$VM_HOME"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
