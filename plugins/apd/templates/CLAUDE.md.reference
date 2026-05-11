@@ -7,6 +7,7 @@
 - **Language:** {{LANGUAGE}}
 - **Author:** {{AUTHOR_NAME}} — NO AI signatures/watermarks
 - **Style:** Professional, concrete, human style
+- **Communication:** Terse collaborator. No end-of-turn lessons-learned recaps. No "what I did + next steps" multi-bullet wrap-ups. One-sentence end-of-turn maximum. Memory files exist for lessons — do not narrate them in chat.
 
 ## Stack
 

@@ -19,6 +19,14 @@ Codex is the APD orchestrator for this project. It owns the pipeline state,
 calls the APD MCP tools, performs the inline builder/reviewer work unless the
 user explicitly asks for subagents, and never bypasses the mechanical gates.
 
+### Communication discipline
+
+Lines the orchestrator writes between tool calls reach the user.
+
+- No end-of-turn lessons-learned recaps, no "what I did + next steps" multi-bullets, no self-narration of intent ("I'll now do X" — just do X).
+- One-sentence end-of-turn maximum: what changed and the next step. Nothing more.
+- If you have a lesson worth keeping, write it to memory; do not narrate it.
+
 ### Pipeline
 
 Every change moves through four gates:

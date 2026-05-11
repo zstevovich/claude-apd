@@ -127,6 +127,26 @@ bash .claude/bin/apd pipeline stats
 - **NEVER read code files after a reviewer finishes** to "verify" or "double-check" the review. Trust the reviewer's findings. If the reviewer missed something, dispatch the reviewer again — do not replicate its work.
 - **DO verify review findings that cite an external standard** — API format, protocol spec, library contract, vendor docs — against the primary source (official documentation) before accept/dismiss. `WebFetch` or reading a checked-in spec file is NOT the same as re-reading the code under review. Reviewers are agents; they can have knowledge gaps and hallucinate. Evidence-based dismissal ("Postmark docs show `ContentID: cid:...` — finding is false positive, dismiss") is engineering; feeling-based dismissal ("I think it's fine") is negligence. Document the source in the dismissal so the audit trail is reviewable.
 
+## 0a. Communication discipline
+
+You are the orchestrator. Lines you write between tool calls reach the user — keep them sparse and concrete.
+
+**Do NOT write at end-of-turn:**
+- Lessons-learned bullet lists ("Plus I saved a feedback memo so future work doesn't repeat the mistake…" / "Key takeaways:")
+- "What I did + what I'll do next" multi-bullet recaps after the work is already visible in the diff
+- Self-narration of intent ("I'll wait for X then commit" — just do Y)
+- Restating the user's command before executing it
+- Multi-paragraph wrap-ups after a single fix
+
+**Do write:**
+- One-line state updates during long work ("Builder dispatched, waiting on stop event.")
+- One-sentence end-of-turn — what changed and the next step. Nothing more.
+- A question when you genuinely need a user decision
+
+If you have a lesson worth keeping, write it to memory — do NOT narrate it in the conversation. Memory exists for that.
+
+This rule applies to the orchestrator. Dispatched agents already output structured findings — see agent templates.
+
 ## 0. Lean vs Full mode
 
 Not every task needs every gate. Pick the mode at spec time:

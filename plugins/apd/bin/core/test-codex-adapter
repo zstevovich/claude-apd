@@ -3657,6 +3657,73 @@ fi
 rm -rf "$D_DIR"
 
 # -----------------------------------------------------------
+# 39. v6.3 E — orchestrator communication discipline rule
+#     Lock-in: workflow.md, CLAUDE.md.reference, and codex/AGENTS.md
+#     all carry the anti-epilogue directive. Targets RLHF-default
+#     end-of-turn lessons-learned recaps + "next steps" multi-bullets
+#     (BambiProject Cycle 1 incident, 2026-05-11).
+# -----------------------------------------------------------
+section "39. Communication discipline (v6.3 E)"
+
+WF="$APD_PLUGIN_ROOT/rules/workflow.md"
+CMD_REF="$APD_PLUGIN_ROOT/templates/CLAUDE.md.reference"
+AGENTS_MD="$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"
+
+# A: workflow.md has the 0a section header
+if grep -q "^## 0a. Communication discipline" "$WF"; then
+    pass "workflow.md has '## 0a. Communication discipline' section"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md missing '## 0a. Communication discipline' section"
+    FAILS=$((FAILS + 1))
+fi
+
+# B: workflow.md explicitly forbids lessons-learned recaps
+if grep -qi "lessons-learned" "$WF"; then
+    pass "workflow.md mentions 'lessons-learned' (anti-epilogue rule)"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md missing 'lessons-learned' anti-epilogue text"
+    FAILS=$((FAILS + 1))
+fi
+
+# C: CLAUDE.md.reference has the Communication critical rule
+if grep -q "^- \*\*Communication:\*\*" "$CMD_REF"; then
+    pass "CLAUDE.md.reference has '**Communication:**' critical rule"
+    PASSES=$((PASSES + 1))
+else
+    fail "CLAUDE.md.reference missing '**Communication:**' rule"
+    FAILS=$((FAILS + 1))
+fi
+
+# D: CLAUDE.md.reference mentions terse collaborator + lessons-learned
+if grep -qi "terse collaborator" "$CMD_REF" && grep -qi "lessons-learned" "$CMD_REF"; then
+    pass "CLAUDE.md.reference combines 'terse collaborator' + 'lessons-learned' prohibition"
+    PASSES=$((PASSES + 1))
+else
+    fail "CLAUDE.md.reference missing terse/lessons-learned phrasing"
+    FAILS=$((FAILS + 1))
+fi
+
+# E: codex/AGENTS.md has Communication discipline subsection under APD
+if grep -q "^### Communication discipline" "$AGENTS_MD"; then
+    pass "codex/AGENTS.md has '### Communication discipline' subsection"
+    PASSES=$((PASSES + 1))
+else
+    fail "codex/AGENTS.md missing '### Communication discipline' subsection"
+    FAILS=$((FAILS + 1))
+fi
+
+# F: codex/AGENTS.md mentions lessons-learned + self-narration anti-patterns
+if grep -qi "lessons-learned" "$AGENTS_MD" && grep -qi "self-narration" "$AGENTS_MD"; then
+    pass "codex/AGENTS.md names 'lessons-learned' and 'self-narration' anti-patterns"
+    PASSES=$((PASSES + 1))
+else
+    fail "codex/AGENTS.md missing key anti-pattern phrasing"
+    FAILS=$((FAILS + 1))
+fi
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
