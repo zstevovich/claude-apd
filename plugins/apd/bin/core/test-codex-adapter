@@ -4308,6 +4308,101 @@ fi
 rm -rf "$VM_DIR" "$VM_HOME"
 
 # -----------------------------------------------------------
+# 47. v6.4 G2 — [features].codex_hooks → [features].hooks (Codex 0.130)
+#     codex-doctor accepts either name, warns on deprecated form,
+#     auto-renames under --fix.
+# -----------------------------------------------------------
+section "47. codex_hooks → hooks rename (v6.4 G2)"
+
+H2_DIR="$(mktemp -d -t apd-h2.XXXXXX)"
+H2_HOME="$(mktemp -d -t apd-h2home.XXXXXX)"
+mkdir -p "$H2_DIR/.codex" "$H2_DIR/.apd" "$H2_HOME"
+touch "$H2_DIR/.apd/config"
+
+# A: only old name → deprecation WARN with rename instruction
+cat > "$H2_HOME/config.toml" <<EOF
+[features]
+codex_hooks = true
+EOF
+A_OUT=$(CODEX_HOME="$H2_HOME" APD_PROJECT_DIR="$H2_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/codex-doctor" 2>&1)
+if echo "$A_OUT" | grep -q "\[features\].codex_hooks is deprecated"; then
+    pass "old name only → emits deprecation warning"
+    PASSES=$((PASSES + 1))
+else
+    fail "deprecation warning missing for codex_hooks-only config"
+    FAILS=$((FAILS + 1))
+fi
+
+# B: only new name → OK, no deprecation warning
+cat > "$H2_HOME/config.toml" <<EOF
+[features]
+hooks = true
+EOF
+B_OUT=$(CODEX_HOME="$H2_HOME" APD_PROJECT_DIR="$H2_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/codex-doctor" 2>&1)
+if echo "$B_OUT" | grep -q "\[features\].hooks enabled" && ! echo "$B_OUT" | grep -q "codex_hooks is deprecated"; then
+    pass "new name only → OK, no deprecation warning"
+    PASSES=$((PASSES + 1))
+else
+    fail "new name should produce clean check (out: ${B_OUT:0:160})"
+    FAILS=$((FAILS + 1))
+fi
+
+# C: both names → OK + soft warn about redundant deprecated key
+cat > "$H2_HOME/config.toml" <<EOF
+[features]
+hooks = true
+codex_hooks = true
+EOF
+C_OUT=$(CODEX_HOME="$H2_HOME" APD_PROJECT_DIR="$H2_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/codex-doctor" 2>&1)
+if echo "$C_OUT" | grep -q "\[features\].hooks enabled" && echo "$C_OUT" | grep -q "codex_hooks also present"; then
+    pass "both names → primary OK + redundant codex_hooks flagged"
+    PASSES=$((PASSES + 1))
+else
+    fail "both-names case mis-handled"
+    FAILS=$((FAILS + 1))
+fi
+
+# D: neither name → BAD with both-form hint
+cat > "$H2_HOME/config.toml" <<EOF
+[features]
+other = true
+EOF
+D_OUT=$(CODEX_HOME="$H2_HOME" APD_PROJECT_DIR="$H2_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/codex-doctor" 2>&1)
+if echo "$D_OUT" | grep -q "Codex hooks feature NOT enabled" && echo "$D_OUT" | grep -q "features enable hooks"; then
+    pass "missing → BAD with new-form enable hint"
+    PASSES=$((PASSES + 1))
+else
+    fail "missing-feature case wrong"
+    FAILS=$((FAILS + 1))
+fi
+
+# E: --fix renames codex_hooks → hooks in place
+cat > "$H2_HOME/config.toml" <<EOF
+[features]
+codex_hooks = true
+EOF
+E_OUT=$(CODEX_HOME="$H2_HOME" APD_PROJECT_DIR="$H2_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/codex-doctor" --fix 2>&1)
+if grep -qE '^\s*hooks\s*=\s*true' "$H2_HOME/config.toml" && ! grep -qE '^\s*codex_hooks\s*=\s*true' "$H2_HOME/config.toml"; then
+    pass "--fix renames codex_hooks → hooks in global config.toml"
+    PASSES=$((PASSES + 1))
+else
+    fail "--fix did not rename in place"
+    FAILS=$((FAILS + 1))
+fi
+
+# F: install-codex-config hint mentions both new and legacy form
+F_HINT=$(grep -B1 -A2 "Enable Codex hooks feature flag" "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" 2>&1)
+if echo "$F_HINT" | grep -q "codex features enable hooks" && echo "$F_HINT" | grep -q "0.121"; then
+    pass "install-codex-config hint names new form + legacy fallback"
+    PASSES=$((PASSES + 1))
+else
+    fail "install hint missing one form"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$H2_DIR" "$H2_HOME"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

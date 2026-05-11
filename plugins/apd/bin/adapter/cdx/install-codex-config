@@ -754,7 +754,8 @@ if [ ! -d "$PROJECT_DIR/.claude" ]; then
     STEP=$((STEP + 1))
 fi
 echo "  ${STEP}. Enable Codex hooks feature flag (one-time, global):"
-echo "       codex features enable codex_hooks"
+echo "       codex features enable hooks"
+echo "       (older Codex 0.121–0.125: codex features enable codex_hooks)"
 STEP=$((STEP + 1))
 echo "  ${STEP}. Start Codex from project root:"
 echo "       cd \"$PROJECT_DIR\" && codex"

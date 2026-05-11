@@ -88,10 +88,31 @@ section "Global Codex config ($CODEX_HOME)"
 GLOBAL_CFG="$CODEX_HOME/config.toml"
 if [ -f "$GLOBAL_CFG" ]; then
     _ok "global config.toml exists"
-    if grep -qE '^\s*codex_hooks\s*=\s*true' "$GLOBAL_CFG" 2>/dev/null; then
-        _ok "codex_hooks feature flag enabled"
+    # v6.4 G2 — Codex 0.130 renamed [features].codex_hooks → [features].hooks.
+    # Accept either, prefer new name; warn (or auto-rename under --fix) when only
+    # the deprecated form is present.
+    HAS_HOOKS_NEW=false
+    HAS_HOOKS_OLD=false
+    grep -qE '^\s*hooks\s*=\s*true' "$GLOBAL_CFG" 2>/dev/null && HAS_HOOKS_NEW=true
+    grep -qE '^\s*codex_hooks\s*=\s*true' "$GLOBAL_CFG" 2>/dev/null && HAS_HOOKS_OLD=true
+    if [ "$HAS_HOOKS_NEW" = true ]; then
+        _ok "[features].hooks enabled (Codex 0.130+ canonical name)"
+        if [ "$HAS_HOOKS_OLD" = true ]; then
+            _warn "[features].codex_hooks also present (deprecated) — safe to delete; the canonical key wins"
+        fi
+    elif [ "$HAS_HOOKS_OLD" = true ]; then
+        _warn "[features].codex_hooks is deprecated (Codex 0.130). Rename to [features].hooks in $GLOBAL_CFG to silence the per-session warning."
+        if [ "$FIX_MODE" = "true" ]; then
+            # macOS-safe in-place sed (BSD): use -i with empty suffix
+            if sed -i.bak -E 's/^([[:space:]]*)codex_hooks([[:space:]]*=[[:space:]]*true)/\1hooks\2/' "$GLOBAL_CFG" 2>/dev/null; then
+                rm -f "$GLOBAL_CFG.bak"
+                _ok "[--fix] renamed codex_hooks → hooks in $GLOBAL_CFG"
+            else
+                _bad "[--fix] sed rename failed; edit $GLOBAL_CFG manually"
+            fi
+        fi
     else
-        _bad "codex_hooks feature flag NOT enabled — run: codex features enable codex_hooks"
+        _bad "Codex hooks feature NOT enabled — run: codex features enable hooks  (older: codex features enable codex_hooks)"
     fi
     # Codex deprecated [features].collab in favor of [features].multi_agent.
     # Surface it so the user can silence the noisy startup warning.

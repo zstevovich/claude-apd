@@ -121,7 +121,7 @@ case "$CMD" in
                 echo "    python3 on PATH                            (macOS: xcode-select --install)"
                 echo "    brew install uv                            (MCP server runner)"
                 echo "    brew install jq                            (Codex hook shim parses JSON stdin)"
-                echo "    codex features enable codex_hooks          (one-time, global)"
+                echo "    codex features enable hooks                (one-time, global; older 0.121–0.125: codex_hooks)"
                 echo ""
                 echo "  ${V}Typical pure-Codex flow${R}"
                 echo "    apd cdx init"
