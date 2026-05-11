@@ -43,3 +43,10 @@ If `total=0`, `notes` is mandatory (>= 80 chars). Name the categories you
 actually examined — regressions, concurrency, edge cases, contract drift,
 security surface — and why none surfaced an issue. The server rejects
 empty 0/0/0 records to keep this gate honest.
+
+## Exit criteria
+
+**STOP IMMEDIATELY** after calling `apd_adversarial_pass(...)`. Do NOT run
+another scan or grep pass to "make sure". Do NOT re-read the diff for a
+second hostile look. One adversarial review = one stop. Your job is one
+fresh, hostile look — not iterative reassurance.

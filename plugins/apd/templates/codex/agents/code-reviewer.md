@@ -33,3 +33,11 @@ Structured list of findings with severity tags:
 
 For each finding include: file path, line range, symptom, and suggested fix
 (one line). If nothing is wrong, say so explicitly — do not pad.
+
+## Exit criteria
+
+**STOP IMMEDIATELY** after writing the structured findings list (or the
+explicit "nothing wrong" line). Do NOT re-read files for a second pass.
+Do NOT grep "one more time" to be sure. One reviewer pass = one stop. If a
+finding needs clarification, ask the orchestrator in your output — do not
+pad the review with extra research.

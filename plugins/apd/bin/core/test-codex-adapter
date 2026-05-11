@@ -4093,6 +4093,38 @@ fi
 rm -rf "$R_DIR"
 
 # -----------------------------------------------------------
+# 43. v6.4 F4 — stop-language audit in dispatch templates
+#     Lock-in: every builder/reviewer/adversarial template (CC + Codex)
+#     carries an "Exit criteria" section with "STOP IMMEDIATELY" wording.
+#     Targets builder over-verification after success (BambiProject
+#     intra-dispatch overrun, 2026-05-11).
+# -----------------------------------------------------------
+section "43. Stop-language audit (v6.4 F4)"
+
+# 8 templates: 3 CC master + 5 Codex per-role
+F4_TEMPLATES=(
+    "$APD_PLUGIN_ROOT/templates/agent-template.md"
+    "$APD_PLUGIN_ROOT/templates/reviewer-template.md"
+    "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md"
+    "$APD_PLUGIN_ROOT/templates/codex/agents/backend-builder.md"
+    "$APD_PLUGIN_ROOT/templates/codex/agents/frontend-builder.md"
+    "$APD_PLUGIN_ROOT/templates/codex/agents/testing.md"
+    "$APD_PLUGIN_ROOT/templates/codex/agents/code-reviewer.md"
+    "$APD_PLUGIN_ROOT/templates/codex/agents/adversarial-reviewer.md"
+)
+
+for tpl in "${F4_TEMPLATES[@]}"; do
+    name=$(basename "$tpl")
+    if grep -q "^## Exit criteria" "$tpl" && grep -q "STOP IMMEDIATELY" "$tpl"; then
+        pass "$name has '## Exit criteria' + 'STOP IMMEDIATELY'"
+        PASSES=$((PASSES + 1))
+    else
+        fail "$name missing Exit criteria section or STOP IMMEDIATELY wording"
+        FAILS=$((FAILS + 1))
+    fi
+done
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

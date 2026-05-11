@@ -233,7 +233,7 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 
 | Script | Coverage |
 |---|---|
-| `bin/core/test-codex-adapter` | 361 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema/runtime filtering, adversarial pre-flight gate, severity gate, spec-card markdown-bold tolerance, guard-bash-scope read/write distinction, pipeline-gate stage completeness, parallel same-type dispatch gate, mkdir deny patterns, spec/builder/superpowers lock-in, apd_pipeline_metrics MCP tool, C2 Phase 2a/2b parser+migrate, codex-doctor C2 hint, v6.3 D max_defects immutability, v6.3 E communication discipline, v6.3 A SubagentStop zombie sweep, v6.3 C builder cycle cap, v6.3 B reviewer cycle cap + pipeline_mode polish |
+| `bin/core/test-codex-adapter` | 369 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema/runtime filtering, adversarial pre-flight gate, severity gate, spec-card markdown-bold tolerance, guard-bash-scope read/write distinction, pipeline-gate stage completeness, parallel same-type dispatch gate, mkdir deny patterns, spec/builder/superpowers lock-in, apd_pipeline_metrics MCP tool, C2 Phase 2a/2b parser+migrate, codex-doctor C2 hint, v6.3 D max_defects immutability, v6.3 E communication discipline, v6.3 A SubagentStop zombie sweep, v6.3 C builder cycle cap, v6.3 B reviewer cycle cap + pipeline_mode polish, v6.4 F4 stop-language audit |
 | `bin/core/test-hooks` | Static: hooks.json schema, placeholder fillness |
 | `bin/core/test-system` | E2E synthetic pipeline (creates `/tmp/apd-test-XXXX`); 2 sections (Pipeline Lifecycle, Spec Enforcement) |
 | `bin/core/verify-apd` | 60+ checks on configured project. **In-monorepo run mis-resolves** — copy example to `/tmp` for accurate result. |
@@ -640,6 +640,8 @@ Per-agent hooks in frontmatter:
 - `Write|Edit` → guard-scope `{{SCOPE_PATHS}}` + guard-secrets
 - `Bash(git *)` → guard-git
 - `Bash` → guard-bash-scope `{{SCOPE_PATHS}}` + guard-secrets
+
+v6.4 F4: master + reviewer + adversarial templates (CC) and all 5 Codex per-role templates (`templates/codex/agents/*.md`) carry an `## Exit criteria` section ending with `STOP IMMEDIATELY when …`. Targets builder over-verification after success (BambiProject intra-dispatch overrun, 2026-05-11). `test-codex-adapter` §43 locks it in: 8 templates × 1 assertion = 8 (`## Exit criteria` header + `STOP IMMEDIATELY` phrase).
 
 ### 20.2 Reviewer / Adversarial templates
 

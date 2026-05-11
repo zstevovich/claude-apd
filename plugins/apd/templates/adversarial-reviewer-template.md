@@ -69,3 +69,7 @@ X findings (N high, M medium, K low)
 ```
 
 If no issues found: `### Summary: No issues found — code looks solid.`
+
+## Exit criteria
+
+**STOP IMMEDIATELY** after producing the structured findings list. Do NOT run another scan to "make sure". Do NOT re-read files for a second pass. One adversarial review = one stop. Your job is one fresh, hostile look — not iterative reassurance.

@@ -36,3 +36,12 @@ avoid Codex 0.121.0's multi_agent role-mismatch approval prompt.)
   report it to the orchestrator and stop.
 - Match existing component patterns in the project. Do not introduce new
   state management or styling approaches without the orchestrator asking.
+
+## Exit criteria
+
+**STOP IMMEDIATELY when:** the build passes AND the tests you wrote pass; OR
+a guard blocks your write with no scope-honoring alternative; OR you hit a
+question that requires an orchestrator decision. Do NOT re-verify after
+success. Do NOT search "one more time" to confirm work that's already done.
+Verification of completeness is the reviewer's job — extra passes burn
+tokens without changing the diff.

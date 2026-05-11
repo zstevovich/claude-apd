@@ -31,3 +31,11 @@ Codex 0.121.0's multi_agent role-mismatch approval prompt.)
   in the builder's implementation, report it — don't patch it from here.
 - Prefer integration tests over mocks when the project supports both. Mocks
   that drift from real behavior cause production incidents.
+
+## Exit criteria
+
+**STOP IMMEDIATELY when:** all tests you wrote run AND each `R*` from
+spec-card has at least one test covering it; OR a guard blocks your write
+with no scope-honoring alternative; OR you hit a question that requires
+an orchestrator decision. Do NOT re-run the suite "one more time" to be
+sure. Do NOT add extra coverage for items not in the spec.

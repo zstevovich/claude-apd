@@ -73,3 +73,7 @@ Report findings as a numbered list:
 ```
 
 If no issues found: `### Verdict: PASS — no issues found`
+
+## Exit criteria
+
+**STOP IMMEDIATELY** after writing the structured findings list (or `Verdict: PASS — no issues found`). Do NOT re-read files for a second verification pass. Do NOT grep "one more time" to be sure. One reviewer pass = one stop. If a finding needs clarification, ask the orchestrator in your output — do not pad the review with extra research.
