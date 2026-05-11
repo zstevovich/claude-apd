@@ -233,7 +233,7 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 
 | Script | Coverage |
 |---|---|
-| `bin/core/test-codex-adapter` | 397 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema/runtime filtering, adversarial pre-flight gate, severity gate, spec-card markdown-bold tolerance, guard-bash-scope read/write distinction, pipeline-gate stage completeness, parallel same-type dispatch gate, mkdir deny patterns, spec/builder/superpowers lock-in, apd_pipeline_metrics MCP tool, C2 Phase 2a/2b parser+migrate, codex-doctor C2 hint, v6.3 D max_defects immutability, v6.3 E communication discipline, v6.3 A SubagentStop zombie sweep, v6.3 C builder cycle cap, v6.3 B reviewer cycle cap + pipeline_mode polish, v6.4 F4 stop-language audit, audit fixes: guard-bash-scope write-target + reviewer rollback adversarial-summary cleanup, v6.4 G1 codex-doctor version-mismatch + --fix, v6.4 G2 [features].codex_hooks → [features].hooks rename |
+| `bin/core/test-codex-adapter` | 403 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema/runtime filtering, adversarial pre-flight gate, severity gate, spec-card markdown-bold tolerance, guard-bash-scope read/write distinction, pipeline-gate stage completeness, parallel same-type dispatch gate, mkdir deny patterns, spec/builder/superpowers lock-in, apd_pipeline_metrics MCP tool, C2 Phase 2a/2b parser+migrate, codex-doctor C2 hint, v6.3 D max_defects immutability, v6.3 E communication discipline, v6.3 A SubagentStop zombie sweep, v6.3 C builder cycle cap, v6.3 B reviewer cycle cap + pipeline_mode polish, v6.4 F4 stop-language audit, audit fixes: guard-bash-scope write-target + reviewer rollback adversarial-summary cleanup, v6.4 G1 codex-doctor version-mismatch + --fix, v6.4 G2 [features].codex_hooks → [features].hooks rename, v6.5 framework self-detection |
 | `bin/core/test-hooks` | Static: hooks.json schema, placeholder fillness |
 | `bin/core/test-system` | E2E synthetic pipeline (creates `/tmp/apd-test-XXXX`); 2 sections (Pipeline Lifecycle, Spec Enforcement) |
 | `bin/core/verify-apd` | 60+ checks on configured project. **In-monorepo run mis-resolves** — copy example to `/tmp` for accurate result. |
@@ -245,7 +245,7 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 
 | File | Purpose |
 |---|---|
-| `resolve-project.sh` | `git rev-parse --show-toplevel` primary; cwd-walk + project-marker fallback. Sets `PROJECT_DIR`, `APD_PLUGIN_ROOT`, `MEMORY_DIR`, `PIPELINE_DIR`, `APD_AGENTS_DIR`. All scripts source it. |
+| `resolve-project.sh` | `git rev-parse --show-toplevel` primary; cwd-walk + project-marker fallback. Sets `PROJECT_DIR`, `APD_PLUGIN_ROOT`, `MEMORY_DIR`, `PIPELINE_DIR`, `APD_AGENTS_DIR`. v6.5: framework self-detection — when `PROJECT_DIR` contains `plugins/apd/VERSION` + `.claude-plugin/plugin.json` with `"name": "claude-apd"`, sets `APD_FRAMEWORK_SELF=true` and forces `APD_ACTIVE=false` even with a config file present. Override via `APD_FRAMEWORK_DEV_MODE=force-enable`. All scripts source it. |
 | `style.sh` | ANSI helpers (`${D}`, `${R}`, `${V}`, `${G}`, `${RED}`); `apd_header`, `show_pipeline`, `_box_line`; `log_block` (sanitises newlines per F3) |
 | `agents-parse.sh` | `parse_agents_log` → counts dispatch starts/exhausts (start without stop = maxTurn hit) |
 

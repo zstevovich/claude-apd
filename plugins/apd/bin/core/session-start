@@ -12,7 +12,23 @@ _ss_log() { [ -n "$_SS_LOG" ] && echo "$(date +"%Y-%m-%d %H:%M:%S") $1" >> "$_SS
 _ss_log "START pwd=$(pwd) PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-unset}"
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
-_ss_log "resolve: PROJECT_DIR=$PROJECT_DIR APD_ACTIVE=$APD_ACTIVE"
+_ss_log "resolve: PROJECT_DIR=$PROJECT_DIR APD_ACTIVE=$APD_ACTIVE APD_FRAMEWORK_SELF=$APD_FRAMEWORK_SELF"
+
+# v6.5 framework-self banner — emit a one-line context hint when working on
+# the framework source repo itself, so future-Claude knows enforcement is off
+# by design. Cached: emit at most once per session via a stamp file.
+if [ "$APD_FRAMEWORK_SELF" = "true" ] && [ "${APD_FRAMEWORK_DEV_MODE:-}" != "force-enable" ]; then
+    STAMP="${TMPDIR:-/tmp}/.apd-framework-self-banner.$$"
+    if [ ! -f "$STAMP" ]; then
+        echo "APD framework dev mode — running against the plugin source repo at $PROJECT_DIR." >&2
+        echo "Slash skills + MCP tools are available; pipeline enforcement and auto-scaffolding are off." >&2
+        echo "Override: APD_FRAMEWORK_DEV_MODE=force-enable to dogfood APD on itself." >&2
+        touch "$STAMP" 2>/dev/null
+    fi
+    _ss_log "EXIT: framework self-detected"
+    exit 0
+fi
+
 [ "$APD_ACTIVE" = false ] && { _ss_log "EXIT: APD_ACTIVE=false"; exit 0; }
 
 # --- CRITICAL: Create shortcut FIRST (before anything that might timeout) ---

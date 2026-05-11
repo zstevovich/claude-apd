@@ -135,13 +135,32 @@ else
     APD_VERSION_FILE_PROJECT="$CLAUDE_DIR/.apd-version"
 fi
 
+# --- Framework self-detection (v6.5) ---
+# When the resolved PROJECT_DIR is the APD framework source repo itself, we
+# auto-disable enforcement so guards / auto-init don't try to scaffold APD
+# onto its own source. Skills and MCP tools still load — the user gets the
+# `/apd-tdd`, `/apd-brainstorm`, etc. slash commands and MCP surface in
+# Codex without any pipeline / hook side effects. Power users who want to
+# dogfood APD on the framework itself set APD_FRAMEWORK_DEV_MODE=force-enable.
+APD_FRAMEWORK_SELF=false
+if [ -f "$PROJECT_DIR/plugins/apd/VERSION" ] \
+   && [ -f "$PROJECT_DIR/.claude-plugin/plugin.json" ] \
+   && grep -q '"name"[[:space:]]*:[[:space:]]*"claude-apd"' "$PROJECT_DIR/.claude-plugin/plugin.json" 2>/dev/null; then
+    APD_FRAMEWORK_SELF=true
+fi
+
 # --- Activation marker ---
 # APD activates on presence of a config file. Two valid locations:
 #   1. $PROJECT_DIR/.apd/config       — runtime-neutral (Codex & hybrid projects)
 #   2. $CLAUDE_DIR/.apd-config        — legacy CC-native path
 # Pure-Codex projects never need to create .claude/; the neutral path is
 # checked first so new installs can stay out of the Claude namespace.
-if [ -f "$PROJECT_DIR/.apd/config" ]; then
+# Framework-self always wins: APD_ACTIVE=false even if a config file exists,
+# unless the user explicitly opts in via APD_FRAMEWORK_DEV_MODE=force-enable.
+if [ "$APD_FRAMEWORK_SELF" = "true" ] && [ "${APD_FRAMEWORK_DEV_MODE:-}" != "force-enable" ]; then
+    APD_CONFIG_FILE=""
+    APD_ACTIVE=false
+elif [ -f "$PROJECT_DIR/.apd/config" ]; then
     APD_CONFIG_FILE="$PROJECT_DIR/.apd/config"
     APD_ACTIVE=true
 elif [ -f "$CLAUDE_DIR/.apd-config" ]; then

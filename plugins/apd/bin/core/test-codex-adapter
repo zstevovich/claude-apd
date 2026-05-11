@@ -4403,6 +4403,103 @@ fi
 rm -rf "$H2_DIR" "$H2_HOME"
 
 # -----------------------------------------------------------
+# 48. v6.5 — framework self-detection
+#     When PROJECT_DIR resolves to the plugin's own source repo, enforcement
+#     auto-disables so the plugin doesn't try to scaffold APD onto APD.
+#     Skills + MCP tools remain available. Override: APD_FRAMEWORK_DEV_MODE.
+# -----------------------------------------------------------
+section "48. Framework self-detection (v6.5)"
+
+# Build a fake framework root with the two markers (VERSION + plugin.json name)
+FW_DIR="$(mktemp -d -t apd-fw.XXXXXX)"
+mkdir -p "$FW_DIR/plugins/apd" "$FW_DIR/.claude-plugin"
+echo "9.9.9" > "$FW_DIR/plugins/apd/VERSION"
+cat > "$FW_DIR/.claude-plugin/plugin.json" <<'EOF'
+{ "name": "claude-apd", "version": "9.9.9" }
+EOF
+# Add a config file that would normally activate APD — framework-self must override
+touch "$FW_DIR/.apd" && rm -f "$FW_DIR/.apd"
+mkdir -p "$FW_DIR/.apd" && touch "$FW_DIR/.apd/config"
+
+# A: resolver detects framework + forces APD_ACTIVE=false despite .apd/config
+DETECT_OUT=$(APD_PLUGIN_ROOT="$APD_PLUGIN_ROOT" APD_PROJECT_DIR="$FW_DIR" bash -c '
+    source "$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh"
+    echo "FRAMEWORK_SELF=$APD_FRAMEWORK_SELF"
+    echo "APD_ACTIVE=$APD_ACTIVE"
+')
+if echo "$DETECT_OUT" | grep -q "FRAMEWORK_SELF=true" && echo "$DETECT_OUT" | grep -q "APD_ACTIVE=false"; then
+    pass "resolver detects framework + forces APD_ACTIVE=false even with .apd/config present"
+    PASSES=$((PASSES + 1))
+else
+    fail "framework self-detection did not override APD_ACTIVE (out: $DETECT_OUT)"
+    FAILS=$((FAILS + 1))
+fi
+
+# B: APD_FRAMEWORK_DEV_MODE=force-enable opt-out restores APD_ACTIVE
+OVERRIDE_OUT=$(APD_PLUGIN_ROOT="$APD_PLUGIN_ROOT" APD_PROJECT_DIR="$FW_DIR" APD_FRAMEWORK_DEV_MODE=force-enable bash -c '
+    source "$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh"
+    echo "APD_ACTIVE=$APD_ACTIVE"
+')
+if echo "$OVERRIDE_OUT" | grep -q "APD_ACTIVE=true"; then
+    pass "APD_FRAMEWORK_DEV_MODE=force-enable restores APD_ACTIVE=true"
+    PASSES=$((PASSES + 1))
+else
+    fail "force-enable override did not restore APD_ACTIVE (out: $OVERRIDE_OUT)"
+    FAILS=$((FAILS + 1))
+fi
+
+# C: non-framework project (different name) does NOT trigger self-detection
+NORMAL_DIR="$(mktemp -d -t apd-norm.XXXXXX)"
+mkdir -p "$NORMAL_DIR/plugins/apd" "$NORMAL_DIR/.claude-plugin"
+echo "9.9.9" > "$NORMAL_DIR/plugins/apd/VERSION"
+cat > "$NORMAL_DIR/.claude-plugin/plugin.json" <<'EOF'
+{ "name": "some-other-plugin", "version": "9.9.9" }
+EOF
+NORMAL_OUT=$(APD_PLUGIN_ROOT="$APD_PLUGIN_ROOT" APD_PROJECT_DIR="$NORMAL_DIR" bash -c '
+    source "$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh"
+    echo "FRAMEWORK_SELF=$APD_FRAMEWORK_SELF"
+')
+if echo "$NORMAL_OUT" | grep -q "FRAMEWORK_SELF=false"; then
+    pass "non-claude-apd plugin.json does not trigger self-detection"
+    PASSES=$((PASSES + 1))
+else
+    fail "false-positive: foreign plugin treated as framework (out: $NORMAL_OUT)"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$NORMAL_DIR"
+
+# D: apd-init early-exits with the framework-dev message
+INIT_OUT=$(APD_PROJECT_DIR="$FW_DIR" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" 2>&1)
+if echo "$INIT_OUT" | grep -q "framework self-detected" && echo "$INIT_OUT" | grep -q "framework dev mode"; then
+    pass "apd-init prints framework-dev message and exits early"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-init did not emit framework-dev message (out: ${INIT_OUT:0:200})"
+    FAILS=$((FAILS + 1))
+fi
+# Verify nothing was scaffolded — .claude/, agents, etc. must not exist
+if [ ! -d "$FW_DIR/.claude/agents" ] && [ ! -f "$FW_DIR/.claude/.apd-config" ]; then
+    pass "framework dir not scaffolded (no .claude/agents or .claude/.apd-config written)"
+    PASSES=$((PASSES + 1))
+else
+    fail "framework dir was scaffolded despite self-detection"
+    FAILS=$((FAILS + 1))
+fi
+
+# E: apd-init --quick still exits silently (used by session-start)
+QUICK_OUT=$(APD_PROJECT_DIR="$FW_DIR" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick 2>&1)
+QUICK_RC=$?
+if [ "$QUICK_RC" = "0" ] && [ -z "$QUICK_OUT" ]; then
+    pass "apd-init --quick exits 0 silently in framework mode"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-init --quick should be silent (rc=$QUICK_RC, out: ${QUICK_OUT:0:120})"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$FW_DIR"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

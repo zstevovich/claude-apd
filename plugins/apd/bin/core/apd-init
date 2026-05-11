@@ -19,6 +19,19 @@ if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
     exit 0
 fi
 
+# v6.5 framework-self protection: when the plugin is loaded against its own
+# source repo, refuse to scaffold/init. The user gets slash skills and MCP
+# tools without auto-scaffolding turning the framework source into a managed
+# consumer project. Power users opt in via APD_FRAMEWORK_DEV_MODE=force-enable.
+if [ "$APD_FRAMEWORK_SELF" = "true" ] && [ "${APD_FRAMEWORK_DEV_MODE:-}" != "force-enable" ]; then
+    if [ "${1:-}" != "--quick" ]; then
+        echo "APD framework self-detected at $PROJECT_DIR — init skipped (framework dev mode)." >&2
+        echo "Skills + MCP tools remain available; pipeline enforcement is off." >&2
+        echo "Set APD_FRAMEWORK_DEV_MODE=force-enable to override (dogfood the framework on itself)." >&2
+    fi
+    exit 0
+fi
+
 # --quick flag: skip verification (used by session-start)
 QUICK=false
 [ "${1:-}" = "--quick" ] && QUICK=true
