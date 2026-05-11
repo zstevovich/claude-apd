@@ -118,6 +118,38 @@ case "$EVENT" in
   SubagentStop)
     echo "${NOW_HUMAN}|stop|${AGENT_TYPE}|${AGENT_ID}" >> "$AGENTS_LOG"
     printf "  %s☭%s %s%s%s %sdone%s\n" "$ac" "$R" "$ac" "$AGENT_TYPE" "$R" "$D" "$R" >&2
+
+    # v6.3 A — zombie sweep. Surface long-running processes likely left behind
+    # by the subagent (gradle daemons, polling shell loops, watchers, follow
+    # tails). Triggered by BambiProject Cycle 1 incident 2026-05-11: builder
+    # dispatched `while pgrep -f testDebugUnitTest; do sleep 5; done` which
+    # infinite-looped because the gradle daemon AND the polling shell both
+    # carried the matched pattern in argv. Informational only — never blocks.
+    # Disable: APD_ZOMBIE_SWEEP=0
+    if [ "${APD_ZOMBIE_SWEEP:-1}" != "0" ] && command -v ps >/dev/null 2>&1; then
+        # `ps -axo "pid= command="` works on both BSD (macOS) and procps-ng (Linux)
+        # and gives headerless `<PID> <full-command>` rows. BSD pgrep lacks `-a`,
+        # so we don't use pgrep here.
+        ZOMBIE_PATTERNS='gradle|tail -f|while.*pgrep|while.*true|while.*sleep|watch[[:space:]]+-n'
+        ZOMBIE_HITS=$(ps -axo "pid= command=" 2>/dev/null \
+            | grep -E "$ZOMBIE_PATTERNS" \
+            | grep -vE "track-agent|/claude($|[[:space:]])|grep -E|ps -axo" \
+            | head -5)
+        if [ -n "$ZOMBIE_HITS" ]; then
+            echo "" >&2
+            echo "  ${RED}${B}WARN: post-agent zombie sweep — processes still alive after ${AGENT_TYPE}:${R}" >&2
+            echo "$ZOMBIE_HITS" | sed 's/^/    /' >&2
+            echo "  ${D}If unexpected, terminate: kill <pid> or pkill -f '<pattern>'${R}" >&2
+            if [ -d "$MEMORY_DIR" ]; then
+                ZOMBIE_LOG="$MEMORY_DIR/zombie-audit.log"
+                while IFS= read -r line; do
+                    Z_PID=$(echo "$line" | awk '{print $1}')
+                    Z_CMD=$(echo "$line" | cut -d' ' -f2-)
+                    echo "${NOW_HUMAN}|${AGENT_TYPE}|${Z_PID}|${Z_CMD}" >> "$ZOMBIE_LOG"
+                done <<< "$ZOMBIE_HITS"
+            fi
+        fi
+    fi
     ;;
 esac
 

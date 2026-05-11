@@ -3724,6 +3724,97 @@ else
 fi
 
 # -----------------------------------------------------------
+# 40. v6.3 A — post-agent zombie sweep (CC SubagentStop)
+#     track-agent SubagentStop now runs a pgrep audit against patterns
+#     left behind by polling loops / build daemons (BambiProject Cycle 1
+#     gradle zombie, 2026-05-11). Informational — never blocks.
+# -----------------------------------------------------------
+section "40. Post-agent zombie sweep (v6.3 A)"
+
+Z_DIR="$(mktemp -d -t apd-z.XXXXXX)"
+mkdir -p "$Z_DIR/.apd/pipeline" "$Z_DIR/.claude/memory"
+echo "PROJECT_NAME=z-test" > "$Z_DIR/.apd/config"
+
+# Spawn fake zombie matching the 'while.*sleep' pattern, tagged with a marker
+# unique to this test PID so pgrep can identify it without false positives.
+Z_MARKER="apd-zombie-mark-$$"
+bash -c "while true; do sleep 30 # $Z_MARKER
+done" </dev/null >/dev/null 2>&1 &
+Z_PID=$!
+
+# Manual cleanup (no trap — runs inline at end of section)
+_z_cleanup() {
+    kill "$Z_PID" 2>/dev/null
+    pgrep -f "$Z_MARKER" 2>/dev/null | while read -r pid; do kill "$pid" 2>/dev/null; done
+}
+
+# Wait for process table
+for _ in 1 2 3 4 5; do
+    pgrep -f "$Z_MARKER" >/dev/null 2>&1 && break
+    sleep 0.1
+done
+
+if pgrep -f "$Z_MARKER" >/dev/null 2>&1; then
+    pass "fake zombie spawned with marker '$Z_MARKER'"
+    PASSES=$((PASSES + 1))
+else
+    fail "fake zombie not visible to pgrep — section may be unreliable"
+    FAILS=$((FAILS + 1))
+fi
+
+# Invoke SubagentStop — sweep should fire and find the marker
+Z_OUT=$(APD_PROJECT_DIR="$Z_DIR" bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+    --event SubagentStop --agent-type test-agent --agent-id z123 2>&1 || true)
+
+if echo "$Z_OUT" | grep -q "zombie sweep" && echo "$Z_OUT" | grep -q "$Z_MARKER"; then
+    pass "sweep surfaces fake zombie via while.*sleep pattern"
+    PASSES=$((PASSES + 1))
+else
+    fail "sweep did not surface fake zombie"
+    FAILS=$((FAILS + 1))
+fi
+
+if [ -f "$Z_DIR/.claude/memory/zombie-audit.log" ] && grep -q "$Z_MARKER" "$Z_DIR/.claude/memory/zombie-audit.log"; then
+    pass "zombie-audit.log captured the entry"
+    PASSES=$((PASSES + 1))
+else
+    fail "zombie-audit.log missing entry"
+    FAILS=$((FAILS + 1))
+fi
+
+# APD_ZOMBIE_SWEEP=0 disables
+Z_OUT_OFF=$(APD_PROJECT_DIR="$Z_DIR" APD_ZOMBIE_SWEEP=0 bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+    --event SubagentStop --agent-type test-agent --agent-id z456 2>&1 || true)
+if ! echo "$Z_OUT_OFF" | grep -q "zombie sweep"; then
+    pass "APD_ZOMBIE_SWEEP=0 disables the sweep"
+    PASSES=$((PASSES + 1))
+else
+    fail "APD_ZOMBIE_SWEEP=0 should disable, sweep fired anyway"
+    FAILS=$((FAILS + 1))
+fi
+
+# Kill zombie + verify no false positive after cleanup
+_z_cleanup
+sleep 0.3
+
+if ! pgrep -f "$Z_MARKER" >/dev/null 2>&1; then
+    Z_OUT_CLEAN=$(APD_PROJECT_DIR="$Z_DIR" bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+        --event SubagentStop --agent-type test-agent --agent-id z789 2>&1 || true)
+    if ! echo "$Z_OUT_CLEAN" | grep -q "$Z_MARKER"; then
+        pass "no stale match after zombie killed"
+        PASSES=$((PASSES + 1))
+    else
+        fail "stale match for killed zombie '$Z_MARKER'"
+        FAILS=$((FAILS + 1))
+    fi
+else
+    fail "zombie still alive after cleanup — kill failed"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$Z_DIR"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

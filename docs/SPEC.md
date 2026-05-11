@@ -155,6 +155,7 @@ See §17.2 for per-guard internals. Block convention: exit 2 = BLOCK, exit 0 = A
 | `agent-history.log` | Concatenated `.agents` files | Skips `APD-VERIFY-*` |
 | `session-log.md` | Markdown auto-summary entry per task | Uses `NEW_RULE` arg or "None" default |
 | `guard-audit.log` | Pipe-delimited: `ts\|TYPE\|agent_info\|reason\|cmd_summary` | Sanitised newlines since F3 |
+| `zombie-audit.log` | Pipe-delimited: `ts\|agent_type\|pid\|cmd` | v6.3 A — written by `track-agent` SubagentStop zombie sweep. Append-only, never read by APD itself; for human + telemetry follow-up |
 
 Memory dir: `<project>/.claude/memory/` (CC + hybrid) or `<project>/.apd/memory/` (pure-Codex). Resolved by `bin/lib/resolve-project.sh`.
 
@@ -230,7 +231,7 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 
 | Script | Coverage |
 |---|---|
-| `bin/core/test-codex-adapter` | 341 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema/runtime filtering, adversarial pre-flight gate, severity gate, spec-card markdown-bold tolerance, guard-bash-scope read/write distinction, pipeline-gate stage completeness, parallel same-type dispatch gate, mkdir deny patterns, spec/builder/superpowers lock-in, apd_pipeline_metrics MCP tool, C2 Phase 2a/2b parser+migrate, codex-doctor C2 hint, v6.3 D max_defects immutability, v6.3 E communication discipline |
+| `bin/core/test-codex-adapter` | 346 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema/runtime filtering, adversarial pre-flight gate, severity gate, spec-card markdown-bold tolerance, guard-bash-scope read/write distinction, pipeline-gate stage completeness, parallel same-type dispatch gate, mkdir deny patterns, spec/builder/superpowers lock-in, apd_pipeline_metrics MCP tool, C2 Phase 2a/2b parser+migrate, codex-doctor C2 hint, v6.3 D max_defects immutability, v6.3 E communication discipline, v6.3 A SubagentStop zombie sweep |
 | `bin/core/test-hooks` | Static: hooks.json schema, placeholder fillness |
 | `bin/core/test-system` | E2E synthetic pipeline (creates `/tmp/apd-test-XXXX`); 2 sections (Pipeline Lifecycle, Spec Enforcement) |
 | `bin/core/verify-apd` | 60+ checks on configured project. **In-monorepo run mis-resolves** — copy example to `/tmp` for accurate result. |
@@ -388,6 +389,7 @@ All log via shared `log_block` to `<memory>/guard-audit.log` (sanitised newlines
 - Codex: adapter invokes manually (no equivalent hook)
 - Appends `<ts>|<event>|<agent_type>|<agent_id>` to `.apd/pipeline/.agents`
 - Warnings on SubagentStart: builder dispatched without `pipeline-advance builder` call; adversarial dispatched before reviewer.done
+- **v6.3 A — zombie sweep on SubagentStop:** runs `ps -axo "pid= command="` against patterns `gradle | tail -f | while.*pgrep | while.*true | while.*sleep | watch -n`, filters out `track-agent` / `/claude` / the sweep itself / `ps -axo`. Surfaces up to 5 hits as WARN + appends `<ts>\|<agent>\|<pid>\|<cmd>` rows to `zombie-audit.log`. Informational — never blocks the agent stop event. Disable: `APD_ZOMBIE_SWEEP=0`. Closes BambiProject Cycle 1 gradle-zombie incident (2026-05-11)
 - Side effect: also writes raw hook payload to `agent-dispatch-debug.log` for troubleshooting Codex adapter mismatches
 
 **`rotate-session-log`**
