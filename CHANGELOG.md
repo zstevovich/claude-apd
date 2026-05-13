@@ -1,5 +1,11 @@
 # Changelog
 
+## v6.5.1 — 2026-05-14
+
+Verification-script path fix. No behavior change in any pipeline, guard, or MCP code path. Tests: 403/0 (unchanged baseline).
+
+- **fix(verify): `hooks/hooks.json` lives at repo root, not `plugins/apd/`.** `plugins/apd/bin/core/verify-apd:230` and `plugins/apd/bin/core/test-hooks:94` both read `$APD_PLUGIN_ROOT/hooks/hooks.json` (= `plugins/apd/hooks/hooks.json`), but per the CLAUDE.md architecture map `hooks/hooks.json` is at the repo root (CC auto-discovery anchor — the v6.0 self-containment plan considered moving it under `plugins/apd/hooks/` but the move never happened because CC requires the anchor at the top-level plugin root, not nested). The two references were stale remnants of that proposed move. Post-fresh-install `verify-apd` therefore printed `✗ Plugin hooks/hooks.json DOES NOT EXIST` as the very first hooks-section result, which masked the rest of the verification report and made the install look broken when in fact every hook was wired correctly. Both scripts now compute `REPO_ROOT="$APD_PLUGIN_ROOT/../.."` (per CLAUDE.md convention for scripts that need repo-root paths — the same pattern the Codex marketplace manifest and top-level CC skills already use) and read `$REPO_ROOT/hooks/hooks.json`. After fix `verify-apd` emits `✓ Plugin hooks/hooks.json valid JSON` and continues into the rest of section 3a (SessionStart, PreToolUse Bash → adapter/cc/guard-git, PostToolUse Bash → pipeline-post-commit, PostCompact, PermissionDenied — all of which were previously skipped because the parent `if` branch short-circuited on the missing file). `test-codex-adapter`: 403/0 — no regressions in the primary E2E suite (the test does not exercise this code path because verify-apd is invoked separately).
+
 ## v6.5.0 — 2026-05-13
 
 Framework self-detection — plugin can be enabled in its own source repo without auto-scaffolding or pipeline enforcement turning the framework into a managed consumer project. Tests: 397 → 403.
