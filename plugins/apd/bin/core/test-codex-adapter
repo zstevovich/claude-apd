@@ -4500,6 +4500,118 @@ fi
 rm -rf "$FW_DIR"
 
 # -----------------------------------------------------------
+# 49. v6.5.2 — verify-apd Section 8 cleanup hardening
+#     B1: trap bezuslovno wipes APD-VERIFY-* pipeline state on every exit
+#         path (including idle-project case where HAD_EXISTING_PIPELINE=false).
+#     B2: synthetic builder uses reserved dummy name `apd-verify-builder` so
+#         the stub can be bezuslovno removed without risk of clobbering a
+#         real project agent file (the BambiProject regression: 30-byte
+#         backend-builder.md stub left over from Apr 29 audit, surviving
+#         every subsequent verify-apd because CREATED_BUILDER=false).
+# -----------------------------------------------------------
+section "49. verify-apd Section 8 cleanup (v6.5.2)"
+
+# A: verify-apd source contains zero `backend-builder` references
+# (B2: replaced with `apd-verify-builder`)
+if ! grep -q "backend-builder" "$APD_PLUGIN_ROOT/bin/core/verify-apd"; then
+    pass "verify-apd has no backend-builder references (B2: dummy name)"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-apd still references backend-builder — B2 incomplete"
+    FAILS=$((FAILS + 1))
+fi
+
+# B: SECTION_8_ENTERED flag exists in verify-apd
+if grep -q "SECTION_8_ENTERED=true" "$APD_PLUGIN_ROOT/bin/core/verify-apd"; then
+    pass "verify-apd has SECTION_8_ENTERED flag (B1: trap gate)"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-apd missing SECTION_8_ENTERED flag — B1 incomplete"
+    FAILS=$((FAILS + 1))
+fi
+
+# C: trap restore_pipeline_state invokes pipeline-advance reset bezuslovno
+# when SECTION_8_ENTERED=true
+if awk '/^restore_pipeline_state\(\) \{/,/^\}/' "$APD_PLUGIN_ROOT/bin/core/verify-apd" \
+    | grep -qE 'SECTION_8_ENTERED.*=.*true' \
+    && awk '/^restore_pipeline_state\(\) \{/,/^\}/' "$APD_PLUGIN_ROOT/bin/core/verify-apd" \
+        | grep -q 'pipeline-advance.*reset'; then
+    pass "trap invokes pipeline-advance reset when SECTION_8_ENTERED=true"
+    PASSES=$((PASSES + 1))
+else
+    fail "trap does not invoke pipeline-advance reset on Section 8 entry"
+    FAILS=$((FAILS + 1))
+fi
+
+# D: trap bezuslovno removes apd-verify-builder.md (no CREATED_BUILDER gate)
+if awk '/^restore_pipeline_state\(\) \{/,/^\}/' "$APD_PLUGIN_ROOT/bin/core/verify-apd" \
+    | grep -q 'rm -f "\$APD_AGENTS_DIR/apd-verify-builder.md"'; then
+    pass "trap bezuslovno removes apd-verify-builder.md stub"
+    PASSES=$((PASSES + 1))
+else
+    fail "trap does not bezuslovno remove apd-verify-builder.md"
+    FAILS=$((FAILS + 1))
+fi
+
+# E: live cleanup — simulate Section 8 leaving synthetic state, then verify
+# that pipeline-advance reset + rm apd-verify-builder.md fully wipes it
+# while leaving a real-named agent file untouched (BambiProject scenario).
+S8_DIR="$(mktemp -d -t apd-s8.XXXXXX)"
+mkdir -p "$S8_DIR/.apd/pipeline" "$S8_DIR/.apd/agents" "$S8_DIR/.claude"
+cat > "$S8_DIR/.apd/config" <<EOF
+PROJECT_NAME=s8-test
+EOF
+cat > "$S8_DIR/.apd/pipeline/spec-card.md" <<EOF
+## APD-VERIFY-TEST
+**Acceptance criteria:**
+- R1: Verify test passes
+EOF
+echo "1747173120|2026-05-14 00:00:00|APD-VERIFY-TEST" > "$S8_DIR/.apd/pipeline/spec.done"
+echo "1747173121|2026-05-14 00:00:01" > "$S8_DIR/.apd/pipeline/builder.done"
+echo "1747173122|2026-05-14 00:00:02" > "$S8_DIR/.apd/pipeline/reviewer.done"
+echo "ADVERSARIAL:1:0:0" > "$S8_DIR/.apd/pipeline/.adversarial-summary"
+echo "1747173122" > "$S8_DIR/.apd/pipeline/.adversarial-pending"
+printf '%s\n' '---' 'name: apd-verify-builder' '---' > "$S8_DIR/.apd/agents/apd-verify-builder.md"
+# Real agent — must survive cleanup
+printf '%s\n%s\n%s\n%s\n%s\n' '---' 'name: backend-builder' 'model: opus' '---' 'REAL CONTENT' \
+    > "$S8_DIR/.apd/agents/backend-builder.md"
+
+# Invoke the trap's cleanup path
+APD_PROJECT_DIR="$S8_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
+rm -f "$S8_DIR/.apd/agents/apd-verify-builder.md"
+
+# Assertions
+if [ ! -f "$S8_DIR/.apd/pipeline/spec-card.md" ] && [ ! -f "$S8_DIR/.apd/pipeline/spec.done" ] \
+    && [ ! -f "$S8_DIR/.apd/pipeline/builder.done" ] && [ ! -f "$S8_DIR/.apd/pipeline/reviewer.done" ] \
+    && [ ! -f "$S8_DIR/.apd/pipeline/.adversarial-pending" ] \
+    && [ ! -f "$S8_DIR/.apd/pipeline/.adversarial-summary" ]; then
+    pass "cleanup wipes all APD-VERIFY-* pipeline artifacts"
+    PASSES=$((PASSES + 1))
+else
+    fail "cleanup left synthetic pipeline state behind: $(ls "$S8_DIR/.apd/pipeline/" 2>&1)"
+    FAILS=$((FAILS + 1))
+fi
+
+if [ ! -f "$S8_DIR/.apd/agents/apd-verify-builder.md" ]; then
+    pass "cleanup removes apd-verify-builder.md stub"
+    PASSES=$((PASSES + 1))
+else
+    fail "cleanup left apd-verify-builder.md stub behind"
+    FAILS=$((FAILS + 1))
+fi
+
+if [ -f "$S8_DIR/.apd/agents/backend-builder.md" ] \
+    && grep -q "REAL CONTENT" "$S8_DIR/.apd/agents/backend-builder.md"; then
+    pass "real backend-builder.md preserved (B2 isolation)"
+    PASSES=$((PASSES + 1))
+else
+    fail "real backend-builder.md was clobbered or deleted"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$S8_DIR"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

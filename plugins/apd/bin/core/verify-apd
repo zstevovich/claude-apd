@@ -645,7 +645,14 @@ fi
 if [ "${PIPELINE_TEST_SKIPPED:-0}" -ne 1 ]; then
 
 # Restore function for safe cleanup on interrupt
-CREATED_BUILDER=false
+# v6.5.2: SECTION_8_ENTERED gates the bezuslovan synthetic-state cleanup so
+# trap on early skip (PIPELINE_TEST_SKIPPED branch) doesn't reset a real
+# pipeline. apd-verify-builder is a dummy name reserved for Section 8 — it is
+# never a real project agent, so the trap can wipe it without guarding behind
+# CREATED_*. code-reviewer and adversarial-reviewer share names with real
+# agents (pipeline-advance hardcodes `adversarial-reviewer` for the ordering
+# check at lines 631 + 672) so those still gate on the CREATED_* flag.
+SECTION_8_ENTERED=false
 CREATED_REVIEWER=false
 CREATED_ADVERSARIAL=false
 # Per-run backup dir (mktemp) — isolates concurrent verify-apd runs from each
@@ -654,6 +661,14 @@ CREATED_ADVERSARIAL=false
 BACKUP_DIR=""
 
 restore_pipeline_state() {
+    if [ "$SECTION_8_ENTERED" = true ]; then
+        # Bezuslovan synthetic cleanup — wipe APD-VERIFY-* state regardless of
+        # HAD_EXISTING_PIPELINE. Section 8 fully owns the pipeline directory
+        # between SECTION_8_ENTERED=true and this trap; reset is safe because
+        # _apd_verify_pipeline_busy already returned "not busy" for entry.
+        bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
+        rm -f "$APD_AGENTS_DIR/apd-verify-builder.md"
+    fi
     if [ "$HAD_EXISTING_PIPELINE" = true ] && [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ]; then
         mkdir -p "$PIPELINE_DIR"
         cp "$BACKUP_DIR"/*.done "$PIPELINE_DIR/" 2>/dev/null
@@ -663,13 +678,16 @@ restore_pipeline_state() {
         cp "$SESSION_LOG_BACKUP" "$APD_MEMORY_DIR/session-log.md"
         rm -f "$SESSION_LOG_BACKUP"
     fi
-    [ "$CREATED_BUILDER" = true ] && rm -f "$APD_AGENTS_DIR/backend-builder.md"
     [ "$CREATED_REVIEWER" = true ] && rm -f "$APD_AGENTS_DIR/code-reviewer.md"
     [ "$CREATED_ADVERSARIAL" = true ] && rm -f "$APD_AGENTS_DIR/adversarial-reviewer.md"
     rm -f "$PROJECT_DIR/tests/apd-verify-trace-test.tmp"
     rmdir "$PIPELINE_DIR/.lock" 2>/dev/null
 }
 trap restore_pipeline_state EXIT INT TERM
+
+# Mark Section 8 entered — from this point on, the trap will bezuslovno reset
+# the pipeline + remove apd-verify-builder.md on any exit path.
+SECTION_8_ENTERED=true
 
 # Save current pipeline state
 HAD_EXISTING_PIPELINE=false
@@ -749,11 +767,12 @@ fi
 
 # Simulate agent dispatch (track-agent would do this via SubagentStart/Stop hooks)
 # Create dummy agent files if they don't exist (needed for project-agent verification)
+# v6.5.2: builder uses the reserved name `apd-verify-builder` so the stub can be
+# bezuslovno removed in the trap without risk of clobbering a real project agent.
+# code-reviewer + adversarial-reviewer keep their real names because pipeline-advance
+# hardcodes `adversarial-reviewer` for the ordering check (lines 631 + 672).
 mkdir -p "$APD_AGENTS_DIR" "$PIPELINE_DIR"
-if [ ! -f "$APD_AGENTS_DIR/backend-builder.md" ]; then
-    printf '%s\n' '---' 'name: backend-builder' '---' > "$APD_AGENTS_DIR/backend-builder.md"
-    CREATED_BUILDER=true
-fi
+printf '%s\n' '---' 'name: apd-verify-builder' '---' > "$APD_AGENTS_DIR/apd-verify-builder.md"
 if [ ! -f "$APD_AGENTS_DIR/code-reviewer.md" ]; then
     printf '%s\n' '---' 'name: code-reviewer' '---' > "$APD_AGENTS_DIR/code-reviewer.md"
     CREATED_REVIEWER=true
@@ -761,7 +780,7 @@ fi
 AGENTS_LOG="$PIPELINE_DIR/.agents"
 
 # Fake agent entry — non-CC agent_id, should be rejected
-echo "$(date +"%Y-%m-%d %H:%M:%S")|stop|backend-builder|fake-001" >> "$AGENTS_LOG"
+echo "$(date +"%Y-%m-%d %H:%M:%S")|stop|apd-verify-builder|fake-001" >> "$AGENTS_LOG"
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" builder 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "suspicious"; then
@@ -774,8 +793,8 @@ rm -f "$AGENTS_LOG"
 # Simulate realistic agent dispatch (start + stop with >3s gap)
 _FAKE_START=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
 _FAKE_STOP=$(date +"%Y-%m-%d %H:%M:%S")
-echo "${_FAKE_START}|start|backend-builder|a0000000000000001" >> "$AGENTS_LOG"
-echo "${_FAKE_STOP}|stop|backend-builder|a0000000000000001" >> "$AGENTS_LOG"
+echo "${_FAKE_START}|start|apd-verify-builder|a0000000000000001" >> "$AGENTS_LOG"
+echo "${_FAKE_STOP}|stop|apd-verify-builder|a0000000000000001" >> "$AGENTS_LOG"
 
 # Builder WITH agent dispatch — should pass
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" builder 2>&1)
@@ -898,12 +917,15 @@ SPECEOF2
 bash "$SCRIPT_DIR/pipeline-advance" spec "APD-VERIFY-OPT-OUT" >/dev/null 2>&1
 # Plan AFTER spec (spec clears all files including implementation-plan.md)
 echo "## Plan: APD-VERIFY-OPT-OUT" > "$PIPELINE_DIR/implementation-plan.md"
+# Re-create the apd-verify-builder stub if reset wiped agent files in tmp scaffolds
+[ -f "$APD_AGENTS_DIR/apd-verify-builder.md" ] || \
+    printf '%s\n' '---' 'name: apd-verify-builder' '---' > "$APD_AGENTS_DIR/apd-verify-builder.md"
 # Builder dispatch
 _FAKE_START=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
 _FAKE_STOP=$(date +"%Y-%m-%d %H:%M:%S")
 AGENTS_LOG="$PIPELINE_DIR/.agents"
-echo "${_FAKE_START}|start|backend-builder|a0000000000000003" >> "$AGENTS_LOG"
-echo "${_FAKE_STOP}|stop|backend-builder|a0000000000000003" >> "$AGENTS_LOG"
+echo "${_FAKE_START}|start|apd-verify-builder|a0000000000000003" >> "$AGENTS_LOG"
+echo "${_FAKE_STOP}|stop|apd-verify-builder|a0000000000000003" >> "$AGENTS_LOG"
 bash "$SCRIPT_DIR/pipeline-advance" builder >/dev/null 2>&1
 # Reviewer dispatch — should detect opt-out
 _FAKE_START=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
