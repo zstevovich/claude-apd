@@ -1,5 +1,11 @@
 # Changelog
 
+## v6.5.0 — 2026-05-13
+
+Framework self-detection — plugin can be enabled in its own source repo without auto-scaffolding or pipeline enforcement turning the framework into a managed consumer project. Tests: 397 → 403.
+
+- **feat(resolve): framework self-detection.** Until v6.5 the only way to keep APD out of its own source was a total plugin disable in `.claude/settings.local.json` (`"claude-apd@zstevovich-plugins": false`). That worked but cost the framework developer access to slash skills + MCP tools while working in the dev repo itself. `resolve-project.sh` now flags `APD_FRAMEWORK_SELF=true` when the resolved `PROJECT_DIR` contains BOTH `plugins/apd/VERSION` AND `.claude-plugin/plugin.json` with `"name": "claude-apd"`. When the flag is set, `APD_ACTIVE=false` is forced regardless of whether a config file exists. `apd-init` prints a one-line "framework dev mode" message and exits 0 (`--quick` stays silent for hook callers). `session-start` emits a once-per-session banner and exits 0 before any scaffolding can run. Guards (which already no-op on `APD_ACTIVE=false`) stay silent. Skills + MCP tools register normally because CC handles those at the plugin level, not via APD's activation marker — so enabling `claude-apd@zstevovich-plugins` in `settings.local.json` now gives the framework developer slash skills + MCP without auto-scaffolding the framework into a managed consumer project. Override for dogfooding the framework on itself: `APD_FRAMEWORK_DEV_MODE=force-enable`. New `test-codex-adapter` §48 (6 assertions: detection on real markers, force-enable override restores activation, foreign plugin.json doesn't false-positive, apd-init message + no scaffold writes, --quick silent exit). Test count 397 → 403. CLAUDE.md Critical Rules section documents the new flag + override.
+
 ## v6.4.0 — 2026-05-12
 
 v6.3 audit cleanup + Codex config drift mitigation. Tests: 369 → 397.
