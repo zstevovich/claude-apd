@@ -26,6 +26,26 @@ SUM_ATTRIBUTION=""
 apd_header "Verification"
 
 # ============================================================
+# Defensive cleanup — purge synthetic artifacts from any prior verify-apd
+# run that was SIGKILL-ed, timed out by the harness, or otherwise exited
+# without firing the EXIT/INT/TERM trap. The `apd-verify-*` namespace is
+# reserved by Section 8; real project agents never use this prefix.
+# Section 6 would otherwise FAIL on the stub's missing model/guard-git
+# fields before Section 8 even gets a chance to clean up.
+# ============================================================
+if [ -n "${APD_AGENTS_DIR:-}" ] && [ -d "$APD_AGENTS_DIR" ]; then
+    for _stale_stub in "$APD_AGENTS_DIR"/apd-verify-*.md; do
+        [ -f "$_stale_stub" ] && rm -f "$_stale_stub"
+    done
+fi
+# Also purge synthetic pipeline state if the prior run left APD-VERIFY-* artifacts
+if [ -n "${PIPELINE_DIR:-}" ] && [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+    if grep -qE '^##? *\[?APD-VERIFY-' "$PIPELINE_DIR/spec-card.md" 2>/dev/null; then
+        bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
+    fi
+fi
+
+# ============================================================
 # 1. PREREQUISITES — static check
 # ============================================================
 section "1. Prerequisites"
@@ -386,6 +406,13 @@ for agent_file in "$APD_AGENTS_DIR"/*.md; do
     [ "$(basename "$agent_file")" = "TEMPLATE.md" ] && continue
     [ ! -f "$agent_file" ] && continue
     AGENT_NAME=$(basename "$agent_file" .md)
+    # Skip reserved `apd-verify-*` namespace — synthetic Section 8 stubs that
+    # the defensive cleanup at the top of this script should have already
+    # removed. If one survived (e.g. concurrent verify-apd run), don't FAIL
+    # on its missing model/guard-git fields — it's not a real project agent.
+    case "$AGENT_NAME" in
+        apd-verify-*) continue ;;
+    esac
     ((AGENT_COUNT++))
 
     # Placeholder check

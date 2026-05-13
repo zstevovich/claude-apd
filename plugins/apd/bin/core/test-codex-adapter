@@ -4611,6 +4611,55 @@ fi
 
 rm -rf "$S8_DIR"
 
+# F1 (v6.5.3): Section 6 (Agents) skips reserved `apd-verify-*` namespace.
+# A stub that survived a SIGKILL-ed prior run must not produce a FAIL on
+# its missing model: / guard-git fields.
+if grep -E -A2 '^[[:space:]]*case "\$AGENT_NAME" in' "$APD_PLUGIN_ROOT/bin/core/verify-apd" \
+    | grep -q 'apd-verify-\*) continue'; then
+    pass "Section 6 skips apd-verify-* namespace (F1)"
+    PASSES=$((PASSES + 1))
+else
+    fail "Section 6 does not skip apd-verify-* — stub will FAIL the agent check"
+    FAILS=$((FAILS + 1))
+fi
+
+# F2 (v6.5.3): defensive cleanup at the top of verify-apd purges stale
+# `apd-verify-*` stubs from SIGKILL-ed prior runs before any section runs.
+if grep -B1 'rm -f "\$_stale_stub"' "$APD_PLUGIN_ROOT/bin/core/verify-apd" \
+    | grep -q 'apd-verify-\*\.md'; then
+    pass "defensive cleanup purges apd-verify-* stubs at startup (F2)"
+    PASSES=$((PASSES + 1))
+else
+    fail "no defensive cleanup for apd-verify-* stubs found"
+    FAILS=$((FAILS + 1))
+fi
+
+# F2 live: defensive cleanup must purge `apd-verify-*` files from a project's
+# agent directory regardless of whether they have any content.
+F2_DIR="$(mktemp -d -t apd-f2.XXXXXX)"
+mkdir -p "$F2_DIR/agents"
+printf '%s\n' '---' 'name: apd-verify-builder' '---' > "$F2_DIR/agents/apd-verify-builder.md"
+printf '%s\n' '---' 'name: apd-verify-stuff' '---' > "$F2_DIR/agents/apd-verify-stuff.md"
+printf '%s\n%s\n%s\n%s\n%s\n' '---' 'name: backend-builder' 'model: opus' '---' 'REAL' \
+    > "$F2_DIR/agents/backend-builder.md"
+
+# Simulate the defensive cleanup loop
+for _stale in "$F2_DIR/agents"/apd-verify-*.md; do
+    [ -f "$_stale" ] && rm -f "$_stale"
+done
+
+if [ ! -f "$F2_DIR/agents/apd-verify-builder.md" ] \
+    && [ ! -f "$F2_DIR/agents/apd-verify-stuff.md" ] \
+    && [ -f "$F2_DIR/agents/backend-builder.md" ] \
+    && grep -q "REAL" "$F2_DIR/agents/backend-builder.md"; then
+    pass "F2 live: cleanup glob purges all apd-verify-*, leaves real agents"
+    PASSES=$((PASSES + 1))
+else
+    fail "F2 live cleanup did not glob correctly (files: $(ls "$F2_DIR/agents"))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$F2_DIR"
+
 # -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
