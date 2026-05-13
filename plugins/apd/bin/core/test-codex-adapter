@@ -4661,6 +4661,64 @@ fi
 rm -rf "$F2_DIR"
 
 # -----------------------------------------------------------
+# 50. v6.5.4 — pipeline-doctor GitHub Sync warning gated by active pipeline
+#     The "no issue linked (.gh-issue missing)" warning used to fire on every
+#     doctor run when gh CLI was installed, even with an idle pipeline
+#     (no spec-card.md). Now: warn only when spec-card.md exists.
+# -----------------------------------------------------------
+section "50. pipeline-doctor GitHub Sync gating (v6.5.4)"
+
+# Static check: pipeline-doctor §9 gates the warn behind spec-card.md
+if grep -B1 'warn "gh CLI available but no issue linked' \
+    "$APD_PLUGIN_ROOT/bin/core/pipeline-doctor" \
+    | grep -q 'spec-card.md'; then
+    pass "pipeline-doctor gates GH warning on spec-card.md presence"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-doctor GH warning is not gated by spec-card.md"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live: idle pipeline must NOT warn; active pipeline MUST warn
+# (only meaningful if gh CLI is installed on the test host)
+if command -v gh >/dev/null 2>&1; then
+    DOC_DIR="$(mktemp -d -t apd-doctor.XXXXXX)"
+    mkdir -p "$DOC_DIR/.apd/pipeline" "$DOC_DIR/.claude/agents"
+    cat > "$DOC_DIR/.apd/config" <<EOF
+PROJECT_NAME=doctor-test
+EOF
+
+    # Idle: no spec-card.md
+    IDLE_OUT=$(APD_PROJECT_DIR="$DOC_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-doctor" 2>&1)
+    if ! echo "$IDLE_OUT" | grep -q "gh CLI available but no issue linked"; then
+        pass "idle pipeline: no GH warn"
+        PASSES=$((PASSES + 1))
+    else
+        fail "idle pipeline incorrectly warned about missing .gh-issue"
+        FAILS=$((FAILS + 1))
+    fi
+
+    # Active: spec-card.md exists
+    cat > "$DOC_DIR/.apd/pipeline/spec-card.md" <<EOF
+## TEST-TASK
+**Acceptance criteria:**
+- R1: x
+EOF
+    ACTIVE_OUT=$(APD_PROJECT_DIR="$DOC_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-doctor" 2>&1)
+    if echo "$ACTIVE_OUT" | grep -q "gh CLI available but no issue linked"; then
+        pass "active pipeline: GH warn fires"
+        PASSES=$((PASSES + 1))
+    else
+        fail "active pipeline did not warn about missing .gh-issue"
+        FAILS=$((FAILS + 1))
+    fi
+
+    rm -rf "$DOC_DIR"
+else
+    echo "    ${D}gh CLI not on PATH — skipping live doctor checks${R}"
+fi
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

@@ -251,7 +251,13 @@ if [ -f "$PIPELINE_DIR/.gh-issue" ]; then
     pass "Linked to issue #$ISSUE_NUM"
 else
     if command -v gh &>/dev/null; then
-        warn "gh CLI available but no issue linked (.gh-issue missing)"
+        # v6.5.4: only warn when a task is active (spec-card.md exists).
+        # Idle pipelines have no task to link, so the warning is noise.
+        if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+            warn "gh CLI available but no issue linked (.gh-issue missing)"
+        else
+            echo "    ${D}gh CLI available — link a task with /apd-github when needed${R}"
+        fi
     else
         echo "    ${D}gh CLI not installed — GitHub sync disabled${R}"
     fi
