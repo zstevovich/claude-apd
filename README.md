@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>v6.5.2</b> &middot; MIT &middot; macOS + Linux
+  <b>v6.5.3</b> &middot; MIT &middot; macOS + Linux
 </p>
 
 ![APD Demo](docs/demo/apd-demo.gif)
@@ -84,7 +84,7 @@ codex plugin marketplace upgrade codex-apd                    # pulls latest mai
 To pin the upgrade to a specific tag or branch (e.g. for pre-release testing):
 ```bash
 codex plugin marketplace remove codex-apd
-codex plugin marketplace add zstevovich/claude-apd@v6.5.2     # or @<branch> for a feature branch
+codex plugin marketplace add zstevovich/claude-apd@v6.5.3     # or @<branch> for a feature branch
 ```
 
 **Codex — direct-drop install:**
