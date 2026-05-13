@@ -91,7 +91,9 @@ else
         pass "settings.json is valid JSON"
 
         # Check hooks — plugin hooks.json is the source of truth (not project settings.json)
-        PLUGIN_HOOKS="${APD_PLUGIN_ROOT}/hooks/hooks.json"
+        # hooks.json lives at repo root (CC auto-discovery anchor), not inside plugins/apd/
+        REPO_ROOT="${APD_PLUGIN_ROOT}/../.."
+        PLUGIN_HOOKS="${REPO_ROOT}/hooks/hooks.json"
         if [ -f "$PLUGIN_HOOKS" ]; then
             HOOK_COUNT=$(jq '[.hooks.PreToolUse[]?.hooks[]? // empty] | length' "$PLUGIN_HOOKS" 2>/dev/null || echo 0)
             if [ "$HOOK_COUNT" -gt 0 ]; then

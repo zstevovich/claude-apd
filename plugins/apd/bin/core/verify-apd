@@ -227,7 +227,9 @@ done
 section "3. Settings"
 
 # --- 3a. Plugin hooks/hooks.json ---
-PLUGIN_SETTINGS="$APD_PLUGIN_ROOT/hooks/hooks.json"
+# hooks.json lives at repo root (CC auto-discovery anchor), not inside plugins/apd/
+REPO_ROOT="$APD_PLUGIN_ROOT/../.."
+PLUGIN_SETTINGS="$REPO_ROOT/hooks/hooks.json"
 if [ ! -f "$PLUGIN_SETTINGS" ]; then
     fail "Plugin hooks/hooks.json DOES NOT EXIST"
 else
