@@ -1,5 +1,13 @@
 # Changelog
 
+## v6.5.4 — 2026-05-14
+
+`pipeline-doctor` §9 GitHub Sync no longer warns on idle pipelines. Tests: 413 → 416.
+
+- **fix(doctor): gate GH-sync warning on active pipeline.** `pipeline-doctor` §9 GitHub Sync emitted `gh CLI available but no issue linked (.gh-issue missing)` on every doctor run when `gh` was installed — including idle pipelines (no `spec-card.md`) where there is no task to link an issue to. The warn was pure noise: users who want GitHub Projects integration run `/apd-github` when starting a task, and users who don't want it skip it entirely; nagging on every idle doctor run adds nothing. Fix: gate the warn behind `[ -f "$PIPELINE_DIR/spec-card.md" ]`. Idle pipelines now print a softer dim hint ("link a task with /apd-github when needed") that doesn't register as a WARN line in the summary. Active pipelines (real task in flight) keep the warn — that's where linking an issue actually matters. The fix is one if-branch + one dim echo; no behavioral changes outside §9.
+- **Live-verified before bump:** tmp project with `.apd/config` + empty `.apd/pipeline/` → `pipeline-doctor` prints the dim hint, no WARN. Same project with `spec-card.md` added → WARN fires as before.
+- **Test:** `test-codex-adapter` §50 (3 assertions): static gate check (grep finds `spec-card.md` adjacent to the warn string), live idle test (no `spec-card.md` → no warn in output), live active test (with `spec-card.md` → warn fires). Live block guarded by `command -v gh` so CI hosts without `gh` installed don't false-pass. Test count 413 → 416.
+
 ## v6.5.3 — 2026-05-14
 
 `verify-apd` Section 6 stub-tolerance + defensive cleanup. Diagnosed from BambiProject v6.5.2 live test on the same evening v6.5.2 shipped. Tests: 410 → 413.
