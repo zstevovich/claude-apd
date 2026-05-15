@@ -84,10 +84,11 @@ else
 fi
 
 # Claude Code version
-# 2.1.101 = first release where SessionStart hook fires reliably for plugins.
+# 2.1.139 = first release with hook `args: string[]` exec form, required by
+# hooks/hooks.json. On older CC, `args` is ignored and hooks silently no-op.
 # Hardcoded fallback only used if plugin-shipped .apd-version is unreadable.
-APD_MIN_VERSION="2.1.101"
-APD_FUNCTIONAL_VERSION="2.1.32"
+APD_MIN_VERSION="2.1.139"
+APD_FUNCTIONAL_VERSION="2.1.139"
 if [ -f "$APD_PLUGIN_ROOT/.apd-version" ]; then
     _PLUGIN_MIN=$(grep '^MIN_CC_VERSION=' "$APD_PLUGIN_ROOT/.apd-version" 2>/dev/null | cut -d= -f2-)
     [ -n "$_PLUGIN_MIN" ] && APD_MIN_VERSION="$_PLUGIN_MIN"

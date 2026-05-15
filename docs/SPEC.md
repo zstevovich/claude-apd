@@ -76,6 +76,8 @@ FastMCP wrapper, runs via `uv run --with mcp python …`. **v6.0 self-registers 
 
 **v6.0 path note:** the hook config file itself stays on the repo root (`hooks/hooks.json`) because Claude Code auto-discovers it from `${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json`. All hook commands now reference `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/...` since `bin/` moved into the plugin folder.
 
+**v6.6 args exec form (CC 2.1.139+):** every hook entry uses `"command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/..."]` (exec form) instead of `"command": "bash \"<path>\""` (shell-string form). Exec form spawns the command directly without a shell, so `${CLAUDE_PLUGIN_ROOT}` placeholders never need quoting. Requires CC 2.1.139+; older CC silently no-ops `args` and would run `bash` with no script path. `APD_MIN_VERSION` and `APD_FUNCTIONAL_VERSION` (in `plugins/apd/.apd-version`) both pin to `2.1.139` as a result — hard block, not soft warning.
+
 | Event | Matcher | Handler | Block? |
 |---|---|---|---|
 | `SessionStart` | `startup` | `session-start` | No (load + heal) |

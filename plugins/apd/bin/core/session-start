@@ -79,11 +79,12 @@ if [ -x "$SCRIPT_DIR/apd-init" ]; then
 fi
 
 # ===== VERSION CHECK =====
-# 2.1.101 = first CC release where the SessionStart hook fires reliably for
-# plugins (earlier versions silently dropped it). Below this baseline APD's
-# auto context-load + self-healing don't run on every session.
-APD_MIN_VERSION="2.1.101"
-APD_FUNCTIONAL_VERSION="2.1.32"
+# 2.1.139 = first CC release with hook `args: string[]` exec form.
+# hooks/hooks.json now uses this form ("command": "bash", "args": [...]).
+# On older CC, `args` is ignored and `bash` runs with no script path,
+# silently no-op'ing every APD guard. Hard-block below this baseline.
+APD_MIN_VERSION="2.1.139"
+APD_FUNCTIONAL_VERSION="2.1.139"
 
 # Read min version from plugin if available
 if [ -f "$APD_PLUGIN_ROOT/.apd-version" ]; then
