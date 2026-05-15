@@ -1,5 +1,14 @@
 # Changelog
 
+## v6.6.0 — 2026-05-16
+
+`hooks/hooks.json` migrated to CC 2.1.139 `args: string[]` exec form. Hard-block on CC < 2.1.139. Tests: 416/0 (no regressions). Live-verified end-to-end in `~/Projects/Test`.
+
+- **feat(hooks): migrate to args exec form.** All 13 hook entries in `hooks/hooks.json` (1 SessionStart, 6 PreToolUse, 1 PostToolUse, 1 SubagentStart, 1 SubagentStop, 1 PreCompact, 1 PostCompact, 1 PermissionDenied) now use `"command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/..."]` instead of `"command": "bash \"<path>\""`. Exec form spawns the command directly without a shell — fewer escaping pitfalls, no shell-injection surface, and matches CC's documented modern hook form.
+- **Hard-block below CC 2.1.139.** On CC < 2.1.139 the `args` field is silently ignored and `bash` runs with no script path — every APD guard becomes a silent no-op. To make this user-visible instead of a silent failure, `APD_MIN_VERSION` and `APD_FUNCTIONAL_VERSION` in both `session-start` and `verify-apd` (plus the `plugins/apd/.apd-version` overrides) pin to `2.1.139`. Users on older CC see a hard-block message at SessionStart with the upgrade command, not a degraded session where guards quietly stop working.
+- **SPEC.md §4.1 updated** to document the exec form migration, the version-pin rationale, and that Codex hooks (`install-codex-config`) are unaffected — `args` exec form is a CC-only feature; Codex hook schema is separate.
+- **Live test (2026-05-16):** after `/plugin marketplace update zstevovich-plugins` + `/plugin uninstall claude-apd` + `/plugin install claude-apd@zstevovich-plugins` + hard restart, `~/Projects/Test` showed: plugin cache populated `claude-apd/6.6.0/`, `installed_plugins.json` updated to version 6.6.0, exec form rendered as `[bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-bash-scope]` in CC hook trace, and `guard-bash-scope` correctly blocked `echo test > .apd/pipeline/spec-card.md` with `BLOCKED: Bash redirect to protected pipeline state directory`. End-to-end signal: hook fired, script reached its `exit 2 + BLOCKED:` message, args exec form is functional on this CC version.
+
 ## v6.5.4 — 2026-05-14
 
 `pipeline-doctor` §9 GitHub Sync no longer warns on idle pipelines. Tests: 413 → 416.
