@@ -4719,6 +4719,77 @@ else
 fi
 
 # -----------------------------------------------------------
+# 51. v6.6.1 — builder rejects stale pre-spec dispatch
+#     Defeats the post-hoc pipeline-reconstruction bypass where orchestrator
+#     does work inline (no real agent dispatches), writes spec-card.md +
+#     implementation-plan.md retroactively, and chains pipeline-advance to
+#     fabricate the gate sequence. Pre-spec stop events no longer satisfy
+#     BUILDER_RAN.
+# -----------------------------------------------------------
+section "51. builder rejects stale pre-spec dispatch (v6.6.1)"
+
+# Static A: v6.6.1 marker comment present
+if grep -q 'v6.6.1' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance carries v6.6.1 marker"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing v6.6.1 marker"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: SPEC_TS_HUMAN read + STALE_DISPATCH branch + lexical comparison
+if grep -q 'SPEC_TS_HUMAN=' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && grep -q 'STALE_DISPATCH=' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && grep -q 'SPEC_TS_HUMAN' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance has SPEC_TS_HUMAN + STALE_DISPATCH + lexical filter"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing v6.6.1 filter components"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live: synthetic project with stale-only .agents — must BLOCK
+STALE_DIR="$(mktemp -d -t apd-stale.XXXXXX)"
+mkdir -p "$STALE_DIR/.apd/pipeline" "$STALE_DIR/.claude/agents"
+echo "PROJECT_NAME=stale-test" > "$STALE_DIR/.apd/config"
+cat > "$STALE_DIR/.apd/pipeline/spec-card.md" <<EOF_SPEC
+# Stale-test
+**Acceptance criteria:**
+- R1: x
+EOF_SPEC
+cat > "$STALE_DIR/.apd/pipeline/implementation-plan.md" <<EOF_PLAN
+# Plan
+### Agents
+- backend-builder: x
+EOF_PLAN
+cat > "$STALE_DIR/.claude/agents/backend-builder.md" <<EOF_AGENT
+---
+name: backend-builder
+model: opus
+---
+test agent
+EOF_AGENT
+
+# Advance spec to get a fresh SPEC_TS_HUMAN (current year)
+APD_PROJECT_DIR="$STALE_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "stale-test" >/dev/null 2>&1
+
+# Write a pre-spec human-format entry (year 2020 — guaranteed older than spec.done)
+echo "2020-01-01 00:00:00|start|backend-builder|stale001" > "$STALE_DIR/.apd/pipeline/.agents"
+echo "2020-01-01 00:00:01|stop|backend-builder|stale001" >> "$STALE_DIR/.apd/pipeline/.agents"
+
+STALE_OUT=$(APD_PROJECT_DIR="$STALE_DIR" APD_ALLOW_UNVALIDATED_AGENTS=1 bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder 2>&1)
+RC=$?
+if [ "$RC" -ne 0 ] && echo "$STALE_OUT" | grep -q "Stale pre-spec dispatch"; then
+    pass "builder blocks stale-only dispatch with explanatory message"
+    PASSES=$((PASSES + 1))
+else
+    fail "builder should block stale-only dispatch (rc=$RC)"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$STALE_DIR"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

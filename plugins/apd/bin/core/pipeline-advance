@@ -289,11 +289,23 @@ case "$STEP" in
         # Verify that a PROJECT-DEFINED builder agent ran
         # Superpowers agents that conflict with APD pipeline are rejected.
         # Other plugin agents (figma, context7, etc.) are allowed alongside project agents.
+        #
+        # v6.6.1 — only accept stop events with timestamp >= SPEC_TS. Defeats
+        # the post-hoc pipeline-reconstruction bypass where orchestrator does
+        # the work inline (no agent dispatches), then writes spec-card.md and
+        # implementation-plan.md retroactively and chains pipeline-advance to
+        # fabricate the gate sequence. Pre-spec events from previous tasks no
+        # longer satisfy BUILDER_RAN.
         AGENTS_LOG="$PIPELINE_DIR/.agents"
         SPEC_TS=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f1)
+        # v6.6.1 — also read human-format spec timestamp; .agents log uses
+        # `YYYY-MM-DD HH:MM:SS` format which lexically (and chronologically)
+        # compares correctly against the human field at spec.done column 2.
+        SPEC_TS_HUMAN=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f2)
         BUILDER_RAN=""
         BLOCKED_AGENTS=""
         SUSPICIOUS=""
+        STALE_DISPATCH=""
         # Superpowers skills that conflict with APD roles
         REJECTED_PREFIXES="superpowers:"
         if [ -f "$AGENTS_LOG" ]; then
@@ -302,6 +314,15 @@ case "$STEP" in
                 # Reject specific conflicting agents
                 if echo "$agent_type" | grep -qE "^(${REJECTED_PREFIXES})"; then
                     BLOCKED_AGENTS="${BLOCKED_AGENTS}${agent_type}, "
+                    continue
+                fi
+                # v6.6.1 — require post-spec timestamp; pre-spec dispatches are
+                # logged as stale but do NOT satisfy BUILDER_RAN. ISO-8601
+                # zero-padded human timestamps sort lexically = chronologically.
+                if [ -n "$_ts" ] && [ -n "$SPEC_TS_HUMAN" ] && [ "$_ts" \< "$SPEC_TS_HUMAN" ]; then
+                    if [ -f "$APD_AGENTS_DIR/${agent_type}.md" ]; then
+                        STALE_DISPATCH="${STALE_DISPATCH}${agent_type}, "
+                    fi
                     continue
                 fi
                 # Accept project-defined agents (with validation)
@@ -324,6 +345,13 @@ case "$STEP" in
         if [ -z "${BUILDER_RAN:-}" ]; then
             echo "BLOCKED: No project Builder agent was dispatched!" >&2
             echo "" >&2
+            if [ -n "${STALE_DISPATCH:-}" ]; then
+                echo "  Stale pre-spec dispatch detected: ${STALE_DISPATCH%, }" >&2
+                echo "  These agents stopped BEFORE the current spec was signed —" >&2
+                echo "  events from previous tasks do not count toward builder gate." >&2
+                echo "  Dispatch builders again AFTER 'apd pipeline spec' completes." >&2
+                echo "" >&2
+            fi
             if [ -n "${SUSPICIOUS:-}" ]; then
                 echo "  Suspicious dispatch detected: ${SUSPICIOUS%, }" >&2
                 echo "  Agent entries look fabricated (wrong timestamp, zero duration, or missing start)." >&2
