@@ -4828,6 +4828,24 @@ else
     FAILS=$((FAILS + 1))
 fi
 
+# Static D2 (v6.7.4): guard-pipeline-state allowlist includes .adversarial-rationale.md
+if grep -q 'spec-card.md|implementation-plan.md|.adversarial-summary|.adversarial-rationale.md' "$APD_PLUGIN_ROOT/bin/core/guard-pipeline-state"; then
+    pass "guard-pipeline-state allowlist includes .adversarial-rationale.md (CC v6.7.4)"
+    PASSES=$((PASSES + 1))
+else
+    fail "guard-pipeline-state CC missing .adversarial-rationale.md in allowlist"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D3 (v6.7.4): Codex guard-file-edit AUTHORING_ALLOWLIST includes the rationale path
+if grep -q '".apd/pipeline/.adversarial-rationale.md"' "$APD_PLUGIN_ROOT/bin/core/guard-file-edit"; then
+    pass "guard-file-edit AUTHORING_ALLOWLIST includes .adversarial-rationale.md (Codex v6.7.4)"
+    PASSES=$((PASSES + 1))
+else
+    fail "guard-file-edit Codex missing .adversarial-rationale.md in AUTHORING_ALLOWLIST"
+    FAILS=$((FAILS + 1))
+fi
+
 # Static D: reset cleanup includes .adversarial-rationale.md (spec re-advance + full reset + rollback)
 _RATIONALE_RESET_HITS=$(grep -c '\.adversarial-rationale\.md' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance")
 if [ "$_RATIONALE_RESET_HITS" -ge 4 ]; then

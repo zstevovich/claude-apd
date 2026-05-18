@@ -1,5 +1,15 @@
 # Changelog
 
+## v6.7.4 — 2026-05-19
+
+**Hotfix.** v6.7.0 introduced `.adversarial-rationale.md` as a required pipeline state file that the orchestrator authors directly, but the guards on both runtimes (`guard-pipeline-state` on CC, `guard-file-edit` on Codex) were never updated to allow that path. Result: the orchestrator hit a hard BLOCK when trying to write the rationale file the verifier demanded, leaving the pipeline stuck between adversarial and verifier. Surfaced live on BambiProject MR.13a (2026-05-19, v6.7.3 install). Tests: 441 → 443 (+2 static).
+
+- **fix(guard-pipeline-state, CC): allow `.adversarial-rationale.md`.** Added to the orchestrator-writeable allowlist (`spec-card.md`, `implementation-plan.md`, `.adversarial-summary`, `.adversarial-rationale.md`). Header comment + case statement updated.
+- **fix(guard-file-edit, Codex): allow `.adversarial-rationale.md`.** Added to `AUTHORING_ALLOWLIST` in the Python guard block — Codex orchestrator can now write the rationale file via apply_patch / Edit / Write without needing a prior `apd_guard_write` call to clear the path.
+- **docs: SPEC.md §4.3** `guard-pipeline-state` allowlist row updated; v6.7.4 tag added in-line.
+- **Test §52 lock-in:** 2 new static assertions verify the allowlist additions on both runtimes so this regression cannot ship silently again.
+- **Lesson:** the v6.7.0 test suite covered the rationale gate logic end-to-end via direct `cat > file` writes from the test harness — never going through the CC Write tool path, so the guard-pipeline-state hook was bypassed in tests. Real-world dispatch goes through the hook. Added to `feedback-validation-futility` thinking: format tests aren't enough when the runtime hook path differs from the test write path.
+
 ## v6.7.3 — 2026-05-18
 
 v6.4 backlog F1 + F3 — template-only directives that complement the v6.7.2 F2 detection arm. F1 makes the orchestrator include an explicit finalization clause in every builder dispatch prompt; F3 forces builders to ground their self-reports in `git diff --stat` + `git status --short`, preventing hallucinated rename/file-add claims. Tests: 438 → 441 (+3 in §55).

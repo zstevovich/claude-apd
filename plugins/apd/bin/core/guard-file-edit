@@ -43,6 +43,7 @@ PATCH_PREFIXES = (
 AUTHORING_ALLOWLIST = {
     ".apd/pipeline/spec-card.md",
     ".apd/pipeline/implementation-plan.md",
+    ".apd/pipeline/.adversarial-rationale.md",
 }
 GUARD_CACHE_MAX_AGE_SECONDS = 600
 
