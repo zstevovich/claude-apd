@@ -61,12 +61,23 @@ Read ONLY files listed in `.apd/pipeline/.reviewed-files`. This file is the auth
 
 ### Findings
 1. [file:line] HIGH — Description of the bug/vulnerability
-2. [file:line] MEDIUM — Description of the risk
+   Status: active
+2. [file:line] MEDIUM — Description of the risk you wanted to flag, but
+   on closer inspection it is not a real defect (existing pattern, intentional
+   design, out-of-scope, etc.)
+   Status: self-dismissed
+   Note: <one-line reason — what made you reclassify it>
 3. [file:line] LOW — Description of the issue
+   Status: active
 
 ### Summary
 X findings (N high, M medium, K low)
 ```
+
+**Status field rules:**
+
+- `active` — real defect; orchestrator must decide accept or dismiss in `.adversarial-rationale.md`.
+- `self-dismissed` — you concluded inline that this is not actionable (existing pattern, design choice, out-of-scope, false-positive on closer look). MUST include a `Note:` line with the reason in ≥1 sentence. The orchestrator copies your Note verbatim into the rationale file as `**Status:** reviewer-self-dismissed` + `**Rationale:** (per reviewer) <your Note>`.
 
 If no issues found: `### Summary: No issues found — code looks solid.`
 

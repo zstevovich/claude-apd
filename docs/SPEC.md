@@ -145,6 +145,7 @@ See §17.2 for per-guard internals. Block convention: exit 2 = BLOCK, exit 0 = A
 | `.adversarial-pending` | reviewer phase | Full mode flag + green light for adversarial dispatch (v6.1 B1 pre-flight gate) |
 | `spec-card.md` `adversarial:` line | spec phase | Optional. `skip — <reason>` (opt-out, ≤2 R) or `max_defects=N\|unlimited` (v6.1 B2 severity gate). Default = unlimited |
 | `.adversarial-summary` | adversarial phase | `ADVERSARIAL:T:A:D` + Notes block |
+| `.adversarial-rationale.md` | adversarial phase | **v6.7:** structured per-finding rationale. One `## Finding N — <title>` block per adversarial finding with `**Severity:** critical\|important\|minor`, `**Status:** accepted\|dismissed\|reviewer-self-dismissed`, `**Rationale:** <text>`. pipeline-advance verifier hard-blocks on missing file, finding-count mismatch, malformed fields, status/A/D accounting drift, and the 100% orchestrator-dismiss pattern (`T>=3 && A==0 && Do>=1`). Opt out per-task via spec-card `adversarial: rationale_gate=off`. Cleared on reset + reviewer/verifier rollback |
 | `.trace-summary` | verifier phase | `TRACE:<covered>/<total>:<uncovered_ids>` |
 | `verified.timestamp` | verifier phase | 120s TTL cache |
 | `.agents` | track-agent (CC SubagentStart/Stop), Codex orchestrator | Pipe-delimited dispatch log |

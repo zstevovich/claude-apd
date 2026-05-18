@@ -251,7 +251,7 @@ case "$STEP" in
         # v6.3 audit fix: also wipe .builder-count / .reviewer-count so a new
         # task doesn't inherit cycle counts from a prior task (would block first
         # dispatch with a misleading "task X has hit its budget" message).
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count"
         create_done "spec" "$ARG"
         # Freeze spec-card.md — hash for tamper detection
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
@@ -736,6 +736,144 @@ case "$STEP" in
             fi
         fi
 
+        # v6.7 — Adversarial rationale gate.
+        # Requires .adversarial-rationale.md with one structured block per finding.
+        # Hard-blocks on missing/malformed file, status/count mismatch, and the
+        # 100% orchestrator-dismiss pattern (T>=3 && A==0 && Do>=1) which is the
+        # bypass signature documented in project-v6.7-adversarial-dismissal-quality.
+        # Default ON; opt out per-task via spec-card.md `adversarial: rationale_gate=off`.
+        if [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
+            RATIONALE_GATE_RAW=""
+            if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+                RATIONALE_GATE_RAW=$(grep -iE '^[-*_ 	]*adversarial[-*_ 	]*:.*rationale_gate[[:space:]]*[:=][[:space:]]*(on|off)' "$PIPELINE_DIR/spec-card.md" 2>/dev/null \
+                    | sed -E 's/.*rationale_gate[[:space:]]*[:=][[:space:]]*//I' \
+                    | tr '[:upper:]' '[:lower:]' \
+                    | awk '{print $1}' \
+                    | head -1)
+            fi
+            if [ "$RATIONALE_GATE_RAW" != "off" ]; then
+                RATIONALE_FILE="$PIPELINE_DIR/.adversarial-rationale.md"
+                ADV_LINE=$(grep '^ADVERSARIAL:' "$PIPELINE_DIR/.adversarial-summary" 2>/dev/null | head -1)
+                ADV_T=$(echo "$ADV_LINE" | cut -d: -f2); ADV_T=${ADV_T:-0}
+                ADV_A=$(echo "$ADV_LINE" | cut -d: -f3); ADV_A=${ADV_A:-0}
+                ADV_D=$(echo "$ADV_LINE" | cut -d: -f4); ADV_D=${ADV_D:-0}
+                if [ "$ADV_T" -gt 0 ] 2>/dev/null; then
+                    # v7.1 — file must exist
+                    if [ ! -f "$RATIONALE_FILE" ]; then
+                        echo "BLOCKED: Adversarial rationale file missing." >&2
+                        echo "" >&2
+                        echo "  Write per-finding rationales to .apd/pipeline/.adversarial-rationale.md" >&2
+                        echo "  One block per finding, exact format:" >&2
+                        echo "    ## Finding N — <one-line title>" >&2
+                        echo "    **Severity:** critical | important | minor" >&2
+                        echo "    **Status:** accepted | dismissed | reviewer-self-dismissed" >&2
+                        echo "    **Rationale:** <text, required for dismissed/reviewer-self-dismissed>" >&2
+                        echo "" >&2
+                        echo "  Expected: T=$ADV_T findings (A=$ADV_A accepted, D=$ADV_D dismissed)." >&2
+                        echo "  Then re-run: bash $APD_SHORTCUT_DISPLAY pipeline verifier" >&2
+                        echo "" >&2
+                        echo "  Per-task opt-out: spec-card.md  'adversarial: rationale_gate=off'." >&2
+                        log_block "rationale-missing" "T=$ADV_T A=$ADV_A D=$ADV_D"
+                        exit 1
+                    fi
+                    # v7.3 — finding block count must equal T
+                    FINDING_COUNT=$(grep -c '^## Finding ' "$RATIONALE_FILE" 2>/dev/null); FINDING_COUNT=${FINDING_COUNT:-0}
+                    if [ "$FINDING_COUNT" -ne "$ADV_T" ]; then
+                        echo "BLOCKED: Rationale finding block count mismatch." >&2
+                        echo "" >&2
+                        echo "  Found $FINDING_COUNT '## Finding ' blocks; summary T=$ADV_T." >&2
+                        echo "  Each adversarial finding must have its own ## Finding block." >&2
+                        log_block "rationale-count-mismatch" "found=$FINDING_COUNT expected=$ADV_T"
+                        exit 1
+                    fi
+                    # v7.4 — every block must have Severity + Status + Rationale fields
+                    SEVERITY_COUNT=$(grep -cE '^\*\*Severity:\*\* (critical|important|minor)$' "$RATIONALE_FILE" 2>/dev/null); SEVERITY_COUNT=${SEVERITY_COUNT:-0}
+                    STATUS_COUNT=$(grep -cE '^\*\*Status:\*\* (accepted|dismissed|reviewer-self-dismissed)$' "$RATIONALE_FILE" 2>/dev/null); STATUS_COUNT=${STATUS_COUNT:-0}
+                    RATIONALE_COUNT=$(grep -cE '^\*\*Rationale:\*\* .+' "$RATIONALE_FILE" 2>/dev/null); RATIONALE_COUNT=${RATIONALE_COUNT:-0}
+                    if [ "$SEVERITY_COUNT" -ne "$FINDING_COUNT" ] || [ "$STATUS_COUNT" -ne "$FINDING_COUNT" ] || [ "$RATIONALE_COUNT" -ne "$FINDING_COUNT" ]; then
+                        echo "BLOCKED: Rationale file has malformed Finding blocks." >&2
+                        echo "" >&2
+                        echo "  Expected $FINDING_COUNT each of:" >&2
+                        echo "    **Severity:** field (found $SEVERITY_COUNT)" >&2
+                        echo "    **Status:** field   (found $STATUS_COUNT)" >&2
+                        echo "    **Rationale:** field (found $RATIONALE_COUNT)" >&2
+                        echo "" >&2
+                        echo "  Each finding needs all three fields with valid values." >&2
+                        log_block "rationale-malformed-fields" "sev=$SEVERITY_COUNT stat=$STATUS_COUNT rat=$RATIONALE_COUNT findings=$FINDING_COUNT"
+                        exit 1
+                    fi
+                    # v7.5 — status counts must add up to summary A and D
+                    ACCEPTED_F=$(grep -c '^\*\*Status:\*\* accepted$' "$RATIONALE_FILE" 2>/dev/null); ACCEPTED_F=${ACCEPTED_F:-0}
+                    DISMISSED_O=$(grep -c '^\*\*Status:\*\* dismissed$' "$RATIONALE_FILE" 2>/dev/null); DISMISSED_O=${DISMISSED_O:-0}
+                    DISMISSED_R=$(grep -c '^\*\*Status:\*\* reviewer-self-dismissed$' "$RATIONALE_FILE" 2>/dev/null); DISMISSED_R=${DISMISSED_R:-0}
+                    STATUS_D_SUM=$((DISMISSED_O + DISMISSED_R))
+                    if [ "$ACCEPTED_F" -ne "$ADV_A" ]; then
+                        echo "BLOCKED: Rationale accepted count doesn't match summary." >&2
+                        echo "" >&2
+                        echo "  Rationale file: accepted=$ACCEPTED_F." >&2
+                        echo "  Summary line:   A=$ADV_A." >&2
+                        log_block "rationale-accepted-mismatch" "rationale=$ACCEPTED_F summary=$ADV_A"
+                        exit 1
+                    fi
+                    if [ "$STATUS_D_SUM" -ne "$ADV_D" ]; then
+                        echo "BLOCKED: Rationale statuses don't match summary dismissed count." >&2
+                        echo "" >&2
+                        echo "  Rationale file: dismissed=$DISMISSED_O, reviewer-self-dismissed=$DISMISSED_R, sum=$STATUS_D_SUM." >&2
+                        echo "  Summary line:   D=$ADV_D." >&2
+                        echo "" >&2
+                        echo "  Reclassify Status fields so dismissed + reviewer-self-dismissed = D." >&2
+                        log_block "rationale-status-mismatch" "Do=$DISMISSED_O Dr=$DISMISSED_R sum=$STATUS_D_SUM D=$ADV_D"
+                        exit 1
+                    fi
+                    # v7.6 — hard gate: 100% orchestrator-dismissal pattern
+                    if [ "$ADV_T" -ge 3 ] && [ "$ADV_A" -eq 0 ] && [ "$DISMISSED_O" -ge 1 ]; then
+                        echo "BLOCKED: 100% orchestrator dismissal pattern detected." >&2
+                        echo "" >&2
+                        echo "  T=$ADV_T findings, A=0 accepted, Do=$DISMISSED_O orchestrator-dismissed, Dr=$DISMISSED_R reviewer-self-dismissed." >&2
+                        echo "" >&2
+                        echo "  At least one finding must be accepted (dispatch builder fix), OR" >&2
+                        echo "  rationale must reclassify the dismissed entries to reviewer-self-dismissed" >&2
+                        echo "  where the adversarial reviewer itself dismissed them inline." >&2
+                        log_block "rationale-100pct-orch-dismiss" "T=$ADV_T Do=$DISMISSED_O Dr=$DISMISSED_R"
+                        exit 1
+                    fi
+                    # v6.7 Phase 2 — soft quality warns. Walk each dismissed
+                    # and reviewer-self-dismissed block. Flag rationale text
+                    # under 40 chars and lazy-pattern matches. Non-blocking;
+                    # surfaces in apd-finish closure output via stderr.
+                    _Q_OUT=$(awk '
+BEGIN { f=0; status=""; rationale=""; }
+/^## Finding / {
+    if (f>0) _check()
+    f++
+    status = ""
+    rationale = ""
+    next
+}
+/^\*\*Status:\*\* / { sub(/^\*\*Status:\*\* /, ""); status = $0; next }
+/^\*\*Rationale:\*\* / { sub(/^\*\*Rationale:\*\* /, ""); rationale = $0; next }
+END { if (f>0) _check() }
+function _check() {
+    if (status == "dismissed" || status == "reviewer-self-dismissed") {
+        rlen = length(rationale)
+        if (rlen < 40) {
+            printf "! WARN Finding %d: rationale only %d chars (>=40 recommended)\n", f, rlen
+        }
+        lower = tolower(rationale)
+        if (lower ~ /^(ok|n\/a|false positive|not applicable|skip|no)\.?$/) {
+            printf "! WARN Finding %d: rationale matches lazy pattern (\"%s\")\n", f, rationale
+        }
+    }
+}
+' "$RATIONALE_FILE" 2>/dev/null)
+                    if [ -n "$_Q_OUT" ]; then
+                        echo "" >&2
+                        echo "$_Q_OUT" >&2
+                    fi
+                fi
+            fi
+        fi
+
         # Run build + tests. verify-all.sh lives IN THE PROJECT, not the plugin.
         # Search Codex-native location first, then legacy CC path, so pure-Codex
         # projects can keep their verifier entirely under .codex/.
@@ -984,7 +1122,7 @@ EOF
         # .agents was already archived above (before metrics write).
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes"
         # Reset completed cleanly — drop the in-progress marker.
         rm -f "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
         echo "Pipeline reset. Ready for new task."
@@ -997,12 +1135,12 @@ EOF
             if [ -f "$PIPELINE_DIR/$step.done" ]; then
                 rm -f "$PIPELINE_DIR/$step.done"
                 # If verifier rolled back, also remove cache timestamp and trace summary
-                [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary"
+                [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-rationale.md"
                 # Rollback to reviewer must also clear the adversarial summary, else
                 # the next verifier sees stale summary + new .adversarial-pending and
                 # mis-reports "Adversarial ran BEFORE reviewer step completed" when
                 # the real problem is the summary is from the previous run.
-                [ "$step" = "reviewer" ] && rm -f "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.adversarial-summary"
+                [ "$step" = "reviewer" ] && rm -f "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-rationale.md"
                 # implementation-plan.md is NOT deleted on rollback — it's part of the frozen spec
                 apd_header "Rollback: $step"
                 show_pipeline "$step"

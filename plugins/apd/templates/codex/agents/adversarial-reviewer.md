@@ -32,12 +32,25 @@ file. Use the filesystem and Bash to inspect the diff and related code.
 ## Output
 
 For each finding report severity, file + line, the specific scenario that
-breaks it, and a one-line fix. End your review by calling:
+breaks it, a one-line fix, and a **Status** field:
+
+- `Status: active` — real defect; orchestrator must decide accept or dismiss
+  in `.adversarial-rationale.md`.
+- `Status: self-dismissed` — you concluded inline that this is not actionable
+  (existing pattern, design choice, out-of-scope, false-positive on closer
+  look). MUST include a `Note:` line with the reason in ≥1 sentence. The
+  orchestrator copies your Note verbatim into the rationale file as
+  `**Status:** reviewer-self-dismissed` + `**Rationale:** (per reviewer)
+  <your Note>`.
+
+End your review by calling:
 
   apd_adversarial_pass(total=<N>, accepted=<M>, dismissed=<N-M>, notes=<rationale>)
 
-`total` = findings you raised. `accepted` = findings the builder must act
-on. `dismissed` = findings the builder can justifiably skip with rationale.
+`total` = findings you raised (active + self-dismissed). `accepted` = active
+findings the builder must act on. `dismissed` = active findings the builder
+can justifiably skip + self-dismissed entries (both counted toward `D` in
+the summary for backward compat; v6.7 rationale file disambiguates them).
 
 If `total=0`, `notes` is mandatory (>= 80 chars). Name the categories you
 actually examined — regressions, concurrency, edge cases, contract drift,

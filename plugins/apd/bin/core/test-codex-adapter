@@ -4790,6 +4790,369 @@ fi
 rm -rf "$STALE_DIR"
 
 # -----------------------------------------------------------
+# 52. v6.7 — adversarial rationale gate
+#     verifier reads .adversarial-rationale.md, hard-blocks on missing file,
+#     finding-count mismatch, status/A/D drift, and the 100% orchestrator-
+#     dismiss pattern (T>=3 && A==0 && Do>=1). Opt-out via spec-card
+#     `adversarial: rationale_gate=off`. Reviewer-self-dismiss escapes the
+#     hard gate to avoid false-blocking clean adversarial runs.
+# -----------------------------------------------------------
+section "52. adversarial rationale gate (v6.7)"
+
+# Static A: v7.1 missing-file BLOCK message present
+if grep -q 'Adversarial rationale file missing' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance carries v7.1 missing-file BLOCK message"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing v7.1 BLOCK message"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: v7.6 100%-dismiss BLOCK message present
+if grep -q '100% orchestrator dismissal pattern' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance carries v7.6 100%-dismiss BLOCK message"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing v7.6 BLOCK message"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: hard-gate expression (ADV_T -ge 3 && ADV_A -eq 0 && DISMISSED_O -ge 1)
+if grep -q '"$ADV_T" -ge 3' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && grep -q '"$ADV_A" -eq 0' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && grep -q '"$DISMISSED_O" -ge 1' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance has T>=3 && A==0 && Do>=1 hard-gate"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing v6.7 hard-gate expression"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: reset cleanup includes .adversarial-rationale.md (spec re-advance + full reset + rollback)
+_RATIONALE_RESET_HITS=$(grep -c '\.adversarial-rationale\.md' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance")
+if [ "$_RATIONALE_RESET_HITS" -ge 4 ]; then
+    pass "pipeline-advance wipes .adversarial-rationale.md across reset/rollback paths ($_RATIONALE_RESET_HITS refs)"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance has only $_RATIONALE_RESET_HITS .adversarial-rationale.md refs (expected >=4)"
+    FAILS=$((FAILS + 1))
+fi
+
+# ---- Live test scaffolding ----
+# Build a synthetic pipeline state where verifier can reach the rationale gate.
+# Each test case constructs a fresh project, runs verifier with the validator
+# bypassed (APD_VALIDATOR=/nonexistent → unsigned .done fallback), and checks
+# the exit code + stderr content.
+
+_v67_ts() {
+    # Human-format timestamp offset by $1 seconds (validator needs ≥3s gap
+    # between start/stop, and v6.6.1 needs stop ≥ spec.done epoch; future
+    # offsets satisfy both without needing real-time sleeps).
+    local off=$1
+    date -v+${off}S +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
+        || date -d "+${off} seconds" +"%Y-%m-%d %H:%M:%S"
+}
+
+_v67_make_state() {
+    # Drive spec→builder→reviewer via the real pipeline-advance so .done files
+    # carry valid HMAC signatures. Inject hex agent IDs + ≥10s duration in
+    # .agents so the compiled validator (validate-agent) accepts each phase.
+    local dir=$1
+    local adv_summary=$2  # "ADVERSARIAL:T:A:D"
+    mkdir -p "$dir/.apd/pipeline" "$dir/.claude/agents"
+    echo "PROJECT_NAME=v67-test" > "$dir/.apd/config"
+    cat > "$dir/.apd/pipeline/spec-card.md" <<'EOF_SPEC'
+# v6.7 gate test
+**Acceptance criteria:**
+- R1: x
+EOF_SPEC
+    cat > "$dir/.apd/pipeline/implementation-plan.md" <<'EOF_PLAN'
+# Plan
+### Agents
+- backend-builder: x
+EOF_PLAN
+    # verify-trace satisfaction — covers R1 so verifier doesn't exit early
+    mkdir -p "$dir/tests"
+    echo "// @trace R1" > "$dir/tests/test_v67.py"
+    cat > "$dir/.claude/agents/backend-builder.md" <<'EOF_AB'
+---
+name: backend-builder
+model: opus
+---
+test
+EOF_AB
+    cat > "$dir/.claude/agents/code-reviewer.md" <<'EOF_AR'
+---
+name: code-reviewer
+model: opus
+---
+test
+EOF_AR
+    cat > "$dir/.claude/agents/adversarial-reviewer.md" <<'EOF_AA'
+---
+name: adversarial-reviewer
+model: opus
+---
+test
+EOF_AA
+    APD_PROJECT_DIR="$dir" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+        spec "v67-task" >/dev/null 2>&1
+    local _hb1 _hb2 _hr1 _hr2 _ha1 _ha2
+    _hb1=$(_v67_ts 1); _hb2=$(_v67_ts 11)
+    cat >> "$dir/.apd/pipeline/.agents" <<EOF_LOG_B
+$_hb1|start|backend-builder|aabbccddeeff1001
+$_hb2|stop|backend-builder|aabbccddeeff1001
+EOF_LOG_B
+    APD_PROJECT_DIR="$dir" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+        builder >/dev/null 2>&1
+    _hr1=$(_v67_ts 13); _hr2=$(_v67_ts 23)
+    cat >> "$dir/.apd/pipeline/.agents" <<EOF_LOG_R
+$_hr1|start|code-reviewer|aabbccddeeff2002
+$_hr2|stop|code-reviewer|aabbccddeeff2002
+EOF_LOG_R
+    APD_PROJECT_DIR="$dir" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+        reviewer >/dev/null 2>&1
+    _ha1=$(_v67_ts 30); _ha2=$(_v67_ts 40)
+    cat >> "$dir/.apd/pipeline/.agents" <<EOF_LOG_A
+$_ha1|start|adversarial-reviewer|aabbccddeeff3003
+$_ha2|stop|adversarial-reviewer|aabbccddeeff3003
+EOF_LOG_A
+    echo "$adv_summary" > "$dir/.apd/pipeline/.adversarial-summary"
+}
+
+_v67_run_verifier() {
+    local dir=$1
+    APD_PROJECT_DIR="$dir" \
+        bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" verifier 2>&1
+}
+
+# Live E: 5:0:5 + no rationale file → BLOCK
+_T="$(mktemp -d -t apd-v67e.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:5:0:5"
+_OUT=$(_v67_run_verifier "$_T"); _RC=$?
+if [ "$_RC" -ne 0 ] && echo "$_OUT" | grep -q 'Adversarial rationale file missing'; then
+    pass "5:0:5 + no rationale → BLOCK (rationale-missing)"
+    PASSES=$((PASSES + 1))
+else
+    fail "5:0:5 + no rationale should BLOCK with rationale-missing (rc=$_RC)"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live F: 5:0:5 + rationale with 4 ## Finding blocks → BLOCK (count mismatch)
+_T="$(mktemp -d -t apd-v67f.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:5:0:5"
+cat > "$_T/.apd/pipeline/.adversarial-rationale.md" <<'EOF_RAT'
+## Finding 1 — short
+**Severity:** important
+**Status:** dismissed
+**Rationale:** out of scope per APD diff-only rule, not in changeset
+
+## Finding 2 — short
+**Severity:** important
+**Status:** dismissed
+**Rationale:** out of scope per APD diff-only rule, not in changeset
+
+## Finding 3 — short
+**Severity:** important
+**Status:** dismissed
+**Rationale:** out of scope per APD diff-only rule, not in changeset
+
+## Finding 4 — short
+**Severity:** important
+**Status:** dismissed
+**Rationale:** out of scope per APD diff-only rule, not in changeset
+EOF_RAT
+_OUT=$(_v67_run_verifier "$_T"); _RC=$?
+if [ "$_RC" -ne 0 ] && echo "$_OUT" | grep -q 'finding block count mismatch'; then
+    pass "5:0:5 + 4-finding rationale → BLOCK (count mismatch)"
+    PASSES=$((PASSES + 1))
+else
+    fail "count mismatch should BLOCK (rc=$_RC, out=$(echo "$_OUT" | head -1))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live G: 5:0:5 + rationale all Do=5 → BLOCK (100% orchestrator dismissal)
+_T="$(mktemp -d -t apd-v67g.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:5:0:5"
+cat > "$_T/.apd/pipeline/.adversarial-rationale.md" <<'EOF_RAT'
+## Finding 1 — first
+**Severity:** important
+**Status:** dismissed
+**Rationale:** weak-pattern rationalization here
+
+## Finding 2 — second
+**Severity:** important
+**Status:** dismissed
+**Rationale:** another weak rationalization text
+
+## Finding 3 — third
+**Severity:** important
+**Status:** dismissed
+**Rationale:** more rationalization text content
+
+## Finding 4 — fourth
+**Severity:** important
+**Status:** dismissed
+**Rationale:** even more rationalization here
+
+## Finding 5 — fifth
+**Severity:** important
+**Status:** dismissed
+**Rationale:** final rationalization in the file
+EOF_RAT
+_OUT=$(_v67_run_verifier "$_T"); _RC=$?
+if [ "$_RC" -ne 0 ] && echo "$_OUT" | grep -q '100% orchestrator dismissal pattern'; then
+    pass "5:0:5 with Do=5 → BLOCK (100% orchestrator dismissal)"
+    PASSES=$((PASSES + 1))
+else
+    fail "Do=5 hard gate should fire (rc=$_RC, out=$(echo "$_OUT" | head -1))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live H: 5:0:5 + rationale all Dr=5 (reviewer-self-dismissed) → SIGN
+_T="$(mktemp -d -t apd-v67h.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:5:0:5"
+cat > "$_T/.apd/pipeline/.adversarial-rationale.md" <<'EOF_RAT'
+## Finding 1 — first
+**Severity:** important
+**Status:** reviewer-self-dismissed
+**Rationale:** reviewer said this is safe display oddity not a crash
+
+## Finding 2 — second
+**Severity:** important
+**Status:** reviewer-self-dismissed
+**Rationale:** reviewer flagged as not actionable existing pattern in suite
+
+## Finding 3 — third
+**Severity:** important
+**Status:** reviewer-self-dismissed
+**Rationale:** reviewer concluded no real issue here pre-existing behavior
+
+## Finding 4 — fourth
+**Severity:** important
+**Status:** reviewer-self-dismissed
+**Rationale:** reviewer flagged self-dismissed inline during analysis
+
+## Finding 5 — fifth
+**Severity:** important
+**Status:** reviewer-self-dismissed
+**Rationale:** reviewer dismissed during analysis with reasoning given
+EOF_RAT
+_OUT=$(_v67_run_verifier "$_T"); _RC=$?
+if [ "$_RC" -eq 0 ] && echo "$_OUT" | grep -q 'COMMIT ALLOWED'; then
+    pass "5:0:5 with Dr=5 → SIGN (reviewer-self-dismiss escapes hard gate)"
+    PASSES=$((PASSES + 1))
+else
+    fail "Dr=5 should SIGN, not block (rc=$_RC, out=$(echo "$_OUT" | head -2))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live I: 5:2:3 + rationale with A=2, Do=3 → SIGN (A>0 escapes hard gate)
+_T="$(mktemp -d -t apd-v67i.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:5:2:3"
+cat > "$_T/.apd/pipeline/.adversarial-rationale.md" <<'EOF_RAT'
+## Finding 1 — first
+**Severity:** critical
+**Status:** accepted
+**Rationale:** real bug fix applied in builder cycle
+
+## Finding 2 — second
+**Severity:** important
+**Status:** accepted
+**Rationale:** valid concern addressed via patch
+
+## Finding 3 — third
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** test-fake routing quality not production code defect
+
+## Finding 4 — fourth
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** out of scope for current task diff-only enforced
+
+## Finding 5 — fifth
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** pre-existing pattern across suite not new defect
+EOF_RAT
+_OUT=$(_v67_run_verifier "$_T"); _RC=$?
+if [ "$_RC" -eq 0 ] && echo "$_OUT" | grep -q 'COMMIT ALLOWED'; then
+    pass "5:2:3 mixed-outcome rationale → SIGN"
+    PASSES=$((PASSES + 1))
+else
+    fail "5:2:3 should SIGN (rc=$_RC, out=$(echo "$_OUT" | head -2))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live J (Phase 2): short-rationale soft WARN — passes gates, prints warn
+_T="$(mktemp -d -t apd-v67j.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:3:1:2"
+cat > "$_T/.apd/pipeline/.adversarial-rationale.md" <<'EOF_RAT'
+## Finding 1 — accepted item
+**Severity:** critical
+**Status:** accepted
+**Rationale:** real defect fixed in builder cycle two
+
+## Finding 2 — short dismissal
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** too short
+
+## Finding 3 — proper dismissal
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** pre-existing pattern across the broader suite not new defect
+EOF_RAT
+_OUT=$(_v67_run_verifier "$_T"); _RC=$?
+if [ "$_RC" -eq 0 ] \
+   && echo "$_OUT" | grep -q 'COMMIT ALLOWED' \
+   && echo "$_OUT" | grep -qE '! WARN Finding 2.*rationale only [0-9]+ chars'; then
+    pass "Phase 2: short rationale → SIGN + WARN emitted"
+    PASSES=$((PASSES + 1))
+else
+    fail "Phase 2 short-rationale: expected SIGN + WARN (rc=$_RC, out=$(echo "$_OUT" | tail -5 | tr '\n' '|'))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live K (Phase 2): lazy-pattern soft WARN
+_T="$(mktemp -d -t apd-v67k.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:3:1:2"
+cat > "$_T/.apd/pipeline/.adversarial-rationale.md" <<'EOF_RAT'
+## Finding 1 — accepted item
+**Severity:** critical
+**Status:** accepted
+**Rationale:** real defect fixed in builder cycle two
+
+## Finding 2 — lazy
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** ok
+
+## Finding 3 — proper dismissal
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** pre-existing pattern across the broader suite not new defect
+EOF_RAT
+_OUT=$(_v67_run_verifier "$_T"); _RC=$?
+if [ "$_RC" -eq 0 ] \
+   && echo "$_OUT" | grep -q 'COMMIT ALLOWED' \
+   && echo "$_OUT" | grep -qE '! WARN Finding 2.*lazy pattern'; then
+    pass "Phase 2: lazy-pattern rationale → SIGN + WARN emitted"
+    PASSES=$((PASSES + 1))
+else
+    fail "Phase 2 lazy-pattern: expected SIGN + WARN (rc=$_RC, out=$(echo "$_OUT" | tail -5 | tr '\n' '|'))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

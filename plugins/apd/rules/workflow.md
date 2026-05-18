@@ -32,9 +32,24 @@
      Dispatching adversarial-reviewer earlier is mechanically blocked (CC: track-agent
      hook exits 2; Codex: apd:apd_adversarial_pass refuses).
    → Dispatch adversarial-reviewer agent (sonnet/max, read-only, no spec context)
-   → Agent sees only git diff + touched files, finds issues blind
-   → Orchestrator evaluates findings: accept or dismiss each
+   → Agent sees only git diff + touched files, finds issues blind. Each finding
+     gets a `Status:` field — `active` (real defect) or `self-dismissed`
+     (reviewer concluded inline it's not actionable, with `Note:` reason).
+   → Orchestrator processes each finding:
+     - `active` → decide accept (dispatch builder fix) or dismiss (with rationale).
+     - `self-dismissed` → copy reviewer's Note as rationale text.
    → Write ADVERSARIAL:total:accepted:dismissed to .apd/pipeline/.adversarial-summary
+     where `dismissed` = orchestrator-dismissed + reviewer-self-dismissed (sum kept
+     in summary for backward compat; rationale file disambiguates).
+   → Write .apd/pipeline/.adversarial-rationale.md with one block per finding:
+     ```
+     ## Finding N — <one-line title>
+     **Severity:** critical | important | minor
+     **Status:** accepted | dismissed | reviewer-self-dismissed
+     **Rationale:** <text; ≥40 chars required for dismissed/reviewer-self-dismissed>
+     ```
+     Skipping this file causes a hard BLOCK at verifier (v7.1). The verifier also
+     hard-blocks the 100%-orchestrator-dismiss pattern: T≥3 && A==0 && Do≥1 (v7.6).
    → If accepted findings → fix via builder → re-review
    → Lean mode skips this step — see "Lean vs Full" below
    ↓
@@ -46,6 +61,11 @@
        hotfix (1–2 R) → max_defects=unlimited
        real task (3–4 R) → max_defects=0
        complex (5+ R) → max_defects=0 or N with rationale.
+   → RATIONALE GATE (v6.7): blocks on missing/malformed .adversarial-rationale.md,
+     status/A/D drift between summary and rationale, and the 100%-orchestrator
+     dismissal pattern. Soft warns on rationale text <40 chars or lazy patterns
+     (`ok`, `n/a`, `false positive`, etc.). Per-task opt-out:
+     `adversarial: rationale_gate=off` in spec-card.md.
    → If verifier FAILS → MANDATORY: /apd-debug before re-dispatching builder
    ↓
 8. ONE COMMIT for the entire feature

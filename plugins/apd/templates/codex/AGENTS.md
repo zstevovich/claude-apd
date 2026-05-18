@@ -43,7 +43,7 @@ these tools:
 | `apd_advance_pipeline(step, arg?)` | Move the pipeline forward one gate |
 | `apd_guard_write(apd_role, file_path)` | MUST call before every file write — scope is read server-side from `.apd/agents/<apd_role>.md`; exit 2 = BLOCK. The argument is `apd_role` not `role` to dodge Codex's multi_agent role-mismatch approval prompt |
 | `apd_verify_step(scope="full")` | Run project `.codex/bin/verify-all.sh` (or framework fallback). `scope="fast"` exposes `APD_VERIFY_SCOPE=fast` to the verifier so a customised verify-all.sh can run build + targeted tests only — use during builder REFACTOR iteration. Default `"full"` runs the complete suite and is what the pre-commit gate uses |
-| `apd_adversarial_pass(total, accepted, dismissed, notes="")` | Record adversarial review outcome — `notes` is REQUIRED when `total=0` (>= 80 chars) so the server can tell a real "0 findings" pass from a rubber-stamp |
+| `apd_adversarial_pass(total, accepted, dismissed, notes="")` | Record adversarial review outcome — `notes` is REQUIRED when `total=0` (>= 80 chars) so the server can tell a real "0 findings" pass from a rubber-stamp. When `total>0`, you MUST also write `.apd/pipeline/.adversarial-rationale.md` with one block per finding (Severity / Status / Rationale fields) — the verifier hard-blocks otherwise (v6.7 rationale gate). Treat reviewer-self-dismissed entries as `**Status:** reviewer-self-dismissed` to avoid false-triggering the 100%-orchestrator-dismiss gate (T≥3 && A==0 && Do≥1) |
 | `apd_list_agents()` | List every agent definition in `.apd/agents/` with scope, model, maxTurns — call once to discover which roles exist; scope is enforced by `apd_guard_write` itself, not by re-sending it |
 | `apd_pipeline_state()` | Structured snapshot of the current pipeline: which `.done` files exist, spec-card criteria count + freeze hash, implementation-plan presence, adversarial summary, reviewed-files count, verifier cache age, the next step to advance, and a `budgets` field (spec criteria, reviewed files, verifier duration) with advisory green/yellow/red status to inform the Lean vs Full choice |
 
@@ -54,6 +54,7 @@ these tools:
 - `spec-card.md` is frozen after the spec gate; scope changes require rollback.
 - Reviewer and adversarial phases are read-only unless the task loops back to builder.
 - The verifier gate must run full verification before commit.
+- After `apd_adversarial_pass` with `total > 0`, write `.apd/pipeline/.adversarial-rationale.md` BEFORE running `apd_advance_pipeline("verifier")`. Format: `## Finding N — <title>` + `**Severity:** critical|important|minor` + `**Status:** accepted|dismissed|reviewer-self-dismissed` + `**Rationale:** <text ≥40 chars for dismissed/self-dismissed>`. Verifier hard-blocks on missing file, count mismatch, malformed fields, or the 100%-orchestrator-dismiss pattern.
 
 ### Mandatory skills
 
