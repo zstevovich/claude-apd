@@ -156,7 +156,7 @@ See §17.2 for per-guard internals. Block convention: exit 2 = BLOCK, exit 0 = A
 
 | File | Format | Notes |
 |---|---|---|
-| `pipeline-metrics.log` | Pipe-delimited per-task: `ts\|task\|spec_ts\|builder_ts\|reviewer_ts\|verifier_ts\|status\|adv_t\|adv_a\|adv_d\|agents_t\|agents_x` | Skips `APD-VERIFY-*` synthetic test runs |
+| `pipeline-metrics.log` | Pipe-delimited per-task: `ts\|task\|spec_ts\|builder_ts\|reviewer_ts\|verifier_ts\|status\|adv_t\|adv_a\|adv_d\|agents_t\|agents_x\|adv_do\|adv_dr\|adv_w` | Skips `APD-VERIFY-*` synthetic test runs. **v6.7.1:** columns 13–15 added (`adv_do` = orchestrator dismissals, `adv_dr` = reviewer-self-dismissals, `adv_w` = soft-warn count from rationale-quality scan). `adv_d` in column 10 stays as `adv_do + adv_dr` sum for backward compat with v6.6 and earlier readers. Old 12-column rows render the same as before in `apd report`; new 15-column rows add a `Dismissal split: Do=N (orchestrator) Dr=N (reviewer-self)` line + a `Rationale warns: N` line when non-zero |
 | `agent-history.log` | Concatenated `.agents` files | Skips `APD-VERIFY-*` |
 | `session-log.md` | Markdown auto-summary entry per task | Uses `NEW_RULE` arg or "None" default |
 | `guard-audit.log` | Pipe-delimited: `ts\|TYPE\|agent_info\|reason\|cmd_summary` | Sanitised newlines since F3 |

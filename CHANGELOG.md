@@ -1,5 +1,14 @@
 # Changelog
 
+## v6.7.1 — 2026-05-18
+
+Phase 4 patch — `pipeline-metrics.log` extended with per-status dismissal columns and rationale-warn counter. `apd pipeline metrics` cumulative report surfaces the new data without breaking legacy 12-column rows. Tests: 430 → 435 (+5 in §53).
+
+- **feat(metrics): three new columns at positions 13–15.** `adv_do` (orchestrator dismissals), `adv_dr` (reviewer-self-dismissals), `adv_w` (count of soft-warn lines from rationale-quality scan: short rationales <40 chars or lazy-pattern matches). Read from `.adversarial-rationale.md` at reset time; the awk pass that runs in verifier is mirrored here so the warn count is consistent between live verifier output and historical metrics. Column 10 (`adv_d`) stays as `adv_do + adv_dr` for backward compat with v6.6 and earlier readers — no breaking change.
+- **feat(metrics): apd pipeline metrics renders dismissal split + warns line.** Cumulative "Adversarial review" section now shows `Dismissal split: Do=N (orchestrator) Dr=N (reviewer-self)` and `Rationale warns: N (rationale text <40 chars or lazy pattern)` when non-zero. Old 12-column rows produce empty trailing fields that default to 0 — they render the same as before.
+- **docs: SPEC.md §5.4** documents the v6.7.1 column extension and backward-compat behavior.
+- **Tests:** `test-codex-adapter` §53 adds 5 assertions (2 static + 3 live): writer emits Do/Dr/Warns vars, apd report parses + renders them, 12-col legacy row renders without Do/Dr split, 15-col row renders with split + warns, end-to-end (rationale → verifier → reset → 15-col row with correct counts). Test count 430 → 435.
+
 ## v6.7.0 — 2026-05-18
 
 Adversarial dismissal quality — `pipeline-advance verifier` now reads `.apd/pipeline/.adversarial-rationale.md` and hard-blocks the 100% orchestrator-dismissal bypass pattern. Three-status classification (accepted / dismissed / reviewer-self-dismissed) lets clean reviewer-self-dismiss runs sign through while catching orchestrator rationalization-without-action. Tests: 419 → 430 (+11 in §52).

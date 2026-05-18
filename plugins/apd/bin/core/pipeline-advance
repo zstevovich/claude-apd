@@ -941,6 +941,30 @@ function _check() {
                 IFS=: read -r _prefix ADV_T ADV_A ADV_D < "$PIPELINE_DIR/.adversarial-summary" 2>/dev/null || true
                 ADV_T=${ADV_T:-0}; ADV_A=${ADV_A:-0}; ADV_D=${ADV_D:-0}
             fi
+            # v6.7.1 — per-status dismissal counts + quality-warn count read
+            # from .adversarial-rationale.md. Zero defaults when rationale gate
+            # was opted out (or file absent for any reason): old-format logs
+            # have 12 columns; the apd report parser tolerates that.
+            ADV_DO=0; ADV_DR=0; ADV_W=0
+            if [ -f "$PIPELINE_DIR/.adversarial-rationale.md" ]; then
+                ADV_DO=$(grep -c '^\*\*Status:\*\* dismissed$' "$PIPELINE_DIR/.adversarial-rationale.md" 2>/dev/null); ADV_DO=${ADV_DO:-0}
+                ADV_DR=$(grep -c '^\*\*Status:\*\* reviewer-self-dismissed$' "$PIPELINE_DIR/.adversarial-rationale.md" 2>/dev/null); ADV_DR=${ADV_DR:-0}
+                ADV_W=$(awk '
+BEGIN { f=0; s=""; r=""; w=0 }
+/^## Finding / { if (f>0) _c(); f++; s=""; r=""; next }
+/^\*\*Status:\*\* / { sub(/^\*\*Status:\*\* /, ""); s=$0; next }
+/^\*\*Rationale:\*\* / { sub(/^\*\*Rationale:\*\* /, ""); r=$0; next }
+END { if (f>0) _c(); print w+0 }
+function _c() {
+    if (s == "dismissed" || s == "reviewer-self-dismissed") {
+        if (length(r) < 40) w++
+        l = tolower(r)
+        if (l ~ /^(ok|n\/a|false positive|not applicable|skip|no)\.?$/) w++
+    }
+}
+' "$PIPELINE_DIR/.adversarial-rationale.md" 2>/dev/null)
+                ADV_W=${ADV_W:-0}
+            fi
             # Agent dispatch counts — total starts and exhausted (start without matching stop = maxTurn hit)
             AGENTS_T=0; AGENTS_X=0
             if [ -f "$PIPELINE_DIR/.agents" ]; then
@@ -962,7 +986,7 @@ function _check() {
                     : # skip metrics write
                     ;;
                 *)
-                    echo "${NOW}|${TASK_NAME}|${SPEC_TS_V}|${BUILDER_TS_V}|${REVIEWER_TS_V}|${VERIFIER_TS_V}|${STATUS}|${ADV_T}|${ADV_A}|${ADV_D}|${AGENTS_T}|${AGENTS_X}" >> "$METRICS_LOG"
+                    echo "${NOW}|${TASK_NAME}|${SPEC_TS_V}|${BUILDER_TS_V}|${REVIEWER_TS_V}|${VERIFIER_TS_V}|${STATUS}|${ADV_T}|${ADV_A}|${ADV_D}|${AGENTS_T}|${AGENTS_X}|${ADV_DO}|${ADV_DR}|${ADV_W}" >> "$METRICS_LOG"
                     ;;
             esac
 
@@ -1301,16 +1325,27 @@ EOF
         printf "    %-22s %s\n" "builder → reviewer:" "$AVG_B2R"
         printf "    %-22s %s\n" "reviewer → verifier:" "$AVG_R2V"
 
-        # Adversarial hit rate (cumulative)
+        # Adversarial hit rate (cumulative). v6.7.1 adds Do/Dr/Warns columns
+        # 13/14/15; old 12-col rows produce empty trailing fields that default
+        # to 0 via ${var:-0}, so legacy logs render the same as before.
         ADV_TOTAL_SUM=0
         ADV_ACCEPTED_SUM=0
+        ADV_DO_SUM=0
+        ADV_DR_SUM=0
+        ADV_W_SUM=0
         ADV_TASKS=0
-        while IFS='|' read -r _ts _task _s _b _r _v _status adv_t adv_a adv_d; do
+        while IFS='|' read -r _ts _task _s _b _r _v _status adv_t adv_a adv_d _at _ax adv_do adv_dr adv_w; do
             adv_t=$(echo "${adv_t:-0}" | tr -d '[:space:]')
             adv_a=$(echo "${adv_a:-0}" | tr -d '[:space:]')
+            adv_do=$(echo "${adv_do:-0}" | tr -d '[:space:]')
+            adv_dr=$(echo "${adv_dr:-0}" | tr -d '[:space:]')
+            adv_w=$(echo "${adv_w:-0}" | tr -d '[:space:]')
             [ "$adv_t" -gt 0 ] 2>/dev/null && {
                 ADV_TOTAL_SUM=$((ADV_TOTAL_SUM + adv_t))
                 ADV_ACCEPTED_SUM=$((ADV_ACCEPTED_SUM + adv_a))
+                ADV_DO_SUM=$((ADV_DO_SUM + adv_do))
+                ADV_DR_SUM=$((ADV_DR_SUM + adv_dr))
+                ADV_W_SUM=$((ADV_W_SUM + adv_w))
                 ADV_TASKS=$((ADV_TASKS + 1))
             }
         done < "$METRICS_LOG"
@@ -1319,6 +1354,12 @@ EOF
             ADV_RATE=$((ADV_ACCEPTED_SUM * 100 / ADV_TOTAL_SUM))
             section "Adversarial review"
             printf "    %-22s %s\n" "Hit rate:" "${ADV_RATE}% (${ADV_ACCEPTED_SUM}/${ADV_TOTAL_SUM} accepted across ${ADV_TASKS} tasks)"
+            if [ "$ADV_DO_SUM" -gt 0 ] || [ "$ADV_DR_SUM" -gt 0 ]; then
+                printf "    %-22s Do=%d (orchestrator) Dr=%d (reviewer-self)\n" "Dismissal split:" "$ADV_DO_SUM" "$ADV_DR_SUM"
+            fi
+            if [ "$ADV_W_SUM" -gt 0 ]; then
+                printf "    %-22s %d (rationale text <40 chars or lazy pattern)\n" "Rationale warns:" "$ADV_W_SUM"
+            fi
         fi
 
         section "Last 5"

@@ -4859,7 +4859,7 @@ _v67_make_state() {
     # .agents so the compiled validator (validate-agent) accepts each phase.
     local dir=$1
     local adv_summary=$2  # "ADVERSARIAL:T:A:D"
-    mkdir -p "$dir/.apd/pipeline" "$dir/.claude/agents"
+    mkdir -p "$dir/.apd/pipeline" "$dir/.claude/agents" "$dir/.claude/memory"
     echo "PROJECT_NAME=v67-test" > "$dir/.apd/config"
     cat > "$dir/.apd/pipeline/spec-card.md" <<'EOF_SPEC'
 # v6.7 gate test
@@ -5148,6 +5148,110 @@ if [ "$_RC" -eq 0 ] \
     PASSES=$((PASSES + 1))
 else
     fail "Phase 2 lazy-pattern: expected SIGN + WARN (rc=$_RC, out=$(echo "$_OUT" | tail -5 | tr '\n' '|'))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# -----------------------------------------------------------
+# 53. v6.7.1 — pipeline-metrics Do/Dr/Warns columns (Phase 4)
+#     pipeline-advance reset writes 15-column rows when .adversarial-rationale.md
+#     is present. apd report tolerates legacy 12-column rows (defaults to 0)
+#     and renders Dismissal split + Rationale warns lines when non-zero.
+# -----------------------------------------------------------
+section "53. pipeline-metrics Do/Dr/Warns columns (v6.7.1)"
+
+# Static A: writer emits 15-column format with ADV_DO/ADV_DR/ADV_W variables
+if grep -q 'ADV_DO=' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && grep -q 'ADV_DR=' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && grep -q 'ADV_W=' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && grep -q '${ADV_DO}|${ADV_DR}|${ADV_W}' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance writes Do/Dr/Warns columns"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing v6.7.1 Do/Dr/Warns writer"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: apd report parser reads adv_do/adv_dr/adv_w from extended cols
+if grep -q 'adv_do adv_dr adv_w' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && grep -q 'Dismissal split:' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && grep -q 'Rationale warns:' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "apd report parses + renders Do/Dr/Warns"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd report missing v6.7.1 dismissal-split renderer"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live C: backward compat — legacy 12-col row renders without "Dismissal split"
+_T="$(mktemp -d -t apd-v671c.XXXXXX)"
+mkdir -p "$_T/.apd/pipeline" "$_T/.claude/memory"
+echo "PROJECT_NAME=v671-test" > "$_T/.apd/config"
+# Seed a legacy 12-column row
+echo "1779000000|legacy-task|1779000010|1779000020|1779000030|1779000040|completed|5|3|2|10|0" \
+    > "$_T/.claude/memory/pipeline-metrics.log"
+_OUT=$(APD_PROJECT_DIR="$_T" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" metrics 2>&1)
+if echo "$_OUT" | grep -q 'Hit rate' \
+   && ! echo "$_OUT" | grep -q 'Dismissal split' \
+   && ! echo "$_OUT" | grep -q 'Rationale warns'; then
+    pass "12-col legacy row renders (Hit rate, no Do/Dr split, no warns)"
+    PASSES=$((PASSES + 1))
+else
+    fail "legacy row: expected Hit rate + no Do/Dr split (got: $(echo "$_OUT" | grep -E 'Hit|Dismissal|warns' | tr '\n' '|'))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live D: 15-col row renders Dismissal split + Rationale warns
+_T="$(mktemp -d -t apd-v671d.XXXXXX)"
+mkdir -p "$_T/.apd/pipeline" "$_T/.claude/memory"
+echo "PROJECT_NAME=v671-test" > "$_T/.apd/config"
+# 15-col row: T=8 A=4 D=4 agents 6/0 Do=2 Dr=2 Warns=1
+echo "1779100000|new-task|1779100010|1779100020|1779100030|1779100040|completed|8|4|4|6|0|2|2|1" \
+    > "$_T/.claude/memory/pipeline-metrics.log"
+_OUT=$(APD_PROJECT_DIR="$_T" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" metrics 2>&1)
+if echo "$_OUT" | grep -q 'Hit rate' \
+   && echo "$_OUT" | grep -q 'Do=2 (orchestrator) Dr=2 (reviewer-self)' \
+   && echo "$_OUT" | grep -q 'Rationale warns:.*1'; then
+    pass "15-col row renders Hit rate + Do/Dr split + warns line"
+    PASSES=$((PASSES + 1))
+else
+    fail "15-col row: missing expected render (out: $(echo "$_OUT" | grep -E 'Hit|Dismissal|warns' | tr '\n' '|'))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live E: end-to-end writer integration — rationale present produces 15-col metrics row
+_T="$(mktemp -d -t apd-v671e.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:3:1:2"
+cat > "$_T/.apd/pipeline/.adversarial-rationale.md" <<'EOF_RAT'
+## Finding 1 — accepted
+**Severity:** critical
+**Status:** accepted
+**Rationale:** real fix applied via builder dispatch cycle
+
+## Finding 2 — orch dismissed
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** ok
+
+## Finding 3 — reviewer self
+**Severity:** minor
+**Status:** reviewer-self-dismissed
+**Rationale:** reviewer flagged as not actionable existing pattern
+EOF_RAT
+_v67_run_verifier "$_T" >/dev/null 2>&1
+APD_PROJECT_DIR="$_T" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
+_LAST=$(tail -1 "$_T/.claude/memory/pipeline-metrics.log" 2>/dev/null)
+_COLS=$(echo "$_LAST" | awk -F'|' '{print NF}')
+_DO=$(echo "$_LAST" | awk -F'|' '{print $13}')
+_DR=$(echo "$_LAST" | awk -F'|' '{print $14}')
+_W=$(echo "$_LAST" | awk -F'|' '{print $15}')
+if [ "$_COLS" = "15" ] && [ "$_DO" = "1" ] && [ "$_DR" = "1" ] && [ "$_W" = "2" ]; then
+    pass "end-to-end: rationale produces 15-col row with Do=1 Dr=1 W=2 ('ok' is short AND lazy)"
+    PASSES=$((PASSES + 1))
+else
+    fail "end-to-end metrics row mismatch (cols=$_COLS Do=$_DO Dr=$_DR W=$_W; row=$_LAST)"
     FAILS=$((FAILS + 1))
 fi
 rm -rf "$_T"
