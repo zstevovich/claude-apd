@@ -170,6 +170,52 @@ case "$EVENT" in
             fi
         fi
     fi
+
+    # v6.4 F2 — agent duration outlier flag. Surface possible intra-dispatch
+    # overrun (long-running agent with no recent file writes), as in the
+    # 2026-05-11 incident where 1 builder ran 23m with 15m of post-success
+    # verification loop. Post-hoc only — does not block. Default threshold
+    # 600s; APD_AGENT_LONG_RUN_THRESHOLD_SEC=0 disables.
+    THRESHOLD_SEC=${APD_AGENT_LONG_RUN_THRESHOLD_SEC:-600}
+    if [ "$THRESHOLD_SEC" -gt 0 ] 2>/dev/null && [ -n "$AGENT_ID" ] && [ -f "$AGENTS_LOG" ]; then
+        START_TS=$(grep "|start|${AGENT_TYPE}|${AGENT_ID}$" "$AGENTS_LOG" 2>/dev/null | head -1 | cut -d'|' -f1)
+        if [ -n "$START_TS" ]; then
+            START_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$START_TS" +%s 2>/dev/null || date -d "$START_TS" +%s 2>/dev/null || echo 0)
+            STOP_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$NOW_HUMAN" +%s 2>/dev/null || date -d "$NOW_HUMAN" +%s 2>/dev/null || echo 0)
+            if [ "$START_EPOCH" -gt 0 ] 2>/dev/null && [ "$STOP_EPOCH" -gt "$START_EPOCH" ] 2>/dev/null; then
+                DURATION=$((STOP_EPOCH - START_EPOCH))
+                if [ "$DURATION" -gt "$THRESHOLD_SEC" ] 2>/dev/null; then
+                    # No-recent-write check. Look at uncommitted files (git
+                    # status); flag agent only if NONE were modified in the
+                    # trailing 5 min. Bypasses filesystem-wide find — avoids
+                    # noise from build artifacts and dependency caches.
+                    HAS_RECENT_WRITE=0
+                    TRAIL_THRESHOLD=$((STOP_EPOCH - 300))
+                    if command -v git >/dev/null 2>&1 && [ -d "$PROJECT_DIR/.git" ]; then
+                        while IFS= read -r _f; do
+                            [ -z "$_f" ] && continue
+                            [ -f "$PROJECT_DIR/$_f" ] || continue
+                            _mt=$(stat -f %m "$PROJECT_DIR/$_f" 2>/dev/null || stat -c %Y "$PROJECT_DIR/$_f" 2>/dev/null || echo 0)
+                            if [ "$_mt" -gt "$TRAIL_THRESHOLD" ] 2>/dev/null; then
+                                HAS_RECENT_WRITE=1
+                                break
+                            fi
+                        done < <(cd "$PROJECT_DIR" 2>/dev/null && git status --porcelain 2>/dev/null | awk '{print $NF}')
+                    fi
+                    if [ "$HAS_RECENT_WRITE" -eq 0 ]; then
+                        DUR_MIN=$((DURATION / 60))
+                        echo "" >&2
+                        echo "  ${RED}${B}! WARN: ${AGENT_TYPE} ran ${DUR_MIN}m with no file writes in trailing 5 min (possible verification loop)${R}" >&2
+                        echo "  ${D}Threshold: ${THRESHOLD_SEC}s. Disable: APD_AGENT_LONG_RUN_THRESHOLD_SEC=0${R}" >&2
+                        if [ -d "$MEMORY_DIR" ]; then
+                            OVERRUN_LOG="$MEMORY_DIR/agent-overrun.log"
+                            echo "${NOW_HUMAN}|${AGENT_TYPE}|${AGENT_ID}|${DURATION}" >> "$OVERRUN_LOG"
+                        fi
+                    fi
+                fi
+            fi
+        fi
+    fi
     ;;
 esac
 

@@ -5257,6 +5257,65 @@ fi
 rm -rf "$_T"
 
 # -----------------------------------------------------------
+# 54. v6.7.2 — agent duration outlier flag (F2)
+#     track-agent SubagentStop emits soft WARN when agent ran longer than
+#     APD_AGENT_LONG_RUN_THRESHOLD_SEC (default 600s) AND no file writes in
+#     the trailing 5 min. Targets intra-dispatch overrun (post-success
+#     verification loop pattern from 2026-05-11).
+# -----------------------------------------------------------
+section "54. agent duration outlier flag (v6.7.2 F2)"
+
+# Static A: env var + WARN message + agent-overrun.log are present in source
+if grep -q 'APD_AGENT_LONG_RUN_THRESHOLD_SEC' "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+   && grep -q 'possible verification loop' "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+   && grep -q 'agent-overrun.log' "$APD_PLUGIN_ROOT/bin/core/track-agent"; then
+    pass "track-agent has F2 threshold + WARN message + agent-overrun.log"
+    PASSES=$((PASSES + 1))
+else
+    fail "track-agent missing F2 components"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live B: long duration + no recent writes → WARN + log entry
+_T="$(mktemp -d -t apd-f2b.XXXXXX)"
+mkdir -p "$_T/.apd/pipeline" "$_T/.claude/memory"
+echo "PROJECT_NAME=f2-test" > "$_T/.apd/config"
+# Seed a start event from 20 min ago, with no recently-modified files
+_START_H=$(date -v-20M +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-20 minutes" +"%Y-%m-%d %H:%M:%S")
+echo "${_START_H}|start|backend-builder|aabbccddeeff5005" > "$_T/.apd/pipeline/.agents"
+# Run SubagentStop with default threshold (600s) — 20m > 600s, no writes → WARN
+_OUT=$(APD_PROJECT_DIR="$_T" bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+    --event SubagentStop --agent-type backend-builder --agent-id aabbccddeeff5005 2>&1)
+if echo "$_OUT" | grep -q 'possible verification loop' \
+   && [ -s "$_T/.claude/memory/agent-overrun.log" ]; then
+    pass "long-no-writes agent emits WARN + writes agent-overrun.log"
+    PASSES=$((PASSES + 1))
+else
+    fail "F2 long-no-writes: expected WARN + log (out=$(echo "$_OUT" | tail -3 | tr '\n' '|'))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live C: threshold=0 disables the check entirely
+_T="$(mktemp -d -t apd-f2c.XXXXXX)"
+mkdir -p "$_T/.apd/pipeline" "$_T/.claude/memory"
+echo "PROJECT_NAME=f2-test" > "$_T/.apd/config"
+_START_H=$(date -v-20M +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-20 minutes" +"%Y-%m-%d %H:%M:%S")
+echo "${_START_H}|start|backend-builder|aabbccddeeff6006" > "$_T/.apd/pipeline/.agents"
+_OUT=$(APD_PROJECT_DIR="$_T" APD_AGENT_LONG_RUN_THRESHOLD_SEC=0 \
+    bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
+    --event SubagentStop --agent-type backend-builder --agent-id aabbccddeeff6006 2>&1)
+if ! echo "$_OUT" | grep -q 'possible verification loop' \
+   && [ ! -s "$_T/.claude/memory/agent-overrun.log" ]; then
+    pass "APD_AGENT_LONG_RUN_THRESHOLD_SEC=0 silences F2 check"
+    PASSES=$((PASSES + 1))
+else
+    fail "F2 threshold=0: should be silent (out=$(echo "$_OUT" | tail -2 | tr '\n' '|'))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

@@ -1,5 +1,16 @@
 # Changelog
 
+## v6.7.2 — 2026-05-18
+
+v6.4 backlog F2 — `track-agent` SubagentStop now flags long-running agents that produced no recent file writes. Targets the 2026-05-11 intra-dispatch overrun pattern (1 builder, 23 min, 15 min of post-success "verification" loop with no code changes). Post-hoc detection only — surfaces signal, does not block. Tests: 435 → 438 (+3 in §54).
+
+- **feat(track-agent): agent duration outlier flag (F2).** On `SubagentStop`, compute duration from the paired start event in `.agents`. When `> APD_AGENT_LONG_RUN_THRESHOLD_SEC` (default 600s) AND no uncommitted file (via `git status --porcelain` + `stat` mtime) has been modified in the trailing 5 min, emit a stderr WARN ("possible verification loop") and append `ts|agent_type|agent_id|duration_sec` to `$MEMORY_DIR/agent-overrun.log`. Disable: `APD_AGENT_LONG_RUN_THRESHOLD_SEC=0`.
+- **Write-detection method:** `git status --porcelain` filters to candidate files (uncommitted changes + untracked); per-file `stat` mtime compared against `stop_epoch - 300s`. Avoids filesystem-wide `find` — no false-positive noise from build artifacts or dependency caches. False-positive scenario: legitimate long-but-quiet research tasks (e.g., extensive Read-only scan); user can lift the threshold per session.
+- **Why post-hoc instead of intercepting:** track-agent is a SubagentStop hook — by the time it fires, the agent has already exited. Real-time intervention would need a SubagentInProgress hook (doesn't exist) or polling. Post-hoc WARN at stop time + `agent-overrun.log` history is enough for users to spot the pattern and re-tune their dispatch prompts.
+- **docs: SPEC.md §5.4** documents the new telemetry file format, threshold env var, and 2026-05-11 incident reference.
+- **Memory: v6.4 builder-overrun backlog** marks F2 as DONE. F1 (workflow.md dispatch finalization helper) + F3 (git-state mandatory self-check in agent template) remain open.
+- **Tests:** `test-codex-adapter` §54 adds 3 assertions: static check for env var + WARN msg + log path; live simulation (20-min back-dated start + no file writes) → WARN + log entry; live with `APD_AGENT_LONG_RUN_THRESHOLD_SEC=0` → silent. Test count 435 → 438.
+
 ## v6.7.1 — 2026-05-18
 
 Phase 4 patch — `pipeline-metrics.log` extended with per-status dismissal columns and rationale-warn counter. `apd pipeline metrics` cumulative report surfaces the new data without breaking legacy 12-column rows. Tests: 430 → 435 (+5 in §53).

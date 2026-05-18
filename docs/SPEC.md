@@ -161,6 +161,7 @@ See §17.2 for per-guard internals. Block convention: exit 2 = BLOCK, exit 0 = A
 | `session-log.md` | Markdown auto-summary entry per task | Uses `NEW_RULE` arg or "None" default |
 | `guard-audit.log` | Pipe-delimited: `ts\|TYPE\|agent_info\|reason\|cmd_summary` | Sanitised newlines since F3 |
 | `zombie-audit.log` | Pipe-delimited: `ts\|agent_type\|pid\|cmd` | v6.3 A — written by `track-agent` SubagentStop zombie sweep. Append-only, never read by APD itself; for human + telemetry follow-up |
+| `agent-overrun.log` | Pipe-delimited: `ts\|agent_type\|agent_id\|duration_sec` | **v6.7.2 (F2):** written by `track-agent` SubagentStop when agent ran longer than `APD_AGENT_LONG_RUN_THRESHOLD_SEC` (default 600s) AND no file writes in the trailing 5 min (via `git status --porcelain` + `stat` mtime check). Surface as a stderr WARN at stop time; log is append-only for follow-up. Disable: `APD_AGENT_LONG_RUN_THRESHOLD_SEC=0`. Targets the 2026-05-11 intra-dispatch overrun pattern (1 builder, 23 min, 15 min of post-success "verification" loop without code changes) |
 
 Memory dir: `<project>/.claude/memory/` (CC + hybrid) or `<project>/.apd/memory/` (pure-Codex). Resolved by `bin/lib/resolve-project.sh`.
 
