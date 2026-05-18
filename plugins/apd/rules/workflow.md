@@ -20,6 +20,14 @@
    ↓
 5. DISPATCH BUILDER AGENT(S) — one agent per domain, max 3-4 edits each
    → Builder agents MUST use /apd-tdd skill for implementation
+   → **Mandatory finalization clause in EVERY builder dispatch prompt:**
+     "When the build passes AND the tests you wrote pass, STOP IMMEDIATELY.
+     Do NOT re-verify. Do NOT search 'one more time' to confirm.
+     Verification of completeness is the reviewer's job, not yours."
+     (Counters the 2026-05-11 intra-dispatch overrun pattern: 1 builder,
+     23 min, 15 min of post-success verification loop without code changes.
+     `track-agent` SubagentStop will flag this via the v6.7.2 F2 telemetry,
+     but the dispatch-prompt rule is the upstream fix.)
    → bash .claude/bin/apd pipeline builder (after agent completes)
    ↓
 6. DISPATCH REVIEWER AGENT — opus/max, read-only, finds bugs

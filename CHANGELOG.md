@@ -1,5 +1,19 @@
 # Changelog
 
+## v6.7.3 — 2026-05-18
+
+v6.4 backlog F1 + F3 — template-only directives that complement the v6.7.2 F2 detection arm. F1 makes the orchestrator include an explicit finalization clause in every builder dispatch prompt; F3 forces builders to ground their self-reports in `git diff --stat` + `git status --short`, preventing hallucinated rename/file-add claims. Tests: 438 → 441 (+3 in §55).
+
+- **docs(workflow): F1 mandatory dispatch finalization clause.** `workflow.md` step 5 now reads: "Mandatory finalization clause in EVERY builder dispatch prompt: 'When the build passes AND the tests you wrote pass, STOP IMMEDIATELY. Do NOT re-verify. Do NOT search "one more time" to confirm. Verification of completeness is the reviewer's job, not yours.'". Cross-ref to v6.7.2 F2 in the same block — F2 is the telemetry/detection arm; F1 is the upstream dispatch-prompt rule. Pure template; can't be runtime-enforced (we don't see what orchestrator writes to its subagent), but reinforces against the RLHF "thorough" default and complements the F4 `STOP IMMEDIATELY` wording in dispatch templates shipped in v6.3.0.
+- **docs(templates): F3 git-state self-check directive.** Added a "Before stopping — git-state self-check" block to the Exit criteria section of `templates/agent-template.md` (CC master) + Codex `templates/codex/agents/{backend-builder,frontend-builder,testing}.md`. Each block instructs: `command -v git >/dev/null 2>&1 && git diff --stat && git status --short`, then "Report **exactly** which files you changed (or that you changed none). Do not claim work you did not do — hallucinated renames or file additions that aren't in `git status` mislead the reviewer and waste a re-dispatch.". Targets the 2026-05-11 incident where the agent claimed "renamed nonPursQrDoesNotResetTimers" but didn't actually do so — verifier confidence broke down. Reviewer templates intentionally skipped — they don't write code; the directive doesn't apply.
+- **Memory: v6.4 builder-overrun backlog** marks F1 + F3 as DONE. Full F-family now closed:
+  - F1 — workflow.md dispatch finalization (DONE v6.7.3)
+  - F2 — track-agent duration outlier flag (DONE v6.7.2)
+  - F3 — agent-template git-state self-check (DONE v6.7.3)
+  - F4 — dispatch-template STOP IMMEDIATELY wording (DONE v6.3.0)
+- **Existing projects:** scaffolded pre-v6.7.3 do NOT auto-pick up the template changes — re-run `apd-init` or refresh agent files manually. Codex projects do not regenerate agents from the cache automatically.
+- **Tests:** `test-codex-adapter` §55 adds 3 assertions: workflow.md carries F1 clause; CC `agent-template.md` has F3 directive; all 3 Codex builder/testing templates have F3 directive + `command -v git` guard. Test count 438 → 441.
+
 ## v6.7.2 — 2026-05-18
 
 v6.4 backlog F2 — `track-agent` SubagentStop now flags long-running agents that produced no recent file writes. Targets the 2026-05-11 intra-dispatch overrun pattern (1 builder, 23 min, 15 min of post-success "verification" loop with no code changes). Post-hoc detection only — surfaces signal, does not block. Tests: 435 → 438 (+3 in §54).

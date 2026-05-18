@@ -5316,6 +5316,52 @@ fi
 rm -rf "$_T"
 
 # -----------------------------------------------------------
+# 55. v6.7.3 — F1 dispatch finalization clause + F3 git-state self-check
+#     Template-only directives. F1 instructs orchestrator on builder
+#     dispatch prompts; F3 forces builders to ground self-reports in git.
+# -----------------------------------------------------------
+section "55. F1 dispatch finalization + F3 git-state self-check (v6.7.3)"
+
+# F1 static: workflow.md has the finalization clause
+if grep -q 'Mandatory finalization clause' "$APD_PLUGIN_ROOT/rules/workflow.md" \
+   && grep -q 'STOP IMMEDIATELY' "$APD_PLUGIN_ROOT/rules/workflow.md" \
+   && grep -q "Verification of completeness is the reviewer's job" "$APD_PLUGIN_ROOT/rules/workflow.md"; then
+    pass "workflow.md carries F1 dispatch finalization clause"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md missing F1 finalization clause"
+    FAILS=$((FAILS + 1))
+fi
+
+# F3 static A: CC master agent-template has git diff --stat directive
+if grep -q 'git diff --stat && git status --short' "$APD_PLUGIN_ROOT/templates/agent-template.md" \
+   && grep -q 'command -v git' "$APD_PLUGIN_ROOT/templates/agent-template.md" \
+   && grep -q 'Ground every claim in the diff' "$APD_PLUGIN_ROOT/templates/agent-template.md"; then
+    pass "CC agent-template.md has F3 git-state self-check"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC agent-template.md missing F3 self-check"
+    FAILS=$((FAILS + 1))
+fi
+
+# F3 static B: all three Codex builder/testing templates have the directive
+_F3_HITS=0
+for _t in backend-builder frontend-builder testing; do
+    _f="$APD_PLUGIN_ROOT/templates/codex/agents/${_t}.md"
+    if grep -q 'git diff --stat && git status --short' "$_f" \
+       && grep -q 'command -v git' "$_f"; then
+        _F3_HITS=$((_F3_HITS + 1))
+    fi
+done
+if [ "$_F3_HITS" -eq 3 ]; then
+    pass "all 3 Codex builder/testing templates carry F3 self-check"
+    PASSES=$((PASSES + 1))
+else
+    fail "F3 missing in Codex templates ($_F3_HITS/3 present)"
+    FAILS=$((FAILS + 1))
+fi
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

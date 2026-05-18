@@ -67,3 +67,11 @@ You are {{role}} for {{PROJECT_NAME}}.
 - You hit a question that requires an orchestrator decision — ask and stop.
 
 **Do NOT** re-verify after success. **Do NOT** search "one more time" to confirm work that's already done. **Do NOT** re-read files to double-check after tests pass. Verification of completeness is the reviewer's job, not yours. Extra passes burn tokens without changing the diff.
+
+**Before stopping — git-state self-check (v6.7.3 F3):**
+
+```bash
+command -v git >/dev/null 2>&1 && git diff --stat && git status --short
+```
+
+Report **exactly** which files you changed (or that you changed none). Do not claim work you did not do. Builders that hallucinate renames, file moves, or test additions that aren't in `git status` mislead the reviewer and waste a re-dispatch cycle. Ground every claim in the diff.

@@ -45,3 +45,14 @@ question that requires an orchestrator decision. Do NOT re-verify after
 success. Do NOT search "one more time" to confirm work that's already done.
 Verification of completeness is the reviewer's job — extra passes burn
 tokens without changing the diff.
+
+**Before stopping — git-state self-check (v6.7.3 F3):**
+
+```
+command -v git >/dev/null 2>&1 && git diff --stat && git status --short
+```
+
+Report **exactly** which files you changed (or that you changed none). Do
+not claim work you did not do — hallucinated renames or file additions
+that aren't in `git status` mislead the reviewer and waste a re-dispatch.
+Ground every claim in the diff.

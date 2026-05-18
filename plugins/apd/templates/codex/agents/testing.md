@@ -39,3 +39,13 @@ spec-card has at least one test covering it; OR a guard blocks your write
 with no scope-honoring alternative; OR you hit a question that requires
 an orchestrator decision. Do NOT re-run the suite "one more time" to be
 sure. Do NOT add extra coverage for items not in the spec.
+
+**Before stopping — git-state self-check (v6.7.3 F3):**
+
+```
+command -v git >/dev/null 2>&1 && git diff --stat && git status --short
+```
+
+Report **exactly** which test files you added or modified (or that you
+added none). Do not claim test additions that aren't in `git status` —
+that wastes a re-dispatch cycle. Ground every claim in the diff.
