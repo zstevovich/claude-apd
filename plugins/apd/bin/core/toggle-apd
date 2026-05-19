@@ -1,0 +1,134 @@
+#!/bin/bash
+# APD CC Plugin Toggle — flip claude-apd@zstevovich-plugins in CC settings
+#
+# Usage:
+#   toggle-apd                    Flip current state in detected file
+#   toggle-apd on|enable|true     Force enable
+#   toggle-apd off|disable|false  Force disable
+#   toggle-apd --global ...       Target ~/.claude/settings.json (user-global)
+#   toggle-apd --project ...      Target <project>/.claude/settings.json (tracked)
+#   toggle-apd --local ...        Target <project>/.claude/settings.local.json (per-dev)
+#   toggle-apd --help
+#
+# Smart detection (default when no --global/--project/--local): edit the file
+# that currently holds the key. Search order — settings.local.json → settings.json
+# → ~/.claude/settings.json. If none have it, default to settings.local.json
+# (per-developer, gitignored, no team-wide impact).
+#
+# Smart detection matters because CC merges settings.local.json over settings.json;
+# writing to a different file than where the active value lives would have no effect.
+
+set -euo pipefail
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+
+PLUGIN_KEY="claude-apd@zstevovich-plugins"
+
+usage() {
+    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "ERROR: jq is required for toggle-apd. Install: brew install jq" >&2
+    exit 1
+fi
+
+TARGET=""
+NEW_VALUE=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --global)  TARGET="user-global" ;;
+        --project) TARGET="project-tracked" ;;
+        --local)   TARGET="project-local" ;;
+        on|enable|true|1)    NEW_VALUE="true" ;;
+        off|disable|false|0) NEW_VALUE="false" ;;
+        --help|-h|help)      usage; exit 0 ;;
+        *)
+            echo "ERROR: unknown arg '$arg'" >&2
+            echo "" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+SETTINGS_LOCAL="$PROJECT_DIR/.claude/settings.local.json"
+SETTINGS_PROJECT="$PROJECT_DIR/.claude/settings.json"
+SETTINGS_USER="$HOME/.claude/settings.json"
+
+resolve_target() {
+    case "$TARGET" in
+        user-global)     echo "$SETTINGS_USER" ;;
+        project-tracked) echo "$SETTINGS_PROJECT" ;;
+        project-local)   echo "$SETTINGS_LOCAL" ;;
+        "")
+            # Smart detection: find file containing the key (presence, not truthiness —
+            # `false` is a valid present value; using `jq -e [$k]` would mis-classify
+            # it as missing and skip past, editing the wrong file).
+            for f in "$SETTINGS_LOCAL" "$SETTINGS_PROJECT" "$SETTINGS_USER"; do
+                if [ -f "$f" ] && jq -e --arg k "$PLUGIN_KEY" '.enabledPlugins | has($k)' "$f" >/dev/null 2>&1; then
+                    echo "$f"
+                    return
+                fi
+            done
+            # Key absent everywhere — default to project-local (per-dev, gitignored)
+            echo "$SETTINGS_LOCAL"
+            ;;
+    esac
+}
+
+SETTINGS_FILE=$(resolve_target)
+DETECTION_NOTE=""
+if [ -z "$TARGET" ]; then
+    case "$SETTINGS_FILE" in
+        "$SETTINGS_LOCAL")   DETECTION_NOTE="(smart-detection: per-developer file)" ;;
+        "$SETTINGS_PROJECT") DETECTION_NOTE="(smart-detection: project-tracked file holds the key)" ;;
+        "$SETTINGS_USER")    DETECTION_NOTE="(smart-detection: user-global file holds the key)" ;;
+    esac
+fi
+
+# Read current value. Same gotcha as smart-detection: jq `//` returns RHS on
+# both null AND false, so we'd mis-classify a `false` value as "missing".
+# Explicit has() check + tostring keeps the boolean intact.
+CURRENT="missing"
+if [ -f "$SETTINGS_FILE" ]; then
+    CURRENT=$(jq -r --arg k "$PLUGIN_KEY" '
+        if .enabledPlugins | type == "object" and has($k)
+        then .enabledPlugins[$k] | tostring
+        else "missing" end
+    ' "$SETTINGS_FILE")
+fi
+
+# Decide new value (flip if not explicit)
+if [ -z "$NEW_VALUE" ]; then
+    case "$CURRENT" in
+        true)            NEW_VALUE="false" ;;
+        false|missing)   NEW_VALUE="true" ;;
+        *)
+            echo "ERROR: unexpected current value '$CURRENT' in $SETTINGS_FILE" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+# Create file if needed
+if [ ! -f "$SETTINGS_FILE" ]; then
+    mkdir -p "$(dirname "$SETTINGS_FILE")"
+    echo "{}" > "$SETTINGS_FILE"
+fi
+
+# Atomic JSON edit
+TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT
+jq --arg k "$PLUGIN_KEY" --argjson v "$NEW_VALUE" \
+    '.enabledPlugins[$k] = $v' "$SETTINGS_FILE" > "$TMP"
+mv "$TMP" "$SETTINGS_FILE"
+trap - EXIT
+
+# Report
+echo "APD plugin: $CURRENT → $NEW_VALUE"
+echo "Edited:     $SETTINGS_FILE"
+[ -n "$DETECTION_NOTE" ] && echo "Detection:  $DETECTION_NOTE"
+echo ""
+echo "Reload:     run /reload-plugins in CC, or restart the session."

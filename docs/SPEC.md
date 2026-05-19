@@ -45,6 +45,7 @@ Top-level dispatcher routes by 1st arg. Resolves project root via `bin/lib/resol
 | `gh` / `github` | `bin/core/gh-sync` | GitHub Issues sync (best-effort, never blocks) |
 | `test` | `bin/core/test-hooks` | Static hook check |
 | `test-system` | `bin/core/test-system` | E2E synthetic pipeline smoke |
+| `toggle [on\|off]` | `bin/core/toggle-apd` | **v6.7.5:** flip / set `claude-apd@zstevovich-plugins` in CC settings (jq-based atomic JSON edit). Smart-detection picks the file holding the key (`settings.local.json` → `settings.json` → `~/.claude/settings.json`); default to project-local when missing. Flags: `--global`, `--project`, `--local` to force a target. Uses `has()` presence check so `false` is treated as present, not missing. After edit, user runs `/reload-plugins` to apply in-session (or `apd-toggle` skill does it automatically) |
 | `cdx` / `codex` | `bin/adapter/cdx/<sub>` | Codex adapter sub-router |
 
 `apd cdx` sub-commands: `init|setup`, `agents [list|add]`, `verify-setup [list|<stack>]`, `skills [status|install|uninstall]`, `doctor|dr`, `test`.
@@ -190,7 +191,7 @@ Server-side reads `scope: [...]` from agent's frontmatter. Caller-supplied `allo
 
 ## 7. Skills
 
-### 7.1 CC skills (`skills/`, 8 total)
+### 7.1 CC skills (`skills/`, 9 total)
 
 | Skill | Trigger | Phase |
 |---|---|---|
@@ -202,6 +203,7 @@ Server-side reads `scope: [...]` from agent's frontmatter. Caller-supplied `allo
 | `apd-audit` | Project configuration audit | Anytime |
 | `apd-github` | GitHub Projects integration | Anytime |
 | `apd-miro` | Miro dashboard sync | Anytime |
+| `apd-toggle` | **v6.7.5:** Toggle `claude-apd@zstevovich-plugins` in CC settings; wraps `apd toggle` + invokes `/reload-plugins` for in-session pickup | Anytime |
 
 ### 7.2 Codex skills (`plugins/apd/skills/`, 7 total)
 

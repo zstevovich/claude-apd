@@ -5380,6 +5380,114 @@ else
 fi
 
 # -----------------------------------------------------------
+# 56. v6.7.5 — apd toggle (CC enabledPlugins smart-detection)
+#     toggle-apd script flips / sets claude-apd@zstevovich-plugins in CC
+#     settings.local.json | settings.json | ~/.claude/settings.json. Smart
+#     detection finds whichever file holds the key; default to settings.local.json
+#     when missing. has()-based presence check (not truthiness — false is valid).
+# -----------------------------------------------------------
+section "56. apd toggle (v6.7.5)"
+
+# Static A: script + CLI verb present
+if [ -x "$APD_PLUGIN_ROOT/bin/core/toggle-apd" ] \
+   && grep -q 'toggle)' "$APD_PLUGIN_ROOT/bin/apd"; then
+    pass "toggle-apd script + apd CLI verb present"
+    PASSES=$((PASSES + 1))
+else
+    fail "toggle-apd script or apd CLI verb missing"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: smart-detection uses has() not truthiness (fix for false-value bug)
+if grep -q 'enabledPlugins | has' "$APD_PLUGIN_ROOT/bin/core/toggle-apd"; then
+    pass "smart-detection uses has() presence check (handles false value correctly)"
+    PASSES=$((PASSES + 1))
+else
+    fail "toggle-apd smart-detection missing has() check"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup: HOME isolation so tests never touch real ~/.claude
+_TT="$(mktemp -d -t apd-toggle.XXXXXX)"
+mkdir -p "$_TT/proj/.claude" "$_TT/proj/.apd" "$_TT/home/.claude"
+echo "PROJECT_NAME=toggle-test" > "$_TT/proj/.apd/config"
+
+_run_toggle() {
+    HOME="$_TT/home" APD_PROJECT_DIR="$_TT/proj" \
+        bash "$APD_PLUGIN_ROOT/bin/core/toggle-apd" "$@" 2>&1
+}
+
+# Live C: flip true → false in settings.local.json
+echo '{"enabledPlugins":{"claude-apd@zstevovich-plugins":true}}' | jq . > "$_TT/proj/.claude/settings.local.json"
+_run_toggle >/dev/null
+_V=$(jq -r '.enabledPlugins["claude-apd@zstevovich-plugins"]' "$_TT/proj/.claude/settings.local.json")
+if [ "$_V" = "false" ]; then
+    pass "toggle: true → false"
+    PASSES=$((PASSES + 1))
+else
+    fail "toggle should flip true→false (got $_V)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live D: flip false → true (this is the bug-regression case — false is valid present value)
+echo '{"enabledPlugins":{"claude-apd@zstevovich-plugins":false}}' | jq . > "$_TT/proj/.claude/settings.local.json"
+_run_toggle >/dev/null
+_V=$(jq -r '.enabledPlugins["claude-apd@zstevovich-plugins"]' "$_TT/proj/.claude/settings.local.json")
+if [ "$_V" = "true" ]; then
+    pass "toggle: false → true (bug-regression: false detected as present, not missing)"
+    PASSES=$((PASSES + 1))
+else
+    fail "toggle should flip false→true (got $_V); has()-detection broken"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live E: explicit off arg
+echo '{"enabledPlugins":{"claude-apd@zstevovich-plugins":true}}' | jq . > "$_TT/proj/.claude/settings.local.json"
+_run_toggle off >/dev/null
+_V=$(jq -r '.enabledPlugins["claude-apd@zstevovich-plugins"]' "$_TT/proj/.claude/settings.local.json")
+if [ "$_V" = "false" ]; then
+    pass "explicit 'off' arg sets value to false"
+    PASSES=$((PASSES + 1))
+else
+    fail "explicit off should set false (got $_V)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live F: missing file → creates settings.local.json, sets to true (per-dev default)
+rm -f "$_TT/proj/.claude/settings.local.json"
+rm -f "$_TT/proj/.claude/settings.json"
+rm -f "$_TT/home/.claude/settings.json"
+_run_toggle >/dev/null
+if [ -f "$_TT/proj/.claude/settings.local.json" ]; then
+    _V=$(jq -r '.enabledPlugins["claude-apd@zstevovich-plugins"]' "$_TT/proj/.claude/settings.local.json")
+    if [ "$_V" = "true" ]; then
+        pass "missing file → creates settings.local.json with true (per-dev default)"
+        PASSES=$((PASSES + 1))
+    else
+        fail "missing-file default should be true (got $_V)"
+        FAILS=$((FAILS + 1))
+    fi
+else
+    fail "missing-file run did not create settings.local.json"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live G: smart-detection picks the file that holds the key (project tracked)
+rm -f "$_TT/proj/.claude/settings.local.json"
+echo '{"enabledPlugins":{"claude-apd@zstevovich-plugins":true}}' | jq . > "$_TT/proj/.claude/settings.json"
+_run_toggle >/dev/null
+_V=$(jq -r '.enabledPlugins["claude-apd@zstevovich-plugins"]' "$_TT/proj/.claude/settings.json")
+if [ "$_V" = "false" ] && [ ! -f "$_TT/proj/.claude/settings.local.json" ]; then
+    pass "smart-detection edits settings.json when key lives there (not settings.local)"
+    PASSES=$((PASSES + 1))
+else
+    fail "smart-detection picked wrong file (local exists=$([ -f "$_TT/proj/.claude/settings.local.json" ] && echo yes || echo no), tracked value=$_V)"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$_TT"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

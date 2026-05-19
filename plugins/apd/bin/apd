@@ -14,6 +14,7 @@
 #   gh <step>         GitHub sync
 #   report [--history [N]] Pipeline run report
 #   test              Quick static hook test
+#   toggle [on|off]   Toggle claude-apd plugin in CC settings (smart-detection)
 
 CORE_DIR="$(cd "$(dirname "$0")/core" && pwd)"
 
@@ -50,6 +51,9 @@ case "$CMD" in
         ;;
     test)
         exec bash "$CORE_DIR/test-hooks" "$@"
+        ;;
+    toggle)
+        exec bash "$CORE_DIR/toggle-apd" "$@"
         ;;
     test-system|system-test)
         exec bash "$CORE_DIR/test-system" "$@"
@@ -166,6 +170,7 @@ case "$CMD" in
         echo "    gh <step>         GitHub sync"
         echo "    report            Pipeline run report (--history [N] for history)"
         echo "    test              Quick static hook test"
+        echo "    toggle [on|off]   Toggle claude-apd in CC settings (smart-detection)"
         echo "    cdx <sub>         Codex runtime adapter (init|test) — see 'apd cdx help'"
         echo ""
         ;;
