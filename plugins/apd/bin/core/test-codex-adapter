@@ -5537,6 +5537,43 @@ else
 fi
 
 # -----------------------------------------------------------
+# 58. v6.7.7 — Reviewer templates carry explicit no-commit prohibition
+#     verify-apd Section 6 agent-quality validator emits WARN when an agent
+#     template lacks explicit commit-prohibition text. guard-git already
+#     blocks reviewers at bash level, but the templates must SELF-DECLARE
+#     the boundary (defense-in-depth + clarity for the agent). Closes the
+#     2 WARN signals from FiscalFusionAI v6.7.6 validation report.
+# -----------------------------------------------------------
+section "58. reviewer templates carry no-commit prohibition (v6.7.7)"
+
+_NO_COMMIT_HITS=0
+for _t in \
+    "$APD_PLUGIN_ROOT/templates/reviewer-template.md" \
+    "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" \
+    "$APD_PLUGIN_ROOT/templates/codex/agents/code-reviewer.md" \
+    "$APD_PLUGIN_ROOT/templates/codex/agents/adversarial-reviewer.md"; do
+    if grep -qiE 'NEVER commit|FORBIDDEN' "$_t"; then
+        _NO_COMMIT_HITS=$((_NO_COMMIT_HITS + 1))
+    fi
+done
+if [ "$_NO_COMMIT_HITS" -eq 4 ]; then
+    pass "all 4 reviewer templates (CC + Codex) carry explicit NEVER commit / FORBIDDEN block"
+    PASSES=$((PASSES + 1))
+else
+    fail "only $_NO_COMMIT_HITS/4 reviewer templates carry commit prohibition"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: verify-apd Section 6 still does the validation check (regression — keeps the check alive)
+if grep -q 'NEVER.\*commit\|FORBIDDEN' "$APD_PLUGIN_ROOT/bin/core/verify-apd"; then
+    pass "verify-apd Section 6 still validates commit-prohibition language"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-apd Section 6 commit-prohibition check missing"
+    FAILS=$((FAILS + 1))
+fi
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

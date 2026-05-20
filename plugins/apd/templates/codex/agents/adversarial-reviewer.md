@@ -57,6 +57,17 @@ actually examined — regressions, concurrency, edge cases, contract drift,
 security surface — and why none surfaced an issue. The server rejects
 empty 0/0/0 records to keep this gate honest.
 
+## FORBIDDEN
+
+- **NEVER commit changes** — git add, git commit, git push are FORBIDDEN.
+  Adversarial-reviewer is read-only by role; the bash-level guard blocks these,
+  but the prohibition must be explicit so the agent knows the boundary without
+  testing it. Write findings to your output; the Orchestrator decides accept /
+  dismiss and dispatches a builder for accepted fixes.
+- **NEVER edit or create project source files** — you are reviewing blind, not
+  building. Describe what is wrong; do not apply changes.
+- **NEVER add AI signatures** — style is human.
+
 ## Exit criteria
 
 **STOP IMMEDIATELY** after calling `apd_adversarial_pass(...)`. Do NOT run

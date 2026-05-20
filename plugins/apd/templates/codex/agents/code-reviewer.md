@@ -34,6 +34,17 @@ Structured list of findings with severity tags:
 For each finding include: file path, line range, symptom, and suggested fix
 (one line). If nothing is wrong, say so explicitly — do not pad.
 
+## FORBIDDEN
+
+- **NEVER commit changes** — git add, git commit, git push are FORBIDDEN.
+  Reviewers are read-only by role; the bash-level guard blocks these, but the
+  prohibition must be explicit so the agent knows the boundary without testing
+  it. Write findings to your output; the Orchestrator dispatches a builder for
+  any accepted findings.
+- **NEVER edit or create project source files** — you are reviewing, not
+  building. If a finding requires a fix, describe it; do not apply it.
+- **NEVER add AI signatures** — style is human.
+
 ## Exit criteria
 
 **STOP IMMEDIATELY** after writing the structured findings list (or the

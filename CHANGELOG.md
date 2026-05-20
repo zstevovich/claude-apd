@@ -1,5 +1,14 @@
 # Changelog
 
+## v6.7.7 — 2026-05-20
+
+Closes the 2 WARN signals reported from FiscalFusionAI v6.7.6 validation (126 PASS / 0 FAIL / 2 WARN baseline). Both review-class agent templates now self-declare the no-commit boundary, matching what `guard-git` already enforces at the bash level. Defense-in-depth: the bash guard catches actual attempts; the template text tells the agent the boundary BEFORE it tests the guard. Tests: 454 → 456 (+2 in §58).
+
+- **fix(templates): add explicit FORBIDDEN / no-commit block to all 4 reviewer templates.** Both CC (`templates/reviewer-template.md` + `templates/adversarial-reviewer-template.md`) and Codex (`templates/codex/agents/code-reviewer.md` + `templates/codex/agents/adversarial-reviewer.md`) gain a `## FORBIDDEN` section listing: "NEVER commit changes" (with reference to `guard-git` being the runtime enforcer), "NEVER edit or create project source files" (reviewers are read-only by role), "NEVER add AI signatures" (style is human). The text patches the same gap that `templates/agent-template.md` already had — reviewers were the only template family missing it.
+- **Why this matters even though `guard-git` already enforces.** The bash-level block is the safety net, not the docs. Agents that learn about the prohibition only by hitting the guard waste turns + emit confusing failure paths. Explicit template text says "here's the boundary, don't go near it" before the agent has to discover it experimentally. `verify-apd` Section 6 validator at lines 480-485 specifically checks for `NEVER.*commit | FORBIDDEN | ZABRANJENO | NIKADA.*commit` patterns in agent .md files — the WARN existed because reviewers genuinely lacked the text, not because the validator was wrong.
+- **Existing projects** scaffolded pre-v6.7.7 do NOT auto-pick up the template changes — agent files in `.claude/agents/` are copied once at `/apd-setup` time and never overwritten. To pick up the new prohibition, re-run `apd-init` or manually copy the templates. The 2 WARN signals will persist on those projects until refreshed.
+- **Tests:** `test-codex-adapter` §58 adds 2 assertions: all 4 reviewer templates contain `NEVER commit` or `FORBIDDEN` text; `verify-apd` Section 6 still does the validation check (keeps the lock-in alive). Test count 454 → 456.
+
 ## v6.7.6 — 2026-05-20
 
 **Hotfix.** `verify-apd` had three stale assumptions from prior version migrations that surfaced when a user ran `/apd-setup` on a v6.7.5 install. None affected production behavior — the hooks fired correctly per the direct §7 guard tests — but the E2E verification script reported false failures, undermining trust in `apd verify` output. Tests: 450 → 454 (+4 in §57).
