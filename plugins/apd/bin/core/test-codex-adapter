@@ -5488,6 +5488,55 @@ fi
 rm -rf "$_TT"
 
 # -----------------------------------------------------------
+# 57. v6.7.6 — verify-apd post-v6.6/v6.7 migration fixes
+#     Three bugs in verify-apd surfaced by user running /apd-setup on v6.7.5:
+#     (1) hook detection read .command which is "bash" since v6.6.0 args exec
+#     form (path now in .args[0]); (2) Section 8 E2E wrote .adversarial-summary
+#     but not .adversarial-rationale.md, hitting v6.7 v7.1 BLOCK; (3) cascade
+#     fail in adversarial ordering test from (2). All three patched in v6.7.6.
+# -----------------------------------------------------------
+section "57. verify-apd v6.6/v6.7 migration fixes (v6.7.6)"
+
+# Static A: hook detection uses _CMD_CONCAT helper that reads both .command + .args
+if grep -q '_CMD_CONCAT=' "$APD_PLUGIN_ROOT/bin/core/verify-apd" \
+   && grep -q '(.args // \[\]) | join' "$APD_PLUGIN_ROOT/bin/core/verify-apd"; then
+    pass "verify-apd uses command+args concat for hook path detection (v6.6.0 exec-form compat)"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-apd missing v6.6.0 args-form hook detection fix"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: Section 8 writes .adversarial-rationale.md before verifier call (3:2:1 test)
+if awk '/^echo "ADVERSARIAL:3:2:1"/,/^RESULT=\$\(bash/' "$APD_PLUGIN_ROOT/bin/core/verify-apd" \
+    | grep -q 'adversarial-rationale.md'; then
+    pass "Section 8 3:2:1 test writes .adversarial-rationale.md before verifier"
+    PASSES=$((PASSES + 1))
+else
+    fail "Section 8 3:2:1 test missing rationale file write"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: Section 8 writes .adversarial-rationale.md for ordering test (1:0:1)
+if awk '/^        echo "ADVERSARIAL:1:0:1"/,/EXIT_CODE=\$\?/' "$APD_PLUGIN_ROOT/bin/core/verify-apd" \
+    | grep -q 'adversarial-rationale.md'; then
+    pass "Section 8 ordering test writes .adversarial-rationale.md before verifier"
+    PASSES=$((PASSES + 1))
+else
+    fail "Section 8 ordering test missing rationale file write"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: cleanup at end of ordering test removes rationale file
+if grep -q 'rm -f.*adversarial-rationale.md' "$APD_PLUGIN_ROOT/bin/core/verify-apd"; then
+    pass "Section 8 ordering test cleanup removes rationale file"
+    PASSES=$((PASSES + 1))
+else
+    fail "Section 8 cleanup missing rationale file rm"
+    FAILS=$((FAILS + 1))
+fi
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
