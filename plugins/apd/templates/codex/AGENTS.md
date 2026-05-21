@@ -135,6 +135,12 @@ substantial enough that the adversarial gate stays on regardless — the
 3. **Write the implementation plan** at
    `.apd/pipeline/implementation-plan.md` — a bulleted list of files you
    will touch with one-sentence reasons. This is required before builder.
+   Every `### Section` MUST declare which spec R-criteria it implements via
+   `**Implements:** R1, R3` header (or `**Implements:** none` for scaffolding
+   sections — file lists, agents, notes). `verify-plan-spec` enforces
+   bidirectional consistency at builder gate; v6.8.0 default mode is `warn`
+   (issues do not block), v6.8.1+ flips default to `strict`. Override via
+   `plan_consistency_gate: strict|warn|off` in spec-card.md.
 4. **Implement.** By default the Codex orchestrator acts as the builder.
    Use Codex subagents only when the user explicitly asks for delegated work,
    and keep APD scope enforcement on every file they touch. Before every write, call

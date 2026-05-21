@@ -1,0 +1,156 @@
+#!/bin/bash
+# APD Plan-Spec Consistency Verifier — v6.8.0
+#
+# Checks that implementation-plan.md sections declare which spec-card.md
+# R-criteria they implement via **Implements:** header, and that the mapping
+# is bidirectionally consistent:
+#   - Forward (Plan → Spec): every R-id referenced in **Implements:** must
+#     exist in spec-card.md as a `- R<N>:` line.
+#   - Reverse (Spec → Plan): every spec R-id must appear in at least one
+#     section's **Implements:** line.
+#   - Strict simetricno pravilo: every `### Section` MUST have an
+#     **Implements:** header (or `**Implements:** none` for scaffolding).
+#
+# Mode is read from spec-card.md `plan_consistency_gate: strict|warn|off`.
+# Default v6.8.0: warn. v6.8.1 will flip default to strict.
+#
+# Usage:
+#   verify-plan-spec
+#
+# Exit codes:
+#   0 — no issues, or warn-mode regardless of issue count, or opt-out
+#   1 — strict mode with one or more issues
+
+set -u
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
+source "$(dirname "$0")/../lib/style.sh"
+
+SPEC_CARD="$PIPELINE_DIR/spec-card.md"
+IMPL_PLAN="$PIPELINE_DIR/implementation-plan.md"
+
+# Default mode — v6.8.0 ships with "warn", v6.8.1 flips to "strict".
+DEFAULT_MODE="warn"
+
+# --- Early exits ---
+[ -f "$SPEC_CARD" ] || exit 0
+[ -f "$IMPL_PLAN" ] || exit 0
+
+# --- Parse mode from spec-card.md ---
+# Format: plan_consistency_gate: strict|warn|off  (case-insensitive,
+# optional leading hyphen/asterisk/whitespace, optional space-or-colon)
+MODE=$(grep -iE '^[[:space:]]*[-*_ ]*plan_consistency_gate[[:space:]]*[:=][[:space:]]*(strict|warn|off)' "$SPEC_CARD" 2>/dev/null \
+    | head -1 \
+    | sed -nE 's/.*[:=][[:space:]]*([Ss][Tt][Rr][Ii][Cc][Tt]|[Ww][Aa][Rr][Nn]|[Oo][Ff][Ff]).*/\1/p' \
+    | tr '[:upper:]' '[:lower:]')
+
+MODE="${MODE:-$DEFAULT_MODE}"
+
+if [ "$MODE" = "off" ]; then
+    echo "verify-plan-spec: opt-out via spec-card.md (plan_consistency_gate: off)" >&2
+    exit 0
+fi
+
+# --- Parse spec R-id set ---
+SPEC_RIDS=$(grep -E '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' "$SPEC_CARD" 2>/dev/null \
+    | sed -nE 's/^[[:space:]]*-[[:space:]]+(R[0-9]+)[[:space:]]*:.*$/\1/p' \
+    | sort -u)
+
+# Backward compat: spec-card.md without R-criteria → no-op
+[ -z "$SPEC_RIDS" ] && exit 0
+
+# --- Parse plan sections + their **Implements:** values ---
+PLAN_SECTIONS=$(mktemp)
+COVERED_RIDS=$(mktemp)
+trap 'rm -f "$PLAN_SECTIONS" "$COVERED_RIDS"' EXIT INT TERM
+
+awk '
+    /^### / {
+        if (section != "") { print section "|" implements }
+        section = substr($0, 5)
+        sub(/[[:space:]]+$/, "", section)
+        implements = ""
+        next
+    }
+    /^\*\*Implements:\*\*[[:space:]]*/ {
+        if (section != "" && implements == "") {
+            line = $0
+            sub(/^\*\*Implements:\*\*[[:space:]]*/, "", line)
+            sub(/[[:space:]]+$/, "", line)
+            implements = line
+        }
+        next
+    }
+    END {
+        if (section != "") { print section "|" implements }
+    }
+' "$IMPL_PLAN" > "$PLAN_SECTIONS"
+
+# --- Issue accumulators ---
+ISSUES=0
+
+emit_issue() {
+    local msg="$1"
+    if [ "$MODE" = "strict" ]; then
+        printf "  %s BLOCKED: %s\n" "$MARK_FAIL" "$msg" >&2
+    else
+        printf "  %s WARN: %s\n" "$MARK_WARN" "$msg" >&2
+    fi
+    ISSUES=$((ISSUES + 1))
+}
+
+# --- Per-section processing: forward check + missing-header detection ---
+while IFS='|' read -r section_name implements_value; do
+    [ -n "$section_name" ] || continue
+
+    if [ -z "$implements_value" ]; then
+        emit_issue "Plan section \"$section_name\" has no **Implements:** header (add R-ids or set to \"none\")"
+        continue
+    fi
+
+    norm_val=$(echo "$implements_value" | tr '[:upper:]' '[:lower:]' | tr -d ' .,')
+    if [ "$norm_val" = "none" ]; then
+        continue
+    fi
+
+    # Parse comma-separated R-id tokens
+    rids_in_section=$(echo "$implements_value" | tr ',' '\n' \
+        | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//' \
+        | grep -E '^R[0-9]+$' || true)
+
+    if [ -z "$rids_in_section" ]; then
+        emit_issue "Plan section \"$section_name\" has malformed **Implements:** value (expected comma-separated R-ids or \"none\"): $implements_value"
+        continue
+    fi
+
+    while IFS= read -r rid; do
+        [ -n "$rid" ] || continue
+        if echo "$SPEC_RIDS" | grep -qx "$rid"; then
+            echo "$rid" >> "$COVERED_RIDS"
+        else
+            emit_issue "Plan section \"$section_name\" references unknown R-id: $rid"
+        fi
+    done <<EOF
+$rids_in_section
+EOF
+done < "$PLAN_SECTIONS"
+
+# --- Reverse check: every SPEC_RID must appear in COVERED_RIDS ---
+while IFS= read -r spec_rid; do
+    [ -n "$spec_rid" ] || continue
+    if ! grep -qx "$spec_rid" "$COVERED_RIDS" 2>/dev/null; then
+        emit_issue "Spec $spec_rid not implemented by any plan section"
+    fi
+done <<EOF
+$SPEC_RIDS
+EOF
+
+# --- Exit ---
+if [ "$MODE" = "strict" ] && [ "$ISSUES" -gt 0 ]; then
+    printf "\n  verify-plan-spec: %d issue(s) in strict mode — fix .apd/pipeline/implementation-plan.md and re-run.\n" "$ISSUES" >&2
+    printf "  Set 'plan_consistency_gate: warn' in spec-card.md to demote BLOCK to WARN.\n" >&2
+    exit 1
+fi
+
+exit 0

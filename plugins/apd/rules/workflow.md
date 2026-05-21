@@ -342,18 +342,36 @@ Before dispatching the builder, the orchestrator MUST write `.apd/pipeline/imple
 ## Implementation Plan: [Task name]
 
 ### Files to modify
+**Implements:** none
+
 - `path/to/file.ext` — description of what to change (1-2 sentences)
 - `path/to/other.ext` — description of what to change
 
 ### Files to create
+**Implements:** none
+
 - `path/to/new-file.ext` — purpose and what it contains
 
+### Backend
+**Implements:** R1, R3
+
+- `src/api/...` — endpoint changes
+
+### Frontend
+**Implements:** R2, R4
+
+- `src/ui/...` — view changes
+
 ### Agents
+**Implements:** none
+
 - backend-api
-- database
+- frontend-react
 - code-reviewer
 
 ### Notes
+**Implements:** none
+
 - Any relevant context the builder needs
 ```
 
@@ -364,6 +382,8 @@ Before dispatching the builder, the orchestrator MUST write `.apd/pipeline/imple
 - `apd pipeline builder` warns if planned agents were not dispatched
 - Orchestrator reads relevant code BEFORE writing the plan
 - `apd pipeline builder` blocks if the plan does not exist
+- **`**Implements:**` header is mandatory on every `### Section`** (v6.8.0+). Declare which `R*` criteria from spec-card.md the section implements (`**Implements:** R1, R3`), or set to `none` for scaffolding sections (file lists, agents, notes, documentation).
+- `verify-plan-spec` enforces bidirectional consistency: every spec `R*` must be referenced by ≥1 section; every section must have a valid `**Implements:**`. Mode is read from spec-card.md `plan_consistency_gate: strict|warn|off`. v6.8.0 default: `warn` (issues emit WARN, no block). v6.8.1+ default: `strict` (BLOCK on missing/unknown R-ids). Opt-out: `plan_consistency_gate: off` in spec-card.md.
 
 ## 4. Verification before "done"
 

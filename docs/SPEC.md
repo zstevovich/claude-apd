@@ -245,6 +245,7 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 | `bin/core/verify-apd` | 60+ checks on configured project. **In-monorepo run mis-resolves** — copy example to `/tmp` for accurate result. |
 | `bin/core/verify-contracts` | Cross-layer type contract check (TypeScript ↔ C#); regex-based, ~80% coverage |
 | `bin/core/verify-trace` | `@trace R*` markers in tests; emits `TRACE:<covered>/<total>:<uncovered_ids>` to stdout |
+| `bin/core/verify-plan-spec` | v6.8.0 — plan ↔ spec consistency check. Parses `**Implements:** R<N>, R<M>` headers per `### Section` in `.apd/pipeline/implementation-plan.md`; bidirectional verify against `.apd/pipeline/spec-card.md` R-ids. Mode read from spec-card `plan_consistency_gate: strict\|warn\|off` (default v6.8.0 = `warn`, v6.8.1+ = `strict`). Strict mode exits 1 on missing/unknown R-id or section missing `**Implements:**`. Called by `pipeline-advance builder`. |
 | `bin/core/verify-all` | Project-side build+test runner; project ships `.codex/bin/verify-all.sh` to override |
 
 ## 10. Helpers (`bin/lib/`)

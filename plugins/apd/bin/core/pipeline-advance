@@ -286,6 +286,21 @@ case "$STEP" in
             exit 1
         fi
 
+        # v6.8.0 — plan-spec consistency gate. Verifies that every R-criterion
+        # from spec-card.md is referenced in implementation-plan.md via a
+        # **Implements:** header on at least one section, and that every plan
+        # section either declares R-ids or `none`. Mode (strict|warn|off) is
+        # read from spec-card.md `plan_consistency_gate:` field; v6.8.0
+        # default is `warn` (issues do not block). v6.8.1 flips default to
+        # `strict`. Opt-out: `plan_consistency_gate: off` in spec-card.md.
+        if ! bash "$SCRIPT_DIR/verify-plan-spec"; then
+            echo "" >&2
+            echo "BLOCKED: plan-spec consistency check failed (strict mode)." >&2
+            echo "  Fix .apd/pipeline/implementation-plan.md per the messages above," >&2
+            echo "  or set 'plan_consistency_gate: warn' in spec-card.md for soft mode." >&2
+            exit 1
+        fi
+
         # Verify that a PROJECT-DEFINED builder agent ran
         # Superpowers agents that conflict with APD pipeline are rejected.
         # Other plugin agents (figma, context7, etc.) are allowed alongside project agents.

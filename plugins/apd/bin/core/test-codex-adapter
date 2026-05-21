@@ -5574,6 +5574,254 @@ else
 fi
 
 # -----------------------------------------------------------
+# 59. v6.8.0 — plan-spec consistency gate (verify-plan-spec)
+#     New parser at plugins/apd/bin/core/verify-plan-spec checks that every
+#     spec-card.md R-criterion is referenced in implementation-plan.md via
+#     **Implements:** header on at least one section, and that every plan
+#     section declares R-ids or `none`. Mode read from spec-card.md
+#     `plan_consistency_gate: strict|warn|off`. v6.8.0 default `warn`.
+# -----------------------------------------------------------
+section "59. plan-spec consistency gate (v6.8.0)"
+
+VPS="$APD_PLUGIN_ROOT/bin/core/verify-plan-spec"
+
+# Static A: binary exists and is executable
+_check "verify-plan-spec exists and is executable" test -x "$VPS"
+
+# Static B: forward-check string present
+if grep -q "references unknown R-id" "$VPS"; then
+    pass "verify-plan-spec contains forward-check (unknown R-id message)"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-plan-spec missing forward-check message"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: reverse-check string present
+if grep -q "not implemented by any plan section" "$VPS"; then
+    pass "verify-plan-spec contains reverse-check (uncovered R-id message)"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-plan-spec missing reverse-check message"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: tri-nivoa mode parser present
+if grep -qE 'plan_consistency_gate.*(strict|warn|off)' "$VPS"; then
+    pass "verify-plan-spec contains tri-level mode parser"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-plan-spec missing plan_consistency_gate parser"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: DEFAULT_MODE="warn" baseline for v6.8.0
+if grep -q 'DEFAULT_MODE="warn"' "$VPS"; then
+    pass "verify-plan-spec v6.8.0 baseline DEFAULT_MODE=\"warn\""
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-plan-spec DEFAULT_MODE is not \"warn\" — v6.8.0 baseline drift"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup: synthetic project for behavioural assertions
+V68_SCRATCH="$(mktemp -d -t apd-v68.XXXXXX)"
+mkdir -p "$V68_SCRATCH/.apd/pipeline"
+touch "$V68_SCRATCH/.apd/config"
+# Resolver expects .claude/ or .codex/ or CLAUDE.md/AGENTS.md marker
+mkdir -p "$V68_SCRATCH/.codex"
+
+setup_v68_spec() {
+    cat > "$V68_SCRATCH/.apd/pipeline/spec-card.md" <<EOF
+## Test task
+**Goal:** Test verify-plan-spec
+**Acceptance criteria:**
+- R1: first
+- R2: second
+- R3: third
+${1:-}
+EOF
+}
+
+setup_v68_plan_perfect() {
+    cat > "$V68_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
+## Implementation Plan: Test
+
+### Files to modify
+**Implements:** none
+
+- foo.ts — bar
+
+### Backend
+**Implements:** R1, R2
+
+- src/api.ts — endpoint
+
+### Frontend
+**Implements:** R3
+
+- src/ui.ts — render
+
+### Agents
+**Implements:** none
+
+- backend-api
+EOF
+}
+
+run_vps() {
+    cd "$V68_SCRATCH" && bash "$VPS" 2>&1
+    _vps_exit=$?
+    cd - >/dev/null
+    echo "EXIT=$_vps_exit"
+}
+
+# Live F: perfect plan → zero issues, exit 0
+setup_v68_spec ""
+setup_v68_plan_perfect
+PERFECT_OUT="$(run_vps)"
+if echo "$PERFECT_OUT" | grep -q "^EXIT=0$" && ! echo "$PERFECT_OUT" | grep -qE "WARN|BLOCKED"; then
+    pass "perfect plan (R1+R2 backend, R3 frontend) → exit 0, zero output"
+    PASSES=$((PASSES + 1))
+else
+    fail "perfect plan unexpected output: $PERFECT_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live G: missing R2 → WARN, exit 0 (default warn mode)
+cat > "$V68_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
+## Implementation Plan: Test
+
+### Backend
+**Implements:** R1
+
+- src/api.ts — endpoint
+
+### Frontend
+**Implements:** R3
+
+- src/ui.ts
+EOF
+MISSING_OUT="$(run_vps)"
+if echo "$MISSING_OUT" | grep -q "EXIT=0" && echo "$MISSING_OUT" | grep -q "WARN: Spec R2 not implemented"; then
+    pass "missing R2 in default warn mode → WARN + exit 0"
+    PASSES=$((PASSES + 1))
+else
+    fail "missing R2 unexpected output: $MISSING_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live H: unknown R7 reference → WARN, exit 0
+cat > "$V68_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
+## Implementation Plan: Test
+
+### Backend
+**Implements:** R1, R2, R3
+
+- src/api.ts
+
+### Extra
+**Implements:** R7
+
+- src/extra.ts
+EOF
+UNKNOWN_OUT="$(run_vps)"
+if echo "$UNKNOWN_OUT" | grep -q "EXIT=0" && echo "$UNKNOWN_OUT" | grep -q "references unknown R-id: R7"; then
+    pass "unknown R7 reference → WARN + exit 0"
+    PASSES=$((PASSES + 1))
+else
+    fail "unknown R7 unexpected output: $UNKNOWN_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live I: section without **Implements:** → WARN
+cat > "$V68_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
+## Implementation Plan: Test
+
+### Backend
+
+- src/api.ts — endpoint
+
+### Frontend
+**Implements:** R1, R2, R3
+
+- src/ui.ts
+EOF
+NOIMPL_OUT="$(run_vps)"
+if echo "$NOIMPL_OUT" | grep -q "EXIT=0" && echo "$NOIMPL_OUT" | grep -q 'Plan section "Backend" has no \*\*Implements:\*\* header'; then
+    pass "section without **Implements:** → WARN + exit 0"
+    PASSES=$((PASSES + 1))
+else
+    fail "section-without-Implements unexpected: $NOIMPL_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live J: opt-out off → silent exit 0 even with broken plan
+setup_v68_spec "plan_consistency_gate: off"
+cat > "$V68_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
+## Implementation Plan: Test
+
+### Backend
+- broken everything
+EOF
+OFF_OUT="$(run_vps)"
+if echo "$OFF_OUT" | grep -q "EXIT=0" && echo "$OFF_OUT" | grep -q "opt-out via spec-card.md"; then
+    pass "plan_consistency_gate: off → silent exit 0 with info line"
+    PASSES=$((PASSES + 1))
+else
+    fail "opt-out unexpected: $OFF_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live K: strict mode + missing R2 → BLOCK + exit 1
+setup_v68_spec "plan_consistency_gate: strict"
+cat > "$V68_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
+## Implementation Plan: Test
+
+### Backend
+**Implements:** R1
+
+- src/api.ts
+
+### Frontend
+**Implements:** R3
+
+- src/ui.ts
+EOF
+STRICT_OUT="$(run_vps)"
+if echo "$STRICT_OUT" | grep -q "EXIT=1" && echo "$STRICT_OUT" | grep -q "BLOCKED: Spec R2 not implemented"; then
+    pass "strict mode + missing R2 → BLOCKED + exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "strict mode missing R2 unexpected: $STRICT_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live L: strict mode + section without **Implements:** → BLOCK + exit 1
+setup_v68_spec "plan_consistency_gate: strict"
+cat > "$V68_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
+## Implementation Plan: Test
+
+### Backend
+- src/api.ts
+
+### Frontend
+**Implements:** R1, R2, R3
+
+- src/ui.ts
+EOF
+STRICT_NOIMPL_OUT="$(run_vps)"
+if echo "$STRICT_NOIMPL_OUT" | grep -q "EXIT=1" && echo "$STRICT_NOIMPL_OUT" | grep -q 'BLOCKED: Plan section "Backend" has no \*\*Implements:\*\* header'; then
+    pass "strict mode + section-without-Implements → BLOCKED + exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "strict section-without-Implements unexpected: $STRICT_NOIMPL_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$V68_SCRATCH"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
