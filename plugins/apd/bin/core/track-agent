@@ -54,6 +54,8 @@ case "$EVENT" in
             echo "  ${RED}Pipeline order: builder → reviewer (signs reviewer.done) → adversarial → verifier${R}" >&2
             echo "  ${RED}Dispatch the regular code-reviewer first; pipeline-advance reviewer will then create .adversarial-pending as the green light.${R}" >&2
             echo "" >&2
+            echo "  ${Y}NOTE:${R} ${D}This SubagentStart was rejected — the start event is NOT recorded in .agents.${R}" >&2
+            echo "  ${D}After running 'apd pipeline reviewer', re-dispatch adversarial-reviewer (fresh agent dispatch, not retry).${R}" >&2
             log_block "adversarial-reviewer dispatched before reviewer.done" "agent_type=${AGENT_TYPE}"
             exit 2
         fi
@@ -63,6 +65,8 @@ case "$EVENT" in
             echo "  ${RED}Adversarial is either opted-out (small task) or already recorded.${R}" >&2
             echo "  ${RED}Inspect: ls .apd/pipeline/ — if .adversarial-summary exists, adversarial is done.${R}" >&2
             echo "" >&2
+            echo "  ${Y}NOTE:${R} ${D}This SubagentStart was rejected — the start event is NOT recorded in .agents.${R}" >&2
+            echo "  ${D}Fix the missing marker first, then re-dispatch the agent.${R}" >&2
             log_block "adversarial-reviewer dispatched without .adversarial-pending" "agent_type=${AGENT_TYPE}"
             exit 2
         fi

@@ -1,5 +1,22 @@
 # Changelog
 
+## v6.8.6 — 2026-05-22
+
+Seventh same-day patch — UX polish za 2 bug-a iz CSRF live test post-mortem-a (user observation). Oba bug-a su tehnicki **intended behavior** ali sa zbunjujucim BLOCK porukama. v6.8.6 ne menja logic, samo refine messages. Tests: 502 → 507 (+5 in §65).
+
+- **fix(track-agent): jasnija poruka za adversarial-out-of-order BLOCK.** Pre-v6.8.6: orchestrator dispatchuje adversarial-reviewer pre reviewer.done → SubagentStart hook exit 2 + start event NIJE zapisan u .agents (intentional — fake start ne sme da bude logged ako gate blokira). User je interpretisao kao bug ("hook nije zabeležio prvi start event") jer ga BLOCK poruka nije eksplicit upozorila. Sad poruka ukljucuje:
+    - "NOTE: This SubagentStart was rejected — the start event is NOT recorded in .agents."
+    - "After running 'apd pipeline reviewer', re-dispatch adversarial-reviewer (fresh agent dispatch, not retry)."
+    Korisnik znade tacno sta da uradi.
+- **fix(guard-pipeline-state): typo detection + correction hint.** Pre-v6.8.6: orchestrator pisuje `.adversarial-rationale` (bez `.md` extension) → guard blokira sa generic "Direct write to pipeline state file: .adversarial-rationale". Korisnik je morao da odgovara: "mozda treba .md?". v6.8.6 case statement detect-uje 3 tipa typo case-ova:
+    - `.adversarial-rationale` → "Did you mean '.adversarial-rationale.md'?"
+    - `spec-card` → "Did you mean 'spec-card.md'?"
+    - `implementation-plan` → "Did you mean 'implementation-plan.md'?"
+    Sve tri standardne pipeline state markdown fajl-ove sa potencijalom za ext typo dobijaju eksplicit correction suggestion.
+- **Live evidence (CSRF task, 2026-05-22):** orchestrator je hit oba scenarija — re-dispatch adversarial posle prvog BLOCK-a + pipeline-state-direct-write BLOCK na `.adversarial-rationale`. Oba su radila gate-skim semantics OK ali su confused orchestrator-a + kosta minute u recovery-u. v6.8.6 cilj: <5s recovery po typo-u.
+- **Tests:** `test-codex-adapter` §65 adds 5 assertions: track-agent "NOT recorded" note + re-dispatch instruction, guard-pipeline-state typo case + "Did you mean" hint, live BLOCK output sa typo-bait input. Test count 502 → 507.
+- **Migration:** zero impact. Pure message polish.
+
 ## v6.8.5 — 2026-05-22
 
 Sixth same-day patch — hard gate koji **forsira `/apd-brainstorm` skill load** pre netrivijalnog spec advance-a. v6.8.4 educational layer je passive (workflow.md MANDATORY guidance je tekstualan), pa orchestrator ga je preskakao. Live evidence iz Test CSRF task-a (2026-05-22): 4 BLOCK-ova u 7 minuta (plan-spec-consistency + adversarial-before-reviewer × 2 + pipeline-state-direct-write) uprkos v6.8.0-4 chain-u. User-ova teza: "bez brainstorm skill-a necemo naterati orchestrator-a da postuje discipline" empirijski potvrdjena. v6.8.5 transformise skill load iz "preporuke" u "mandatory checkpoint" preko marker fajla. Tests: 489 → 502 (+13 in §64).

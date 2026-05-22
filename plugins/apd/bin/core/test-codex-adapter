@@ -6355,6 +6355,67 @@ fi
 rm -rf "$V685_SCRATCH"
 
 # -----------------------------------------------------------
+# 65. v6.8.6 — jasnije BLOCK poruke za 2 bug-a iz CSRF live test-a
+#     (1) track-agent adversarial-out-of-order BLOCK je tehnicki bio
+#         intended behavior ali user-ova interpretacija "hook nije
+#         zapisao start event" je signal lose poruke — sad eksplicit
+#         "Start event NIJE recorded — re-dispatch posle popravlja".
+#     (2) guard-pipeline-state BLOCK na ".adversarial-rationale" (bez
+#         .md) je bio confusing — sad detect-uje typo + suggest .md.
+# -----------------------------------------------------------
+section "65. jasnije BLOCK poruke (v6.8.6)"
+
+# Static A: track-agent has "Start event is NOT recorded" note for adversarial-out-of-order
+if grep -qE 'start event is NOT recorded' "$APD_PLUGIN_ROOT/bin/core/track-agent"; then
+    pass "track-agent BLOCK message has 'start event NOT recorded' note (v6.8.6)"
+    PASSES=$((PASSES + 1))
+else
+    fail "track-agent missing 'start event NOT recorded' clarification"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: track-agent instructs re-dispatch after fix
+if grep -qiE 're-dispatch' "$APD_PLUGIN_ROOT/bin/core/track-agent"; then
+    pass "track-agent BLOCK message instructs re-dispatch after fix"
+    PASSES=$((PASSES + 1))
+else
+    fail "track-agent BLOCK message missing re-dispatch instruction"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: guard-pipeline-state detects .adversarial-rationale (no .md) typo
+if grep -qE '\.adversarial-rationale\)' "$APD_PLUGIN_ROOT/bin/core/guard-pipeline-state"; then
+    pass "guard-pipeline-state detects .adversarial-rationale (no .md) typo case"
+    PASSES=$((PASSES + 1))
+else
+    fail "guard-pipeline-state missing typo detection for .adversarial-rationale"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: guard-pipeline-state suggests "Did you mean ... .md?"
+if grep -qE 'Did you mean.*\.md' "$APD_PLUGIN_ROOT/bin/core/guard-pipeline-state"; then
+    pass "guard-pipeline-state suggests 'Did you mean ... .md?' correction"
+    PASSES=$((PASSES + 1))
+else
+    fail "guard-pipeline-state missing 'Did you mean' correction hint"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live E: synthetic test — guard-pipeline-state with .adversarial-rationale fires typo hint
+V686_SCRATCH="$(mktemp -d -t apd-v686.XXXXXX)"
+mkdir -p "$V686_SCRATCH/.apd/pipeline" "$V686_SCRATCH/.codex"
+touch "$V686_SCRATCH/.apd/config"
+TYPO_OUT=$(cd "$V686_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/guard-pipeline-state" --file-path ".apd/pipeline/.adversarial-rationale" 2>&1)
+if echo "$TYPO_OUT" | grep -qE "Did you mean.*\.adversarial-rationale\.md"; then
+    pass "live: .adversarial-rationale (no .md) → BLOCK + 'Did you mean .adversarial-rationale.md?' hint"
+    PASSES=$((PASSES + 1))
+else
+    fail "live typo BLOCK missing hint: $TYPO_OUT"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$V686_SCRATCH"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
