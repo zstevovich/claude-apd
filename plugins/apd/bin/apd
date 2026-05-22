@@ -13,6 +13,7 @@
 #   contracts         Check cross-layer type contracts
 #   gh <step>         GitHub sync
 #   report [--history [N]] Pipeline run report
+#   report maxturns        Telemetry: agent rapid re-dispatch (maxTurn exhaust proxy)
 #   test              Quick static hook test
 #   toggle [on|off]   Toggle claude-apd plugin in CC settings (smart-detection)
 

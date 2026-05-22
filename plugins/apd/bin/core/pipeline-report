@@ -14,6 +14,12 @@ source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
 source "$(dirname "$0")/../lib/agents-parse.sh"
 
+# v6.8.10 — maxturns sub-command dispatched to dedicated script
+if [ "${1:-}" = "maxturns" ] || [ "${1:-}" = "mt" ]; then
+    shift
+    exec bash "$(dirname "$0")/pipeline-report-maxturns" "$@"
+fi
+
 MODE="${1:-current}"
 HISTORY_LIMIT=0  # 0 = show all
 

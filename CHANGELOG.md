@@ -1,5 +1,37 @@
 # Changelog
 
+## v6.8.10 — 2026-05-22
+
+Jedanaesti same-day patch — telemetry surface za empirical maxTurns calibration. User-observed strukturalan problem: trenutne maxTurns vrednosti (60 builders / 80 reviewers iz workflow.md) su intuitivno postavljene, ne empirically-calibrated. Empirical evidence: Bambi v6.8 era (poslednjih 7 dana) imala 15 `mobile` rapid re-dispatch events (gap <120s = proxy za maxTurn exhaust). v6.8.10 dodaje read-only telemetry koja kalibrise per-agent vrednosti empirijski. No behavior change — pure observability. Tests: 528 → 533 (+5 in §69).
+
+- **feat(bin/core/pipeline-report-maxturns): novi script za maxTurns telemetry.** Parse-uje `agent-history.log`, computes per agent_type:
+    - Total starts u poslednjih N dana (default 30)
+    - Rapid re-dispatch count (gap <RAPID_THRESHOLD seconds, default 120)
+    - Average gap izmedju stop i sledeci start istog agent_type-a
+  Output formatted table sa color-coded counts:
+    - red+bold: ≥5 rapid re-dispatches (likely exhaust, suggested action emitted)
+    - yellow: 2-4 rapid re-dispatches (marginal)
+    - dim: 1 rapid re-dispatch (incident)
+    - green: 0 rapid re-dispatches (clean)
+  Plus suggested action per agent_type — reads current `maxTurns` iz `.claude/agents/<agent>.md` frontmatter-a i suggest-uje raise +20 turns:
+    ```
+    + mobile — current maxTurns=60 → consider raising to 80
+      Edit: .claude/agents/mobile.md frontmatter
+    ```
+- **feat(bin/core/pipeline-report): maxturns sub-command dispatcher.** `apd report maxturns` (ili `apd report mt`) → exec na pipeline-report-maxturns. Plus `--days N` i `--threshold-seconds S` overrides preneti kroz dispatcher.
+- **docs(bin/apd): CLI help update.** Help comment dodaje `report maxturns` entry za visibility.
+- **Empirical baseline (Bambi v6.8 era, last 30 days):**
+    | Agent | Starts | Rapid re-dispatch | Suggested |
+    |---|---|---|---|
+    | mobile | 295 | **15** | 60 → 80 |
+    | devops | 169 | **7** | 60 → 80 |
+    | code-reviewer | 413 | **5** | 80 → 100 |
+    | backend-api | 265 | 2 | (marginal) |
+    | testing/database/backoffice/adversarial | — | 0 | (clean) |
+- **Tests:** `test-codex-adapter` §69 adds 5 assertions: script exists/executable, dispatcher case present, rapid counter logic present, maxTurns frontmatter parse present, live synthetic fixture sa mobile re-dispatch returns expected output. Test count 528 → 533.
+- **Migration:** zero project-side impact. Pure telemetry — read-only surface. User-driven calibration: posle review `apd report maxturns`, manually edit `.claude/agents/<name>.md` frontmatter sa suggested maxTurns vrednoscu.
+- **Strategic context:** v6.8.10 je **Phase 1 telemetry-first** korak ka eventual per-agent maxTurns kalibraciji. Phase 2 (sledecu 1-2 nedelje cross-project usage-a) — calibrate defaults u workflow.md based on aggregated telemetry. Phase 3 (potencijalan v6.9+) — adaptive scaling per task complexity (R-criteria count → suggested adjustment).
+
 ## v6.8.9 — 2026-05-22
 
 Deseti same-day patch — trivijal session-log bug fix otkriven u Bambi Product sort_order task post-mortem-u. Pre-v6.8.9: `pipeline-advance reset` loop kroz `guard-audit.log` broji SVE entry-e bez filtera po `log_type` field-u. INFO entries (`brainstorm-skipped` iz v6.8.8) se brojili kao "blocks" → false positive `Problems: Guard blocks detected` za task koji je realno bio clean. Bambi Product sort_order (19m 12s, ZERO BLOCK, 1 INFO entry sa brainstorm skip reason) izlozio bug — session-log report-ovan kao "Guard blocks detected" iako pipeline pravilno prosao. Tests: 524 → 528 (+4 in §68).

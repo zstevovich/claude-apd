@@ -6676,6 +6676,80 @@ else
 fi
 
 # -----------------------------------------------------------
+# 69. v6.8.10 — apd report maxturns telemetry (read-only)
+#     User-observed problem (2026-05-22): trenutne maxTurns vrednosti
+#     (60 builders / 80 reviewers) su intuitivno postavljene, ne
+#     empirically-calibrated. Bambi v6.8 era pokazala 15 mobile
+#     rapid re-dispatch events u 2 dana (gap <120s = proxy za maxTurn
+#     exhaust). v6.8.10 dodaje telemetry surface da kalibrise per-agent
+#     vrednosti empirijski. Read-only — no behavior change.
+# -----------------------------------------------------------
+section "69. apd report maxturns telemetry (v6.8.10)"
+
+MT_SCRIPT="$APD_PLUGIN_ROOT/bin/core/pipeline-report-maxturns"
+
+# Static A: pipeline-report-maxturns script exists and is executable
+_check "pipeline-report-maxturns exists and is executable" test -x "$MT_SCRIPT"
+
+# Static B: apd report dispatcher includes maxturns sub-command
+if grep -qE '"maxturns".*"mt"|maxturns.*pipeline-report-maxturns' "$APD_PLUGIN_ROOT/bin/core/pipeline-report"; then
+    pass "pipeline-report dispatcher includes maxturns sub-command"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-report missing maxturns sub-command dispatcher"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: script computes per-agent rapid re-dispatch via awk
+if grep -qE 'rapid\[.*\]\+\+' "$MT_SCRIPT"; then
+    pass "pipeline-report-maxturns computes rapid re-dispatch counter"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-report-maxturns missing rapid counter logic"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: suggested action includes maxTurns parse from agent file
+if grep -qE 'maxTurns:' "$MT_SCRIPT"; then
+    pass "pipeline-report-maxturns reads current maxTurns from agent frontmatter"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-report-maxturns missing maxTurns frontmatter parse"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live E: synthetic test — script runs cleanly on small history fixture
+V6810_SCRATCH="$(mktemp -d -t apd-v6810.XXXXXX)"
+mkdir -p "$V6810_SCRATCH/.apd/memory" "$V6810_SCRATCH/.codex" "$V6810_SCRATCH/.claude/agents"
+touch "$V6810_SCRATCH/.apd/config"
+# Generate synthetic history with 3 rapid re-dispatches
+cat > "$V6810_SCRATCH/.apd/memory/agent-history.log" <<'EOF'
+2026-05-22 10:00:00|start|mobile|aaa111
+2026-05-22 10:05:00|stop|mobile|aaa111
+2026-05-22 10:05:30|start|mobile|bbb222
+2026-05-22 10:10:00|stop|mobile|bbb222
+2026-05-22 10:10:45|start|mobile|ccc333
+2026-05-22 10:15:00|stop|mobile|ccc333
+2026-05-22 10:15:30|start|mobile|ddd444
+2026-05-22 10:20:00|stop|mobile|ddd444
+EOF
+cat > "$V6810_SCRATCH/.claude/agents/mobile.md" <<'EOF'
+---
+name: mobile
+maxTurns: 60
+---
+EOF
+MT_OUT=$(cd "$V6810_SCRATCH" && bash "$MT_SCRIPT" 2>&1)
+if echo "$MT_OUT" | grep -q "mobile" && echo "$MT_OUT" | grep -qE "MaxTurns Telemetry"; then
+    pass "pipeline-report-maxturns runs cleanly on synthetic fixture sa mobile re-dispatch"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-report-maxturns synthetic test unexpected: $MT_OUT"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$V6810_SCRATCH"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
