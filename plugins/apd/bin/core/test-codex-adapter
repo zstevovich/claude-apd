@@ -6077,6 +6077,103 @@ else
 fi
 
 # -----------------------------------------------------------
+# 63. v6.8.4 — apd-brainstorm SKILL postaje APD pipeline tutor
+#     Pre-v6.8.4 SKILL.md je preskripuvao max_defects=0 za real task
+#     (3-4 R) i complex (5+ R). To je outdated guidance — v6.8.1 workflow
+#     §0b je vec uklonio preskripciju ali skill je ostao stari. Live
+#     evidence (2026-05-22): orchestrator i dalje pisao max_defects=0
+#     jer ga je SKILL.md ucio tako. v6.8.4 popravlja: drop preskripciju,
+#     dodaje sekciju "Downstream gates the spec triggers" + "Common BLOCKs +
+#     recovery". CC + Codex mirror. Plus workflow.md / AGENTS.md step 0
+#     MANDATORY load skill za netrivijalne task-ove.
+# -----------------------------------------------------------
+section "63. apd-brainstorm pipeline tutor (v6.8.4)"
+
+CC_SKILL="$REPO_ROOT/skills/apd-brainstorm/SKILL.md"
+CDX_SKILL="$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"
+
+# Static A: CC skill drops max_defects=0 preskripciju iz default budget table
+if ! grep -qE '3.4 \(real task\).*max_defects=0' "$CC_SKILL"; then
+    pass "CC apd-brainstorm: removed pre-v6.8.1 max_defects=0 preskripcija za real task"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-brainstorm: still has outdated max_defects=0 preskripcija"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: CC skill defaults to omit-field
+if grep -qE 'omit field.*unlimited' "$CC_SKILL"; then
+    pass "CC apd-brainstorm: default budget = omit field (= unlimited)"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-brainstorm: missing omit-field default guidance"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: CC skill has Downstream gates section
+if grep -qE 'Downstream gates' "$CC_SKILL"; then
+    pass "CC apd-brainstorm: 'Downstream gates' section present (plan + rationale format)"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-brainstorm: missing 'Downstream gates' section"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: CC skill has Common BLOCKs recovery section
+if grep -qE 'Common BLOCK' "$CC_SKILL"; then
+    pass "CC apd-brainstorm: 'Common BLOCKs + recovery' section present"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-brainstorm: missing 'Common BLOCKs' section"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: Codex mirror dropped max_defects=0 preskripciju too
+if ! grep -qE '3.4 \(real task\).*max_defects=0' "$CDX_SKILL"; then
+    pass "Codex apd-brainstorm mirror: removed max_defects=0 preskripcija"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex apd-brainstorm mirror: still has outdated guidance"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static F: Codex mirror has Downstream gates + Common BLOCKs
+if grep -qE 'Downstream gates' "$CDX_SKILL" && grep -qE 'Common BLOCK' "$CDX_SKILL"; then
+    pass "Codex apd-brainstorm mirror: gates + BLOCKs sections present"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex apd-brainstorm mirror: missing gates or BLOCKs sections"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static G: workflow.md step 1 has MANDATORY brainstorm load criteria
+if grep -qE 'MANDATORY load.*apd-brainstorm.*BEFORE writing spec-card' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
+    pass "workflow.md step 1 has MANDATORY brainstorm load criteria"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md step 1 missing MANDATORY brainstorm load criteria"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static H: Codex AGENTS.md step 0 (MANDATORY brainstorm) present
+if grep -qE '0\..*MANDATORY load .apd-brainstorm' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
+    pass "Codex AGENTS.md has step 0 MANDATORY brainstorm load"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex AGENTS.md missing step 0 MANDATORY brainstorm load"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static I: Codex AGENTS.md spec-card step warns against max_defects=0
+if grep -qE 'DO NOT write .adversarial: max_defects=0' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
+    pass "Codex AGENTS.md spec-card step warns against max_defects=0"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex AGENTS.md spec-card step missing max_defects=0 warning"
+    FAILS=$((FAILS + 1))
+fi
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

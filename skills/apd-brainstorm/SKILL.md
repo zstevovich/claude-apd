@@ -98,11 +98,66 @@ Ready to write the spec-card.md?
 
 | R-criterion count | Recommended | Why |
 |---|---|---|
-| 1–2 (hotfix) | `max_defects=unlimited` | Small surface, accept residual risk to ship fast |
-| 3–4 (real task) | `max_defects=0` | Standard cycle — dismissed defects mean missed signal |
-| 5+ (complex) | `max_defects=0` or `N` with rationale | Large surface, gate forces a fix-and-re-review loop |
+| 1–7 R (default — almost all tasks) | **omit field** (= unlimited) | v6.7 rationale gate structurally catches misuse (per-finding rationale ≥40 chars + 100%-orchestrator-dismiss BLOCK). No preflight budget cap needed. |
+| polish-mode (1–2 R hotfix) | `pipeline_mode: polish` | Lean preset — lower cycle caps + skip adversarial entirely. |
+| Power-user explicit budget | `max_defects=N` | ONLY when ti REALLY znas budget unapred — rare. `=0` forces accept-everything which cascades into N-finding builder fix dispatches and possible cycle-cap exhaust. |
 
-If the user does not specify, omit the field — the verifier defaults to unlimited (backward compat).
+**DO NOT write `max_defects=0` for standard tasks.** Empirical evidence iz v6.8 dev cycle (2026-05-22):
+- "Add contact form" (max_defects=0, 6 R): 33 min, 3 guard BLOCK cascade (max_defects-exceeded + raise-attempt + cycle-cap), 2 reset cycles.
+- "Rate limit kontakt forme" (max_defects=0, 5 R): 26 min, T=8:A=8:D=0 (forced accept all 8 findings), 3 BLOCK-ova.
+- "Admin lista" (NO max_defects field, 6 R): 13 min, T=10:A=1:D=9 (real adversarial work), clean run.
+
+Default = omit field. Rationale gate (v6.7) structurally protects against rubber-stamp dismissals without forcing accept-everything cascade.
+
+### 4b. Downstream gates the spec triggers
+
+After spec advance, orchestrator MUST write these files. Brainstorm should mentally prepare for them:
+
+**Implementation plan format** (writes to `.apd/pipeline/implementation-plan.md`):
+
+```
+## Implementation Plan: <task-name>
+
+### Files to modify
+**Implements:** none              ← scaffolding sections use 'none'
+
+- src/...
+
+### Backend
+**Implements:** R1, R3            ← every dispatch section maps to R-ids
+
+- src/api/... — endpoint changes
+
+### Files to create
+**Implements:** none
+
+- ...
+```
+
+Every `### Section` MUST have `**Implements:**` header. `verify-plan-spec` strict mode hard-BLOCKS `apd pipeline builder` otherwise (v6.8.1+ default). Bidirectional check: every R-id from spec must appear in ≥1 section's **Implements:** line; every section must declare R-ids or `none`.
+
+**Adversarial rationale format** (writes to `.apd/pipeline/.adversarial-rationale.md` AFTER adversarial-reviewer dispatch, BEFORE `apd pipeline verifier`):
+
+```
+## Finding 1 — <one-line title>
+**Severity:** critical | important | minor
+**Status:** accepted | dismissed | reviewer-self-dismissed
+**Rationale:** <text ≥40 chars required for dismissed/reviewer-self-dismissed>
+```
+
+Skipping this file → v7.1 BLOCK at verifier. Plus rationale gate hard-blocks the 100%-orchestrator-dismiss pattern (T≥3 && A==0 && Do≥1) — at least one finding must be accepted OR reclassified to reviewer-self-dismissed.
+
+### 4c. Common BLOCKs + recovery
+
+| BLOCK reason | Likely cause | Quick fix |
+|---|---|---|
+| `plan-spec-consistency issues=N mode=strict` | Plan section missing `**Implements:**` header OR spec R-id unreferenced | Read the inline BLOCK template; add headers/R-ids per section; re-run `apd pipeline builder` (~10s recovery) |
+| `max_defects-exceeded` | Adversarial vrati >budget findings | If budget=0 was a mistake: `apd pipeline reset "switching to unlimited"` + edit spec-card.md to remove field. If budget was intentional: accept more findings (dispatch builder fix per finding). |
+| `max_defects-raised-mid-pipeline` | Tried to raise budget after spec.done | v6.3 D immutability — only `apd pipeline reset` escape. |
+| `rationale-missing` | Forgot `.adversarial-rationale.md` before verifier | Write file with T entries (Finding/Severity/Status/Rationale), re-run verifier. |
+| `rationale-100pct-orch-dismiss` | All findings dismissed (T≥3, A=0, Do≥1) | Accept at least one finding OR reclassify dismissed → reviewer-self-dismissed with adversarial reviewer's inline Note as Rationale. |
+| `max_builder_cycles-exceeded` | Hit `.builder-count` cap (default 2) | Either accept smaller scope (lower expectations), reset + decompose into 2+ tasks, OR raise cap via spec-card `builder: max_cycles=N`. |
+| `adversarial-before-reviewer` | Tried to dispatch adversarial-reviewer before reviewer.done | Dispatch code-reviewer first; advance reviewer; THEN adversarial. |
 
 ### 5. Hand Off to Spec
 

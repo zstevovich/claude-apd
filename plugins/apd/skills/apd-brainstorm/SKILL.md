@@ -45,15 +45,34 @@ spec-card.md. A vague spec produces vague code.
 5. **Only then** write `.apd/pipeline/spec-card.md` and call
    `apd:apd_advance_pipeline('spec', '<name>')`.
 
-**Adversarial budget recommendation** (writes a `adversarial: max_defects=N` line into spec-card.md, enforced at verifier step):
+**Adversarial budget recommendation** (writes an `adversarial: max_defects=N` line into spec-card.md, enforced at verifier step):
 
 | R-criterion count | Recommended | Why |
 |---|---|---|
-| 1–2 (hotfix) | `max_defects=unlimited` | Small surface, accept residual risk to ship fast |
-| 3–4 (real task) | `max_defects=0` | Standard cycle — dismissed defects mean missed signal |
-| 5+ (complex) | `max_defects=0` or `N` with rationale | Large surface, gate forces a fix-and-re-review loop |
+| 1–7 R (default — almost all tasks) | **omit field** (= unlimited) | v6.7 rationale gate structurally catches misuse (per-finding rationale ≥40 chars + 100%-orchestrator-dismiss BLOCK). No preflight budget cap needed. |
+| polish-mode (1–2 R hotfix) | `pipeline_mode: polish` | Lean preset — lower cycle caps + skip adversarial entirely. |
+| Power-user explicit budget | `max_defects=N` | ONLY when ti REALLY znas budget unapred — rare. `=0` forces accept-everything which cascades into N-finding builder fix dispatches and possible cycle-cap exhaust. |
 
-If the user does not specify, omit the field — the verifier defaults to unlimited (backward compat with pre-v6.1).
+**DO NOT write `max_defects=0` for standard tasks.** Empirical evidence iz v6.8 dev cycle (2026-05-22): tasks sa `max_defects=0` trajali 26-33 min sa 3 guard BLOCK-a; identicniji task BEZ polja trajao 13 min clean. Default = omit field.
+
+## Downstream gates the spec triggers
+
+After spec advance, orchestrator MUST write these files. Brainstorm should mentally prepare for them:
+
+**Implementation plan** (`.apd/pipeline/implementation-plan.md`): every `### Section` MUST start with `**Implements:** R1, R3` (or `none` for scaffolding). `verify-plan-spec` strict mode (v6.8.1+ default) hard-BLOCKS `apd:apd_advance_pipeline('builder')` otherwise. Bidirectional check: every R-id from spec must appear in ≥1 section's **Implements:** line.
+
+**Adversarial rationale** (`.apd/pipeline/.adversarial-rationale.md`): after `apd:apd_adversarial_pass(...)`, write one block per finding (`## Finding N` + `**Severity:**` + `**Status:**` + `**Rationale:**`) BEFORE `apd:apd_advance_pipeline('verifier')`. v7.1 BLOCK otherwise. v7.6 BLOCK if 100% orchestrator-dismissed (T≥3 && A==0 && Do≥1) — at least one accept OR reclassify to reviewer-self-dismissed.
+
+## Common BLOCKs + recovery
+
+| BLOCK reason | Quick fix |
+|---|---|
+| `plan-spec-consistency` | Add **Implements:** headers per section; re-run builder advance |
+| `max_defects-exceeded` | Either accept findings, OR reset + remove field from spec-card |
+| `rationale-missing` | Write `.adversarial-rationale.md` with T entries; re-run verifier |
+| `rationale-100pct-orch-dismiss` | Accept at least 1 finding OR reclassify dismissed → reviewer-self-dismissed |
+| `max_builder_cycles-exceeded` | Decompose into 2+ tasks OR raise cap via spec-card `builder: max_cycles=N` |
+| `adversarial-before-reviewer` | Dispatch code-reviewer first; advance reviewer; THEN adversarial |
 
 ## Do not do during brainstorming
 

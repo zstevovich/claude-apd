@@ -1,5 +1,46 @@
 # Changelog
 
+## v6.8.4 — 2026-05-22
+
+Fifth same-day patch — strukturalna intervencija na obrazovnom surface-u, ne na guard layer-u. **Root cause spotted by user observation:** `apd-brainstorm` SKILL.md jos uvek preskripuje `max_defects=0` u Adversarial budget table-u uprkos v6.8.1 workflow §0b update-u. Orchestrator citajuci skill je tako i dalje uci pre-v6.8.1 guidance, sto je triggered cascade BLOCK-ove u Add contact form (33 min, 3 cascade BLOCK-a) i Rate limit (26 min, T=8:A=8:D=0 forced accept all). v6.8.4 transformise apd-brainstorm iz "vague-task clarifier" u **"APD pipeline tutor"** — orchestrator dobija edukaciju o gate-ovima PRE pisanja spec-a. Plus workflow.md/AGENTS.md eksplicit MANDATORY load skill za netrivijalne task-ove. Tests: 480 → 489 (+9 in §63).
+
+- **fix(skills/apd-brainstorm/SKILL.md): drop pre-v6.8.1 max_defects=0 preskripcija.** Pre-v6.8.4 tabela:
+    ```
+    | 1–2 (hotfix)     | max_defects=unlimited |
+    | 3–4 (real task)  | max_defects=0         |
+    | 5+ (complex)     | max_defects=0 or N    |
+    ```
+    Post-v6.8.4:
+    ```
+    | 1–7 R (default — almost all tasks) | omit field (= unlimited) |
+    | polish-mode (1-2 R hotfix)         | pipeline_mode: polish    |
+    | Power-user explicit budget         | max_defects=N (rare)     |
+    ```
+    Plus eksplicit "DO NOT write max_defects=0 for standard tasks" sa empirical evidence iz v6.8 dev cycle-a.
+- **feat(skills/apd-brainstorm/SKILL.md): nova sekcija "Downstream gates the spec triggers".** Educate-uje orchestrator-a PRE pisanja spec-a o:
+    - Implementation plan format sa `**Implements:** R1, R3` headerima per sekciji + scaffolding `none`
+    - Plan-spec gate bidirectional check + v6.8.1 strict default
+    - Adversarial rationale file format (Finding/Severity/Status/Rationale) + v7.1 + v7.6 BLOCK consequences
+- **feat(skills/apd-brainstorm/SKILL.md): nova sekcija "Common BLOCKs + recovery".** Tabela sa 7 BLOCK reason-a (plan-spec-consistency, max_defects-exceeded, max_defects-raised-mid-pipeline, rationale-missing, rationale-100pct-orch-dismiss, max_builder_cycles-exceeded, adversarial-before-reviewer) + konkretan quick fix per slucaj.
+- **fix(plugins/apd/skills/apd-brainstorm/SKILL.md): Codex mirror update.** Slicna struktura, krace teze (Codex skill je generalno saze-ija). Drop preskripciju + dodaj gates + BLOCKs sekcije.
+- **fix(workflow.md step 1): MANDATORY load /apd-brainstorm BEFORE writing spec-card.md** kad ANY:
+    - Task je vague/broad/improve X style
+    - Task ima >2 R-criteria
+    - Task uvodi DB migration ili security surface
+    - User nije pre-specified files/R-criteria/budget
+  Plus eksplicit description "Skill is the APD pipeline tutor (v6.8.4+)" + empirical reference.
+- **fix(templates/codex/AGENTS.md): step 0 MANDATORY brainstorm load** + step 1 (Write spec card) dobija "DO NOT write `adversarial: max_defects=0`" eksplicit warning sa rationale.
+- **Empirical baseline (4 task-a u v6.8 dev cycle):**
+    | Task | Duration | T:A:D | BLOCK-ovi | `max_defects` field |
+    |---|---|---|---|---|
+    | Landing page (v6.6 baseline) | 8m 49s | 5:0:5 | 0 | unlimited (no field) |
+    | Add contact form | **33 min** | 0:0:0 (anticipatorni) | 3 cascade | **=0 explicit** |
+    | Admin lista | 13m 25s | 10:1:9 | 2 rationale | unlimited (no field) |
+    | Rate limit | **26m 11s** | **8:8:0** (forced accept) | 3 | **=0 explicit** |
+  Pattern: max_defects=0 = 2x-4x slower vs no-field. Apd-brainstorm SKILL bio uzrok pisanja max_defects=0.
+- **Tests:** `test-codex-adapter` §63 adds 9 static assertions: CC skill drops 3-4 preskripciju, default omit-field, Downstream gates section, Common BLOCKs section, Codex mirror parity (drop + sections), workflow.md MANDATORY load, AGENTS.md step 0 MANDATORY, AGENTS.md spec-card warning. Test count 480 → 489.
+- **Migration:** zero project-side impact. Skill content + workflow guidance polish.
+
 ## v6.8.3 — 2026-05-22
 
 Same-day usability patch responding to v6.8.2 live evidence (Test 2nd task): `verify-plan-spec` log_block radi ali workflow.md MANDATORY/Sanity preventive guidance NIJE pomogao — orchestrator je ponovo zaboravio `**Implements:**` headers (2× plan-spec-consistency BLOCK u 17s razmaka) i ponovo zaboravio `.adversarial-rationale.md` (rationale-missing + 100pct-orch-dismiss BLOCK pair). Root cause: workflow.md je context-document koji se cita pri SessionStart-u, ne aktivno u tool-call kontekstu pri plan/rationale writing-u. Tests: 476 → 480 (+4 in §62).

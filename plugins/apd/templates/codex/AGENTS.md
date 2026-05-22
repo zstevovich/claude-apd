@@ -127,10 +127,23 @@ substantial enough that the adversarial gate stays on regardless — the
 
 ## Order of operations for a task
 
+0. **MANDATORY load `apd-brainstorm` skill BEFORE writing spec-card.md when ANY:**
+   - Task is vague, broad, or "improve X" style
+   - Task has >2 R-criteria (skill teaches budget + plan + rationale gates)
+   - Task introduces DB migration or security surface
+   - User did not pre-specify exact files, R-criteria, and adversarial budget
+
+   Skill is the APD pipeline tutor (v6.8.4+): walks orchestrator through gate
+   consequences, plan/rationale format, common BLOCKs + recovery. Prevents
+   cascade BLOCK patterns observed in v6.8.0-3 live runs.
+
 1. **Write the spec card** at `.apd/pipeline/spec-card.md`. Each requirement
    must be on its own line in the `Acceptance criteria` section as
    `- R1: <short>`, `- R2: ...`. Maximum 7 `R*:` items per task — decompose
    larger work into multiple pipeline cycles.
+   **DO NOT write `adversarial: max_defects=0`** unless ti REALLY znas budget
+   unapred — default is omit field (= unlimited). Rationale gate (v6.7)
+   structurally protects without forced accept-everything cascade.
 2. **Advance the spec gate:** `apd_advance_pipeline("spec", "<task-name>")`.
 3. **Write the implementation plan** at
    `.apd/pipeline/implementation-plan.md` — a bulleted list of files you

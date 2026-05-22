@@ -4,7 +4,15 @@
 
 ```
 1. RECEIVE TASK from user
-   → If task is vague or complex → MANDATORY: /apd-brainstorm first
+   → **MANDATORY load `/apd-brainstorm` skill BEFORE writing spec-card.md when ANY:**
+     - Task is vague, broad, or "improve X" style
+     - Task has >2 R-criteria (skill teaches budget + plan + rationale gates)
+     - Task introduces DB migration or security surface
+     - User did not pre-specify exact files, R-criteria, and adversarial budget
+   → Skill is the APD pipeline tutor (v6.8.4+): walks orchestrator through gate
+     consequences, plan/rationale format, common BLOCKs + recovery — prevents
+     cascade BLOCK patterns observed in v6.8.0-3 live runs (Add contact form
+     33 min, Rate limit 26 min — both triggered by skipping brainstorm).
    ↓
 2. ANALYZE & WRITE SPEC — create spec card with goal, scope, criteria, risks
    → bash .claude/bin/apd pipeline spec "Task name"
