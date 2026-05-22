@@ -17,10 +17,19 @@ after the user explicitly approves the design summary.
 - Multiple reasonable interpretations exist
 - You catch yourself making implementation choices the user hasn't seen
 
-**Skip when:**
-- The task is fully specified (file paths, function names, R-criteria)
-- The user has already approved a design — write the spec-card.md directly
-- You are mid-pipeline (spec is locked; raise concerns to user, don't re-brainstorm)
+**Skip when (TWO-PART CHECK — both must be true):**
+
+1. **Scope is aligned** — task fully specified OR user approved design informally, AND
+2. **APD config decisions are explicit** — you can answer YES to ALL:
+   - Adversarial budget: omit field (= unlimited) za standard tasks
+   - Plan: `**Implements:**` on EVERY `### Section` (NO RESERVED NAMES — includes Agents, Notes)
+   - Rationale: `.apd/pipeline/.adversarial-rationale.md` (sa `.md`!) with per-finding blocks
+   - BLOCK recovery patterns known
+
+**Also skip when:**
+- Mid-pipeline (spec locked; raise concerns, don't re-brainstorm)
+
+**If you cannot confirm BOTH parts — DO NOT skip.** Empirical (Bambi Cycle E, 2026-05-22): informal brainstorm covered scope but NOT APD config → 3h cascade. Override flag (`apd_advance_pipeline('spec', '<name>', skip_brainstorm='<reason>')`) requires concrete reason acknowledging both parts.
 
 ## The Iron Law
 
@@ -56,8 +65,10 @@ spec-card.md. A vague spec produces vague code.
    printf '%s|%s\n' "<task-name>" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .apd/pipeline/.brainstorm-marker
    ```
    `apd_advance_pipeline('spec', ...)` reads it. R-count > 2 in spec-card.md
-   without marker → hard BLOCK. Override (rare): pass `skip_brainstorm=True`
-   to the tool call for eksperimentalne/pre-specified tasks.
+   without marker → hard BLOCK. **Override (v6.8.8+, rare — requires concrete
+   reason):** pass `skip_brainstorm='<reason mentioning scope alignment AND
+   APD config clarity>'` to the tool call. Empty reason → BLOCK. Skip event
+   loguje INFO entry u guard-audit.log za audit trail.
 
 **Adversarial budget recommendation** (writes an `adversarial: max_defects=N` line into spec-card.md, enforced at verifier step):
 

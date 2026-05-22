@@ -23,10 +23,24 @@ If you cannot explain the design in one sentence — you are not ready for a spe
 - Multiple reasonable interpretations exist
 - You catch yourself making implementation choices the user hasn't seen
 
-**Skip when:**
-- The task is fully specified (file paths, function names, R-criteria)
-- The user has already approved a design — write the spec-card.md directly
+**Skip when (TWO-PART CHECK — both must be true):**
+
+1. **Scope is already aligned** — task is fully specified (file paths, function names, R-criteria) OR user has approved a design informally, AND
+2. **APD config decisions are explicit** — you can answer YES to ALL:
+   - Adversarial budget: will omit field (= unlimited default) za standard task; explicit `max_defects=N` only za polish/hotfix
+   - Plan format: will write `**Implements:** R<N>` (or `none`) on **EVERY** `### Section` — including Agents, Notes, Files-to-modify, Files-to-create (NO RESERVED NAMES)
+   - Rationale format: after adversarial dispatch, will write `.apd/pipeline/.adversarial-rationale.md` (sa `.md`!) with per-finding `## Finding N` + `**Severity:**` + `**Status:**` + `**Rationale:**` (≥40 chars za dismissed)
+   - BLOCK recovery: znas sta da uradis ako hit plan-spec-consistency / max_defects-exceeded / rationale-100pct-dismiss
+
+**Also skip when:**
 - You are mid-pipeline (spec is locked; raise concerns to user, don't re-brainstorm)
+
+**If you cannot confirm BOTH parts (scope + config) — DO NOT skip.** Load the skill. Empirical evidence (Bambi Cycle E, 2026-05-22): informal brainstorm covered scope alignment but NOT APD config guidance → 3h cascade BLOCK pattern. Skipping based ONLY on scope alignment is the failure mode.
+
+If you do skip, the override flag requires explicit reason that acknowledges both parts:
+```bash
+bash .claude/bin/apd pipeline spec "Task" --skip-brainstorm "<reason mentioning scope alignment AND APD config clarity>"
+```
 
 ## Process
 
@@ -210,8 +224,15 @@ bash .claude/bin/apd pipeline spec "Feature name"
 `pipeline-advance spec` reads the marker. If R-count in spec-card.md is > 2
 (non-trivial task) and the marker is missing OR the task name doesn't match,
 the spec gate hard-BLOCKS with instruction to load `/apd-brainstorm` first.
-Override (rare — eksperimentalni / pre-specified tasks): pass `--skip-brainstorm`
-flag to `apd pipeline spec`.
+
+**Override (v6.8.8+ — rare, requires concrete reason argument):** pass
+`--skip-brainstorm "<reason>"` to `apd pipeline spec`. Reason MUST acknowledge
+BOTH scope alignment AND APD config clarity (max_defects + plan format +
+rationale format). Empty reason → BLOCK. Example:
+```bash
+bash .claude/bin/apd pipeline spec "Task" --skip-brainstorm "Pre-aligned scope + max_defects=unlimited + plan Implements format clear"
+```
+Skip event sa reason se loguje u guard-audit.log kao INFO entry za audit trail.
 
 <HARD-GATE>
 Do NOT write code during brainstorming. Do NOT advance the pipeline mid-flow

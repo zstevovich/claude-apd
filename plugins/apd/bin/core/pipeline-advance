@@ -47,19 +47,27 @@ if [ -f "$PIPELINE_DIR/.reset-in-progress" ]; then
     echo "  If the contents look fine, clear: rm $PIPELINE_DIR/.reset-in-progress" >&2
 fi
 
-STEP="$1"
-ARG="$2"
-# v6.8.5 — parse --skip-brainstorm flag (can appear before or after task name)
+# v6.8.8 — parse --skip-brainstorm flag WITH MANDATORY reason argument.
+# Strip flag + reason from positional args; STEP/ARG derived from remainder.
 SKIP_BRAINSTORM=false
+SKIP_BRAINSTORM_REASON=""
+_positional_args=()
+_capture_reason=false
 for _arg in "$@"; do
+    if [ "$_capture_reason" = true ]; then
+        SKIP_BRAINSTORM_REASON="$_arg"
+        _capture_reason=false
+        continue
+    fi
     if [ "$_arg" = "--skip-brainstorm" ]; then
         SKIP_BRAINSTORM=true
-        # Re-derive ARG if it was the --skip-brainstorm token
-        if [ "$ARG" = "--skip-brainstorm" ]; then
-            ARG="$3"
-        fi
+        _capture_reason=true
+        continue
     fi
+    _positional_args+=("$_arg")
 done
+STEP="${_positional_args[0]:-}"
+ARG="${_positional_args[1]:-}"
 NOW=$(date +%s)
 NOW_HUMAN=$(date +"%Y-%m-%d %H:%M:%S")
 
@@ -238,19 +246,58 @@ case "$STEP" in
             if [ "$BRAINSTORM_OK" = false ]; then
                 echo "BLOCKED: Brainstorm marker missing for non-trivial task ($CRITERIA_COUNT R-criteria > 2)." >&2
                 echo "" >&2
-                echo "  /apd-brainstorm skill teaches gate consequences + plan/rationale" >&2
-                echo "  format + common BLOCKs. Skipping it correlates with cascade BLOCK" >&2
-                echo "  pattern observed in v6.8.0-4 live runs (3-4 BLOCK-ova per task)." >&2
+                echo "  /apd-brainstorm skill teaches TWO things:" >&2
+                echo "    - SCOPE alignment (often pre-aligned via informal discussion)" >&2
+                echo "    - APD configuration guidance (max_defects + plan format + rationale" >&2
+                echo "      format + BLOCK recovery) — usually NOT pre-aligned informally" >&2
                 echo "" >&2
                 echo "  Two ways forward:" >&2
-                echo "    (a) Load /apd-brainstorm skill, walk through it, then re-run." >&2
-                echo "        Skill writes .brainstorm-marker which unblocks this gate." >&2
-                echo "    (b) Override (rare — pre-specified / experimental task):" >&2
-                echo "        bash .claude/bin/apd pipeline spec --skip-brainstorm \"$ARG\"" >&2
+                echo "    (a) RECOMMENDED — Load /apd-brainstorm skill, walk through it, then" >&2
+                echo "        re-run. Skill writes .brainstorm-marker which unblocks this gate." >&2
+                echo "    (b) Override — ONLY IF scope IS pre-aligned AND APD config decisions" >&2
+                echo "        ARE explicit. Requires concrete reason argument:" >&2
+                echo "          bash .claude/bin/apd pipeline spec \"$ARG\" --skip-brainstorm \"<reason>\"" >&2
+                echo "        Reason MUST acknowledge BOTH scope alignment AND APD config clarity." >&2
+                echo "        Example reason: \"Pre-aligned scope + max_defects=unlimited + plan Implements format clear\"" >&2
+                echo "" >&2
+                echo "  Empirical evidence (2026-05-22, Bambi Cycle E): skipping skill without" >&2
+                echo "  explicit APD config check correlates with 3h cascade BLOCK pattern." >&2
                 echo "" >&2
                 echo "  Trivial tasks (≤2 R-criteria) skip this gate automatically." >&2
                 log_block "brainstorm-marker-missing" "task=$ARG criteria=$CRITERIA_COUNT"
                 exit 1
+            fi
+        fi
+
+        # v6.8.8 — if --skip-brainstorm was used, validate reason argument
+        # and log audit trail. Empty reason = treated as gate trigger.
+        if [ "$SKIP_BRAINSTORM" = true ] && [ "$CRITERIA_COUNT" -gt 2 ]; then
+            if [ -z "$SKIP_BRAINSTORM_REASON" ]; then
+                echo "BLOCKED: --skip-brainstorm requires explicit reason argument." >&2
+                echo "" >&2
+                echo "  Usage:" >&2
+                echo "    bash .claude/bin/apd pipeline spec \"$ARG\" --skip-brainstorm \"<concrete reason>\"" >&2
+                echo "" >&2
+                echo "  Reason MUST acknowledge BOTH:" >&2
+                echo "    1. Scope is pre-aligned (user approved design informally)" >&2
+                echo "    2. APD config decisions are explicit (max_defects, plan **Implements:**" >&2
+                echo "       on EVERY section, rationale .md format for adversarial findings)" >&2
+                echo "" >&2
+                echo "  Example reason:" >&2
+                echo "    \"Pre-aligned scope from informal brainstorm + max_defects=unlimited" >&2
+                echo "     + plan Implements format clear + rationale file ready for adversarial\"" >&2
+                echo "" >&2
+                echo "  Empty / shallow reason → load /apd-brainstorm skill instead (RECOMMENDED)." >&2
+                log_block "skip-brainstorm-missing-reason" "task=$ARG"
+                exit 1
+            fi
+            # Log skip event sa reason u audit trail (INFO level, ne BLOCK)
+            if [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ]; then
+                ts=$(date +"%Y-%m-%d %H:%M:%S")
+                # Sanitize reason (collapse newlines, truncate to ~200 chars)
+                _reason_sanitized="${SKIP_BRAINSTORM_REASON//$'\n'/ }"
+                _reason_sanitized="${_reason_sanitized:0:200}"
+                echo "${ts}|INFO|orchestrator|brainstorm-skipped|task=$ARG reason=${_reason_sanitized}" >> "$MEMORY_DIR/guard-audit.log"
             fi
         fi
 

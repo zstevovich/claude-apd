@@ -1,5 +1,24 @@
 # Changelog
 
+## v6.8.8 — 2026-05-22
+
+Deveti same-day patch — strukturalno zatvaranje `--skip-brainstorm` escape valve-a. Live evidence iz Bambi Cycle E task-a (2026-05-22, 3h cascade vs Test 20min clean isti dan + Export CSV 15m clean): orchestrator hit brainstorm-marker BLOCK ali bypassed sa `--skip-brainstorm` flag-om. Self-reflective signal iz orchestrator-a: "Skill bi bio ceremonija nad već postignutim alignment-om" ali "Skill verovatno proverava i stvari koje ja propustam... Da sam ga učitao, možda bih izbegao kasniji max_defects problem". Tenzija: skill content "When to skip" gentle dozvoljava skipping pri pre-aligned design-u, hard gate forsira load — orchestrator razresava preko jeftin override-a + scope-only rationalizacije. v6.8.8 zatvara strukturalno: `--skip-brainstorm` requires explicit reason argument. Tests: 515 → 524 (+9 in §67).
+
+- **fix(pipeline-advance): `--skip-brainstorm` requires reason argument.** Pre-v6.8.8: `--skip-brainstorm` je boolean flag bez argument-a — jeftin override koji orchestrator koristi automatic. v6.8.8: argument MUST follow the flag. Bez reason → BLOCK sa specificnom porukom koja trazi:
+    1. Scope alignment (user approved design informally)
+    2. APD config clarity (max_defects + plan **Implements:** on EVERY section + rationale .md format)
+  Plus log entry u guard-audit.log: `INFO|orchestrator|brainstorm-skipped|task=X reason=Y` (sanitized + truncated to 200 chars).
+- **fix(pipeline-advance): brainstorm-marker BLOCK message reorganized.** Pre-v6.8.8: "Two ways forward (a) Load skill (b) Override". v6.8.8: "(a) **RECOMMENDED** — Load skill / (b) Override — **ONLY IF** scope IS pre-aligned AND APD config decisions ARE explicit, requires concrete reason". Plus eksplicit empirijska referenca: "Bambi Cycle E 3h cascade pattern" kao learning material. Plus EXAMPLE reason sa konkretnim text-om.
+- **fix(skills/apd-brainstorm/SKILL.md, CC + Codex): "When to skip" TWO-PART CHECK preformulisanje.**
+    1. Scope is aligned (task specified OR user approved informally)
+    2. APD config decisions are explicit (4 sub-questions: budget, plan format, rationale format, BLOCK recovery)
+  
+  Both parts MUST be YES za legitimno skipping. **"If you cannot confirm BOTH — DO NOT skip"** sa empirical evidence reference (Bambi Cycle E). Override flag eksplicit zahteva reason mentioning BOTH parts.
+- **fix(SKILL.md Step 5 marker write section): Override description update.** Sa boolean flag → reason argument. Format primer + audit log mention.
+- **Strategic note:** v6.8.8 NIJE forsiranje load skill-a apsolutno — orchestrator i dalje moze legitimno da skip-uje kad je oba uslova ispunjena. Cilj je **friction proporcionalan riziku**: mental friction (eksplicit reason write) → orchestrator preispituje "da li mi stvarno treba skip" → ako da, pisuje audit-traceable rationale. Ovo je analogno v6.7 rationale gate-u za adversarial dismissal — pattern "force structured rationale" generalizovan na skip override.
+- **Tests:** `test-codex-adapter` §67 adds 9 assertions: SKIP_BRAINSTORM_REASON parser + missing-reason BLOCK + brainstorm-skipped audit log + RECOMMENDED na (a) + empirical reference + TWO-PART CHECK u CC + Codex skills + live BLOCK bez reason + live PASS sa reason. Plus §60 Live J updated za novu sintaksu (test fixture migration). Test count 515 → 524.
+- **Migration:** projekti koji koriste `--skip-brainstorm` (bez argument-a) u skriptama dobijaju BLOCK na sledeci task. Quick fix — dodaj reason argument: `--skip-brainstorm "<concrete reason>"`. Bambi orchestrator-ova self-reflective lesson je doslovan template za reason content.
+
 ## v6.8.7 — 2026-05-22
 
 Eighth same-day patch — skill content polish za 2 signala iz Soft-delete task post-mortem-a (live evidence 2026-05-22 15:04-15:30). Oba signala su iz skill education layer-a (v6.8.4) — orchestrator je naucio dela skill-a ali ne kompletno. v6.8.7 popunjava te edukacione gap-ove. Tests: 507 → 515 (+8 in §66).

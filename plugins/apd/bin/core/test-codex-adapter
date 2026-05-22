@@ -6288,10 +6288,10 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Live J: --skip-brainstorm override allows spec advance
-SKIP_OUT="$(advance_spec_v685 spec --skip-brainstorm "Test task")"
+# Live J: --skip-brainstorm override (sa reason argument per v6.8.8) allows spec advance
+SKIP_OUT="$(advance_spec_v685 spec "Test task" --skip-brainstorm "Pre-aligned scope + APD config clear")"
 if echo "$SKIP_OUT" | grep -q "EXIT=0"; then
-    pass "spec advance: --skip-brainstorm override allows spec advance"
+    pass "spec advance: --skip-brainstorm override (sa reason) allows spec advance"
     PASSES=$((PASSES + 1))
 else
     fail "--skip-brainstorm override unexpected: $SKIP_OUT"
@@ -6500,6 +6500,129 @@ else
     fail "workflow.md §3c missing explicit Agents/Notes scaffolding list"
     FAILS=$((FAILS + 1))
 fi
+
+# -----------------------------------------------------------
+# 67. v6.8.8 — --skip-brainstorm requires reason + skill content polish
+#     Reakcija na Bambi Cycle E task (2026-05-22, 3h cascade vs Test
+#     20min clean isti dan). Orchestrator-ova self-reflection priznala
+#     da je informal brainstorm cover-ovao SCOPE alignment ali NE APD
+#     config guidance. v6.8.8 strukturalno zatvara escape valve
+#     (--skip-brainstorm requires concrete reason argument) + skill
+#     "When to skip" preformuluje kao two-part check (scope + config).
+# -----------------------------------------------------------
+section "67. --skip-brainstorm requires reason (v6.8.8)"
+
+# Static A: pipeline-advance has SKIP_BRAINSTORM_REASON variable
+if grep -qE 'SKIP_BRAINSTORM_REASON' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance captures SKIP_BRAINSTORM_REASON argument"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing SKIP_BRAINSTORM_REASON variable"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: pipeline-advance has BLOCK for missing reason
+if grep -qE 'skip-brainstorm-missing-reason' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance BLOCK-uje --skip-brainstorm bez reason argumenta"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing skip-brainstorm-missing-reason BLOCK"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: pipeline-advance logs brainstorm-skipped INFO event to guard-audit
+if grep -qE 'brainstorm-skipped\|task' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance logs brainstorm-skipped INFO event sa reason u guard-audit"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing brainstorm-skipped audit log entry"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: brainstorm-marker BLOCK message reorganized — RECOMMENDED na (a)
+if grep -qE 'RECOMMENDED.*Load .apd-brainstorm' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "brainstorm-marker BLOCK message (a) eksplicit oznacena kao RECOMMENDED"
+    PASSES=$((PASSES + 1))
+else
+    fail "brainstorm-marker BLOCK message missing RECOMMENDED on (a)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: BLOCK message references Bambi Cycle E empirical evidence
+if grep -qE 'Bambi Cycle E|3h cascade' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "brainstorm-marker BLOCK message references empirical evidence"
+    PASSES=$((PASSES + 1))
+else
+    fail "brainstorm-marker BLOCK message missing empirical evidence reference"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static F: CC apd-brainstorm "When to skip" has TWO-PART CHECK
+if grep -qE 'TWO-PART CHECK' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "CC apd-brainstorm 'When to skip' is TWO-PART CHECK (scope + config)"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-brainstorm 'When to skip' missing TWO-PART CHECK reformulation"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static G: Codex mirror has TWO-PART CHECK
+if grep -qE 'TWO-PART CHECK' "$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "Codex apd-brainstorm mirror: TWO-PART CHECK reformulation"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex apd-brainstorm mirror missing TWO-PART CHECK"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup za behavioural tests
+V688_SCRATCH="$(mktemp -d -t apd-v688.XXXXXX)"
+mkdir -p "$V688_SCRATCH/.apd/pipeline" "$V688_SCRATCH/.codex" "$V688_SCRATCH/.apd/memory"
+touch "$V688_SCRATCH/.apd/config"
+
+cat > "$V688_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
+## Test v6.8.8
+**Acceptance criteria:**
+- R1: first
+- R2: second
+- R3: third
+- R4: fourth
+EOF
+
+advance_v688() {
+    cd "$V688_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" "$@" 2>&1
+    _rc=$?
+    cd - >/dev/null
+    echo "EXIT=$_rc"
+}
+
+# Live H: --skip-brainstorm without reason → BLOCK + exit 1
+NO_REASON_OUT="$(advance_v688 spec "Test v6.8.8" --skip-brainstorm)"
+if echo "$NO_REASON_OUT" | grep -q "EXIT=1" && echo "$NO_REASON_OUT" | grep -q "requires explicit reason argument"; then
+    pass "spec advance: --skip-brainstorm bez reason → BLOCK + exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "--skip-brainstorm no-reason unexpected: $NO_REASON_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live I: --skip-brainstorm sa reason → advance prolazi + audit log entry
+WITH_REASON_OUT="$(advance_v688 spec "Test v6.8.8" --skip-brainstorm "Pre-aligned scope + max_defects=unlimited + plan Implements format clear")"
+if echo "$WITH_REASON_OUT" | grep -q "EXIT=0"; then
+    if [ -f "$V688_SCRATCH/.apd/memory/guard-audit.log" ] && \
+       grep -qE 'INFO\|orchestrator\|brainstorm-skipped\|task=Test v6.8.8' "$V688_SCRATCH/.apd/memory/guard-audit.log"; then
+        pass "spec advance: --skip-brainstorm sa reason → exit 0 + audit log entry"
+        PASSES=$((PASSES + 1))
+    else
+        fail "--skip-brainstorm sa reason: advance prosao ali audit log entry nedostaje"
+        FAILS=$((FAILS + 1))
+    fi
+else
+    fail "--skip-brainstorm sa reason unexpected: $WITH_REASON_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$V688_SCRATCH"
 
 # -----------------------------------------------------------
 # Summary
