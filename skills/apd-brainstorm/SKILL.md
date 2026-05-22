@@ -164,11 +164,24 @@ Skipping this file → v7.1 BLOCK at verifier. Plus rationale gate hard-blocks t
 Do not advance the pipeline while asking questions, presenting options, or
 revising the design. Once the user explicitly approves the design summary,
 write spec-card.md and enter the pipeline; that advance is the only valid exit
-from brainstorming:
+from brainstorming.
+
+**MANDATORY (v6.8.5+):** before calling `apd pipeline spec`, write the
+brainstorm marker so the spec gate knows this task was brainstormed:
 
 ```bash
+# Inside .apd/pipeline/ — single line: <task-name>|<ISO-8601 timestamp>
+printf '%s|%s\n' "Feature name" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .apd/pipeline/.brainstorm-marker
+
+# Then advance:
 bash .claude/bin/apd pipeline spec "Feature name"
 ```
+
+`pipeline-advance spec` reads the marker. If R-count in spec-card.md is > 2
+(non-trivial task) and the marker is missing OR the task name doesn't match,
+the spec gate hard-BLOCKS with instruction to load `/apd-brainstorm` first.
+Override (rare — eksperimentalni / pre-specified tasks): pass `--skip-brainstorm`
+flag to `apd pipeline spec`.
 
 <HARD-GATE>
 Do NOT write code during brainstorming. Do NOT advance the pipeline mid-flow

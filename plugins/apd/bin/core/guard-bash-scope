@@ -95,6 +95,12 @@ for ppath in "${PROTECTED_PIPELINE[@]}"; do
     if [[ "$COMMAND" == *"pipeline-advance"* ]] || [[ "$COMMAND" == *"apd pipeline"* ]] || [[ "$COMMAND" == *"verify-apd"* ]] || [[ "$COMMAND" == *"pipeline-post-commit"* ]] || [[ "$COMMAND" == *"pipeline-gate"* ]]; then
       break
     fi
+    # v6.8.5 — allow .brainstorm-marker writes (apd-brainstorm skill writes it as
+    # final exit action before pipeline-advance spec; without this exception the
+    # printf > .apd/pipeline/.brainstorm-marker would BLOCK at this guard).
+    if [[ "$COMMAND" == *".brainstorm-marker"* ]]; then
+      break
+    fi
     # Check non-redirect write operations
     for wp in "${PLUGIN_WRITE_CHECK[@]}"; do
       if [[ "$COMMAND" == *"$wp"*"$ppath"* ]] || [[ "$COMMAND" == *"$wp"*".apd/pipeline/"* ]]; then

@@ -42,8 +42,16 @@ spec-card.md. A vague spec produces vague code.
 4. **Converge on a design.** Hand the user a short summary — Goal /
    Scope / Out of scope / Approach / Affected files / Adversarial
    budget. Wait for explicit approval.
-5. **Only then** write `.apd/pipeline/spec-card.md` and call
-   `apd:apd_advance_pipeline('spec', '<name>')`.
+5. **Only then** write `.apd/pipeline/spec-card.md`, write the brainstorm
+   marker, and call `apd:apd_advance_pipeline('spec', '<name>')`.
+
+   **MANDATORY (v6.8.5+):** before the spec advance, write the marker:
+   ```bash
+   printf '%s|%s\n' "<task-name>" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .apd/pipeline/.brainstorm-marker
+   ```
+   `apd_advance_pipeline('spec', ...)` reads it. R-count > 2 in spec-card.md
+   without marker → hard BLOCK. Override (rare): pass `skip_brainstorm=True`
+   to the tool call for eksperimentalne/pre-specified tasks.
 
 **Adversarial budget recommendation** (writes an `adversarial: max_defects=N` line into spec-card.md, enforced at verifier step):
 

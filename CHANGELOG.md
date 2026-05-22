@@ -1,5 +1,34 @@
 # Changelog
 
+## v6.8.5 — 2026-05-22
+
+Sixth same-day patch — hard gate koji **forsira `/apd-brainstorm` skill load** pre netrivijalnog spec advance-a. v6.8.4 educational layer je passive (workflow.md MANDATORY guidance je tekstualan), pa orchestrator ga je preskakao. Live evidence iz Test CSRF task-a (2026-05-22): 4 BLOCK-ova u 7 minuta (plan-spec-consistency + adversarial-before-reviewer × 2 + pipeline-state-direct-write) uprkos v6.8.0-4 chain-u. User-ova teza: "bez brainstorm skill-a necemo naterati orchestrator-a da postuje discipline" empirijski potvrdjena. v6.8.5 transformise skill load iz "preporuke" u "mandatory checkpoint" preko marker fajla. Tests: 489 → 502 (+13 in §64).
+
+- **feat(pipeline-advance): brainstorm-marker hard gate.** Pre `create_done "spec"` u spec branch-u, novi check: ako R-criteria count u spec-card.md > 2 i `.apd/pipeline/.brainstorm-marker` ne postoji (ili task name unutar njega ne match-uje), BLOCK sa eksplicit instrukcijom "Load /apd-brainstorm skill first". `log_block "brainstorm-marker-missing"` u guard-audit.log.
+- **feat(pipeline-advance): `--skip-brainstorm` override flag.** Escape valve za eksperimentalne / pre-specified task-ove. `bash .claude/bin/apd pipeline spec --skip-brainstorm "Task name"`. Flag parsiran iz `$@` (moze pre ili posle task name-a).
+- **feat(apd-brainstorm SKILL.md): Step 5 instructs marker write.** Skill exit action sad ukljucuje:
+    ```bash
+    printf '%s|%s\n' "Task name" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .apd/pipeline/.brainstorm-marker
+    bash .claude/bin/apd pipeline spec "Task name"
+    ```
+    Plus eksplicit explanation o gate-u i override flag-u. Codex mirror identican (sa `apd:apd_advance_pipeline` MCP tool path).
+- **fix(guard-pipeline-state): allowlist `.brainstorm-marker`.** Bez ovog allowlist-a, skill bi udari u BLOCK kad pokusa da pisuje marker. Header comment + case statement updated.
+- **fix(guard-file-edit, Codex): allowlist `.brainstorm-marker`.** AUTHORING_ALLOWLIST dobija novi entry. Codex orchestrator moze da pisuje marker preko apply_patch / Edit / Write.
+- **fix(guard-bash-scope): allow brainstorm-marker bash redirect.** Skill koristi `printf > .apd/pipeline/.brainstorm-marker` — bez ove exception bi udari u "Bash redirect to protected pipeline state directory" BLOCK.
+- **fix(pipeline-advance reset cleanup): wipe `.brainstorm-marker`.** Oba reset path-a (spec re-advance soft cleanup + explicit `pipeline-advance reset`) dobijaju `.brainstorm-marker` u rm -f listi. Sledeci task starts fresh.
+- **Trivial tasks bypass automatic.** R-count ≤ 2 (hotfix/polish) ne triggers gate — orchestrator nije forsiran da load skill za 1-2 R-criterion task-ove. Smart-friction: friction samo gde se cascade BLOCK pattern observed.
+- **Empirical baseline iz v6.8 dev cycle-a (5 task-a u Test-u):**
+    | Task | Duration | T:A:D | BLOCK-ovi | brainstorm load |
+    |---|---|---|---|---|
+    | Landing page (v6.6 baseline) | 8m 49s | 5:0:5 | 0 | n/a |
+    | Add contact form | 33 min | 0:0:0 (anticipatorni) | 3 cascade | NE |
+    | Admin lista | 13m 25s | 10:1:9 | 2 rationale | NE |
+    | Rate limit | 26m 11s | 8:8:0 (forced accept) | 3 | NE |
+    | **CSRF zaštita (v6.8.4)** | **N/A (in progress)** | **N/A** | **4 BLOCK-ova u 7min** | **NE** |
+  Pattern: orchestrator preskakao skill load sve 4 task-a uprkos workflow.md hint-u + v6.8.4 SKILL update. v6.8.5 hard gate je realan jedini structural fix.
+- **Tests:** `test-codex-adapter` §64 adds 13 assertions: BRAINSTORM_MARKER + SKIP_BRAINSTORM static parsers, reset cleanup, guard-pipeline-state + guard-file-edit + guard-bash-scope allowlists, CC + Codex SKILL.md marker instruction, live R>2 without marker → BLOCK, --skip-brainstorm override radi, matching marker → spec advance prolazi, R≤2 trivial bypass automatic, reset wipes marker. Test count 489 → 502.
+- **Migration:** projekti koji upgrade v6.8.4 → v6.8.5 i nastavljaju aktivnu pipeline-u: ako sledeci task ima >2 R-criteria, orchestrator dobija BLOCK sa instrukcijom. Quick fix — load `/apd-brainstorm` skill, walk through it (skill pise marker), pa `apd pipeline spec`. Trivial tasks (1-2 R) ne pucaju.
+
 ## v6.8.4 — 2026-05-22
 
 Fifth same-day patch — strukturalna intervencija na obrazovnom surface-u, ne na guard layer-u. **Root cause spotted by user observation:** `apd-brainstorm` SKILL.md jos uvek preskripuje `max_defects=0` u Adversarial budget table-u uprkos v6.8.1 workflow §0b update-u. Orchestrator citajuci skill je tako i dalje uci pre-v6.8.1 guidance, sto je triggered cascade BLOCK-ove u Add contact form (33 min, 3 cascade BLOCK-a) i Rate limit (26 min, T=8:A=8:D=0 forced accept all). v6.8.4 transformise apd-brainstorm iz "vague-task clarifier" u **"APD pipeline tutor"** — orchestrator dobija edukaciju o gate-ovima PRE pisanja spec-a. Plus workflow.md/AGENTS.md eksplicit MANDATORY load skill za netrivijalne task-ove. Tests: 480 → 489 (+9 in §63).

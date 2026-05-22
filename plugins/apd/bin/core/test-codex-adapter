@@ -6174,6 +6174,187 @@ else
 fi
 
 # -----------------------------------------------------------
+# 64. v6.8.5 — brainstorm-marker hard gate
+#     v6.8.4 made apd-brainstorm SKILL the APD pipeline tutor but passive
+#     workflow.md MANDATORY guidance je insufficient — orchestrator skips
+#     skill load (Test CSRF task 2026-05-22: 4 BLOCK-ova including
+#     plan-spec-consistency + adversarial-before-reviewer + rationale path
+#     issues). v6.8.5 hard gate: pipeline-advance spec requires
+#     .brainstorm-marker fajl kad task ima >2 R-criteria. Marker is written
+#     by apd-brainstorm skill at exit. --skip-brainstorm override exists.
+# -----------------------------------------------------------
+section "64. brainstorm-marker hard gate (v6.8.5)"
+
+# Static A: pipeline-advance has BRAINSTORM_MARKER check za R-count > 2
+if grep -qE 'BRAINSTORM_MARKER' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance contains BRAINSTORM_MARKER check"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing BRAINSTORM_MARKER check (v6.8.5 regression)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: pipeline-advance parses --skip-brainstorm flag
+if grep -qE 'SKIP_BRAINSTORM' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance parses --skip-brainstorm override flag"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing --skip-brainstorm flag parser"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: reset cleanup wipes .brainstorm-marker
+if grep -qE 'rm.*\.brainstorm-marker' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance reset wipes .brainstorm-marker"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance reset missing .brainstorm-marker cleanup"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: guard-pipeline-state allowlist .brainstorm-marker
+if grep -qE '\.brainstorm-marker' "$APD_PLUGIN_ROOT/bin/core/guard-pipeline-state"; then
+    pass "guard-pipeline-state (CC) allowlists .brainstorm-marker"
+    PASSES=$((PASSES + 1))
+else
+    fail "guard-pipeline-state (CC) missing .brainstorm-marker allowlist"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: guard-file-edit (Codex) allowlist .brainstorm-marker
+if grep -qE '\.brainstorm-marker' "$APD_PLUGIN_ROOT/bin/core/guard-file-edit"; then
+    pass "guard-file-edit (Codex) allowlists .brainstorm-marker"
+    PASSES=$((PASSES + 1))
+else
+    fail "guard-file-edit (Codex) missing .brainstorm-marker allowlist"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static F: guard-bash-scope allows .brainstorm-marker bash redirect
+if grep -q '\.brainstorm-marker' "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope"; then
+    pass "guard-bash-scope allows .brainstorm-marker bash redirect"
+    PASSES=$((PASSES + 1))
+else
+    fail "guard-bash-scope missing .brainstorm-marker bypass exception"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static G: apd-brainstorm SKILL.md instructs writing the marker
+if grep -qE '\.brainstorm-marker' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "CC apd-brainstorm SKILL.md instructs .brainstorm-marker write"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-brainstorm SKILL.md missing marker write instruction"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static H: Codex apd-brainstorm SKILL.md instructs writing the marker
+if grep -qE '\.brainstorm-marker' "$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "Codex apd-brainstorm SKILL.md instructs .brainstorm-marker write"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex apd-brainstorm SKILL.md missing marker write instruction"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup for behavioural tests
+V685_SCRATCH="$(mktemp -d -t apd-v685.XXXXXX)"
+mkdir -p "$V685_SCRATCH/.apd/pipeline" "$V685_SCRATCH/.codex" "$V685_SCRATCH/.apd/memory"
+touch "$V685_SCRATCH/.apd/config"
+
+cat > "$V685_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
+## Test
+**Acceptance criteria:**
+- R1: first
+- R2: second
+- R3: third
+- R4: fourth
+EOF
+
+advance_spec_v685() {
+    cd "$V685_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" "$@" 2>&1
+    _rc=$?
+    cd - >/dev/null
+    echo "EXIT=$_rc"
+}
+
+# Live I: R-count=4 (>2) without marker → BLOCK
+NO_MARKER_OUT="$(advance_spec_v685 spec "Test task")"
+if echo "$NO_MARKER_OUT" | grep -q "EXIT=1" && echo "$NO_MARKER_OUT" | grep -q "Brainstorm marker missing"; then
+    pass "spec advance: R-count=4 without marker → BLOCK + exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "no-marker BLOCK unexpected: $NO_MARKER_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live J: --skip-brainstorm override allows spec advance
+SKIP_OUT="$(advance_spec_v685 spec --skip-brainstorm "Test task")"
+if echo "$SKIP_OUT" | grep -q "EXIT=0"; then
+    pass "spec advance: --skip-brainstorm override allows spec advance"
+    PASSES=$((PASSES + 1))
+else
+    fail "--skip-brainstorm override unexpected: $SKIP_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Reset for next test
+cd "$V685_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
+cd - >/dev/null
+# Reset wipes spec-card.md — rewrite it
+cat > "$V685_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
+## Test
+**Acceptance criteria:**
+- R1: first
+- R2: second
+- R3: third
+- R4: fourth
+EOF
+
+# Live K: marker written + matching task name → spec advance prolazi
+printf '%s|%s\n' "Test task" "2026-05-22T14:00:00Z" > "$V685_SCRATCH/.apd/pipeline/.brainstorm-marker"
+WITH_MARKER_OUT="$(advance_spec_v685 spec "Test task")"
+if echo "$WITH_MARKER_OUT" | grep -q "EXIT=0"; then
+    pass "spec advance: matching marker → spec advance prolazi"
+    PASSES=$((PASSES + 1))
+else
+    fail "matching marker unexpected: $WITH_MARKER_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Reset for next test
+cd "$V685_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
+cd - >/dev/null
+# Live L: trivial task (R-count <= 2) no marker required
+cat > "$V685_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
+## Test hotfix
+**Acceptance criteria:**
+- R1: first
+- R2: second
+EOF
+TRIVIAL_OUT="$(advance_spec_v685 spec "Test hotfix")"
+if echo "$TRIVIAL_OUT" | grep -q "EXIT=0"; then
+    pass "spec advance: trivial task (R≤2) bypasses brainstorm gate"
+    PASSES=$((PASSES + 1))
+else
+    fail "trivial task should skip brainstorm gate: $TRIVIAL_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live M: reset wipes marker
+cd "$V685_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
+cd - >/dev/null
+if [ ! -f "$V685_SCRATCH/.apd/pipeline/.brainstorm-marker" ]; then
+    pass "spec reset wipes .brainstorm-marker"
+    PASSES=$((PASSES + 1))
+else
+    fail "spec reset did not wipe .brainstorm-marker"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$V685_SCRATCH"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

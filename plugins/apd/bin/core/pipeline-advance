@@ -49,6 +49,17 @@ fi
 
 STEP="$1"
 ARG="$2"
+# v6.8.5 — parse --skip-brainstorm flag (can appear before or after task name)
+SKIP_BRAINSTORM=false
+for _arg in "$@"; do
+    if [ "$_arg" = "--skip-brainstorm" ]; then
+        SKIP_BRAINSTORM=true
+        # Re-derive ARG if it was the --skip-brainstorm token
+        if [ "$ARG" = "--skip-brainstorm" ]; then
+            ARG="$3"
+        fi
+    fi
+done
 NOW=$(date +%s)
 NOW_HUMAN=$(date +"%Y-%m-%d %H:%M:%S")
 
@@ -208,6 +219,41 @@ case "$STEP" in
             exit 1
         fi
 
+        # v6.8.5 — brainstorm-marker hard gate. Non-trivial tasks (>2 R-criteria)
+        # MUST be brainstormed via /apd-brainstorm skill before spec advance. Skill
+        # writes .brainstorm-marker on exit. Reset wipes it. --skip-brainstorm
+        # override flag is escape valve for power-users / pre-specified tasks.
+        # Rationale: empirical evidence iz v6.8.0-4 — passive workflow.md MANDATORY
+        # guidance je insufficient; orchestrator skips skill load i ponavlja
+        # plan-spec / rationale / ordering BLOCK-ove. Hard gate forsira skill load.
+        BRAINSTORM_MARKER="$PIPELINE_DIR/.brainstorm-marker"
+        if [ "$CRITERIA_COUNT" -gt 2 ] && [ "$SKIP_BRAINSTORM" = false ]; then
+            BRAINSTORM_OK=false
+            if [ -f "$BRAINSTORM_MARKER" ]; then
+                MARKER_TASK=$(cut -d'|' -f1 "$BRAINSTORM_MARKER" 2>/dev/null)
+                if [ "$MARKER_TASK" = "$ARG" ]; then
+                    BRAINSTORM_OK=true
+                fi
+            fi
+            if [ "$BRAINSTORM_OK" = false ]; then
+                echo "BLOCKED: Brainstorm marker missing for non-trivial task ($CRITERIA_COUNT R-criteria > 2)." >&2
+                echo "" >&2
+                echo "  /apd-brainstorm skill teaches gate consequences + plan/rationale" >&2
+                echo "  format + common BLOCKs. Skipping it correlates with cascade BLOCK" >&2
+                echo "  pattern observed in v6.8.0-4 live runs (3-4 BLOCK-ova per task)." >&2
+                echo "" >&2
+                echo "  Two ways forward:" >&2
+                echo "    (a) Load /apd-brainstorm skill, walk through it, then re-run." >&2
+                echo "        Skill writes .brainstorm-marker which unblocks this gate." >&2
+                echo "    (b) Override (rare — pre-specified / experimental task):" >&2
+                echo "        bash .claude/bin/apd pipeline spec --skip-brainstorm \"$ARG\"" >&2
+                echo "" >&2
+                echo "  Trivial tasks (≤2 R-criteria) skip this gate automatically." >&2
+                log_block "brainstorm-marker-missing" "task=$ARG criteria=$CRITERIA_COUNT"
+                exit 1
+            fi
+        fi
+
         # v6.3 D — max_defects immutability across rollback+re-advance for same task.
         # Existing .spec-hash check at verifier catches direct edits AFTER spec.done.
         # This check catches the loophole: rollback → edit spec-card.md → re-advance spec.
@@ -251,7 +297,7 @@ case "$STEP" in
         # v6.3 audit fix: also wipe .builder-count / .reviewer-count so a new
         # task doesn't inherit cycle counts from a prior task (would block first
         # dispatch with a misleading "task X has hit its budget" message).
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.brainstorm-marker"
         create_done "spec" "$ARG"
         # Freeze spec-card.md — hash for tamper detection
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
@@ -1179,7 +1225,7 @@ EOF
         # .agents was already archived above (before metrics write).
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes" "$PIPELINE_DIR/.brainstorm-marker"
         # Reset completed cleanly — drop the in-progress marker.
         rm -f "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
         echo "Pipeline reset. Ready for new task."
