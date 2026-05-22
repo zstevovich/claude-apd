@@ -6031,6 +6031,52 @@ fi
 rm -rf "$V68_2_SCRATCH"
 
 # -----------------------------------------------------------
+# 62. v6.8.3 — actionable BLOCK message za verify-plan-spec
+#     v6.8.2 evidence (Test 2nd task): orchestrator zaboravio Implements,
+#     dobio "fix and re-run" vague message, vratio se nazad u workflow.md
+#     za sintaksu (60s cost), apdejtovao plan. v6.8.3 ugrađuje konkretan
+#     copy-paste fix template direktno u BLOCK message — orchestrator
+#     vidi tacno sta da pisuje, primeni odmah (~5-10s).
+# -----------------------------------------------------------
+section "62. actionable plan-spec BLOCK message (v6.8.3)"
+
+# Static A: pipeline-advance BLOCK contains literal **Implements:** example
+if grep -qE '\*\*Implements:\*\* R1, R3' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance BLOCK message contains copy-paste **Implements:** R1, R3 example"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance BLOCK message lacks **Implements:** example (v6.8.3 regression)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: BLOCK message contains 'none' scaffolding hint
+if grep -qE 'scaffolding.*none|\*\*Implements:\*\* none' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance BLOCK message hints **Implements:** none for scaffolding"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance BLOCK message missing 'none' scaffolding hint"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: workflow §3c has MANDATORY marker at top
+if grep -qE '^\*\*MANDATORY\*\*.*Implements' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
+    pass "workflow.md §3c has MANDATORY marker at top of section"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md §3c missing MANDATORY marker — preventive guidance weak"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: Codex AGENTS.md step 3 has MANDATORY marker
+if grep -qE '\*\*MANDATORY\*\*.*Implements|MANDATORY.*Section.*Implements' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
+    pass "Codex AGENTS.md step 3 has MANDATORY marker for **Implements:**"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex AGENTS.md step 3 missing MANDATORY marker"
+    FAILS=$((FAILS + 1))
+fi
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

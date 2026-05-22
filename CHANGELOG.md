@@ -1,5 +1,16 @@
 # Changelog
 
+## v6.8.3 — 2026-05-22
+
+Same-day usability patch responding to v6.8.2 live evidence (Test 2nd task): `verify-plan-spec` log_block radi ali workflow.md MANDATORY/Sanity preventive guidance NIJE pomogao — orchestrator je ponovo zaboravio `**Implements:**` headers (2× plan-spec-consistency BLOCK u 17s razmaka) i ponovo zaboravio `.adversarial-rationale.md` (rationale-missing + 100pct-orch-dismiss BLOCK pair). Root cause: workflow.md je context-document koji se cita pri SessionStart-u, ne aktivno u tool-call kontekstu pri plan/rationale writing-u. Tests: 476 → 480 (+4 in §62).
+
+- **fix(pipeline-advance): actionable BLOCK message za plan-spec consistency.** Pre-v6.8.3: `BLOCKED: plan-spec consistency check failed. Fix .apd/pipeline/implementation-plan.md per the messages above` — vague, orchestrator mora da ide nazad u workflow.md za sintaksu (~60s cost). v6.8.3: konkretan copy-paste fix template direktno u BLOCK output sa `### Backend / **Implements:** R1, R3` primer + `### Files to modify / **Implements:** none` primer + "Apply fix, then re-run" instrukcija. Orchestrator apply odmah (~5-10s).
+- **fix(workflow): §3c MANDATORY marker na vrhu sekcije.** Premostio "rules-na-dnu" problem: pre-v6.8.3 pravila su bila ispod format primera (1 scroll). v6.8.3 dodaje eksplicit **MANDATORY** marker odmah ispod naslova §3c sa "Common mistake" warning ("write plan without **Implements:** headers → BLOCK → go back and add. Saves 60s by writing headers from the start").
+- **fix(AGENTS.md): step 3 MANDATORY marker (Codex mirror).** Codex orchestrator dobija jednaku visualno-istaknutu instrukciju. Plus "Write headers FROM THE START — verify-plan-spec strict mode hard-BLOCKS otherwise" eksplicit pre apokaliptic.
+- **Empirical baseline (v6.8.2 Test):** 2 plan-spec-consistency BLOCK-ova (12 issues → 9 issues → pass) u 17s razmaka + 2 rationale BLOCK-ova (rationale-missing → rationale-100pct-orch-dismiss). Net cost ~3-5 min recovery vs ~5-10s sa v6.8.3 inline templates. **Realan limit:** orchestrator-ov RLHF training pattern i memory weight mogu i dalje da zaboravljaju. v6.8.3 ne brise BLOCK pattern — smanjuje friction recovery.
+- **Tests:** `test-codex-adapter` §62 adds 4 static assertions: pipeline-advance BLOCK contains `**Implements:** R1, R3` literal, `**Implements:** none` scaffolding hint, workflow §3c MANDATORY marker, Codex AGENTS.md MANDATORY marker. Test count 476 → 480.
+- **Strategic note:** v6.8.3 close-uje "vague BLOCK message" gap. Sledeci patch (ako bude) verovatno targira **session-start hook reminder** ili **on-demand plan-check command** za preventive validation. Open question za buduce.
+
 ## v6.8.2 — 2026-05-22
 
 Same-day observability patch responding to v6.8.1 live verification in `~/Projects/Test` "Admin lista kontakt poruka" task (13m 25s, 3× ubrzanje vs v6.8.0 baseline). Run prosao clean ali otkrio dva fina signala: (a) `verify-plan-spec` ne loguje BLOCK-ove u guard-audit.log dok ostali gateovi rade (observability gap); (b) orchestrator zaboravlja `.adversarial-rationale.md` pre verifier advance-a — gate radi reactive (v7.1 BLOCK), ali workflow guidance nije visually prominent. Tests: 472 → 476 (+4 in §61).

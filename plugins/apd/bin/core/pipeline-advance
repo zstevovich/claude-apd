@@ -296,8 +296,26 @@ case "$STEP" in
         if ! bash "$SCRIPT_DIR/verify-plan-spec"; then
             echo "" >&2
             echo "BLOCKED: plan-spec consistency check failed (strict mode)." >&2
-            echo "  Fix .apd/pipeline/implementation-plan.md per the messages above," >&2
-            echo "  or set 'plan_consistency_gate: warn' in spec-card.md for soft mode." >&2
+            echo "" >&2
+            echo "  Quick fix — every '### Section' in implementation-plan.md needs" >&2
+            echo "  '**Implements:**' header on the line immediately below it:" >&2
+            echo "" >&2
+            echo "    ### Backend" >&2
+            echo "    **Implements:** R1, R3            <- list R-ids from spec-card.md" >&2
+            echo "" >&2
+            echo "    - src/api.ts — endpoint" >&2
+            echo "" >&2
+            echo "    ### Files to modify" >&2
+            echo "    **Implements:** none              <- scaffolding sections use 'none'" >&2
+            echo "" >&2
+            echo "    - file.ext — change" >&2
+            echo "" >&2
+            echo "  Every R-criterion from spec-card.md must appear in at least one" >&2
+            echo "  section's **Implements:** line. Apply fix, then re-run:" >&2
+            echo "    bash .claude/bin/apd pipeline builder" >&2
+            echo "" >&2
+            echo "  Migration escape hatch (soft mode): add to spec-card.md:" >&2
+            echo "    plan_consistency_gate: warn" >&2
             exit 1
         fi
 

@@ -347,6 +347,8 @@ Builders MUST add `@trace R*` comments in test files for every acceptance criter
 
 Before dispatching the builder, the orchestrator MUST write `.apd/pipeline/implementation-plan.md`. The plan bridges the gap between spec (what to build) and builder (how to build it).
 
+**MANDATORY** — every `### Section` MUST start with `**Implements:** R<N>, R<M>` (or `**Implements:** none` for scaffolding sections like Files to modify / Files to create / Agents / Notes). `verify-plan-spec` strict mode (v6.8.1+ default) hard-BLOCKS `apd pipeline builder` otherwise. Common mistake: write plan without **Implements:** headers → BLOCK → go back and add. Saves 60s by writing headers from the start.
+
 ### Format
 
 ```
