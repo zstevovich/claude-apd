@@ -3838,6 +3838,7 @@ _c_write_spec() {
     cat > "$C_DIR/.apd/pipeline/spec-card.md" <<EOF
 # Cycle-cap test
 
+plan_consistency_gate: off
 **Acceptance criteria:**
 - R1: x
 
@@ -3977,6 +3978,7 @@ _b_write_spec() {
     cat > "$R_DIR/.apd/pipeline/spec-card.md" <<EOF
 # Polish-mode test
 
+plan_consistency_gate: off
 **Acceptance criteria:**
 - R1: x
 
@@ -4188,6 +4190,7 @@ mkdir -p "$RB_DIR/.apd/pipeline"
 echo "PROJECT_NAME=rb-test" > "$RB_DIR/.apd/config"
 cat > "$RB_DIR/.apd/pipeline/spec-card.md" <<'EOF'
 # Rollback test
+plan_consistency_gate: off
 **Acceptance criteria:**
 - R1: x
 EOF
@@ -4754,6 +4757,7 @@ mkdir -p "$STALE_DIR/.apd/pipeline" "$STALE_DIR/.claude/agents"
 echo "PROJECT_NAME=stale-test" > "$STALE_DIR/.apd/config"
 cat > "$STALE_DIR/.apd/pipeline/spec-card.md" <<EOF_SPEC
 # Stale-test
+plan_consistency_gate: off
 **Acceptance criteria:**
 - R1: x
 EOF_SPEC
@@ -4881,6 +4885,7 @@ _v67_make_state() {
     echo "PROJECT_NAME=v67-test" > "$dir/.apd/config"
     cat > "$dir/.apd/pipeline/spec-card.md" <<'EOF_SPEC'
 # v6.7 gate test
+plan_consistency_gate: off
 **Acceptance criteria:**
 - R1: x
 EOF_SPEC
@@ -5615,12 +5620,12 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static E: DEFAULT_MODE="warn" baseline for v6.8.0
-if grep -q 'DEFAULT_MODE="warn"' "$VPS"; then
-    pass "verify-plan-spec v6.8.0 baseline DEFAULT_MODE=\"warn\""
+# Static E: DEFAULT_MODE="strict" baseline for v6.8.1+
+if grep -q 'DEFAULT_MODE="strict"' "$VPS"; then
+    pass "verify-plan-spec v6.8.1 baseline DEFAULT_MODE=\"strict\""
     PASSES=$((PASSES + 1))
 else
-    fail "verify-plan-spec DEFAULT_MODE is not \"warn\" — v6.8.0 baseline drift"
+    fail "verify-plan-spec DEFAULT_MODE is not \"strict\" — v6.8.1 baseline drift"
     FAILS=$((FAILS + 1))
 fi
 
@@ -5688,7 +5693,8 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Live G: missing R2 → WARN, exit 0 (default warn mode)
+# Live G: missing R2 → WARN, exit 0 (explicit warn mode)
+setup_v68_spec "plan_consistency_gate: warn"
 cat > "$V68_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
 ## Implementation Plan: Test
 
@@ -5704,14 +5710,15 @@ cat > "$V68_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
 EOF
 MISSING_OUT="$(run_vps)"
 if echo "$MISSING_OUT" | grep -q "EXIT=0" && echo "$MISSING_OUT" | grep -q "WARN: Spec R2 not implemented"; then
-    pass "missing R2 in default warn mode → WARN + exit 0"
+    pass "missing R2 in explicit warn mode → WARN + exit 0"
     PASSES=$((PASSES + 1))
 else
     fail "missing R2 unexpected output: $MISSING_OUT"
     FAILS=$((FAILS + 1))
 fi
 
-# Live H: unknown R7 reference → WARN, exit 0
+# Live H: unknown R7 reference → WARN, exit 0 (explicit warn mode)
+setup_v68_spec "plan_consistency_gate: warn"
 cat > "$V68_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
 ## Implementation Plan: Test
 
@@ -5727,14 +5734,15 @@ cat > "$V68_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
 EOF
 UNKNOWN_OUT="$(run_vps)"
 if echo "$UNKNOWN_OUT" | grep -q "EXIT=0" && echo "$UNKNOWN_OUT" | grep -q "references unknown R-id: R7"; then
-    pass "unknown R7 reference → WARN + exit 0"
+    pass "unknown R7 reference in warn mode → WARN + exit 0"
     PASSES=$((PASSES + 1))
 else
     fail "unknown R7 unexpected output: $UNKNOWN_OUT"
     FAILS=$((FAILS + 1))
 fi
 
-# Live I: section without **Implements:** → WARN
+# Live I: section without **Implements:** → WARN (explicit warn mode)
+setup_v68_spec "plan_consistency_gate: warn"
 cat > "$V68_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
 ## Implementation Plan: Test
 
@@ -5749,7 +5757,7 @@ cat > "$V68_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
 EOF
 NOIMPL_OUT="$(run_vps)"
 if echo "$NOIMPL_OUT" | grep -q "EXIT=0" && echo "$NOIMPL_OUT" | grep -q 'Plan section "Backend" has no \*\*Implements:\*\* header'; then
-    pass "section without **Implements:** → WARN + exit 0"
+    pass "section without **Implements:** in warn mode → WARN + exit 0"
     PASSES=$((PASSES + 1))
 else
     fail "section-without-Implements unexpected: $NOIMPL_OUT"
@@ -5820,6 +5828,140 @@ else
 fi
 
 rm -rf "$V68_SCRATCH"
+
+# -----------------------------------------------------------
+# 60. v6.8.1 — default-flip lock-in (verify-plan-spec strict-by-default)
+#     v6.8.0 ship-ovao default warn; v6.8.1 (2026-05-22) flip-uje default
+#     na strict based on Test live evidence: 33-min run sa 3 guard block-a
+#     pokazao da workflow guidance `max_defects=0` + soft warn mode pravi
+#     anticipatorni front-load anti-pattern. Strict default forsira plan
+#     ka **Implements:** R-id mappingu od dana 1; warn ostaje dostupan
+#     eksplicit preko `plan_consistency_gate: warn` u spec-card.md.
+# -----------------------------------------------------------
+section "60. verify-plan-spec strict-by-default (v6.8.1)"
+
+V68_1_SCRATCH="$(mktemp -d -t apd-v681.XXXXXX)"
+mkdir -p "$V68_1_SCRATCH/.apd/pipeline" "$V68_1_SCRATCH/.codex"
+touch "$V68_1_SCRATCH/.apd/config"
+
+# Spec without explicit plan_consistency_gate field → should use DEFAULT_MODE=strict
+cat > "$V68_1_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
+## Test task
+**Goal:** Test v6.8.1 default-flip
+**Acceptance criteria:**
+- R1: first
+- R2: second
+- R3: third
+EOF
+
+run_vps_v681() {
+    cd "$V68_1_SCRATCH" && bash "$VPS" 2>&1
+    _vps_exit=$?
+    cd - >/dev/null
+    echo "EXIT=$_vps_exit"
+}
+
+# Live A: no mode field + missing R2 → default strict → BLOCK + exit 1
+cat > "$V68_1_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
+## Implementation Plan: Test
+
+### Backend
+**Implements:** R1
+
+- src/api.ts
+
+### Frontend
+**Implements:** R3
+
+- src/ui.ts
+EOF
+DEFAULT_STRICT_OUT="$(run_vps_v681)"
+if echo "$DEFAULT_STRICT_OUT" | grep -q "EXIT=1" && echo "$DEFAULT_STRICT_OUT" | grep -q "BLOCKED: Spec R2 not implemented"; then
+    pass "no mode field + missing R2 → default-strict BLOCK + exit 1 (v6.8.1)"
+    PASSES=$((PASSES + 1))
+else
+    fail "default-strict missing R2 unexpected: $DEFAULT_STRICT_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live B: no mode field + section without **Implements:** → default strict → BLOCK + exit 1
+cat > "$V68_1_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
+## Implementation Plan: Test
+
+### Backend
+
+- src/api.ts
+
+### Frontend
+**Implements:** R1, R2, R3
+
+- src/ui.ts
+EOF
+DEFAULT_NOIMPL_OUT="$(run_vps_v681)"
+if echo "$DEFAULT_NOIMPL_OUT" | grep -q "EXIT=1" && echo "$DEFAULT_NOIMPL_OUT" | grep -q 'BLOCKED: Plan section "Backend" has no \*\*Implements:\*\* header'; then
+    pass "no mode field + section-without-Implements → default-strict BLOCK + exit 1 (v6.8.1)"
+    PASSES=$((PASSES + 1))
+else
+    fail "default-strict section-without-Implements unexpected: $DEFAULT_NOIMPL_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live C: no mode field + perfect plan → default strict but no issues → exit 0
+cat > "$V68_1_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
+## Implementation Plan: Test
+
+### Backend
+**Implements:** R1, R2
+
+- src/api.ts
+
+### Frontend
+**Implements:** R3
+
+- src/ui.ts
+
+### Notes
+**Implements:** none
+
+- info
+EOF
+DEFAULT_PERFECT_OUT="$(run_vps_v681)"
+if echo "$DEFAULT_PERFECT_OUT" | grep -q "EXIT=0" && ! echo "$DEFAULT_PERFECT_OUT" | grep -qE "BLOCKED|WARN"; then
+    pass "no mode field + perfect plan → default-strict passes silently (v6.8.1)"
+    PASSES=$((PASSES + 1))
+else
+    fail "default-strict perfect plan unexpected: $DEFAULT_PERFECT_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live D: explicit warn override still works (graceful migration path)
+cat > "$V68_1_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
+## Test task
+**Goal:** Test v6.8.1 warn override
+plan_consistency_gate: warn
+**Acceptance criteria:**
+- R1: first
+- R2: second
+- R3: third
+EOF
+cat > "$V68_1_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
+## Implementation Plan: Test
+
+### Backend
+**Implements:** R1
+
+- src/api.ts
+EOF
+WARN_OVERRIDE_OUT="$(run_vps_v681)"
+if echo "$WARN_OVERRIDE_OUT" | grep -q "EXIT=0" && echo "$WARN_OVERRIDE_OUT" | grep -q "WARN: Spec R2 not implemented"; then
+    pass "explicit plan_consistency_gate: warn override → WARN + exit 0 (v6.8.1 migration path)"
+    PASSES=$((PASSES + 1))
+else
+    fail "explicit warn override unexpected: $WARN_OVERRIDE_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$V68_1_SCRATCH"
 
 # -----------------------------------------------------------
 # Summary

@@ -63,12 +63,15 @@
    ↓
 7. RUN VERIFIER — build + test
    → bash .claude/bin/apd pipeline verifier
-   → SEVERITY GATE (v6.1 B2): blocks when adversarial dismissed-defect count
-     (D in ADVERSARIAL:T:A:D) exceeds spec-card.md `adversarial: max_defects=N`.
-     Default (field absent) = unlimited. Recommended:
-       hotfix (1–2 R) → max_defects=unlimited
-       real task (3–4 R) → max_defects=0
-       complex (5+ R) → max_defects=0 or N with rationale.
+   → SEVERITY GATE (v6.1 B2, optional): blocks when adversarial dismissed-defect
+     count (D in ADVERSARIAL:T:A:D) exceeds spec-card.md `adversarial: max_defects=N`.
+     **Default = unlimited (no field).** Polje je opcioni power-user override za
+     polish-mode tasks gde stvarno znas budget unapred (v6.8.1+). Za standardne
+     task-ove ne pisi polje — rationale gate (v6.7) hvata 100%-orchestrator-dismiss
+     misuse pattern strukturalno (per-finding rationale ≥40 chars), bez preflight
+     budget cap-a koji prisiljava orchestrator-a da front-load-uje anticipated
+     fixeve u prvi plan (anti-pattern: empirical evidence iz Test 33-min run-a
+     2026-05-22 — `max_defects=0` triggered cascade od 3 guard block-a + 2 reset-a).
    → RATIONALE GATE (v6.7): blocks on missing/malformed .adversarial-rationale.md,
      status/A/D drift between summary and rationale, and the 100%-orchestrator
      dismissal pattern. Soft warns on rationale text <40 chars or lazy patterns

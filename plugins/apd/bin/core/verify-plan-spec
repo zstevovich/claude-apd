@@ -30,8 +30,11 @@ source "$(dirname "$0")/../lib/style.sh"
 SPEC_CARD="$PIPELINE_DIR/spec-card.md"
 IMPL_PLAN="$PIPELINE_DIR/implementation-plan.md"
 
-# Default mode — v6.8.0 ships with "warn", v6.8.1 flips to "strict".
-DEFAULT_MODE="warn"
+# Default mode — v6.8.1+ flipped from "warn" to "strict" based on v6.8.0
+# Test live evidence (2026-05-22): plan ima zero `**Implements:**` headera, 11
+# WARN linija u stderr, orchestrator ignorisao. Soft warn nije dovoljan. Eksplicit
+# `plan_consistency_gate: warn` u spec-card.md ostaje dostupan za graceful migration.
+DEFAULT_MODE="strict"
 
 # --- Early exits ---
 [ -f "$SPEC_CARD" ] || exit 0

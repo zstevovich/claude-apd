@@ -1,5 +1,21 @@
 # Changelog
 
+## v6.8.1 — 2026-05-22
+
+Same-day patch responding to live evidence from `~/Projects/Test` "Add contact form" run (~33 min total, 3 guard block triggers, 16 agent dispatches vs 6 baseline for similar scope). Root cause: workflow.md §0b preskripcija **"real task → max_defects=0"** caused orchestrator to:
+1. Hit `max_defects-exceeded` BLOCK at 03:21:33 (`ADV_D=5 max_defects=0`).
+2. Attempt mid-pipeline raise → caught by v6.3 D immutability gate at 03:22:48.
+3. Cascade into multi-cycle reset + builder-cycle-cap exhaustion (03:36:47).
+4. Front-load anti-pattern: orchestrator pre-emptively packed 5 anticipated fixes (F1-F5) into FIRST plan to ensure max_defects=0 passes — bigger builder context, lost adversarial fresh-eyes value.
+
+Plus the v6.8.0 verify-plan-spec gate emitted 11 WARN linija but orchestrator ignored them (soft-warn mode = ignored signal). Tests: 468 → 472 (+4 in §60).
+
+- **fix(workflow): §0b removes preskripciju `max_defects=0` for real-task default.** Default is now `unlimited` (= no field in spec-card.md). Polje opcioni power-user override za polish-mode tasks gde stvarno znas budget unapred. Rationale: v6.7 rationale gate (per-finding ≥40 chars + 100%-Do hard-block) strukturalno covers same misuse pattern without preflight budget cap; v6.1 B2 budget cap is now belt-without-suspenders.
+- **fix(verify-plan-spec): DEFAULT_MODE flip from `warn` to `strict`.** Single-line change. Plan sections without `**Implements:**` headers, or plans missing R-ids from spec-card.md, now BLOCK by default. Graceful migration path: set `plan_consistency_gate: warn` in spec-card.md to keep v6.8.0 soft behavior; `plan_consistency_gate: off` to skip entirely.
+- **test(test-codex-adapter): §60 — strict-by-default lock-in.** Four new assertions: no-mode-field + missing-R-id → BLOCK + exit 1; no-mode-field + section-without-Implements → BLOCK + exit 1; no-mode-field + perfect plan → exit 0 silent; explicit `plan_consistency_gate: warn` override → WARN + exit 0 (migration path verification). Plus updated §59 Static E from `DEFAULT_MODE="warn"` baseline to `DEFAULT_MODE="strict"`. Plus retro-added `plan_consistency_gate: off` to 5 existing test fixtures (§42 builder cycle cap, §43 reviewer cycle cap + polish mode, §45 reviewer rollback, §51 stale dispatch filter, §52 rationale gate) so they continue testing their own gate logic without v6.8 strict mode interference.
+- **Migration note.** Projekti koji upgrade v6.8.0 → v6.8.1 i jos uvek imaju plan-ove bez `**Implements:**` header-a dobijaju BLOCK na prvi `apd pipeline builder`. Fix: dodati `**Implements:** R1, R3` (ili `none`) headere na svakoj `### Section`. Alternativa: dodati `plan_consistency_gate: warn` u spec-card.md za soft mode tokom prelaza. **Projekti koji imaju `max_defects=0` u svojim spec-card template-ima ili reuse-uju spec patterns dobijaju soft hint** (no automatic BLOCK on field presence; field continues to work as before — but workflow.md guidance više ne preporucuje pisati ga).
+- **Empirical record.** `.claude/memory/status.md` v6.8.1 phase section zapisuje detalje 2026-05-22 Test 33-min run-a kao baseline za buduce force-multiplier comparisons. `feedback-max-defects-zero-friction` memory entry trebalo bi dodati nezavisno za projekt memory.
+
 ## v6.8.0 — 2026-05-22
 
 New structural gate that closes the **plan-spec ambiguity rupu**: orchestrator-authored `implementation-plan.md` is now mechanically verified against `spec-card.md` R-criteria via per-section `**Implements:**` headers. Bidirectional check — every spec `R*` must be referenced by ≥1 plan section, every plan section must declare R-ids or `none`. Ships with `plan_consistency_gate: strict|warn|off` field in spec-card.md; default `warn` in v6.8.0 (issues emit WARN, no block) to give postojeci projekti grace window. v6.8.1 will flip default to `strict`. Tests: 456 → 468 (+12 in §59; baseline +37 already grew from §53–§58 across v6.7.x).
