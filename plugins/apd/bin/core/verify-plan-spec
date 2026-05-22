@@ -153,6 +153,8 @@ EOF
 if [ "$MODE" = "strict" ] && [ "$ISSUES" -gt 0 ]; then
     printf "\n  verify-plan-spec: %d issue(s) in strict mode — fix .apd/pipeline/implementation-plan.md and re-run.\n" "$ISSUES" >&2
     printf "  Set 'plan_consistency_gate: warn' in spec-card.md to demote BLOCK to WARN.\n" >&2
+    # v6.8.2 — log to guard-audit.log so apd report / forensics see the BLOCK
+    log_block "plan-spec-consistency" "issues=$ISSUES mode=strict"
     exit 1
 fi
 

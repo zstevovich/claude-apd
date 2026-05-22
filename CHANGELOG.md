@@ -1,5 +1,15 @@
 # Changelog
 
+## v6.8.2 — 2026-05-22
+
+Same-day observability patch responding to v6.8.1 live verification in `~/Projects/Test` "Admin lista kontakt poruka" task (13m 25s, 3× ubrzanje vs v6.8.0 baseline). Run prosao clean ali otkrio dva fina signala: (a) `verify-plan-spec` ne loguje BLOCK-ove u guard-audit.log dok ostali gateovi rade (observability gap); (b) orchestrator zaboravlja `.adversarial-rationale.md` pre verifier advance-a — gate radi reactive (v7.1 BLOCK), ali workflow guidance nije visually prominent. Tests: 472 → 476 (+4 in §61).
+
+- **fix(verify-plan-spec): log_block "plan-spec-consistency" call u BLOCK granu.** Strict-mode BLOCK sad pise entry u guard-audit.log sa format `BLOCK|orchestrator|plan-spec-consistency|issues=N mode=strict`. Format konzistentan sa ostalim gate log entries (max_defects-exceeded, rationale-missing, etc.). `apd report` i forensic analiza sad imaju vidljivost u plan-spec block events.
+- **fix(workflow): step 6 + step 7 jaca preventivna reminder za .adversarial-rationale.md.** Step 6 — eksplicitan **MANDATORY** marker za pisanje rationale fajla "BEFORE attempting verifier advance"; eksplicit objasnjenje "Common mistake: orchestrator finishes adversarial dispatch, jumps directly to verifier, hits v7.1 BLOCK". Step 7 — novi **Sanity check FIRST** bullet koji eksplicitno trazi `.adversarial-rationale.md` presence pre `apd pipeline verifier`. Pre-v6.8.2 instrukcija je bila tu, ali ugnezdjena u dugacku checklist; sad je visually salient. Codex AGENTS.md vec ima jednako jaku instrukciju (linije 46 + 57) — workflow.md sad u paritetu.
+- **Empirical baseline iz v6.8.1 live verify:** Pipeline duration 13m 25s vs 33m predhodnog task-a istog scope-a (**3.0× ubrzanje**). ADVERSARIAL:10:1:9 — real adversarial work, ne front-load anticipation. Spec `max_defects=unlimited` (workflow §0b update aktivan). Plan ima `**Implements:**` headere na svim sekcijama (strict default forsira). 2 BLOCK-ova u session-log: `rationale-missing (1x)` + `rationale-100pct-orch-dismiss (1x)` — gate radio reactive ali efektivno; orchestrator naucio u realtime-u (3 ponasanja zapisana po user-u). Zero max_defects/cycle-cap cascade BLOCK-ova.
+- **Tests:** `test-codex-adapter` §61 adds 4 assertions: (a) verify-plan-spec source contains log_block call sa plan-spec-consistency reason, (b) workflow.md step 6 has MANDATORY marker za rationale file, (c) workflow.md step 7 has preventive Sanity check, (d) live default-strict BLOCK actually writes entry to guard-audit.log. Test count 472 → 476.
+- **Migration:** zero impact na postojece projekte. Pure observability + docs polish. Korisnici koji vec imaju v6.8.1 install: jedna marketplace upgrade + reinstall, no project-side fixup needed.
+
 ## v6.8.1 — 2026-05-22
 
 Same-day patch responding to live evidence from `~/Projects/Test` "Add contact form" run (~33 min total, 3 guard block triggers, 16 agent dispatches vs 6 baseline for similar scope). Root cause: workflow.md §0b preskripcija **"real task → max_defects=0"** caused orchestrator to:

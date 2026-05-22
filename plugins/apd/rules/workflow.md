@@ -49,19 +49,27 @@
    → Write ADVERSARIAL:total:accepted:dismissed to .apd/pipeline/.adversarial-summary
      where `dismissed` = orchestrator-dismissed + reviewer-self-dismissed (sum kept
      in summary for backward compat; rationale file disambiguates).
-   → Write .apd/pipeline/.adversarial-rationale.md with one block per finding:
+   → **MANDATORY** — write .apd/pipeline/.adversarial-rationale.md BEFORE
+     attempting verifier advance. ONE block per finding, T blocks total:
      ```
      ## Finding N — <one-line title>
      **Severity:** critical | important | minor
      **Status:** accepted | dismissed | reviewer-self-dismissed
      **Rationale:** <text; ≥40 chars required for dismissed/reviewer-self-dismissed>
      ```
-     Skipping this file causes a hard BLOCK at verifier (v7.1). The verifier also
-     hard-blocks the 100%-orchestrator-dismiss pattern: T≥3 && A==0 && Do≥1 (v7.6).
+     **Do NOT skip this file.** Verifier hard-BLOCKS without it (v7.1) and
+     hard-BLOCKS again on the 100%-orchestrator-dismiss pattern (T≥3 && A==0 &&
+     Do≥1, v7.6 — orchestrator must accept at least one finding OR reclassify
+     to reviewer-self-dismissed with reviewer's Note inline). Common mistake:
+     orchestrator finishes adversarial dispatch, jumps directly to verifier,
+     hits v7.1 BLOCK. Saves 1-2 min by writing rationale BEFORE running verifier.
    → If accepted findings → fix via builder → re-review
    → Lean mode skips this step — see "Lean vs Full" below
    ↓
 7. RUN VERIFIER — build + test
+   → **Sanity check FIRST:** does `.apd/pipeline/.adversarial-rationale.md` exist
+     with one `## Finding N` block per adversarial finding? If not, go back to
+     step 6 — verifier will BLOCK otherwise (v7.1).
    → bash .claude/bin/apd pipeline verifier
    → SEVERITY GATE (v6.1 B2, optional): blocks when adversarial dismissed-defect
      count (D in ADVERSARIAL:T:A:D) exceeds spec-card.md `adversarial: max_defects=N`.

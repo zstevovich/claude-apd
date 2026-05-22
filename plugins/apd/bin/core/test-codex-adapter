@@ -5964,6 +5964,73 @@ fi
 rm -rf "$V68_1_SCRATCH"
 
 # -----------------------------------------------------------
+# 61. v6.8.2 — verify-plan-spec logs BLOCK to guard-audit.log
+#     v6.8.0 verify-plan-spec didn't call log_block — other gates do.
+#     Observability gap closed: BLOCK events now show up in apd report.
+#     Plus workflow.md step 6 + step 7 sanity check for rationale file.
+# -----------------------------------------------------------
+section "61. verify-plan-spec guard-audit logging (v6.8.2)"
+
+# Static A: verify-plan-spec source contains log_block call
+if grep -q 'log_block "plan-spec-consistency"' "$VPS"; then
+    pass "verify-plan-spec calls log_block with plan-spec-consistency reason"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-plan-spec missing log_block call (observability gap)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: workflow.md has visually-prominent MANDATORY marker for rationale file
+if grep -qE '\*\*MANDATORY\*\*.*adversarial-rationale\.md' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
+    pass "workflow.md step 6 has MANDATORY visual marker for rationale file"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md step 6 missing MANDATORY marker — preventive reminder weak"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: workflow.md step 7 has preventive Sanity check for rationale file
+if grep -qE 'Sanity check.*adversarial-rationale\.md' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
+    pass "workflow.md step 7 has preventive Sanity check for rationale presence"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md step 7 missing Sanity check — reactive only"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live D: strict mode BLOCK actually writes to guard-audit.log
+V68_2_SCRATCH="$(mktemp -d -t apd-v682.XXXXXX)"
+mkdir -p "$V68_2_SCRATCH/.apd/pipeline" "$V68_2_SCRATCH/.codex" "$V68_2_SCRATCH/.apd/memory"
+touch "$V68_2_SCRATCH/.apd/config"
+
+cat > "$V68_2_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
+## Test task
+**Acceptance criteria:**
+- R1: first
+- R2: second
+EOF
+cat > "$V68_2_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
+## Implementation Plan: Test
+
+### Backend
+**Implements:** R1
+
+- src/api.ts
+EOF
+cd "$V68_2_SCRATCH" && bash "$VPS" 2>&1 >/dev/null
+LOG_FILE="$V68_2_SCRATCH/.apd/memory/guard-audit.log"
+cd - >/dev/null
+if [ -f "$LOG_FILE" ] && grep -q "plan-spec-consistency" "$LOG_FILE"; then
+    pass "default-strict BLOCK writes plan-spec-consistency entry to guard-audit.log"
+    PASSES=$((PASSES + 1))
+else
+    fail "guard-audit.log missing plan-spec-consistency entry after BLOCK"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$V68_2_SCRATCH"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
