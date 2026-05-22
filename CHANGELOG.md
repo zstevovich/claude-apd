@@ -1,5 +1,34 @@
 # Changelog
 
+## v6.8.9 — 2026-05-22
+
+Deseti same-day patch — trivijal session-log bug fix otkriven u Bambi Product sort_order task post-mortem-u. Pre-v6.8.9: `pipeline-advance reset` loop kroz `guard-audit.log` broji SVE entry-e bez filtera po `log_type` field-u. INFO entries (`brainstorm-skipped` iz v6.8.8) se brojili kao "blocks" → false positive `Problems: Guard blocks detected` za task koji je realno bio clean. Bambi Product sort_order (19m 12s, ZERO BLOCK, 1 INFO entry sa brainstorm skip reason) izlozio bug — session-log report-ovan kao "Guard blocks detected" iako pipeline pravilno prosao. Tests: 524 → 528 (+4 in §68).
+
+- **fix(pipeline-advance reset): case-based `log_type` filter za guard-audit counting.**
+    ```bash
+    case "$log_type" in
+        BLOCK)
+            BLOCKS=$((BLOCKS + 1))
+            BLOCK_REASONS="${BLOCK_REASONS}${log_reason}\n"
+            ;;
+        INFO)
+            SKIP_EVENTS=$((SKIP_EVENTS + 1))
+            SKIP_REASONS="${SKIP_REASONS}${log_reason}\n"
+            ;;
+        *) ;;  # PERMISSION_DENIED i ostali — ignorisani u summary
+    esac
+    ```
+- **feat(pipeline-advance reset): SKIP_SUMMARY za INFO events.** Posle BLOCKS counter logike, paralelni `SKIP_SUMMARY` builds string "<N> info events: <top-3 reasons>". Visible u session-log kao **odvojena** linija (ne kao false-positive guard block).
+- **feat(session-log entry): conditional `**Skip events:**` line.** Dodate se samo kad `SKIP_SUMMARY` non-empty (no noise za task-ove bez INFO events; explicit visibility kad postoje). Format primer:
+    ```
+    **Guardrail that helped:** N/A
+    **Skip events:** 1 info events: brainstorm-skipped (1x)
+    ```
+    Plus `Problems:` field ostaje "No problems" (jer GUARD_SUMMARY="N/A" — BLOCK counter nije incremented).
+- **Test §68 (4 static assertions):** case-based filter, SKIP_SUMMARY variable, conditional Skip events line, BLOCK/INFO counter increments u odvojenim branches.
+- **Test count 524 → 528 PASS / 0 FAIL.**
+- **Migration:** zero project-side impact. Pre-v6.8.9 session-log entries imaju "false positive" `Problems: Guard blocks detected` za task-ove sa samo INFO events (npr. brainstorm-skipped) — ali ti entries vec postoje + ne mogu se retroaktivno fix-ovati. Nove entries posle v6.8.9 install-a prikazuju correct semantic.
+
 ## v6.8.8 — 2026-05-22
 
 Deveti same-day patch — strukturalno zatvaranje `--skip-brainstorm` escape valve-a. Live evidence iz Bambi Cycle E task-a (2026-05-22, 3h cascade vs Test 20min clean isti dan + Export CSV 15m clean): orchestrator hit brainstorm-marker BLOCK ali bypassed sa `--skip-brainstorm` flag-om. Self-reflective signal iz orchestrator-a: "Skill bi bio ceremonija nad već postignutim alignment-om" ali "Skill verovatno proverava i stvari koje ja propustam... Da sam ga učitao, možda bih izbegao kasniji max_defects problem". Tenzija: skill content "When to skip" gentle dozvoljava skipping pri pre-aligned design-u, hard gate forsira load — orchestrator razresava preko jeftin override-a + scope-only rationalizacije. v6.8.8 zatvara strukturalno: `--skip-brainstorm` requires explicit reason argument. Tests: 515 → 524 (+9 in §67).

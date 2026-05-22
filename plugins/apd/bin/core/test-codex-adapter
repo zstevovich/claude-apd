@@ -6625,6 +6625,57 @@ fi
 rm -rf "$V688_SCRATCH"
 
 # -----------------------------------------------------------
+# 68. v6.8.9 — session-log block counter filter BLOCK-only
+#     Pre-v6.8.9: pipeline-advance reset loop kroz guard-audit.log
+#     brojiti je SVE entry-e bez filtera po log_type. INFO entries
+#     (brainstorm-skipped iz v6.8.8) se brojili kao "blocks" → false
+#     positive "Problems: Guard blocks detected" za task koji je
+#     realno bio clean. Bambi Product sort_order task (2026-05-22,
+#     19m 12s, ZERO BLOCK, 1 INFO entry) izlozio bug.
+#     v6.8.9 dodaje case statement filter: BLOCK → broji se,
+#     INFO → SKIP_SUMMARY (visible kao informational), ostalo →
+#     ignore.
+# -----------------------------------------------------------
+section "68. session-log block counter filter BLOCK-only (v6.8.9)"
+
+# Static A: pipeline-advance ima case-based log_type filter
+if grep -qE 'case "\$log_type" in' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance reset has case-based log_type filter"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance reset missing case-based log_type filter (v6.8.9 regression)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: pipeline-advance ima SKIP_SUMMARY variable za INFO events
+if grep -qE 'SKIP_SUMMARY' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance has SKIP_SUMMARY for INFO events (separate from BLOCK)"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing SKIP_SUMMARY variable"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: session-log entry has conditional Skip events line
+if grep -qE '\*\*Skip events:\*\*' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "session-log entry has conditional 'Skip events:' line when INFO events present"
+    PASSES=$((PASSES + 1))
+else
+    fail "session-log entry missing 'Skip events:' line for INFO summary"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: BLOCK branch increments BLOCKS counter, INFO branch increments SKIP_EVENTS
+if grep -qE 'BLOCKS=\$\(\(BLOCKS \+ 1\)\)' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" && \
+   grep -qE 'SKIP_EVENTS=\$\(\(SKIP_EVENTS \+ 1\)\)' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "BLOCK and INFO counters increment u odvojenim case branches"
+    PASSES=$((PASSES + 1))
+else
+    fail "BLOCK/INFO counter branches incorrect"
+    FAILS=$((FAILS + 1))
+fi
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

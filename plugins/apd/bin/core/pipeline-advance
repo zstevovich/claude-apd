@@ -1142,7 +1142,12 @@ function _c() {
                 fi
 
                 # 2. Guard blocks during this task (filter by spec timestamp, not date)
+                # v6.8.9 — filter by log_type=BLOCK only. INFO entries (e.g.
+                # brainstorm-skipped audit trail from v6.8.8) i PERMISSION_DENIED
+                # NE-broje se kao blocks. INFO events idu u SKIP_SUMMARY za
+                # visibility BEZ false-positive "Problems detected" pattern-a.
                 GUARD_SUMMARY="N/A"
+                SKIP_SUMMARY=""
                 AUDIT_LOG="$MEMORY_DIR/guard-audit.log"
                 if [ -f "$AUDIT_LOG" ] && [ -n "$SPEC_TS" ]; then
                     SPEC_TIME=$(date -r "$SPEC_TS" +"%Y-%m-%d %H:%M" 2>/dev/null || date -d "@$SPEC_TS" +"%Y-%m-%d %H:%M" 2>/dev/null || echo "")
@@ -1150,6 +1155,8 @@ function _c() {
                         # Only count blocks after this task's spec was created
                         BLOCKS=0
                         BLOCK_REASONS=""
+                        SKIP_EVENTS=0
+                        SKIP_REASONS=""
                         while IFS='|' read -r log_ts log_type log_agent log_reason log_cmd; do
                             # Skip orphan/garbage lines (legacy multi-line entries from pre-fix writers)
                             case "$log_ts" in
@@ -1161,13 +1168,26 @@ function _c() {
                                 continue
                             fi
                             if [ "$LOG_EPOCH" -ge "$SPEC_TS" ] 2>/dev/null; then
-                                BLOCKS=$((BLOCKS + 1))
-                                BLOCK_REASONS="${BLOCK_REASONS}${log_reason}\n"
+                                case "$log_type" in
+                                    BLOCK)
+                                        BLOCKS=$((BLOCKS + 1))
+                                        BLOCK_REASONS="${BLOCK_REASONS}${log_reason}\n"
+                                        ;;
+                                    INFO)
+                                        SKIP_EVENTS=$((SKIP_EVENTS + 1))
+                                        SKIP_REASONS="${SKIP_REASONS}${log_reason}\n"
+                                        ;;
+                                    *) ;;  # PERMISSION_DENIED i ostali — ignorisani u summary
+                                esac
                             fi
                         done < "$AUDIT_LOG"
                         if [ "$BLOCKS" -gt 0 ]; then
                             REASON_SUMMARY=$(printf '%b' "$BLOCK_REASONS" | sort | uniq -c | sort -rn | head -3 | awk '{print $2 " (" $1 "x)"}' | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g')
                             GUARD_SUMMARY="${BLOCKS} blocks: ${REASON_SUMMARY}"
+                        fi
+                        if [ "$SKIP_EVENTS" -gt 0 ]; then
+                            SKIP_REASON_SUMMARY=$(printf '%b' "$SKIP_REASONS" | sort | uniq -c | sort -rn | head -3 | awk '{print $2 " (" $1 "x)"}' | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g')
+                            SKIP_SUMMARY="${SKIP_EVENTS} info events: ${SKIP_REASON_SUMMARY}"
                         fi
                     fi
                 fi
@@ -1253,6 +1273,12 @@ function _c() {
                 fi
 
                 # --- Generate entry ---
+                # v6.8.9 — add Skip events line ONLY if SKIP_SUMMARY non-empty (no
+                # noise for tasks bez INFO events; explicit visibility kad postoje).
+                SKIP_LINE=""
+                if [ -n "$SKIP_SUMMARY" ]; then
+                    SKIP_LINE=$'\n'"**Skip events:** $SKIP_SUMMARY"
+                fi
                 cat >> "$SESSION_LOG" << EOF
 
 ## [$(date +%Y-%m-%d)] $TASK_NAME
@@ -1262,7 +1288,7 @@ function _c() {
 **What was done:** $CHANGED_SUMMARY
 **Agents:** $AGENTS_SUMMARY
 **Problems:** $PROBLEMS
-**Guardrail that helped:** $GUARD_SUMMARY
+**Guardrail that helped:** $GUARD_SUMMARY${SKIP_LINE}
 **New rule:** $NEW_RULE
 **Pipeline duration:**$TOTAL
 EOF
