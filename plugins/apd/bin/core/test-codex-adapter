@@ -6416,6 +6416,92 @@ fi
 rm -rf "$V686_SCRATCH"
 
 # -----------------------------------------------------------
+# 66. v6.8.7 — skill content polish (Risks/Rollback + Implements symmetry)
+#     Two signals iz Soft-delete task post-mortem-a (2026-05-22):
+#     (A) Spec design summary missing Risks + Rollback fields — skill
+#         Step 4 template ne forsira explicit. Friction u review phase.
+#     (B) Asymmetric **Implements:** ucenje — orchestrator naucio za
+#         Files to modify/create ali zaboravio za Agents/Notes →
+#         plan-spec-consistency BLOCK na 2 missing header-a.
+#     v6.8.7 polish skill content + workflow.md za oba pattern-a.
+# -----------------------------------------------------------
+section "66. skill content polish (v6.8.7)"
+
+# Static A: CC apd-brainstorm Step 4 template explicit pominje Risks + Rollback
+if grep -qE 'Risks:.*concrete risks' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md" && \
+   grep -qE 'Rollback:.*revert plan' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "CC apd-brainstorm Step 4 template forsira Risks + Rollback fields"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-brainstorm Step 4 missing Risks/Rollback explicit prompt"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: CC apd-brainstorm has "Risks + Rollback are NOT optional" warning
+if grep -q 'Rollback are NOT optional' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "CC apd-brainstorm explicit warns 'Risks + Rollback are NOT optional'"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-brainstorm missing Risks/Rollback non-optional warning"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: CC apd-brainstorm Downstream gates section has "NO RESERVED NAMES" rule
+if grep -qE 'NO RESERVED NAMES' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "CC apd-brainstorm has 'NO RESERVED NAMES' rule for **Implements:**"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-brainstorm missing 'NO RESERVED NAMES' explicit rule"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: CC apd-brainstorm Downstream gates section explicit lists Agents/Notes as needing Implements
+if grep -q 'Agents needs \*\*Implements:\*\* too' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md" || \
+   grep -q 'Notes needs \*\*Implements:\*\* too' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "CC apd-brainstorm format example shows Agents/Notes need **Implements:**"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-brainstorm format example missing Agents/Notes Implements hint"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: Codex mirror has Risks + Rollback non-optional warning
+if grep -q 'Rollback are NOT optional' "$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "Codex apd-brainstorm mirror: Risks + Rollback non-optional warning"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex apd-brainstorm mirror missing Risks/Rollback warning"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static F: Codex mirror has NO RESERVED NAMES rule
+if grep -qE 'NO RESERVED NAMES' "$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "Codex apd-brainstorm mirror: NO RESERVED NAMES rule present"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex apd-brainstorm mirror missing NO RESERVED NAMES rule"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static G: workflow.md §3c explicit NO RESERVED NAMES rule
+if grep -qE 'NO RESERVED NAMES' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
+    pass "workflow.md §3c has NO RESERVED NAMES rule"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md §3c missing NO RESERVED NAMES rule"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static H: workflow.md §3c lists Agents/Notes explicitly as needing Implements
+if grep -qE 'Agents.*Notes.*Documentation|Files to .*Agents.*Notes' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
+    pass "workflow.md §3c explicit lists scaffolding sections including Agents/Notes"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md §3c missing explicit Agents/Notes scaffolding list"
+    FAILS=$((FAILS + 1))
+fi
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

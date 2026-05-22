@@ -1,5 +1,17 @@
 # Changelog
 
+## v6.8.7 — 2026-05-22
+
+Eighth same-day patch — skill content polish za 2 signala iz Soft-delete task post-mortem-a (live evidence 2026-05-22 15:04-15:30). Oba signala su iz skill education layer-a (v6.8.4) — orchestrator je naucio dela skill-a ali ne kompletno. v6.8.7 popunjava te edukacione gap-ove. Tests: 507 → 515 (+8 in §66).
+
+- **(A) fix(apd-brainstorm): Step 4 design summary template forsira Risks + Rollback eksplicit fields.** Pre-v6.8.7 template imao Goal / Scope / Approach / Files / Mode / Adversarial budget — ali NE Risks / Rollback. Orchestrator je u Soft-delete spec-u izostavio Risks (legitime 3 risks: concurrent delete+read race, migration nad postojecom tabelom, CSRF reuse) i Rollback (revert commit + opcioni DROP COLUMN). v6.8.7 template eksplicit dodaje fields + warning: "Risks + Rollback are NOT optional for tasks with DB migration / new public endpoint / auth changes / external API". Trivial tasks mogu da kazu "minimal" ili "revert commit", ali bez explicit dokumentacije adversarial reviewer ne moze da hvata gap.
+- **(B) fix(apd-brainstorm): Downstream gates section eksplicit "NO RESERVED NAMES" rule + Agents/Notes u format primeru.** Soft-delete plan empirical evidence: orchestrator naucio `**Implements:** none` pattern za file-list sekcije (Files to modify, Files to create) ali zaboravio za Agents/Notes — asymmetric learning triggered plan-spec-consistency BLOCK na 2 missing header-a (issues=2). v6.8.7 format primer dodaje Agents + Notes sa eksplicit komentarom "← NO RESERVED NAMES — Agents needs **Implements:** too". Plus eksplicit warning prose: "**EVERY `### Section` MUST have `**Implements:**` header — NO EXCEPTIONS.** The rule is uniform across functional sections (Backend, Frontend, Database, Tests) AND scaffolding sections."
+- **(C) fix(workflow.md §3c): NO RESERVED NAMES rule explicit u format primeru + Rules bullet.** Bullet apdejtovan iz "set to `none` for scaffolding sections (file lists, agents, notes, documentation)" u eksplicit "NO RESERVED NAMES" warning + concrete empirical evidence reference + "Treat EVERY `###` section the same way: declare R-ids OR `none`."
+- **(D) fix(plugins/apd/skills/apd-brainstorm/SKILL.md): Codex mirror parity.** Step 4 Risks/Rollback warning + Downstream gates NO RESERVED NAMES rule.
+- **Empirical baseline za v6.8.7 trigger (Soft-delete task, 2026-05-22):** 20m 58s pipeline, 5:1:4 ADVERSARIAL (real adversarial work), 3 BLOCK-ova (sve intended) — brainstorm-marker + plan-spec-consistency (issues=2 Agents/Notes) + rationale-100pct-orch-dismiss. v6.8.7 cilj: smanjiti 2 missing Implements u plan-spec issues count → 0 u sledecem task-u.
+- **Tests:** `test-codex-adapter` §66 adds 8 static assertions: CC skill Step 4 template forsira Risks + Rollback, CC skill non-optional warning, CC skill NO RESERVED NAMES rule, CC skill Agents/Notes Implements u format primeru, Codex mirror non-optional warning, Codex mirror NO RESERVED NAMES, workflow.md NO RESERVED NAMES, workflow.md scaffolding lista. Test count 507 → 515.
+- **Migration:** zero project-side impact. Pure skill/workflow content polish.
+
 ## v6.8.6 — 2026-05-22
 
 Seventh same-day patch — UX polish za 2 bug-a iz CSRF live test post-mortem-a (user observation). Oba bug-a su tehnicki **intended behavior** ali sa zbunjujucim BLOCK porukama. v6.8.6 ne menja logic, samo refine messages. Tests: 502 → 507 (+5 in §65).

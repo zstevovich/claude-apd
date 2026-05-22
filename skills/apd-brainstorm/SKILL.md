@@ -89,10 +89,23 @@ Scope: [what's included]
 Out of scope: [what's not]
 Approach: [technical approach]
 Affected files: [list]
-Adversarial budget: [max_defects=unlimited | =0 | =N]
+Risks: [concrete risks sa mitigation — at least 1; especially for migration/security/auth tasks]
+Rollback: [revert plan — revert commit + optional manual SQL/DROP if migration]
+Mode: [Full | Lean]
+Adversarial budget: [omit field for default unlimited | =0/=N power-user override]
+R-criteria: [N items, listed R1, R2, ...]
+Human gate: [YES/NO]
 
 Ready to write the spec-card.md?
 ```
+
+**Risks + Rollback are NOT optional fields** for tasks involving:
+- Database migration (ALTER/CREATE/DROP)
+- New public endpoint (security surface)
+- Auth/role/permission changes
+- External API integration
+
+For trivial polish/hotfix tasks (1-2 R, no DB, no new endpoint), Risks can be "minimal — see Out of scope" and Rollback can be "revert commit". Be explicit anyway — empty Risks/Rollback in spec-card.md is a documentation gap that adversarial reviewer cannot catch.
 
 **Adversarial budget recommendation** (writes a `adversarial: max_defects=N` line into spec-card.md, enforced by the verifier):
 
@@ -123,18 +136,35 @@ After spec advance, orchestrator MUST write these files. Brainstorm should menta
 
 - src/...
 
+### Files to create
+**Implements:** none              ← scaffolding sections use 'none'
+
+- ...
+
 ### Backend
 **Implements:** R1, R3            ← every dispatch section maps to R-ids
 
 - src/api/... — endpoint changes
 
-### Files to create
-**Implements:** none
+### Agents
+**Implements:** none              ← NO RESERVED NAMES — Agents needs **Implements:** too
 
-- ...
+- backend-builder
+- code-reviewer
+
+### Notes
+**Implements:** none              ← NO RESERVED NAMES — Notes needs **Implements:** too
+
+- relevant context
 ```
 
-Every `### Section` MUST have `**Implements:**` header. `verify-plan-spec` strict mode hard-BLOCKS `apd pipeline builder` otherwise (v6.8.1+ default). Bidirectional check: every R-id from spec must appear in ≥1 section's **Implements:** line; every section must declare R-ids or `none`.
+**EVERY `### Section` MUST have `**Implements:**` header — NO EXCEPTIONS.** The rule is uniform across:
+- Functional sections (Backend, Frontend, Database, Tests) → use R-id list (`R1, R3`)
+- Scaffolding sections (Files to modify, Files to create, Agents, Notes, etc.) → use `none`
+
+**Common mistake (empirical evidence iz v6.8 dev cycle):** orchestrator generalizuje "Implements" iz format primera za Files to modify/Files to create ali zaboravi za Agents/Notes — asymmetric learning. Soft-delete task (2026-05-22) triggered plan-spec-consistency BLOCK na 2 missing headers (Agents + Notes) iako su druge sekcije bile uredno mapirane. **`verify-plan-spec` strict mode hard-BLOCKS `apd pipeline builder` na bilo kojoj `### Section` bez headera** — v6.8.1+ default.
+
+Bidirectional check: every R-id from spec must appear in ≥1 section's **Implements:** line; every section must declare R-ids or `none`.
 
 **Adversarial rationale format** (writes to `.apd/pipeline/.adversarial-rationale.md` AFTER adversarial-reviewer dispatch, BEFORE `apd pipeline verifier`):
 

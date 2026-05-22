@@ -403,7 +403,7 @@ Before dispatching the builder, the orchestrator MUST write `.apd/pipeline/imple
 - `apd pipeline builder` warns if planned agents were not dispatched
 - Orchestrator reads relevant code BEFORE writing the plan
 - `apd pipeline builder` blocks if the plan does not exist
-- **`**Implements:**` header is mandatory on every `### Section`** (v6.8.0+). Declare which `R*` criteria from spec-card.md the section implements (`**Implements:** R1, R3`), or set to `none` for scaffolding sections (file lists, agents, notes, documentation).
+- **`**Implements:**` header is mandatory on EVERY `### Section`** (v6.8.0+) — **NO RESERVED NAMES**. Declare which `R*` criteria from spec-card.md the section implements (`**Implements:** R1, R3`), or set to `none` for scaffolding sections. **The rule is uniform** — applies to functional sections (Backend, Frontend, Database, Tests) AND scaffolding (Files to modify, Files to create, Agents, Notes, Documentation). Empirical evidence (v6.8.7): orchestrator-i generalizuju iz format primera asymmetric — naucio za Files-to-mod/create ali zaboravio za Agents/Notes → BLOCK. Treat EVERY `###` section the same way: declare R-ids OR `none`.
 - `verify-plan-spec` enforces bidirectional consistency: every spec `R*` must be referenced by ≥1 section; every section must have a valid `**Implements:**`. Mode is read from spec-card.md `plan_consistency_gate: strict|warn|off`. v6.8.0 default: `warn` (issues emit WARN, no block). v6.8.1+ default: `strict` (BLOCK on missing/unknown R-ids). Opt-out: `plan_consistency_gate: off` in spec-card.md.
 
 ## 4. Verification before "done"

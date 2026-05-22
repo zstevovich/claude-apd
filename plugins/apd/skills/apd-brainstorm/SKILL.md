@@ -39,9 +39,15 @@ spec-card.md. A vague spec produces vague code.
    one, wait for the answer, ask the next.
 3. **Present trade-offs, do not decide.** When real choices exist, offer
    2–3 concise options and let the user pick.
-4. **Converge on a design.** Hand the user a short summary — Goal /
-   Scope / Out of scope / Approach / Affected files / Adversarial
-   budget. Wait for explicit approval.
+4. **Converge on a design.** Hand the user a short summary covering Goal /
+   Scope / Out of scope / Approach / Affected files / **Risks** / **Rollback**
+   / Mode / Adversarial budget / R-criteria / Human gate. Wait for explicit
+   approval.
+
+   **Risks + Rollback are NOT optional** for tasks with DB migration / new
+   public endpoint / auth changes / external API. For trivial polish/hotfix,
+   say "minimal" or "revert commit" — but be explicit. Empty Risks/Rollback
+   in spec-card.md is documentation gap adversarial cannot catch.
 5. **Only then** write `.apd/pipeline/spec-card.md`, write the brainstorm
    marker, and call `apd:apd_advance_pipeline('spec', '<name>')`.
 
@@ -67,7 +73,7 @@ spec-card.md. A vague spec produces vague code.
 
 After spec advance, orchestrator MUST write these files. Brainstorm should mentally prepare for them:
 
-**Implementation plan** (`.apd/pipeline/implementation-plan.md`): every `### Section` MUST start with `**Implements:** R1, R3` (or `none` for scaffolding). `verify-plan-spec` strict mode (v6.8.1+ default) hard-BLOCKS `apd:apd_advance_pipeline('builder')` otherwise. Bidirectional check: every R-id from spec must appear in ≥1 section's **Implements:** line.
+**Implementation plan** (`.apd/pipeline/implementation-plan.md`): **EVERY** `### Section` MUST start with `**Implements:** R1, R3` (or `none` for scaffolding) — **NO RESERVED NAMES**. This applies uniformly to functional sections (Backend, Frontend, Database, Tests) AND scaffolding sections (Files to modify, Files to create, Agents, Notes). Empirical evidence (Soft-delete task 2026-05-22): orchestrator naucio Implements pattern za Files-to-mod/create ali zaboravio za Agents/Notes — asymmetric learning triggered plan-spec-consistency BLOCK na 2 missing headera. `verify-plan-spec` strict mode (v6.8.1+ default) hard-BLOCKS `apd:apd_advance_pipeline('builder')` otherwise. Bidirectional check: every R-id from spec must appear in ≥1 section's **Implements:** line.
 
 **Adversarial rationale** (`.apd/pipeline/.adversarial-rationale.md`): after `apd:apd_adversarial_pass(...)`, write one block per finding (`## Finding N` + `**Severity:**` + `**Status:**` + `**Rationale:**`) BEFORE `apd:apd_advance_pipeline('verifier')`. v7.1 BLOCK otherwise. v7.6 BLOCK if 100% orchestrator-dismissed (T≥3 && A==0 && Do≥1) — at least one accept OR reclassify to reviewer-self-dismissed.
 
