@@ -1,5 +1,22 @@
 # Changelog
 
+## v6.8.12 — 2026-05-23
+
+Hot-fix za v6.8.11 oversight ([#10](https://github.com/zstevovich/claude-apd/issues/10)). v6.8.11 ucinio `brainstorm-marker` gate unconditional, ali pokriveni su samo `test-codex-adapter` fixture-i. Druga E2E test skripta — `verify-apd` (run preko `apd verify`) — ima Section 8 koja synthetic spec advance pokrece bez marker-a. Posle v6.8.11 deploy-a, `apd verify` na clean projektu ili posle `apd pipeline reset` produkuje 13 cascading FAIL-ova pocevsi od `BLOCKED: Brainstorm marker missing for spec advance (1 R-criteria declared)`.
+
+**Highlights:**
+
+- **fix(verify-apd Section 8): pre-write canonical `.brainstorm-marker`** za oba synthetic task imena (`APD-VERIFY-TEST` u glavnom flow-u, `APD-VERIFY-OPT-OUT` u adversarial opt-out testu). Format identican onome sto skill pisuje na exit (`<task>|<iso-utc-timestamp>`). Postojeci `pipeline-advance reset` trap u Section 8 vec brise marker — nema potrebe za novim cleanup-om.
+- **Zero impact na test count.** `test-codex-adapter` ostaje 544/0 — `verify-apd` Section 8 nije unit-testovan u test-codex-adapter familiji (drugi E2E surface).
+
+**Issue analysis:**
+
+Issue #10 dijagnoza je tacna: `pipeline-advance:230-265` enforce-uje marker za svaki spec advance sa R-criteria; verify-apd's synthetic spec deklarise R1, trip-uje gate, exit-uje non-zero, sve downstream testovi u Section 8 cascade jer spec.done nikad nije pisan. Sections 1-7 + 9-10 pass clean (103 PASS) — samo Section 8 affected.
+
+**Fix choice:** marker write umesto `--skip-brainstorm '<reason>'` opt-out (oba su validna per issue). Marker write simulira "orchestrator load-uje skill" happy-path — reprezentativan za sta E2E test treba da pokriva. `--skip-brainstorm` bi bypassed gate-a entirely, sto NIJE sta verify-apd Section 8 testira.
+
+**Migration:** zero project-side impact. `apd verify` sad runs clean kroz Section 8 na v6.8.12. Projects koji su pokrenuli `apd verify` na v6.8.11 i videli FAIL-ove — re-run posle plugin update.
+
 ## v6.8.11 — 2026-05-23
 
 Dvanaesti patch u v6.8 chain-u — strukturalna intervencija na entry discipline layer-u. Drop R-count > 2 carve-out iz `brainstorm-marker` hard gate-a. v6.8.5 gate dizajniran sa `R > 2` threshold kao "smart-friction" carve-out za trivial tasks; BambiProject 2026-05-23 evidence pokazala da je threshold gameable — orchestrator atomizuje non-trivial work na 2 R-criteria specifically da bypass-uje gate. v6.8.11 forsira brainstorm load na svaki spec advance bez obzira na declared R-count. Opt-out preko `--skip-brainstorm '<reason>'` (v6.8.8 friction) preserved.

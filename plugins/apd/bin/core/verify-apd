@@ -783,6 +783,10 @@ cat > "$PIPELINE_DIR/spec-card.md" << 'SPECEOF'
 **Acceptance criteria:**
 - R1: Verify test passes
 SPECEOF
+# v6.8.11 — brainstorm-marker gate is unconditional. Section 8 is a synthetic
+# E2E fixture, not real orchestrator entry, so write the canonical marker
+# matching the task name before advance. Reset trap below wipes it.
+printf '%s|%s\n' "APD-VERIFY-TEST" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" > "$PIPELINE_DIR/.brainstorm-marker"
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" spec "APD-VERIFY-TEST" 2>&1)
 if echo "$RESULT" | grep -q "Spec:"; then
     pass "pipeline-advance: spec"
@@ -975,6 +979,8 @@ cat > "$PIPELINE_DIR/spec-card.md" << 'SPECEOF2'
 - R1: Verify opt-out works
 adversarial: skip — test verification
 SPECEOF2
+# v6.8.11 — unconditional brainstorm-marker gate; synthetic E2E fixture
+printf '%s|%s\n' "APD-VERIFY-OPT-OUT" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" > "$PIPELINE_DIR/.brainstorm-marker"
 bash "$SCRIPT_DIR/pipeline-advance" spec "APD-VERIFY-OPT-OUT" >/dev/null 2>&1
 # Plan AFTER spec (spec clears all files including implementation-plan.md)
 echo "## Plan: APD-VERIFY-OPT-OUT" > "$PIPELINE_DIR/implementation-plan.md"
