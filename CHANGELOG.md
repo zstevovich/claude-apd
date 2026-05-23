@@ -1,5 +1,25 @@
 # Changelog
 
+## v6.8.13 — 2026-05-23
+
+Drugi hot-fix u istom satu, isti klas problema kao #10 (sad #11) — `apd verify` E2E test trip-uje na drugom gate-u. v6.8.12 popravio brainstorm-marker gate u verify-apd Section 8, ali plan-spec consistency gate (v6.8.0) ostao otkriven jer Section 8 pisuje minimalan plan (`echo "## Plan: APD-VERIFY-TEST" > implementation-plan.md`) bez `**Implements:**` headera. Posle v6.8.12 spec step prosao ali builder block-uje sa `BLOCKED: Spec R1 not implemented by any plan section` → 12 cascading FAIL-ova.
+
+**Highlights:**
+
+- **fix(verify-apd Section 8): pre-write valid implementation-plan.md** za oba synthetic task imena (`APD-VERIFY-TEST` + `APD-VERIFY-OPT-OUT`). Format ima `### Section 1 — verification stub` + `**Implements:** R1` koji zadovoljava bidirectional check verify-plan-spec parser-a (forward: R1 u Implements postoji u spec; reverse: spec R1 pokriven u plan-u; symmetric: jedina sekcija ima Implements header).
+- **Zero impact na test count.** `test-codex-adapter` ostaje 544/0 (drugi E2E surface).
+- **Issue #11 zakljucen** sa fix commit-om.
+
+**Strukturalni lesson (drugi put isti pattern u istom satu):**
+
+`apd verify` je strukturalno blind-spot za sve gate-affecting changes. Trenutni workflow je: edit guard → update test-codex-adapter → ship. Sad očigledno: edit guard → update test-codex-adapter → **review svaki `pipeline-advance` callsite u `plugins/apd/bin/`** → ship. Komandа za pre-bump audit:
+
+```bash
+grep -rn 'pipeline-advance\|pipeline-gate' plugins/apd/bin/
+```
+
+Sledeci put kad zatrebamo da menjamo gate koji utiče na `spec`/`builder`/`reviewer`/`verifier` advance, treba ne samo da update-amo test-codex-adapter fixture-i nego i da prodjemo verify-apd Section 8 ručno. Mozda vredi razmotriti integraciju `apd verify` u `test-codex-adapter` familiju ili dodati pre-bump checklist u workflow.md.
+
 ## v6.8.12 — 2026-05-23
 
 Hot-fix za v6.8.11 oversight ([#10](https://github.com/zstevovich/claude-apd/issues/10)). v6.8.11 ucinio `brainstorm-marker` gate unconditional, ali pokriveni su samo `test-codex-adapter` fixture-i. Druga E2E test skripta — `verify-apd` (run preko `apd verify`) — ima Section 8 koja synthetic spec advance pokrece bez marker-a. Posle v6.8.11 deploy-a, `apd verify` na clean projektu ili posle `apd pipeline reset` produkuje 13 cascading FAIL-ova pocevsi od `BLOCKED: Brainstorm marker missing for spec advance (1 R-criteria declared)`.

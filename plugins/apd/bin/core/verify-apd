@@ -795,7 +795,17 @@ else
 fi
 
 # Builder WITHOUT agent dispatch — must block (also needs implementation-plan.md since v3.6.0)
-echo "## Plan: APD-VERIFY-TEST" > "$PIPELINE_DIR/implementation-plan.md"
+# v6.8.13 — plan-spec consistency gate (v6.8.0) requires every spec R-criterion
+# to be implemented by at least one plan section carrying **Implements:** header.
+# Synthetic spec declares R1; minimal plan section covers it.
+cat > "$PIPELINE_DIR/implementation-plan.md" << 'PLAN_EOF'
+## Plan: APD-VERIFY-TEST
+
+### Section 1 — verification stub
+**Implements:** R1
+
+No-op fixture for E2E test — see plugins/apd/bin/core/verify-apd Section 8.
+PLAN_EOF
 RESULT=$(bash "$SCRIPT_DIR/pipeline-advance" builder 2>&1)
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ] && echo "$RESULT" | grep -qi "no project builder"; then
@@ -983,7 +993,15 @@ SPECEOF2
 printf '%s|%s\n' "APD-VERIFY-OPT-OUT" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" > "$PIPELINE_DIR/.brainstorm-marker"
 bash "$SCRIPT_DIR/pipeline-advance" spec "APD-VERIFY-OPT-OUT" >/dev/null 2>&1
 # Plan AFTER spec (spec clears all files including implementation-plan.md)
-echo "## Plan: APD-VERIFY-OPT-OUT" > "$PIPELINE_DIR/implementation-plan.md"
+# v6.8.13 — plan-spec consistency gate covers R1 from APD-VERIFY-OPT-OUT spec
+cat > "$PIPELINE_DIR/implementation-plan.md" << 'PLAN_OPT_EOF'
+## Plan: APD-VERIFY-OPT-OUT
+
+### Section 1 — verification stub
+**Implements:** R1
+
+No-op fixture for E2E adversarial opt-out test.
+PLAN_OPT_EOF
 # Re-create the apd-verify-builder stub if reset wiped agent files in tmp scaffolds
 [ -f "$APD_AGENTS_DIR/apd-verify-builder.md" ] || \
     printf '%s\n' '---' 'name: apd-verify-builder' '---' > "$APD_AGENTS_DIR/apd-verify-builder.md"
