@@ -43,6 +43,16 @@ _check() {
     fi
 }
 
+# v6.8.11 — brainstorm-marker gate is unconditional. Test fixtures that drive
+# `pipeline-advance spec <task>` must pre-write the marker matching the task
+# name, otherwise every fixture would BLOCK on the gate. Helper writes a
+# canonical marker file under the given project dir.
+_v6811_marker() {
+    local proj_dir="$1" task="$2"
+    mkdir -p "$proj_dir/.apd/pipeline"
+    printf '%s|%s\n' "$task" "2026-05-23T12:00:00Z" > "$proj_dir/.apd/pipeline/.brainstorm-marker"
+}
+
 _check_file_contains() {
     local label="$1" file="$2" pattern="$3"
     if [ -f "$file" ] && grep -qE "$pattern" "$file"; then
@@ -742,6 +752,7 @@ cat > "$SUBDIR_MCP/.apd/pipeline/spec-card.md" <<'EOF'
 **Acceptance criteria:**
 - R1: spec advance works from a subdirectory
 EOF
+_v6811_marker "$SUBDIR_MCP" "subdir smoke"
 
 SUBDIR_OUT="$(cd "$SUBDIR_MCP/sub/dir" && python3 - <<PY
 import sys
@@ -3134,6 +3145,7 @@ cat > "$PLAN_DIR/.apd/pipeline/spec-card.md" <<'EOF'
 **Acceptance criteria:**
 - R1: x
 EOF
+_v6811_marker "$PLAN_DIR" "task"
 
 (cd "$PLAN_DIR" && APD_PROJECT_DIR="$PLAN_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task" >/dev/null 2>&1)
 (cd "$PLAN_DIR" && APD_PROJECT_DIR="$PLAN_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder >/dev/null 2>&1)
@@ -3570,6 +3582,7 @@ EOF
 
 # A: first advance with max_defects=1 → snapshot file created with task-A|1
 _write_spec_d 1
+_v6811_marker "$D_DIR" "task-A"
 (cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" >/dev/null 2>&1)
 RC=$?
 SNAP=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
@@ -3583,6 +3596,7 @@ fi
 
 # B: same task, raise max_defects (1→3) → BLOCK with explanatory message
 _write_spec_d 3
+_v6811_marker "$D_DIR" "task-A"
 B_OUT=$(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" 2>&1)
 RC=$?
 if [ "$RC" = "1" ] && echo "$B_OUT" | grep -q "max_defects raised from 1 to 3"; then
@@ -3595,6 +3609,7 @@ fi
 
 # C: same task, raise to unlimited → BLOCK
 _write_spec_d unlimited
+_v6811_marker "$D_DIR" "task-A"
 C_OUT=$(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" 2>&1)
 RC=$?
 if [ "$RC" = "1" ] && echo "$C_OUT" | grep -q "max_defects raised from 1 to unlimited"; then
@@ -3607,6 +3622,7 @@ fi
 
 # D: same task, lower max_defects (1→0) → allow + snapshot updated
 _write_spec_d 0
+_v6811_marker "$D_DIR" "task-A"
 (cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" >/dev/null 2>&1)
 RC=$?
 SNAP_D=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
@@ -3620,6 +3636,7 @@ fi
 
 # E: different task name → snapshot replaced freely (no constraint across tasks)
 _write_spec_d 5
+_v6811_marker "$D_DIR" "task-B"
 (cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-B" >/dev/null 2>&1)
 RC=$?
 SNAP_E=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
@@ -3643,6 +3660,7 @@ fi
 
 # G: after reset, same task name can pick any max_defects (snapshot fresh)
 _write_spec_d 9
+_v6811_marker "$D_DIR" "task-A"
 (cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" >/dev/null 2>&1)
 RC=$?
 SNAP_G=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
@@ -3859,6 +3877,7 @@ _c_advance_builder() {
 
 # A: default cap=2 — first dispatch allowed, counter=1
 _c_write_spec ""
+_v6811_marker "$C_DIR" "cycle-task"
 APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
 OUT_A=$(_c_advance_builder)
 RC=$?
@@ -3907,6 +3926,7 @@ fi
 # E: spec re-advance wipes the counter (v6.3 audit fix: prevents counter
 # from carrying over into a new task and blocking its first dispatch).
 _c_write_spec 4
+_v6811_marker "$C_DIR" "cycle-task"
 APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
 if [ ! -f "$C_DIR/.apd/pipeline/.builder-count" ]; then
     pass "spec re-advance wipes .builder-count (audit fix)"
@@ -3932,6 +3952,7 @@ fi
 
 # F: max_cycles=unlimited disables the cap
 _c_write_spec unlimited
+_v6811_marker "$C_DIR" "cycle-task"
 APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
 # After spec re-advance, counter is wiped → 0
 for _ in 1 2 3 4 5; do
@@ -4000,6 +4021,7 @@ _b_advance() {
 
 # A: default reviewer cap = 2, first + second advance allowed
 _b_write_spec "" ""
+_v6811_marker "$R_DIR" "b-task"
 _b_advance spec "b-task" >/dev/null 2>&1   # writes spec.done
 _b_advance builder >/dev/null 2>&1 # writes builder.done, counter B=1
 OUT_A=$(_b_advance reviewer)
@@ -4057,6 +4079,7 @@ fi
 
 # D: pipeline_mode: polish — builder + reviewer defaults both drop to 1
 _b_write_spec "polish" ""
+_v6811_marker "$R_DIR" "b-task"
 _b_advance spec "b-task" >/dev/null 2>&1
 _b_advance builder >/dev/null 2>&1  # counter B=1
 OUT_D=$(_b_advance builder)
@@ -4084,6 +4107,7 @@ fi
 # E: explicit reviewer: max_cycles=3 overrides polish preset
 APD_PROJECT_DIR="$R_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
 _b_write_spec "polish" "3"
+_v6811_marker "$R_DIR" "b-task"
 _b_advance spec "b-task" >/dev/null 2>&1
 _b_advance builder >/dev/null 2>&1   # builder still capped at 1 — single dispatch needed for reviewer to run
 _b_advance reviewer >/dev/null 2>&1  # R=1
@@ -4195,6 +4219,7 @@ plan_consistency_gate: off
 - R1: x
 EOF
 echo "implementation plan" > "$RB_DIR/.apd/pipeline/implementation-plan.md"
+_v6811_marker "$RB_DIR" "rb-task"
 APD_PROJECT_DIR="$RB_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "rb-task" >/dev/null 2>&1
 APD_PROJECT_DIR="$RB_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder >/dev/null 2>&1
 APD_PROJECT_DIR="$RB_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reviewer >/dev/null 2>&1
@@ -4775,6 +4800,7 @@ test agent
 EOF_AGENT
 
 # Advance spec to get a fresh SPEC_TS_HUMAN (current year)
+_v6811_marker "$STALE_DIR" "stale-test"
 APD_PROJECT_DIR="$STALE_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "stale-test" >/dev/null 2>&1
 
 # Write a pre-spec human-format entry (year 2020 — guaranteed older than spec.done)
@@ -4918,6 +4944,7 @@ model: opus
 ---
 test
 EOF_AA
+    _v6811_marker "$dir" "v67-task"
     APD_PROJECT_DIR="$dir" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
         spec "v67-task" >/dev/null 2>&1
     local _hb1 _hb2 _hr1 _hr2 _ha1 _ha2
@@ -6325,7 +6352,9 @@ fi
 # Reset for next test
 cd "$V685_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
 cd - >/dev/null
-# Live L: trivial task (R-count <= 2) no marker required
+# Live L: trivial task (R-count <= 2) ALSO requires marker (v6.8.11 — gate is unconditional)
+# Pre-v6.8.11 carve-out (R≤2 auto-bypass) removed because orchestrator atomized
+# non-trivial tasks to 2 R-criteria to bypass — see BambiProject 2026-05-23.
 cat > "$V685_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
 ## Test hotfix
 **Acceptance criteria:**
@@ -6333,11 +6362,11 @@ cat > "$V685_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
 - R2: second
 EOF
 TRIVIAL_OUT="$(advance_spec_v685 spec "Test hotfix")"
-if echo "$TRIVIAL_OUT" | grep -q "EXIT=0"; then
-    pass "spec advance: trivial task (R≤2) bypasses brainstorm gate"
+if echo "$TRIVIAL_OUT" | grep -q "EXIT=1" && echo "$TRIVIAL_OUT" | grep -q "Brainstorm marker missing"; then
+    pass "spec advance: trivial task (R≤2) ALSO BLOCKs without marker (v6.8.11 unconditional)"
     PASSES=$((PASSES + 1))
 else
-    fail "trivial task should skip brainstorm gate: $TRIVIAL_OUT"
+    fail "trivial task should ALSO BLOCK without marker per v6.8.11: $TRIVIAL_OUT"
     FAILS=$((FAILS + 1))
 fi
 
@@ -6548,8 +6577,9 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static E: BLOCK message references Bambi Cycle E empirical evidence
-if grep -qE 'Bambi Cycle E|3h cascade' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+# Static E: BLOCK message references empirical evidence (v6.8.5: Bambi Cycle E,
+# v6.8.11: BambiProject MS.4 + Photo Bill CTA)
+if grep -qE 'Bambi Cycle E|3h cascade|BambiProject MS\.4|Photo Bill CTA' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
     pass "brainstorm-marker BLOCK message references empirical evidence"
     PASSES=$((PASSES + 1))
 else
@@ -6748,6 +6778,171 @@ else
     FAILS=$((FAILS + 1))
 fi
 rm -rf "$V6810_SCRATCH"
+
+# -----------------------------------------------------------
+# 70. v6.8.11 — brainstorm-marker gate UNCONDITIONAL (drop R>2 carve-out)
+#     v6.8.5 introduced gate sa R-count > 2 trigger. BambiProject 2026-05-23
+#     evidence (MS.4 + Photo Bill CTA, both R=2, both 30-40 min sa adversarial
+#     N/A i plan-spec BLOCKs i rm -rf .apd/pipeline wipes) pokazala da je
+#     R-threshold gameable: orchestrator atomizuje task na 2 R-criteria da
+#     bypass-uje gate. v6.8.11 drop-uje carve-out — marker mandatory na svaki
+#     spec advance bez obzira na R-count. Opt-out i dalje preko --skip-brainstorm
+#     '<reason>' (v6.8.8 friction preserved).
+# -----------------------------------------------------------
+section "70. brainstorm-marker gate UNCONDITIONAL (v6.8.11)"
+
+# Static A: pipeline-advance condition no longer gates on CRITERIA_COUNT > 2
+if grep -qE 'if \[ "\$SKIP_BRAINSTORM" = false \]; then' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && ! grep -qE 'if \[ "\$CRITERIA_COUNT" -gt 2 \] && \[ "\$SKIP_BRAINSTORM" = false \]' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance brainstorm-marker gate dropped CRITERIA_COUNT > 2 carve-out"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance still gates brainstorm-marker on CRITERIA_COUNT > 2"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: v6.8.11 marker in source (proves intentional change, not regression)
+if grep -qE 'v6\.8\.11' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance carries v6.8.11 marker comment"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing v6.8.11 marker comment"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: --skip-brainstorm reason validation also unconditional
+if grep -qE 'if \[ "\$SKIP_BRAINSTORM" = true \]; then' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance --skip-brainstorm reason validation unconditional"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance --skip-brainstorm still gated on CRITERIA_COUNT > 2"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: workflow.md updated wording (unconditional + R-atomization evidence)
+if grep -qE 'unconditional|every new task' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
+    pass "workflow.md documents unconditional brainstorm load"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md missing unconditional brainstorm load wording"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: CC SKILL.md updated wording
+if grep -qE 'unconditional|Default: load on every new task' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "CC apd-brainstorm SKILL.md documents unconditional default"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-brainstorm SKILL.md missing unconditional default wording"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static F: Codex SKILL.md mirror updated
+if grep -qE 'unconditional|Default: load on every new task' "$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "Codex apd-brainstorm SKILL.md documents unconditional default"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex apd-brainstorm SKILL.md missing unconditional default wording"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static G: Codex AGENTS.md template mirror updated
+if grep -qE 'unconditional|every new task' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
+    pass "Codex AGENTS.md template documents unconditional brainstorm load"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex AGENTS.md template missing unconditional brainstorm load wording"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup for v6.8.11 behavioural tests
+V6811_SCRATCH="$(mktemp -d -t apd-v6811.XXXXXX)"
+mkdir -p "$V6811_SCRATCH/.apd/pipeline" "$V6811_SCRATCH/.codex" "$V6811_SCRATCH/.apd/memory"
+touch "$V6811_SCRATCH/.apd/config"
+
+advance_spec_v6811() {
+    cd "$V6811_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" "$@" 2>&1
+    _rc=$?
+    cd - >/dev/null
+    echo "EXIT=$_rc"
+}
+
+# Live H: R=1 task without marker → BLOCK (NEW behavior — pre-v6.8.11 this was bypass)
+cat > "$V6811_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
+## Test single-R
+**Acceptance criteria:**
+- R1: only
+EOF
+R1_OUT="$(advance_spec_v6811 spec "Test single-R")"
+if echo "$R1_OUT" | grep -q "EXIT=1" && echo "$R1_OUT" | grep -q "Brainstorm marker missing"; then
+    pass "spec advance: R=1 task without marker → BLOCK (v6.8.11 unconditional)"
+    PASSES=$((PASSES + 1))
+else
+    fail "R=1 task should BLOCK without marker per v6.8.11: $R1_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Reset for next test
+cd "$V6811_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
+cd - >/dev/null
+
+# Live I: R=1 task WITH marker → spec advance prolazi
+cat > "$V6811_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
+## Test single-R
+**Acceptance criteria:**
+- R1: only
+EOF
+printf '%s|%s\n' "Test single-R" "2026-05-23T12:00:00Z" > "$V6811_SCRATCH/.apd/pipeline/.brainstorm-marker"
+R1_OK_OUT="$(advance_spec_v6811 spec "Test single-R")"
+if echo "$R1_OK_OUT" | grep -q "EXIT=0"; then
+    pass "spec advance: R=1 task WITH matching marker → prolazi"
+    PASSES=$((PASSES + 1))
+else
+    fail "R=1 task with marker should prolaziti: $R1_OK_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Reset for next test
+cd "$V6811_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
+cd - >/dev/null
+
+# Live J: R=2 task with --skip-brainstorm + reason → prolazi (v6.8.8 opt-out preserved)
+cat > "$V6811_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
+## Test trivial
+**Acceptance criteria:**
+- R1: first
+- R2: second
+EOF
+SKIP_OK_OUT="$(advance_spec_v6811 spec "Test trivial" --skip-brainstorm "1:1 mirror of prior task — scope + APD config explicit")"
+if echo "$SKIP_OK_OUT" | grep -q "EXIT=0"; then
+    pass "spec advance: R=2 task + --skip-brainstorm + reason → prolazi (opt-out preserved)"
+    PASSES=$((PASSES + 1))
+else
+    fail "R=2 task with --skip-brainstorm + reason should prolaziti: $SKIP_OK_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Reset for next test
+cd "$V6811_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
+cd - >/dev/null
+
+# Live K: R=2 task with --skip-brainstorm BUT no reason → BLOCK (v6.8.11 — was R>2 only)
+cat > "$V6811_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
+## Test trivial
+**Acceptance criteria:**
+- R1: first
+- R2: second
+EOF
+SKIP_NO_REASON_OUT="$(advance_spec_v6811 spec "Test trivial" --skip-brainstorm)"
+if echo "$SKIP_NO_REASON_OUT" | grep -q "EXIT=1" && echo "$SKIP_NO_REASON_OUT" | grep -q "requires explicit reason"; then
+    pass "spec advance: R=2 task + --skip-brainstorm WITHOUT reason → BLOCK (v6.8.11)"
+    PASSES=$((PASSES + 1))
+else
+    fail "R=2 task with --skip-brainstorm sans reason should BLOCK per v6.8.11: $SKIP_NO_REASON_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$V6811_SCRATCH"
 
 # -----------------------------------------------------------
 # Summary

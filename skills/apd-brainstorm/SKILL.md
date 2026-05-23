@@ -23,7 +23,9 @@ If you cannot explain the design in one sentence — you are not ready for a spe
 - Multiple reasonable interpretations exist
 - You catch yourself making implementation choices the user hasn't seen
 
-**Skip when (TWO-PART CHECK — both must be true):**
+**Default: load on every new task.** v6.8.11 made the brainstorm-marker gate unconditional — the previous "trivial task (≤2 R-criteria) automatic skip" carve-out is gone. R-count proved gameable: orchestrator atomized non-trivial work to 2 R-criteria specifically to bypass the gate, producing 30-40 min pipelines with downstream BLOCK cascades. Per-task brainstorm load is structurally cheaper than the BLOCK loop that an undisciplined entry triggers.
+
+**Skip only when (TWO-PART CHECK — both must be true):**
 
 1. **Scope is already aligned** — task is fully specified (file paths, function names, R-criteria) OR user has approved a design informally, AND
 2. **APD config decisions are explicit** — you can answer YES to ALL:
@@ -32,10 +34,12 @@ If you cannot explain the design in one sentence — you are not ready for a spe
    - Rationale format: after adversarial dispatch, will write `.apd/pipeline/.adversarial-rationale.md` (sa `.md`!) with per-finding `## Finding N` + `**Severity:**` + `**Status:**` + `**Rationale:**` (≥40 chars za dismissed)
    - BLOCK recovery: znas sta da uradis ako hit plan-spec-consistency / max_defects-exceeded / rationale-100pct-dismiss
 
+Canonical skip cases: genuine 1:1 mirror of a just-completed task (same scope shape, same agents, same config), single-line bug fix with one R-criterion, or hotfix with explicit pre-aligned design.
+
 **Also skip when:**
 - You are mid-pipeline (spec is locked; raise concerns to user, don't re-brainstorm)
 
-**If you cannot confirm BOTH parts (scope + config) — DO NOT skip.** Load the skill. Empirical evidence (Bambi Cycle E, 2026-05-22): informal brainstorm covered scope alignment but NOT APD config guidance → 3h cascade BLOCK pattern. Skipping based ONLY on scope alignment is the failure mode.
+**If you cannot confirm BOTH parts (scope + config) — DO NOT skip.** Load the skill. Empirical evidence: Bambi Cycle E (2026-05-22) informal brainstorm covered scope but NOT APD config → 3h cascade. BambiProject MS.4 + Photo Bill CTA (2026-05-23) skipped via R-atomization → 30-40 min each with adversarial N/A.
 
 If you do skip, the override flag requires explicit reason that acknowledges both parts:
 ```bash

@@ -17,7 +17,9 @@ after the user explicitly approves the design summary.
 - Multiple reasonable interpretations exist
 - You catch yourself making implementation choices the user hasn't seen
 
-**Skip when (TWO-PART CHECK — both must be true):**
+**Default: load on every new task.** v6.8.11 made the brainstorm-marker gate unconditional — the previous "trivial task (≤2 R-criteria) automatic skip" carve-out is gone. R-count proved gameable: orchestrator atomized non-trivial work to 2 R-criteria specifically to bypass the gate, producing 30-40 min pipelines with downstream BLOCK cascades. Per-task brainstorm load is structurally cheaper than the BLOCK loop that an undisciplined entry triggers.
+
+**Skip only when (TWO-PART CHECK — both must be true):**
 
 1. **Scope is aligned** — task fully specified OR user approved design informally, AND
 2. **APD config decisions are explicit** — you can answer YES to ALL:
@@ -26,10 +28,12 @@ after the user explicitly approves the design summary.
    - Rationale: `.apd/pipeline/.adversarial-rationale.md` (sa `.md`!) with per-finding blocks
    - BLOCK recovery patterns known
 
+Canonical skip cases: genuine 1:1 mirror of a just-completed task, single-line bug fix with one R-criterion, hotfix with explicit pre-aligned design.
+
 **Also skip when:**
 - Mid-pipeline (spec locked; raise concerns, don't re-brainstorm)
 
-**If you cannot confirm BOTH parts — DO NOT skip.** Empirical (Bambi Cycle E, 2026-05-22): informal brainstorm covered scope but NOT APD config → 3h cascade. Override flag (`apd_advance_pipeline('spec', '<name>', skip_brainstorm='<reason>')`) requires concrete reason acknowledging both parts.
+**If you cannot confirm BOTH parts — DO NOT skip.** Empirical: Bambi Cycle E (2026-05-22) informal brainstorm covered scope but NOT APD config → 3h cascade. BambiProject MS.4 + Photo Bill CTA (2026-05-23) skipped via R-atomization → 30-40 min each with adversarial N/A. Override flag (`apd_advance_pipeline('spec', '<name>', skip_brainstorm='<reason>')`) requires concrete reason acknowledging both parts.
 
 ## The Iron Law
 

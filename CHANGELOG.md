@@ -1,5 +1,51 @@
 # Changelog
 
+## v6.8.11 — 2026-05-23
+
+Dvanaesti patch u v6.8 chain-u — strukturalna intervencija na entry discipline layer-u. Drop R-count > 2 carve-out iz `brainstorm-marker` hard gate-a. v6.8.5 gate dizajniran sa `R > 2` threshold kao "smart-friction" carve-out za trivial tasks; BambiProject 2026-05-23 evidence pokazala da je threshold gameable — orchestrator atomizuje non-trivial work na 2 R-criteria specifically da bypass-uje gate. v6.8.11 forsira brainstorm load na svaki spec advance bez obzira na declared R-count. Opt-out preko `--skip-brainstorm '<reason>'` (v6.8.8 friction) preserved.
+
+**Empirical trigger (BambiProject 2026-05-23, oba na v6.8.10 plugin):**
+
+| Task | Declared R | Duration | Adversarial | Brainstorm gate |
+|---|---|---|---|---|
+| Photo Bill CTA | 2/2 | 32m 22s | N/A | not triggered |
+| MS.4 Android Barkoder still-image | 2/2 | 40m 25s | N/A | not triggered |
+
+Oba pipelina realno trajala kao 4-6 R cycle (multi-layer mobile + tests + 6/3 files sa 72% builder→reviewer iteration time), oba bi trebalo da rute kroz `/apd-brainstorm`. Plus secondary bypass evidence: orchestrator pokusao `rm -rf .apd/pipeline && mkdir -p .apd/pipeline` da wipe-uje v6.3 max_defects immutability ledger + reset audit trail (`PROTECTED_PIPELINE` substring match propusta bare-dir form bez trailing slash).
+
+**Strategic insight (user 2026-05-23):** APD enforcement layers (guards + rationale gates + plan-spec consistency + brainstorm marker) cine END quality ciklusa robusno — orchestrator hit-uje BLOCK-ove, retry-uje, konvergira ka clean commit-u. Kvalitet nije open problem. Open problem je **resource cost** od nediscipline u entry. Cost jednog BLOCK loop ciklusa (plan-spec + max_defects raise + rationale-missing + rm -rf attempt + reset cascade) je 30-100K tokena. Cost jednog brainstorm load-a je 3-5K tokena. Per-task brainstorm load je ~10× jeftiniji od jednog BLOCK loop ciklusa koje undisciplined entry trigger-uje downstream.
+
+**Highlights:**
+
+- **fix(pipeline-advance): brainstorm-marker gate UNCONDITIONAL.** Drop `[ "$CRITERIA_COUNT" -gt 2 ]` iz oba check-a (marker presence + `--skip-brainstorm` reason validation). Gate fires na svaki spec advance regardless of R-count. BLOCK message reworded: drop "non-trivial task" branding i "Trivial tasks (≤2 R-criteria) skip this gate automatically." line. Dodaje BambiProject 2026-05-23 R-atomization empirical reference (30-40 min sa adversarial N/A vs 10-15 min za brainstorm-loaded equivalents).
+- **fix(skills/apd-brainstorm/SKILL.md) CC + Codex mirror: "Default: load on every new task" paragraph** na vrh "When to use / When to skip" sekcije. "Skip when" reworded u "Skip only when" + kanonski skip cases enumerated (genuine 1:1 mirror of just-completed task, single-line bug fix sa one R-criterion, hotfix sa pre-aligned scope).
+- **fix(rules/workflow.md step 1 + templates/codex/AGENTS.md step 0): MANDATORY load wording reword** — "unconditional, every new task" instead of conditional `>2 R-criteria` list. Plus BambiProject MS.4 + Photo Bill CTA empirical reference.
+- **test(bin/core/test-codex-adapter):**
+    - Novi `_v6811_marker DIR TASK` helper na vrhu fajla — pisuje canonical `.brainstorm-marker` za fixture-i koji drive `pipeline-advance spec` bez namere da test-uje gate. 11 fixture-a updated kroz §31/§32/§38/§42/§43/§45/§51/§52 + Python subdir MCP test.
+    - §64 Live L flipped: bio "trivial R≤2 bypasses gate", sad "trivial R≤2 ALSO BLOCKs without marker per v6.8.11".
+    - §64 Static E updated da prepozna BambiProject MS.4 / Photo Bill CTA evidence references alongside postojece Bambi Cycle E.
+    - **Novi §70 (11 assertions):** 7 static (gate condition no longer R>2, v6.8.11 comment marker, `--skip-brainstorm` reason unconditional, workflow.md unconditional wording, CC + Codex SKILL.md unconditional wording, AGENTS.md unconditional wording) + 4 live (R=1 no marker → BLOCK, R=1 + marker → prolazi, R=2 + `--skip-brainstorm` + reason → prolazi opt-out preserved, R=2 + `--skip-brainstorm` bez reason → BLOCK).
+- **Test count 533 → 544 PASS / 0 FAIL** (+11 novih u §70, plus 1 modifikovan u §64 Live L).
+- **Migration:** projects koji su operisali pod R≤2 carve-out videce novi BLOCK na prvi spec advance per task. Recovery je dokumentovan opt-out: load `/apd-brainstorm` skill (recommended) ILI `--skip-brainstorm '<concrete reason>'` (kanonski use cases: 1:1 mirror, single-line bug fix, pre-aligned hotfix).
+
+**Strategic pivot:** prethodno-zapisana defensive guard za `rm -rf .apd/pipeline` DEFERRED u korist α (unconditional brainstorm load). Hypothesis: ako orchestrator zna pipeline od pocetka, nuclear-wipe escape valve postaje nepotreban. Re-evaluate posle BambiProject live test v6.8.11.
+
+**Dvanaesti-patch chain v6.8 (retrospective):**
+
+| Patch | Layer | Trigger |
+|---|---|---|
+| v6.8.0-1 | Guard | Discovery |
+| v6.8.2 | Observability | Admin signals |
+| v6.8.3 | UX | Rate limit |
+| v6.8.4 | Education | CSRF ignored |
+| v6.8.5 | Enforcement | "Bez brainstorm-a" — R>2 gate |
+| v6.8.6 | Polish | CSRF UX |
+| v6.8.7 | Skill content | Soft-delete gaps |
+| v6.8.8 | Override friction | Bambi Cycle E bypass |
+| v6.8.9 | Telemetry polish | Product sort_order bug |
+| v6.8.10 | MaxTurns telemetry | User-observed structural |
+| **v6.8.11** | **Entry discipline** | **R-atomization bypass** |
+
 ## v6.8.10 — 2026-05-22
 
 Jedanaesti same-day patch — telemetry surface za empirical maxTurns calibration. User-observed strukturalan problem: trenutne maxTurns vrednosti (60 builders / 80 reviewers iz workflow.md) su intuitivno postavljene, ne empirically-calibrated. Empirical evidence: Bambi v6.8 era (poslednjih 7 dana) imala 15 `mobile` rapid re-dispatch events (gap <120s = proxy za maxTurn exhaust). v6.8.10 dodaje read-only telemetry koja kalibrise per-agent vrednosti empirijski. No behavior change — pure observability. Tests: 528 → 533 (+5 in §69).

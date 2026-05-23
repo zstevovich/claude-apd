@@ -4,15 +4,18 @@
 
 ```
 1. RECEIVE TASK from user
-   → **MANDATORY load `/apd-brainstorm` skill BEFORE writing spec-card.md when ANY:**
-     - Task is vague, broad, or "improve X" style
-     - Task has >2 R-criteria (skill teaches budget + plan + rationale gates)
-     - Task introduces DB migration or security surface
-     - User did not pre-specify exact files, R-criteria, and adversarial budget
-   → Skill is the APD pipeline tutor (v6.8.4+): walks orchestrator through gate
-     consequences, plan/rationale format, common BLOCKs + recovery — prevents
-     cascade BLOCK patterns observed in v6.8.0-3 live runs (Add contact form
-     33 min, Rate limit 26 min — both triggered by skipping brainstorm).
+   → **MANDATORY load `/apd-brainstorm` skill BEFORE writing spec-card.md.**
+     v6.8.11 made this unconditional — every new task, regardless of declared
+     R-count. The previous "≤2 R-criteria auto-skip" carve-out was removed
+     because orchestrator atomized non-trivial tasks to 2 R-criteria specifically
+     to bypass the gate (BambiProject MS.4 + Photo Bill CTA, 2026-05-23:
+     30-40 min pipelines with adversarial N/A, plan-spec BLOCKs, rm -rf wipes).
+   → Skill is the APD pipeline tutor: walks orchestrator through per-task
+     scope (Risks + Rollback), APD config (max_defects + plan Implements
+     format + rationale .md format), and downstream BLOCK shapes + recovery.
+   → Opt-out is `--skip-brainstorm '<concrete reason>'` and is for genuine
+     1:1 mirrors, single-line bug fixes, or hotfixes with pre-aligned scope
+     AND explicit APD config decisions. Reason is required and audit-logged.
    ↓
 2. ANALYZE & WRITE SPEC — create spec card with goal, scope, criteria, risks
    → bash .claude/bin/apd pipeline spec "Task name"
