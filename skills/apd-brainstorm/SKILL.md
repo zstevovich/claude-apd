@@ -125,20 +125,21 @@ Ready to write the spec-card.md?
 
 For trivial polish/hotfix tasks (1-2 R, no DB, no new endpoint), Risks can be "minimal — see Out of scope" and Rollback can be "revert commit". Be explicit anyway — empty Risks/Rollback in spec-card.md is a documentation gap that adversarial reviewer cannot catch.
 
-**Adversarial budget recommendation** (writes a `adversarial: max_defects=N` line into spec-card.md, enforced by the verifier):
+**Adversarial budget — `max_defects` field is DEPRECATED as of v6.9, removed in v7.0.**
 
-| R-criterion count | Recommended | Why |
-|---|---|---|
-| 1–7 R (default — almost all tasks) | **omit field** (= unlimited) | v6.7 rationale gate structurally catches misuse (per-finding rationale ≥40 chars + 100%-orchestrator-dismiss BLOCK). No preflight budget cap needed. |
-| polish-mode (1–2 R hotfix) | `pipeline_mode: polish` | Lean preset — lower cycle caps + skip adversarial entirely. |
-| Power-user explicit budget | `max_defects=N` | ONLY when ti REALLY znas budget unapred — rare. `=0` forces accept-everything which cascades into N-finding builder fix dispatches and possible cycle-cap exhaust. |
+**DO NOT write `adversarial: max_defects=...` in new specs.** Field continues to function in v6.9 for graceful transition (verifier gate + immutability check both active), but emits a deprecation warn on every spec advance + INFO entry to guard-audit.log. Rationale gate (v6.7) structurally covers the misuse pattern that max_defects was meant to prevent.
 
-**DO NOT write `max_defects=0` for standard tasks.** Empirical evidence iz v6.8 dev cycle (2026-05-22):
+| Task profile | Recommended |
+|---|---|
+| Standard task (1–7 R, almost all) | **omit `max_defects` field** — default = unlimited |
+| polish-mode (1–2 R hotfix) | `pipeline_mode: polish` — lower cycle caps + skip adversarial entirely |
+
+Empirical evidence (v6.8 dev cycle, 2026-05-22):
 - "Add contact form" (max_defects=0, 6 R): 33 min, 3 guard BLOCK cascade (max_defects-exceeded + raise-attempt + cycle-cap), 2 reset cycles.
 - "Rate limit kontakt forme" (max_defects=0, 5 R): 26 min, T=8:A=8:D=0 (forced accept all 8 findings), 3 BLOCK-ova.
 - "Admin lista" (NO max_defects field, 6 R): 13 min, T=10:A=1:D=9 (real adversarial work), clean run.
 
-Default = omit field. Rationale gate (v6.7) structurally protects against rubber-stamp dismissals without forcing accept-everything cascade.
+v6.8 chain (10 patches) validated rationale gate (v6.7) as sufficient standalone enforcement — max_defects became redundant. Rationale gate hard-blocks 100%-orchestrator-dismiss pattern (T≥3 && A==0 && Do≥1) + requires per-finding rationale ≥40 chars for dismissed findings, without forcing accept-everything cascade.
 
 ### 4b. Downstream gates the spec triggers
 
@@ -200,8 +201,8 @@ Skipping this file → v7.1 BLOCK at verifier. Plus rationale gate hard-blocks t
 | BLOCK reason | Likely cause | Quick fix |
 |---|---|---|
 | `plan-spec-consistency issues=N mode=strict` | Plan section missing `**Implements:**` header OR spec R-id unreferenced | Read the inline BLOCK template; add headers/R-ids per section; re-run `apd pipeline builder` (~10s recovery) |
-| `max_defects-exceeded` | Adversarial vrati >budget findings | If budget=0 was a mistake: `apd pipeline reset "switching to unlimited"` + edit spec-card.md to remove field. If budget was intentional: accept more findings (dispatch builder fix per finding). |
-| `max_defects-raised-mid-pipeline` | Tried to raise budget after spec.done | v6.3 D immutability — only `apd pipeline reset` escape. |
+| `max_defects-exceeded` (v6.9 DEPRECATED) | Adversarial vrati >budget findings | Reset + remove `max_defects` field from spec-card. Gate goes away entirely in v7.0; rationale gate is the replacement. |
+| `max_defects-raised-mid-pipeline` (v6.9 DEPRECATED) | Tried to raise budget after spec.done | v6.3 D immutability check. Migration path: reset + remove field; do not re-introduce. |
 | `rationale-missing` | Forgot `.adversarial-rationale.md` before verifier | Write file with T entries (Finding/Severity/Status/Rationale), re-run verifier. |
 | `rationale-100pct-orch-dismiss` | All findings dismissed (T≥3, A=0, Do≥1) | Accept at least one finding OR reclassify dismissed → reviewer-self-dismissed with adversarial reviewer's inline Note as Rationale. |
 | `max_builder_cycles-exceeded` | Hit `.builder-count` cap (default 2) | Either accept smaller scope (lower expectations), reset + decompose into 2+ tasks, OR raise cap via spec-card `builder: max_cycles=N`. |

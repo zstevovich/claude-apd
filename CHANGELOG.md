@@ -1,5 +1,56 @@
 # Changelog
 
+## v6.9.0 — 2026-05-24
+
+Minor release — closes v6.8 chain sa tri strukturalne intervencije:
+
+1. **`adversarial: max_defects=N` field SOFT-DEPRECATED** — biti uklonjen u v7.0. Field continues to function za graceful transition (verifier gate v6.1 B2 + immutability check v6.3 D oba aktivni), ali emit-uje deprecation WARN + INFO log entry na svaki spec advance gde je field present.
+2. **`verify-apd` Section 8 lock-in** u `test-codex-adapter` §71 — zatvara blind-spot iz issues #10/#11 sa static-asserts za fixture content.
+3. **Pre-bump checklist** codified u `docs/SPEC.md` §24 — 3-step audit pre svake bump-promene koja menja guard/gate/hook ponasanje.
+
+**Why soft-deprecate `max_defects`:** v6.8 chain (10 patches za 2 dana) empirically validovao **rationale gate (v6.7) kao sufficient standalone enforcement** za adversarial quality. Per-finding rationale ≥40 chars za dismissed findings + 100%-Do hard-block + bulk-accept rationale validation strukturalno covers misuse pattern koji je `max_defects` trebao da spreci. Plus empirical evidence (v6.8 dev cycle, 2026-05-22): tasks sa `max_defects=0` trajali 26-33 min sa 3 guard BLOCK cascade vs identicni task BEZ polja trajao 13 min clean. `max_defects` postao redundant — najgora opcija je `=0` (forsira accept-everything), realno bilo koje koriscenje polja sluzi RLHF anchoring vs ne-postojanju field-a.
+
+**Highlights:**
+
+### A. max_defects soft deprecation
+
+- **fix(pipeline-advance):** track `MAX_DEFECTS_PRESENT=true/false` pre default-ovanja `CURRENT_MAX="unlimited"`. Kad field eksplicit present (`adversarial: max_defects=N` ili `=unlimited`), emit deprecation WARN ka stderr sa explanation + migration instruction. Plus log `INFO|orchestrator|max-defects-deprecated|task=X value=N` entry u `guard-audit.log` za telemetry. NO behavior change — verifier gate + immutability check oba i dalje active.
+- **fix(rules/workflow.md):** §7 SEVERITY GATE reworded sa DEPRECATED v6.9 marker + migration instruction. Drop preskripciju polish-mode use case (sad `pipeline_mode: polish` preset je preferiran).
+- **fix(skills/apd-brainstorm/SKILL.md) CC + Codex mirror:** "Adversarial budget" sekcija refactored kao DEPRECATED notice — preserves empirical evidence references (Add contact form / Rate limit / Admin lista comparison) ali eksplicit kaze DO NOT WRITE. "Common BLOCKs" tabela flaguje `max_defects-exceeded` + `max_defects-raised-mid-pipeline` kao DEPRECATED + dodaje migration instruction.
+- **fix(templates/codex/AGENTS.md):** mirror DEPRECATED wording u step 1 spec card writing instructions.
+
+### B. verify-apd Section 8 lock-in (issues #10 + #11 vector closed)
+
+- **test(test-codex-adapter §71):** static asserts za fixture content u `verify-apd` Section 8 — `.brainstorm-marker` pre-write za APD-VERIFY-TEST + APD-VERIFY-OPT-OUT, `implementation-plan.md` sa `**Implements:** R1` za oba synthetic task-a, sintetic `.adversarial-rationale.md` matching ADVERSARIAL summary. **Ako sledeci put neko menja gate u pipeline-advance i zaboravi update verify-apd, test-codex-adapter ce fail-ovati pre push-a** — preventive lock-in vs reactive hot-fix patch (kao #12 + #13 koji su ovo izbegli).
+
+### C. Pre-bump checklist u SPEC.md §24
+
+- **docs(SPEC.md):** nova sekcija §24 sa **MANDATORY** 3-step audit komandama (grep za pipeline-advance callsiteove + grep za synthetic fixtures + test-codex-adapter run). Plus deprecation policy: minor za warn, major za removal, 2-version graceful window.
+
+### Tests
+
+- **§71 (15 assertions):** 7 static za max_defects deprecation (markers + parser logic + WARN message + skill content) + 4 live behavioural (warn emits, INFO logs, no warn when field absent, verifier gate STILL active in v6.9) + 4 static za verify-apd Section 8 lock-in.
+- **§63 Static I updated** za generalized `DO NOT write adversarial: max_defects` wording (bez `=0` specifically, jer ceo field deprecated).
+- **Test count 544 → 559 PASS / 0 FAIL.**
+
+**Migration (v6.9 → v7.0 transition):**
+
+| Project state | What to do |
+|---|---|
+| Spec has no `max_defects` field | Nothing — already on v7.0 baseline |
+| Spec has `adversarial: max_defects=N` (anywhere N≥0) | Remove the line. Rationale gate covers misuse strukturalno. |
+| Spec has `adversarial: max_defects=unlimited` | Remove the line — explicit unlimited = default |
+| `pipeline_mode: polish` projects | No change — polish preset is preferred for hotfixes, drops adversarial entirely |
+
+v6.9 NE menja behavior — samo emit warn. v7.0 ce removeovati parser branches u `pipeline-advance` (lines ~311-345 immutability check + lines ~850-870 verifier severity gate) i log entries.
+
+**Backlog open posle v6.9:**
+
+- v6.9 live test u BambiProject — verify (a) WARN emit pri max_defects use, (b) INFO entry u guard-audit, (c) field i dalje radi (verifier gate active).
+- Phase 2 maxTurns calibration — 1-2 nedelje aggregated telemetry → workflow.md defaults update.
+- v6.9.x patch chain ako live test otkrije neke skill content gaps oko skip-brainstorm wording (sada referenisemo "max_defects=unlimited" u canonical reason — treba update).
+- v7.0 plan — `max_defects` parser removal + BREAKING CHANGES section + test-codex-adapter §71 (a) part assertions deleted.
+
 ## v6.8.13 — 2026-05-23
 
 Drugi hot-fix u istom satu, isti klas problema kao #10 (sad #11) — `apd verify` E2E test trip-uje na drugom gate-u. v6.8.12 popravio brainstorm-marker gate u verify-apd Section 8, ali plan-spec consistency gate (v6.8.0) ostao otkriven jer Section 8 pisuje minimalan plan (`echo "## Plan: APD-VERIFY-TEST" > implementation-plan.md`) bez `**Implements:**` headera. Posle v6.8.12 spec step prosao ali builder block-uje sa `BLOCKED: Spec R1 not implemented by any plan section` → 12 cascading FAIL-ova.

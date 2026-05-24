@@ -796,3 +796,46 @@ This SPEC was first written incrementally as of `1dab772` (2026-04-24) then expa
 It is the authoritative reference. Code without an entry here is undocumented. Any framework change that adds, renames, or removes a script, MCP tool, hook event, guard, gate, telemetry file, agent/skill/template, configuration surface, or constant SHOULD update this document in the same commit.
 
 Sections most likely to drift over time: §15 (constants), §16.2 (guard table), §17.7 (per-tool security), §18.1 (install-codex-config steps), §19 (manifest fields). Set a recurring review on these whenever a runtime change ships.
+
+---
+
+## 24. Pre-bump checklist
+
+**MANDATORY before every version bump that touches a guard, gate, hook, or pipeline-advance behavior.**
+
+Origin: issues #10 (v6.8.11→v6.8.12) + #11 (v6.8.12→v6.8.13). Both were `apd verify` E2E cascades caused by new guards added to `pipeline-advance` without updating `verify-apd` Section 8 synthetic fixtures. Pattern repeated within one hour. This checklist closes the blind-spot.
+
+### 24.1 Surface audit (run before commit, not just before bump)
+
+```bash
+# 1. Find every script that drives pipeline-advance — these are E2E surfaces
+grep -rn 'pipeline-advance\|pipeline-gate' plugins/apd/bin/
+
+# 2. Find every synthetic spec / plan / agent fixture in tests + verify-apd
+grep -rn 'APD-VERIFY-\|spec-card.md.*<<.*EOF\|implementation-plan.md.*<<' plugins/apd/bin/
+
+# 3. Run primary E2E (≥544 PASS / 0 FAIL on main branch baseline; ≥559 on v6.9+)
+bash plugins/apd/bin/core/test-codex-adapter | tail -5
+```
+
+If new guard added to `pipeline-advance`, every callsite above MUST be reviewed for fixture compatibility — not just `test-codex-adapter` family. `verify-apd` Section 8 is a distinct E2E surface with its own synthetic fixtures (`.brainstorm-marker`, `implementation-plan.md`, `.adversarial-rationale.md`).
+
+### 24.2 Test lock-in expectations
+
+Test-codex-adapter §71 (added v6.9) static-asserts that `verify-apd` Section 8 contains:
+
+- `.brainstorm-marker` pre-write for both `APD-VERIFY-TEST` + `APD-VERIFY-OPT-OUT`
+- `implementation-plan.md` with `**Implements:** R1` for both synthetic tasks
+- Synthetic `.adversarial-rationale.md` matching adversarial summary
+
+If any new gate is added to `pipeline-advance` (or to verifiers), §71 must be extended with corresponding fixture-presence assertion. Failure to update §71 means the next gate-affecting change has the same blind-spot that produced #10 + #11.
+
+### 24.3 Deprecation policy
+
+For feature deprecation (e.g. v6.9 `max_defects` field):
+
+1. **v6.9 (introduce deprecation):** field continues to function, emit deprecation WARN to stderr on every use, log `INFO|...|<feature>-deprecated|...` entry to `guard-audit.log` for audit/telemetry. Update CHANGELOG migration guide + workflow.md + skills + AGENTS.md to flag DEPRECATED.
+2. **v6.10–v6.X (transition window):** no behavior change. Telemetry from INFO entries informs whether projects are migrating. Skill content stays updated.
+3. **v7.0 (full removal):** remove parser/gate, document in BREAKING CHANGES section of CHANGELOG. Test-codex-adapter §71-style assertions for removed feature deleted, not flipped.
+
+This pattern follows semver intent: minor for soft deprecation, major for breaking removal. Two-version graceful window minimum.

@@ -146,9 +146,10 @@ substantial enough that the adversarial gate stays on regardless — the
    must be on its own line in the `Acceptance criteria` section as
    `- R1: <short>`, `- R2: ...`. Maximum 7 `R*:` items per task — decompose
    larger work into multiple pipeline cycles.
-   **DO NOT write `adversarial: max_defects=0`** unless ti REALLY znas budget
-   unapred — default is omit field (= unlimited). Rationale gate (v6.7)
-   structurally protects without forced accept-everything cascade.
+   **DO NOT write `adversarial: max_defects=...`** — field is DEPRECATED as
+   of v6.9, will be removed in v7.0. Continues to function in v6.9 (verifier
+   gate + immutability check) but emits a deprecation warn on every spec
+   advance. Rationale gate (v6.7) structurally covers the misuse pattern.
 2. **Advance the spec gate:** `apd_advance_pipeline("spec", "<task-name>")`.
 3. **Write the implementation plan** at
    `.apd/pipeline/implementation-plan.md` — a bulleted list of files you

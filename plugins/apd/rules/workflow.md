@@ -82,15 +82,19 @@
      with one `## Finding N` block per adversarial finding? If not, go back to
      step 6 — verifier will BLOCK otherwise (v7.1).
    → bash .claude/bin/apd pipeline verifier
-   → SEVERITY GATE (v6.1 B2, optional): blocks when adversarial dismissed-defect
-     count (D in ADVERSARIAL:T:A:D) exceeds spec-card.md `adversarial: max_defects=N`.
-     **Default = unlimited (no field).** Polje je opcioni power-user override za
-     polish-mode tasks gde stvarno znas budget unapred (v6.8.1+). Za standardne
-     task-ove ne pisi polje — rationale gate (v6.7) hvata 100%-orchestrator-dismiss
-     misuse pattern strukturalno (per-finding rationale ≥40 chars), bez preflight
-     budget cap-a koji prisiljava orchestrator-a da front-load-uje anticipated
-     fixeve u prvi plan (anti-pattern: empirical evidence iz Test 33-min run-a
-     2026-05-22 — `max_defects=0` triggered cascade od 3 guard block-a + 2 reset-a).
+   → SEVERITY GATE (v6.1 B2) — **DEPRECATED as of v6.9, will be removed in v7.0.**
+     Blocks when adversarial dismissed-defect count (D in ADVERSARIAL:T:A:D)
+     exceeds spec-card.md `adversarial: max_defects=N`. **Default = unlimited
+     (no field).** Field continues to function in v6.9 for graceful transition
+     (verifier gate + immutability check both active), but emits a deprecation
+     warn + INFO entry to guard-audit.log on every spec advance.
+     **DO NOT write `adversarial: max_defects=...` in new specs.** Rationale gate
+     (v6.7) structurally covers misuse pattern (per-finding rationale ≥40 chars
+     + 100%-Do hard-block + bulk-accept rationale validation). Empirical evidence
+     (Test 33-min run 2026-05-22): `max_defects=0` triggered cascade od 3 guard
+     block-a + 2 reset-a. v6.8 chain validated rationale gate as sufficient
+     standalone enforcement — max_defects became redundant. v7.0 will remove
+     the field parser entirely.
    → RATIONALE GATE (v6.7): blocks on missing/malformed .adversarial-rationale.md,
      status/A/D drift between summary and rationale, and the 100%-orchestrator
      dismissal pattern. Soft warns on rationale text <40 chars or lazy patterns

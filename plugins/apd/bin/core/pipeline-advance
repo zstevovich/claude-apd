@@ -318,7 +318,33 @@ case "$STEP" in
             | tr '[:upper:]' '[:lower:]' \
             | awk '{print $1}' \
             | head -1)
+        # v6.9 — track whether field was explicitly present (before default fill)
+        MAX_DEFECTS_PRESENT=false
+        [ -n "$CURRENT_MAX" ] && MAX_DEFECTS_PRESENT=true
         [ -z "$CURRENT_MAX" ] && CURRENT_MAX="unlimited"
+
+        # v6.9 — soft deprecation warn for explicit max_defects field.
+        # Will be removed in v7.0. Verifier gate (v6.1 B2) + immutability check
+        # (v6.3 D) STILL ACTIVE in v6.9 — graceful transition window. Rationale
+        # gate (v6.7) structurally covers the misuse pattern that max_defects
+        # was meant to prevent (per-finding rationale ≥40 chars dismissed,
+        # 100%-Do hard-block, bulk-accept rationale validation).
+        if [ "$MAX_DEFECTS_PRESENT" = true ]; then
+            echo "" >&2
+            echo "WARN: 'adversarial: max_defects=$CURRENT_MAX' is DEPRECATED as of v6.9." >&2
+            echo "  Will be removed in v7.0. Field continues to function in v6.9 for" >&2
+            echo "  graceful transition: verifier gate + immutability check both active." >&2
+            echo "" >&2
+            echo "  Why deprecated: rationale gate (v6.7) structurally covers misuse." >&2
+            echo "  Migration: omit 'adversarial: max_defects=...' from spec-card.md." >&2
+            echo "  Default (= unlimited) + rationale gate is the v7.0 baseline." >&2
+            echo "" >&2
+            if [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ]; then
+                _ts=$(date +"%Y-%m-%d %H:%M:%S")
+                echo "${_ts}|INFO|orchestrator|max-defects-deprecated|task=$ARG value=$CURRENT_MAX" >> "$MEMORY_DIR/guard-audit.log"
+            fi
+        fi
+
         if [ -f "$SNAPSHOT_FILE" ]; then
             PREV_TASK=$(cut -d'|' -f1 "$SNAPSHOT_FILE" 2>/dev/null)
             PREV_MAX=$(cut -d'|' -f2 "$SNAPSHOT_FILE" 2>/dev/null)

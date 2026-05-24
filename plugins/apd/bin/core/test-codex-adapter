@@ -6191,12 +6191,13 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static I: Codex AGENTS.md spec-card step warns against max_defects=0
-if grep -qE 'DO NOT write .adversarial: max_defects=0' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
-    pass "Codex AGENTS.md spec-card step warns against max_defects=0"
+# Static I: Codex AGENTS.md spec-card step warns against max_defects field
+# (v6.9 generalized warning from `=0` specific to whole-field deprecation)
+if grep -qE 'DO NOT write .adversarial: max_defects' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
+    pass "Codex AGENTS.md spec-card step warns against max_defects field"
     PASSES=$((PASSES + 1))
 else
-    fail "Codex AGENTS.md spec-card step missing max_defects=0 warning"
+    fail "Codex AGENTS.md spec-card step missing max_defects warning"
     FAILS=$((FAILS + 1))
 fi
 
@@ -6943,6 +6944,211 @@ else
 fi
 
 rm -rf "$V6811_SCRATCH"
+
+# -----------------------------------------------------------
+# 71. v6.9 — max_defects soft deprecation + verify-apd Section 8 lock-in
+#     Two-part section:
+#     (a) max_defects field deprecation — emits warn + INFO entry to
+#         guard-audit.log on every spec advance where field is present.
+#         Field continues to function (verifier gate + immutability check
+#         active) for graceful transition. v7.0 will remove parser entirely.
+#     (b) verify-apd Section 8 fixtures lock-in — closes #10/#11 blind-spot
+#         where new guards added to pipeline-advance broke `apd verify`
+#         E2E test because synthetic fixtures lacked required content.
+#         Static asserts that pre-marker + pre-plan writes are present.
+# -----------------------------------------------------------
+section "71. v6.9 max_defects deprecation + verify-apd lock-in"
+
+# Static A: pipeline-advance has v6.9 deprecation comment marker
+if grep -qE 'v6\.9.*soft deprecation|DEPRECATED as of v6\.9' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance carries v6.9 deprecation marker"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing v6.9 deprecation marker"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: pipeline-advance tracks MAX_DEFECTS_PRESENT explicitly
+if grep -qE 'MAX_DEFECTS_PRESENT=' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance tracks MAX_DEFECTS_PRESENT for deprecation detection"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing MAX_DEFECTS_PRESENT explicit-presence flag"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: pipeline-advance logs INFO entry for deprecated usage
+if grep -qE 'max-defects-deprecated' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance logs INFO|max-defects-deprecated to guard-audit"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing max-defects-deprecated INFO log"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: workflow.md flags max_defects as DEPRECATED
+if grep -qE 'DEPRECATED as of v6\.9|max_defects.*DEPRECATED' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
+    pass "workflow.md flags max_defects as DEPRECATED v6.9"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md missing max_defects DEPRECATED v6.9 wording"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: CC SKILL.md flags max_defects as DEPRECATED
+if grep -qE 'max_defects.*DEPRECATED|DEPRECATED.*v6\.9.*v7\.0' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "CC apd-brainstorm SKILL.md flags max_defects as DEPRECATED v6.9"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-brainstorm SKILL.md missing max_defects DEPRECATED wording"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static F: Codex SKILL.md mirror flags DEPRECATED
+if grep -qE 'max_defects.*DEPRECATED|DEPRECATED.*v6\.9.*v7\.0' "$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "Codex apd-brainstorm SKILL.md flags max_defects as DEPRECATED v6.9"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex apd-brainstorm SKILL.md missing max_defects DEPRECATED wording"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static G: AGENTS.md template flags DEPRECATED
+if grep -qE 'DEPRECATED as of v6\.9|max_defects.*DEPRECATED' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
+    pass "Codex AGENTS.md template flags max_defects as DEPRECATED v6.9"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex AGENTS.md template missing max_defects DEPRECATED wording"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup for max_defects deprecation behavioural tests
+V69_SCRATCH="$(mktemp -d -t apd-v69.XXXXXX)"
+mkdir -p "$V69_SCRATCH/.apd/pipeline" "$V69_SCRATCH/.codex" "$V69_SCRATCH/.apd/memory"
+touch "$V69_SCRATCH/.apd/config"
+
+advance_spec_v69() {
+    cd "$V69_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" "$@" 2>&1
+    _rc=$?
+    cd - >/dev/null
+    echo "EXIT=$_rc"
+}
+
+# Live H: spec WITH max_defects field → deprecation warn emitted
+cat > "$V69_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
+## Test deprecation
+**Acceptance criteria:**
+- R1: only
+adversarial: max_defects=5
+EOF
+_v6811_marker "$V69_SCRATCH" "Test deprecation"
+DEPR_OUT="$(advance_spec_v69 spec "Test deprecation")"
+if echo "$DEPR_OUT" | grep -q "EXIT=0" && echo "$DEPR_OUT" | grep -qE "DEPRECATED as of v6\.9"; then
+    pass "spec advance: max_defects field → deprecation warn emitted"
+    PASSES=$((PASSES + 1))
+else
+    fail "max_defects deprecation warn missing: $DEPR_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live I: deprecation INFO entry written to guard-audit.log
+if grep -qE 'INFO\|orchestrator\|max-defects-deprecated\|task=Test deprecation value=5' "$V69_SCRATCH/.apd/memory/guard-audit.log"; then
+    pass "guard-audit.log has INFO|max-defects-deprecated entry with value"
+    PASSES=$((PASSES + 1))
+else
+    fail "guard-audit.log missing max-defects-deprecated INFO entry"
+    FAILS=$((FAILS + 1))
+fi
+
+# Reset for next test
+cd "$V69_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
+cd - >/dev/null
+
+# Live J: spec WITHOUT max_defects field → NO deprecation warn, NO INFO entry
+cat > "$V69_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
+## Test clean
+**Acceptance criteria:**
+- R1: only
+EOF
+_v6811_marker "$V69_SCRATCH" "Test clean"
+CLEAN_OUT="$(advance_spec_v69 spec "Test clean")"
+if echo "$CLEAN_OUT" | grep -q "EXIT=0" && ! echo "$CLEAN_OUT" | grep -qE "DEPRECATED"; then
+    pass "spec advance: no max_defects field → no deprecation warn"
+    PASSES=$((PASSES + 1))
+else
+    fail "spec without max_defects unexpectedly emitted deprecation warn: $CLEAN_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live K: verifier gate STILL ACTIVE in v6.9 (graceful transition — not v7.0 removal yet)
+# Field present + ADV_D > max_defects must still BLOCK at verifier.
+# Reset, set up state with max_defects=2, ADV_D=3.
+cd "$V69_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
+cd - >/dev/null
+cat > "$V69_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
+## Test gate-still-active
+plan_consistency_gate: off
+**Acceptance criteria:**
+- R1: only
+adversarial: max_defects=2
+EOF
+_v6811_marker "$V69_SCRATCH" "Test gate-still-active"
+advance_spec_v69 spec "Test gate-still-active" >/dev/null 2>&1
+# Verifier gate uses ADV_D from .adversarial-summary; if > max_defects → BLOCK.
+# This live test confirms graceful-transition: deprecation warn + gate active.
+# (Full verifier setup requires builder/reviewer/adversarial — skip full chain,
+# assert max_defects parsing branch in verifier source instead.)
+if grep -qE 'MAX_DEFECTS_RAW.*-gt.*ADV_D|"\$ADV_D" -gt "\$MAX_DEFECTS_RAW"' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "verifier gate STILL ACTIVE in v6.9 (graceful transition — not removed yet)"
+    PASSES=$((PASSES + 1))
+else
+    fail "verifier gate appears prematurely removed (should stay until v7.0)"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$V69_SCRATCH"
+
+# verify-apd Section 8 lock-in — static asserts that gate-related fixtures
+# exist. Closes blind-spot from #10/#11 where new guard caused E2E cascade.
+
+VERIFY_APD="$APD_PLUGIN_ROOT/bin/core/verify-apd"
+
+# Static L: verify-apd pre-writes .brainstorm-marker for APD-VERIFY-TEST (issue #10 fix)
+if grep -qE '\.brainstorm-marker.*APD-VERIFY-TEST|APD-VERIFY-TEST.*brainstorm-marker' "$VERIFY_APD"; then
+    pass "verify-apd Section 8 pre-writes .brainstorm-marker for APD-VERIFY-TEST"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-apd missing .brainstorm-marker pre-write for APD-VERIFY-TEST (regression of #10 fix)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static M: verify-apd pre-writes .brainstorm-marker for APD-VERIFY-OPT-OUT (issue #10 fix)
+if grep -qE 'APD-VERIFY-OPT-OUT.*brainstorm-marker|\.brainstorm-marker.*APD-VERIFY-OPT-OUT' "$VERIFY_APD"; then
+    pass "verify-apd Section 8 pre-writes .brainstorm-marker for APD-VERIFY-OPT-OUT"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-apd missing .brainstorm-marker pre-write for APD-VERIFY-OPT-OUT (regression of #10 fix)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static N: verify-apd writes valid implementation-plan.md with **Implements:** R1 (issue #11 fix)
+# (single grep covers both PLAN_EOF + PLAN_OPT_EOF heredocs)
+if grep -cE '\*\*Implements:\*\* R1' "$VERIFY_APD" | awk '$1 >= 2 {exit 0} {exit 1}'; then
+    pass "verify-apd Section 8 writes valid plan with **Implements:** R1 (both synthetic tasks)"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-apd missing valid plan with **Implements:** R1 (regression of #11 fix)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static O: verify-apd writes synthetic .adversarial-rationale.md (v6.7 rationale gate fixture)
+if grep -qE 'RATIONALE_EOF|adversarial-rationale\.md' "$VERIFY_APD"; then
+    pass "verify-apd Section 8 writes synthetic .adversarial-rationale.md fixture"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-apd missing .adversarial-rationale.md fixture (rationale gate would BLOCK Section 8)"
+    FAILS=$((FAILS + 1))
+fi
 
 # -----------------------------------------------------------
 # Summary

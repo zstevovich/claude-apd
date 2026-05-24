@@ -74,15 +74,16 @@ spec-card.md. A vague spec produces vague code.
    APD config clarity>'` to the tool call. Empty reason → BLOCK. Skip event
    loguje INFO entry u guard-audit.log za audit trail.
 
-**Adversarial budget recommendation** (writes an `adversarial: max_defects=N` line into spec-card.md, enforced at verifier step):
+**Adversarial budget — `max_defects` field is DEPRECATED as of v6.9.**
 
-| R-criterion count | Recommended | Why |
-|---|---|---|
-| 1–7 R (default — almost all tasks) | **omit field** (= unlimited) | v6.7 rationale gate structurally catches misuse (per-finding rationale ≥40 chars + 100%-orchestrator-dismiss BLOCK). No preflight budget cap needed. |
-| polish-mode (1–2 R hotfix) | `pipeline_mode: polish` | Lean preset — lower cycle caps + skip adversarial entirely. |
-| Power-user explicit budget | `max_defects=N` | ONLY when ti REALLY znas budget unapred — rare. `=0` forces accept-everything which cascades into N-finding builder fix dispatches and possible cycle-cap exhaust. |
+Will be removed in v7.0. **DO NOT write `adversarial: max_defects=...` in new specs.** Field continues to function in v6.9 for graceful transition (verifier gate + immutability check both active), but emits a deprecation warn on every spec advance. Rationale gate (v6.7) structurally covers the misuse pattern that max_defects was meant to prevent (per-finding rationale ≥40 chars dismissed + 100%-orchestrator-dismiss hard-block).
 
-**DO NOT write `max_defects=0` for standard tasks.** Empirical evidence iz v6.8 dev cycle (2026-05-22): tasks sa `max_defects=0` trajali 26-33 min sa 3 guard BLOCK-a; identicniji task BEZ polja trajao 13 min clean. Default = omit field.
+| Task profile | Recommended |
+|---|---|
+| Standard task (1–7 R, almost all) | **omit `max_defects` field** — default = unlimited |
+| polish-mode (1–2 R hotfix) | `pipeline_mode: polish` — lower cycle caps + skip adversarial entirely |
+
+Empirical evidence (v6.8 dev cycle, 2026-05-22): tasks sa `max_defects=0` trajali 26-33 min sa 3 guard BLOCK-a; identicni task BEZ polja trajao 13 min clean. v6.8 chain (10 patches) validated rationale gate as sufficient standalone enforcement.
 
 ## Downstream gates the spec triggers
 
@@ -97,7 +98,7 @@ After spec advance, orchestrator MUST write these files. Brainstorm should menta
 | BLOCK reason | Quick fix |
 |---|---|
 | `plan-spec-consistency` | Add **Implements:** headers per section; re-run builder advance |
-| `max_defects-exceeded` | Either accept findings, OR reset + remove field from spec-card |
+| `max_defects-exceeded` (v6.9 DEPRECATED) | Reset + remove `max_defects` field — gate goes away in v7.0 |
 | `rationale-missing` | Write `.adversarial-rationale.md` with T entries; re-run verifier |
 | `rationale-100pct-orch-dismiss` | Accept at least 1 finding OR reclassify dismissed → reviewer-self-dismissed |
 | `max_builder_cycles-exceeded` | Decompose into 2+ tasks OR raise cap via spec-card `builder: max_cycles=N` |
