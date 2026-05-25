@@ -1,5 +1,53 @@
 # Changelog
 
+## v6.12.0 — 2026-05-26
+
+Treci minor u v6.10-v7.0 setup+audit chain-u — **stack-aware template scaffolding**. .NET prvi target stack (BambiProject reference). Realizacija "knowledge encoding system" pillar-a: orchestrator pri `apd-setup` invokeu dobija stack-specific agente + skills automatski, umesto 50-100h manuelne customizacije.
+
+**Highlights:**
+
+- **feat(templates/stack/dotnet/):** novi direktorijum sa template-ima:
+  - **Agents (3):** `backend-api.md.tmpl`, `database.md.tmpl`, `test-guardian.md.tmpl` sa `{{SCOPE_BACKEND}}` / `{{SCOPE_INFRA}}` / `{{SCOPE_DOMAIN}}` / `{{SCOPE_TESTS}}` placeholder-ima
+  - **Skills (2):** `dotnet-conventions.md` (generic Result pattern, DDD aggregates, thin endpoints, EF Core defaults, FluentValidation pitfalls, customization checklist) + `ef-core-migrations.md` (naming, idempotency, down() requirement, two-chain testing, production deploy discipline, concurrency tokens)
+- **feat(pipeline-stack-scaffold):** nova bash skripta — copy templates u `.claude/{agents,skills}/` sa placeholder substitution. Additive default (skip-if-exists). Flags: `--list-stacks`, `--dry-run`, `--force` (overwrite + `.bak.preaudit` backup, BambiProject pattern).
+- **feat(apd dispatcher):** `apd scaffold` / `apd sc` sub-command. Help text updated.
+- **fix(skills/apd-setup/SKILL.md):** novi Section 5b "Stack-aware scaffolding (v6.12+)" — orchestrator invokuje `pipeline-stack-detect` prvo, prikaze rezultate, per-stack pita user-a YES/NO, run `pipeline-stack-scaffold <stack> --dry-run` pa actual scaffold. Multi-stack opt-in handling.
+- **docs(SPEC.md):** `apd scaffold` entry u CLI subcommand tabeli.
+- **test(test-codex-adapter §74) +22 assertions:** 12 static (script + .NET template dir + 3 agents + 2 skills + placeholder usage + skill reference + flags + dispatcher + apd-setup skill) + 7 live (--list-stacks, scaffold empty project, placeholder substitution, re-run skip, --force overwrite, .bak.preaudit creation, unknown stack error).
+- **Test count 588 → 610 PASS / 0 FAIL.**
+
+**Generic vs project-specific extraction:**
+
+Templates su **generic .NET clean-architecture patterns** — NE PLAZMA-specific (Wolverine, i18n key formats, JWT role conventions). To su per-project customizations koje user dodaje posle scaffolding-a. dotnet-conventions skill ima eksplicit **"Customization Checklist"** section koja vodi user-a kroz post-scaffold polish.
+
+**Multi-stack support:**
+
+`pipeline-stack-detect` (v6.11) detektuje sve stack-ove u monorepo. apd-setup pita per-stack. Multi-stack projekti kao BambiProject (.NET + Node/Vite + KMP/Compose) ce dobiti scaffold po stack-u — user moze opt-out svakog pojedinacno.
+
+**Additive policy + drift detection synergy:**
+
+- Novi fajl → kreira iz template-a
+- Postojeci fajl matching baseline → skipped (no churn)
+- Postojeci fajl stale per template → drift detection (v6.10) flaguje odvojeno; user odlucuje da li `--force` upgrade sa backup-om
+
+To kombinuje sigurnost (no destructive surprise) sa upgrade path-om (drift visible, manual decision).
+
+**v6.10-v7.0 chain progress:**
+
+| Verzija | Sadrzaj | Status |
+|---|---|---|
+| v6.10.0 | apd-audit drift detection + apd-init python merge fix | SHIPPED |
+| v6.11.0 | Read-only stack detection mehanizam | SHIPPED |
+| **v6.12.0** | **Stack-aware template scaffolding (.NET prvi)** | **SHIPPED 2026-05-26** |
+| v6.13 | Drugi stack (Node/React ili PHP/Symfony — TBD posle live test) | Backlog |
+| v7.0 | max_defects parser removal + finalizacija | Backlog |
+
+**Backlog open:**
+
+- v6.12 live test u BambiProject — `apd scaffold dotnet --dry-run` da vidimo sta bi se desilo (Bambi vec ima custom agente), pa `--force` da uporedjuje generated vs existing
+- Live test u Festico — moze li `apd scaffold` ostaviti existing PHP/Symfony agente i samo skip-ovati ih (Festico nema .NET, niko ne treba scaffold)
+- v6.13 sledeci stack — kandidati Node/React (Festico Next + Bambi Vite ref) ili KMP/Compose (Bambi mobile ref). User-decision posle v6.12 evaluation.
+
 ## v6.11.0 — 2026-05-26
 
 Drugi minor u v6.10-v7.0 setup+audit chain-u — **read-only stack detection mehanizam**. Foundation za v6.12 stack-aware template scaffolding (.NET prvi target, BambiProject reference).

@@ -44,6 +44,7 @@ Top-level dispatcher routes by 1st arg. Resolves project root via `bin/lib/resol
 | `report` / `rp` | `bin/core/pipeline-report` | Render formatted summary |
 | `audit-drift` (v6.10) | `bin/core/pipeline-audit-drift` | Drift detection across 3 dimensions (settings.json deny patterns, .apd-config APD_VERSION, workflow.md content markers). Invoked from `/apd-audit` skill Section 8. Exit 1 on IMPORTANT/CRITICAL findings, 0 on INFO-only/CLEAN. |
 | `stack` / `st` (v6.11) | `bin/core/pipeline-stack-detect` | Read-only stack detection across 7+ categories (.NET, PHP/Symfony, Node Next/Vite/React, KMP/Compose, Android, Python Django/FastAPI). Multi-stack monorepos supported. Flags: `--json` (machine output), `--strict` (exit 1 if zero stacks). Foundation for v6.12 stack-aware template scaffolding. |
+| `scaffold` / `sc` (v6.12) | `bin/core/pipeline-stack-scaffold` | Stack-aware template scaffolding — copies `templates/stack/<stack>/{agents,skills}/` into project `.claude/{agents,skills}/` with placeholder substitution. Additive default (skip existing); `--force` overwrites with `.bak.preaudit` backup. Flags: `--list-stacks`, `--dry-run`, `--force`. Supported stacks v6.12: `dotnet`. Roadmap: `node-react`, `php-symfony`, `kmp-compose`, `python-django` (v6.13+). |
 | `gh` / `github` | `bin/core/gh-sync` | GitHub Issues sync (best-effort, never blocks) |
 | `test` | `bin/core/test-hooks` | Static hook check |
 | `test-system` | `bin/core/test-system` | E2E synthetic pipeline smoke |

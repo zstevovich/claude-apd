@@ -1,0 +1,241 @@
+#!/bin/bash
+# APD Stack Scaffold — copies stack-specific agents + skills into a project.
+#
+# Reads templates from `plugins/apd/templates/stack/<stack>/{agents,skills}/`
+# and copies them into `.claude/{agents,skills}/`. Performs placeholder
+# substitution (e.g. {{SCOPE_BACKEND}} → "src/ tests/").
+#
+# Additive by default — files that already exist in .claude/ are SKIPPED
+# (not overwritten). Use --force to overwrite with .bak.preaudit backup.
+#
+# Usage:
+#   pipeline-stack-scaffold <stack>              additive copy (skip existing)
+#   pipeline-stack-scaffold <stack> --force      overwrite with backup
+#   pipeline-stack-scaffold <stack> --dry-run    show what would be copied
+#   pipeline-stack-scaffold --list-stacks        show supported stacks
+#
+# Supported stacks (v6.12+): dotnet
+# Roadmap: node-react, php-symfony, kmp-compose, python-django (v6.13+)
+#
+# Exit code: 0 success / skip-no-op, 1 unknown stack, 2 write error.
+
+set -u
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+
+TEMPLATES_DIR="$APD_PLUGIN_ROOT/templates/stack"
+
+# --- Arg parsing ---
+STACK=""
+FORCE=false
+DRY_RUN=false
+LIST_STACKS=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --force) FORCE=true ;;
+        --dry-run) DRY_RUN=true ;;
+        --list-stacks) LIST_STACKS=true ;;
+        --help|-h)
+            sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *)
+            if [ -z "$STACK" ]; then
+                STACK="$arg"
+            fi
+            ;;
+    esac
+done
+
+# --- --list-stacks: enumerate available templates ---
+if [ "$LIST_STACKS" = true ]; then
+    echo ""
+    echo "${B}Available stack scaffolding templates:${R}"
+    echo ""
+    if [ -d "$TEMPLATES_DIR" ]; then
+        for stack_dir in "$TEMPLATES_DIR"/*/; do
+            [ -d "$stack_dir" ] || continue
+            stack_name=$(basename "$stack_dir")
+            agent_count=$(find "$stack_dir/agents" -name "*.md.tmpl" 2>/dev/null | wc -l | tr -d ' ')
+            skill_count=$(find "$stack_dir/skills" -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+            echo "  ${G}$stack_name${R} — $agent_count agents + $skill_count skills"
+        done
+    else
+        echo "  ${Y}(no stack templates found)${R}"
+    fi
+    echo ""
+    exit 0
+fi
+
+# --- Validate stack arg ---
+if [ -z "$STACK" ]; then
+    echo "ERROR: stack argument required. Use --list-stacks to see options." >&2
+    exit 1
+fi
+
+STACK_DIR="$TEMPLATES_DIR/$STACK"
+if [ ! -d "$STACK_DIR" ]; then
+    echo "ERROR: unknown stack '$STACK'. Available:" >&2
+    if [ -d "$TEMPLATES_DIR" ]; then
+        for d in "$TEMPLATES_DIR"/*/; do
+            [ -d "$d" ] && echo "  - $(basename "$d")" >&2
+        done
+    fi
+    exit 1
+fi
+
+# --- Framework self-detection short-circuit ---
+if [ "${APD_FRAMEWORK_SELF:-false}" = "true" ]; then
+    echo "Stack scaffolding skipped (framework source repo)."
+    exit 0
+fi
+
+# --- Scope placeholder defaults (per-stack) ---
+# These can be overridden via env vars (APD_SCOPE_BACKEND, etc.) before invoke.
+case "$STACK" in
+    dotnet)
+        SCOPE_BACKEND="${APD_SCOPE_BACKEND:-src/ tests/}"
+        SCOPE_INFRA="${APD_SCOPE_INFRA:-src/}"
+        SCOPE_DOMAIN="${APD_SCOPE_DOMAIN:-src/}"
+        SCOPE_TESTS="${APD_SCOPE_TESTS:-tests/}"
+        ;;
+    *)
+        SCOPE_BACKEND="src/ tests/"
+        SCOPE_INFRA="src/"
+        SCOPE_DOMAIN="src/"
+        SCOPE_TESTS="tests/"
+        ;;
+esac
+
+CLAUDE_DIR="$PROJECT_DIR/.claude"
+AGENTS_DIR="$CLAUDE_DIR/agents"
+SKILLS_DIR="$CLAUDE_DIR/skills"
+
+# --- Process file with placeholder substitution ---
+_substitute() {
+    local src="$1"
+    sed \
+        -e "s|{{SCOPE_BACKEND}}|$SCOPE_BACKEND|g" \
+        -e "s|{{SCOPE_INFRA}}|$SCOPE_INFRA|g" \
+        -e "s|{{SCOPE_DOMAIN}}|$SCOPE_DOMAIN|g" \
+        -e "s|{{SCOPE_TESTS}}|$SCOPE_TESTS|g" \
+        "$src"
+}
+
+# --- Copy with skip-if-exists semantics ---
+COPIED=0
+SKIPPED=0
+OVERWROTE=0
+WOULD_COPY=()
+WOULD_SKIP=()
+
+_process_file() {
+    local src="$1" dst="$2" basename="$3"
+
+    if [ -f "$dst" ] && [ "$FORCE" = false ]; then
+        if [ "$DRY_RUN" = true ]; then
+            WOULD_SKIP+=("$basename → exists, skip (use --force to overwrite)")
+        else
+            echo "  ${D}skip${R} $basename (exists; use --force to overwrite)"
+            SKIPPED=$((SKIPPED + 1))
+        fi
+        return
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+        if [ -f "$dst" ]; then
+            WOULD_COPY+=("$basename → OVERWRITE (with .bak.preaudit backup)")
+        else
+            WOULD_COPY+=("$basename → create")
+        fi
+        return
+    fi
+
+    # Backup if overwriting
+    if [ -f "$dst" ] && [ "$FORCE" = true ]; then
+        cp "$dst" "${dst}.bak.preaudit" || {
+            echo "ERROR: backup failed for $dst" >&2
+            exit 2
+        }
+        echo "  ${Y}overwrite${R} $basename (backup → ${basename}.bak.preaudit)"
+        OVERWROTE=$((OVERWROTE + 1))
+    else
+        echo "  ${G}create${R} $basename"
+        COPIED=$((COPIED + 1))
+    fi
+
+    _substitute "$src" > "$dst" || {
+        echo "ERROR: write failed for $dst" >&2
+        exit 2
+    }
+}
+
+# --- Banner ---
+echo ""
+echo "${B}APD Stack Scaffold${R} — stack: ${G}$STACK${R}"
+[ "$DRY_RUN" = true ] && echo "  ${D}(dry-run — no files written)${R}"
+[ "$FORCE" = true ] && echo "  ${Y}(--force mode — existing files will be backed up + overwritten)${R}"
+echo ""
+
+# --- Agents ---
+if [ -d "$STACK_DIR/agents" ]; then
+    echo "${B}Agents${R} (→ .claude/agents/):"
+    [ "$DRY_RUN" = false ] && mkdir -p "$AGENTS_DIR"
+    for tmpl in "$STACK_DIR/agents"/*.md.tmpl; do
+        [ -f "$tmpl" ] || continue
+        basename=$(basename "$tmpl" .md.tmpl)
+        dst="$AGENTS_DIR/${basename}.md"
+        _process_file "$tmpl" "$dst" "$basename.md"
+    done
+    echo ""
+fi
+
+# --- Skills ---
+if [ -d "$STACK_DIR/skills" ]; then
+    echo "${B}Skills${R} (→ .claude/skills/):"
+    [ "$DRY_RUN" = false ] && mkdir -p "$SKILLS_DIR"
+    for tmpl in "$STACK_DIR/skills"/*.md; do
+        [ -f "$tmpl" ] || continue
+        basename=$(basename "$tmpl" .md)
+        skill_dir="$SKILLS_DIR/$basename"
+        dst="$skill_dir/SKILL.md"
+        if [ "$DRY_RUN" = false ]; then
+            mkdir -p "$skill_dir"
+        fi
+        _process_file "$tmpl" "$dst" "$basename/SKILL.md"
+    done
+    echo ""
+fi
+
+# --- Dry-run summary ---
+if [ "$DRY_RUN" = true ]; then
+    echo "${B}Would copy:${R}"
+    if [ ${#WOULD_COPY[@]} -eq 0 ]; then
+        echo "  (none)"
+    else
+        for line in "${WOULD_COPY[@]}"; do
+            echo "  ${G}+${R} $line"
+        done
+    fi
+    echo ""
+    echo "${B}Would skip:${R}"
+    if [ ${#WOULD_SKIP[@]} -eq 0 ]; then
+        echo "  (none)"
+    else
+        for line in "${WOULD_SKIP[@]}"; do
+            echo "  ${D}-${R} $line"
+        done
+    fi
+    echo ""
+else
+    echo "${B}Summary:${R} ${G}$COPIED created${R}, ${Y}$OVERWROTE overwritten${R}, ${D}$SKIPPED skipped${R}"
+    echo ""
+    if [ "$OVERWROTE" -gt 0 ]; then
+        echo "  ${D}Backup files (*.bak.preaudit) created — delete after verifying generated content.${R}"
+        echo ""
+    fi
+fi
+
+exit 0

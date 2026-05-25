@@ -15,6 +15,7 @@
 #   report [--history [N]] Pipeline run report
 #   report maxturns        Telemetry: agent rapid re-dispatch (maxTurn exhaust proxy)
 #   stack [--json]    Detect supported stacks in repo (v6.11+)
+#   scaffold <stack>  Generate stack-specific agents + skills (v6.12+)
 #   audit-drift       Detect drift vs framework baseline (v6.10+)
 #   test              Quick static hook test
 #   toggle [on|off]   Toggle claude-apd plugin in CC settings (smart-detection)
@@ -54,6 +55,9 @@ case "$CMD" in
         ;;
     stack|st)
         exec bash "$CORE_DIR/pipeline-stack-detect" "$@"
+        ;;
+    scaffold|sc)
+        exec bash "$CORE_DIR/pipeline-stack-scaffold" "$@"
         ;;
     audit-drift|drift)
         exec bash "$CORE_DIR/pipeline-audit-drift" "$@"
@@ -179,6 +183,7 @@ case "$CMD" in
         echo "    gh <step>         GitHub sync"
         echo "    report            Pipeline run report (--history [N] for history)"
         echo "    stack             Detect supported stacks in repo (--json for machine output)"
+        echo "    scaffold <stack>  Generate stack-specific agents + skills (--list-stacks, --dry-run, --force)"
         echo "    audit-drift       Detect drift vs framework baseline (settings/version/workflow)"
         echo "    test              Quick static hook test"
         echo "    toggle [on|off]   Toggle claude-apd in CC settings (smart-detection)"

@@ -106,6 +106,44 @@ Generate each file from the per-role and per-template rules:
 
 The reviewer agent is mandatory — every project gets one with `opus / max / plan / orange / maxTurns: 80`.
 
+### 5b. Stack-aware scaffolding (v6.12+)
+
+After base agents + skills exist, detect project stacks and offer to generate stack-specific agents + skills. This produces Festico-level richness automatically instead of requiring 50-100h of manual customization.
+
+```bash
+# 1. Detect what stacks are in the repo
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-stack-detect
+```
+
+This lists detected stacks (e.g., `.NET high`, `PHP/Symfony high`, `KMP/Compose high`) with confidence + signal file locations. Multi-stack monorepos show every detected stack.
+
+For each detected stack with available templates (use `apd scaffold --list-stacks` to enumerate), ask the user:
+
+> "Detected `.NET` stack with high confidence (signals: src/PLAZMA.Loyalty.sln, ...).
+> Generate 3 .NET-specific agents (backend-api, database, test-guardian) + 2 skills (dotnet-conventions, ef-core-migrations)? **[Y/n]**"
+
+If user confirms:
+
+```bash
+# 2. Dry-run first (shows what would be created/skipped)
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-stack-scaffold dotnet --dry-run
+
+# 3. Actual scaffold (additive — skips existing files)
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-stack-scaffold dotnet
+```
+
+**Additive policy:** files that already exist in `.claude/agents/` or `.claude/skills/` are SKIPPED. Combined with v6.10 drift detection (which flags stale existing files), the user gets a safe upgrade path:
+
+1. New file → created from stack template
+2. Existing file matching baseline → kept (no churn)
+3. Existing file stale per template → drift detection flags separately, user decides whether to `pipeline-stack-scaffold dotnet --force` (with `.bak.preaudit` backup)
+
+**Multi-stack handling:** repeat per detected stack. User may opt out of any (e.g., already has custom backoffice agent — skip Node/React scaffolding for that project).
+
+**Scope path defaults** can be overridden via environment variables before invoke (e.g., `APD_SCOPE_BACKEND=src/MyApp/`) when project layout differs from defaults.
+
+**Supported stacks (v6.12+):** `dotnet`. Roadmap: `node-react`, `php-symfony`, `kmp-compose`, `python-django` (v6.13+).
+
 ### 6. Verify
 
 ```bash

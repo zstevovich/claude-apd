@@ -7575,6 +7575,180 @@ fi
 rm -rf "$V6_11_SCRATCH"
 
 # -----------------------------------------------------------
+# 74. v6.12 — pipeline-stack-scaffold (stack-aware template generation)
+#     Third minor in v6.10-v7.0 setup+audit chain. .NET first stack
+#     target. Generates 3 agents (backend-api, database, test-guardian)
+#     + 2 skills (dotnet-conventions, ef-core-migrations) from templates
+#     in plugins/apd/templates/stack/dotnet/. Additive default (skip if
+#     exists); --force overwrites with .bak.preaudit backup.
+# -----------------------------------------------------------
+section "74. v6.12 pipeline-stack-scaffold (.NET first stack)"
+
+SCAFFOLD_SCRIPT="$APD_PLUGIN_ROOT/bin/core/pipeline-stack-scaffold"
+DOTNET_TEMPLATES="$APD_PLUGIN_ROOT/templates/stack/dotnet"
+
+# Static A: scaffold script exists and is executable
+_check "pipeline-stack-scaffold exists and is executable" test -x "$SCAFFOLD_SCRIPT"
+
+# Static B: sources resolve-project.sh + style.sh
+if grep -qE 'source.*resolve-project\.sh' "$SCAFFOLD_SCRIPT" && grep -qE 'source.*style\.sh' "$SCAFFOLD_SCRIPT"; then
+    pass "pipeline-stack-scaffold sources required libs"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-stack-scaffold missing source for resolve-project.sh or style.sh"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: .NET stack template directory exists with agents + skills
+_check ".NET stack template dir exists" test -d "$DOTNET_TEMPLATES"
+_check ".NET agents template dir exists" test -d "$DOTNET_TEMPLATES/agents"
+_check ".NET skills template dir exists" test -d "$DOTNET_TEMPLATES/skills"
+
+# Static D: .NET agent templates (backend-api, database, test-guardian)
+_check ".NET backend-api agent template exists" test -f "$DOTNET_TEMPLATES/agents/backend-api.md.tmpl"
+_check ".NET database agent template exists" test -f "$DOTNET_TEMPLATES/agents/database.md.tmpl"
+_check ".NET test-guardian agent template exists" test -f "$DOTNET_TEMPLATES/agents/test-guardian.md.tmpl"
+
+# Static E: .NET skill templates (dotnet-conventions, ef-core-migrations)
+_check ".NET dotnet-conventions skill template exists" test -f "$DOTNET_TEMPLATES/skills/dotnet-conventions.md"
+_check ".NET ef-core-migrations skill template exists" test -f "$DOTNET_TEMPLATES/skills/ef-core-migrations.md"
+
+# Static F: agent templates use {{SCOPE_*}} placeholders
+if grep -qE '\{\{SCOPE_BACKEND\}\}' "$DOTNET_TEMPLATES/agents/backend-api.md.tmpl" \
+   && grep -qE '\{\{SCOPE_INFRA\}\}' "$DOTNET_TEMPLATES/agents/database.md.tmpl" \
+   && grep -qE '\{\{SCOPE_TESTS\}\}' "$DOTNET_TEMPLATES/agents/test-guardian.md.tmpl"; then
+    pass ".NET agent templates use {{SCOPE_*}} placeholders for scope path substitution"
+    PASSES=$((PASSES + 1))
+else
+    fail ".NET agent templates missing expected scope placeholders"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static G: agent templates reference dotnet-conventions skill
+if grep -qE 'dotnet-conventions' "$DOTNET_TEMPLATES/agents/backend-api.md.tmpl" \
+   && grep -qE 'dotnet-conventions' "$DOTNET_TEMPLATES/agents/database.md.tmpl"; then
+    pass ".NET agent templates load dotnet-conventions skill"
+    PASSES=$((PASSES + 1))
+else
+    fail ".NET agent templates missing dotnet-conventions skill reference"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static H: scaffold script supports --dry-run, --force, --list-stacks
+if grep -qE '\-\-dry-run' "$SCAFFOLD_SCRIPT" \
+   && grep -qE '\-\-force' "$SCAFFOLD_SCRIPT" \
+   && grep -qE '\-\-list-stacks' "$SCAFFOLD_SCRIPT"; then
+    pass "pipeline-stack-scaffold supports --dry-run, --force, --list-stacks flags"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-stack-scaffold missing one or more expected flags"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static I: apd dispatcher wires scaffold command
+APD_BIN="$APD_PLUGIN_ROOT/bin/apd"
+if grep -qE 'scaffold\|sc\)' "$APD_BIN" && grep -qE 'pipeline-stack-scaffold' "$APD_BIN"; then
+    pass "apd dispatcher wires 'apd scaffold' subcommand"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd dispatcher missing 'apd scaffold' subcommand"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static J: apd-setup SKILL.md has stack-aware scaffolding section (5b)
+if grep -qE 'Stack-aware scaffolding|pipeline-stack-scaffold' "$REPO_ROOT/skills/apd-setup/SKILL.md"; then
+    pass "apd-setup SKILL.md has stack-aware scaffolding section (v6.12)"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-setup SKILL.md missing stack-aware scaffolding section"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup for behavioural tests
+V6_12_SCRATCH="$(mktemp -d -t apd-v6_12.XXXXXX)"
+mkdir -p "$V6_12_SCRATCH/.apd"
+touch "$V6_12_SCRATCH/.apd/config"
+
+run_scaffold_v6_12() {
+    APD_PROJECT_DIR="$V6_12_SCRATCH" bash "$SCAFFOLD_SCRIPT" "$@" 2>&1
+    _rc=$?
+    echo "EXIT=$_rc"
+}
+
+# Live K: --list-stacks shows dotnet
+LIST_OUT="$(run_scaffold_v6_12 --list-stacks)"
+if echo "$LIST_OUT" | grep -qE "EXIT=0" && echo "$LIST_OUT" | grep -qE "dotnet" && echo "$LIST_OUT" | grep -qE "3 agents"; then
+    pass "--list-stacks enumerates dotnet template (3 agents + 2 skills)"
+    PASSES=$((PASSES + 1))
+else
+    fail "--list-stacks missing dotnet enumeration: $LIST_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live L: scaffold dotnet on empty project → creates all 5 files (3 agents + 2 skills)
+SCAFFOLD_OUT="$(run_scaffold_v6_12 dotnet)"
+if echo "$SCAFFOLD_OUT" | grep -qE "EXIT=0" && echo "$SCAFFOLD_OUT" | grep -qE "5 created"; then
+    pass "scaffold dotnet on empty project → 5 files created"
+    PASSES=$((PASSES + 1))
+else
+    fail "dotnet scaffold should create 5 files: $SCAFFOLD_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live M: generated agents have placeholder substitution applied
+if [ -f "$V6_12_SCRATCH/.claude/agents/backend-api.md" ] \
+   && grep -qE 'guard-scope src/ tests/' "$V6_12_SCRATCH/.claude/agents/backend-api.md" \
+   && ! grep -qE '\{\{SCOPE_' "$V6_12_SCRATCH/.claude/agents/backend-api.md"; then
+    pass "generated agents have {{SCOPE_*}} placeholders substituted"
+    PASSES=$((PASSES + 1))
+else
+    fail "generated agents missing scope substitution or have unsubstituted placeholders"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live N: re-run on same project → all 5 files skipped (additive default)
+RERUN_OUT="$(run_scaffold_v6_12 dotnet)"
+if echo "$RERUN_OUT" | grep -qE "EXIT=0" && echo "$RERUN_OUT" | grep -qE "5 skipped"; then
+    pass "re-run on existing project → 5 files skipped (additive default)"
+    PASSES=$((PASSES + 1))
+else
+    fail "re-run should skip existing files: $RERUN_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live O: --force re-run → all 5 files overwritten with .bak.preaudit backup
+FORCE_OUT="$(run_scaffold_v6_12 dotnet --force)"
+if echo "$FORCE_OUT" | grep -qE "EXIT=0" && echo "$FORCE_OUT" | grep -qE "5 overwritten"; then
+    pass "--force re-run → 5 files overwritten with backup"
+    PASSES=$((PASSES + 1))
+else
+    fail "--force should overwrite all 5 files: $FORCE_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live P: .bak.preaudit files exist after --force
+if [ -f "$V6_12_SCRATCH/.claude/agents/backend-api.md.bak.preaudit" ] \
+   && [ -f "$V6_12_SCRATCH/.claude/skills/dotnet-conventions/SKILL.md.bak.preaudit" ]; then
+    pass "--force creates .bak.preaudit backup files for both agents and skills"
+    PASSES=$((PASSES + 1))
+else
+    fail "--force missing .bak.preaudit backups"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live Q: unknown stack arg → exit 1
+UNKNOWN_OUT="$(run_scaffold_v6_12 unknown-stack-xyz)"
+if echo "$UNKNOWN_OUT" | grep -qE "EXIT=1" && echo "$UNKNOWN_OUT" | grep -qE "unknown stack"; then
+    pass "unknown stack arg → exit 1 with error message"
+    PASSES=$((PASSES + 1))
+else
+    fail "unknown stack should exit 1: $UNKNOWN_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$V6_12_SCRATCH"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
