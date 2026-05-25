@@ -7393,6 +7393,188 @@ fi
 rm -rf "$V6_10_SCRATCH"
 
 # -----------------------------------------------------------
+# 73. v6.11 — pipeline-stack-detect (read-only stack detection)
+#     Second minor in v6.10-v7.0 setup+audit chain. Detects up to 7 stack
+#     categories (.NET, PHP/Symfony, Node Next/Vite/React, KMP/Compose,
+#     Android, Python Django/FastAPI) from repo filesystem signals.
+#     Multi-stack monorepos (Bambi has 3 stacks) supported. Foundation
+#     for v6.12 stack-aware template scaffolding.
+# -----------------------------------------------------------
+section "73. v6.11 pipeline-stack-detect"
+
+STACK_SCRIPT="$APD_PLUGIN_ROOT/bin/core/pipeline-stack-detect"
+
+# Static A: script exists and is executable
+_check "pipeline-stack-detect exists and is executable" test -x "$STACK_SCRIPT"
+
+# Static B: sources resolve-project.sh + style.sh
+if grep -qE 'source.*resolve-project\.sh' "$STACK_SCRIPT" && grep -qE 'source.*style\.sh' "$STACK_SCRIPT"; then
+    pass "pipeline-stack-detect sources required libs"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-stack-detect missing source for resolve-project.sh or style.sh"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: detects .NET signals (sln + csproj)
+if grep -qE '\.sln' "$STACK_SCRIPT" && grep -qE '\.csproj' "$STACK_SCRIPT"; then
+    pass "pipeline-stack-detect checks .NET signals (sln + csproj)"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-stack-detect missing .NET signal patterns"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: detects PHP/Symfony signals (composer.json + symfony.lock)
+if grep -qE 'composer\.json' "$STACK_SCRIPT" && grep -qE 'symfony\.lock' "$STACK_SCRIPT"; then
+    pass "pipeline-stack-detect checks PHP/Symfony signals"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-stack-detect missing PHP/Symfony signal patterns"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: detects Node framework signals (Next/Vite/React tiering)
+if grep -qE 'next\.config' "$STACK_SCRIPT" && grep -qE 'vite\.config' "$STACK_SCRIPT"; then
+    pass "pipeline-stack-detect checks Node framework signals (Next + Vite)"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-stack-detect missing Node framework signal patterns"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static F: detects KMP/Compose signals (settings.gradle.kts + composeApp)
+if grep -qE 'settings\.gradle\.kts' "$STACK_SCRIPT" && grep -qE 'composeApp' "$STACK_SCRIPT"; then
+    pass "pipeline-stack-detect checks KMP/Compose signals"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-stack-detect missing KMP/Compose signal patterns"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static G: detects Python signals (manage.py + pyproject.toml)
+if grep -qE 'manage\.py' "$STACK_SCRIPT" && grep -qE 'pyproject\.toml' "$STACK_SCRIPT"; then
+    pass "pipeline-stack-detect checks Python signals (Django + pyproject)"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-stack-detect missing Python signal patterns"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static H: JSON output mode supported
+if grep -qE '\-\-json' "$STACK_SCRIPT"; then
+    pass "pipeline-stack-detect supports --json output mode"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-stack-detect missing --json flag"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static I: skips internal dirs (.claude, .apd, node_modules, vendor)
+if grep -qE 'not-path.*\.claude|not-path.*node_modules' "$STACK_SCRIPT"; then
+    pass "pipeline-stack-detect skips internal directories"
+    PASSES=$((PASSES + 1))
+else
+    # Looser pattern match
+    if grep -qE '\.claude/\*' "$STACK_SCRIPT" && grep -qE 'node_modules/\*' "$STACK_SCRIPT"; then
+        pass "pipeline-stack-detect skips internal directories"
+        PASSES=$((PASSES + 1))
+    else
+        fail "pipeline-stack-detect missing internal-dir exclusions"
+        FAILS=$((FAILS + 1))
+    fi
+fi
+
+# Static J: apd dispatcher wires stack + audit-drift commands
+APD_BIN="$APD_PLUGIN_ROOT/bin/apd"
+if grep -qE 'stack\|st\)' "$APD_BIN" && grep -qE 'pipeline-stack-detect' "$APD_BIN"; then
+    pass "apd dispatcher wires 'apd stack' subcommand"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd dispatcher missing 'apd stack' subcommand"
+    FAILS=$((FAILS + 1))
+fi
+
+if grep -qE 'audit-drift\|drift\)' "$APD_BIN" && grep -qE 'pipeline-audit-drift' "$APD_BIN"; then
+    pass "apd dispatcher wires 'apd audit-drift' subcommand"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd dispatcher missing 'apd audit-drift' subcommand"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup for behavioural tests
+V6_11_SCRATCH="$(mktemp -d -t apd-v6_11.XXXXXX)"
+touch "$V6_11_SCRATCH/.apd/config" 2>/dev/null || { mkdir -p "$V6_11_SCRATCH/.apd"; touch "$V6_11_SCRATCH/.apd/config"; }
+
+run_stack_v6_11() {
+    APD_PROJECT_DIR="$V6_11_SCRATCH" bash "$STACK_SCRIPT" "$@" 2>&1
+    _rc=$?
+    echo "EXIT=$_rc"
+}
+
+# Live K: empty project → no stacks detected, exit 0 (informational)
+EMPTY_OUT="$(run_stack_v6_11)"
+if echo "$EMPTY_OUT" | grep -qE "EXIT=0" && echo "$EMPTY_OUT" | grep -qE "No supported stacks detected"; then
+    pass "empty project → no stacks detected, exit 0"
+    PASSES=$((PASSES + 1))
+else
+    fail "empty project should report no stacks: $EMPTY_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live L: empty project with --strict → exit 1
+STRICT_OUT="$(run_stack_v6_11 --strict)"
+if echo "$STRICT_OUT" | grep -qE "EXIT=1"; then
+    pass "--strict flag exits 1 on no-stack detection"
+    PASSES=$((PASSES + 1))
+else
+    fail "--strict should exit 1 on empty project: $STRICT_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live M: synthetic .NET project (sln + csproj) → detects .NET high confidence
+mkdir -p "$V6_11_SCRATCH/src"
+touch "$V6_11_SCRATCH/src/Project.sln" "$V6_11_SCRATCH/src/App.csproj"
+DOTNET_OUT="$(run_stack_v6_11)"
+if echo "$DOTNET_OUT" | grep -qE "\.NET" && echo "$DOTNET_OUT" | grep -qE "high"; then
+    pass "synthetic .NET project → detects .NET high confidence"
+    PASSES=$((PASSES + 1))
+else
+    fail ".NET detection should fire: $DOTNET_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live N: synthetic PHP/Symfony project → detects PHP/Symfony high confidence
+rm -f "$V6_11_SCRATCH/src/Project.sln" "$V6_11_SCRATCH/src/App.csproj"
+mkdir -p "$V6_11_SCRATCH/config/packages"
+echo '{}' > "$V6_11_SCRATCH/composer.json"
+echo '{}' > "$V6_11_SCRATCH/symfony.lock"
+SYMFONY_OUT="$(run_stack_v6_11)"
+if echo "$SYMFONY_OUT" | grep -qE "PHP/Symfony" && echo "$SYMFONY_OUT" | grep -qE "high"; then
+    pass "synthetic PHP/Symfony project → detects high confidence"
+    PASSES=$((PASSES + 1))
+else
+    fail "PHP/Symfony detection should fire: $SYMFONY_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live O: JSON output is valid + contains stacks array
+rm -f "$V6_11_SCRATCH/symfony.lock"
+rm -rf "$V6_11_SCRATCH/config"
+# Keep composer.json so we detect PHP generic
+JSON_OUT="$(APD_PROJECT_DIR="$V6_11_SCRATCH" bash "$STACK_SCRIPT" --json 2>&1)"
+if echo "$JSON_OUT" | grep -qE '"stacks":' && echo "$JSON_OUT" | grep -qE '"name":' && echo "$JSON_OUT" | grep -qE 'PHP generic'; then
+    pass "--json output produces valid structure with stacks array"
+    PASSES=$((PASSES + 1))
+else
+    fail "JSON output malformed or missing PHP generic detection: $JSON_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$V6_11_SCRATCH"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

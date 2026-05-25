@@ -1,5 +1,49 @@
 # Changelog
 
+## v6.11.0 — 2026-05-26
+
+Drugi minor u v6.10-v7.0 setup+audit chain-u — **read-only stack detection mehanizam**. Foundation za v6.12 stack-aware template scaffolding (.NET prvi target, BambiProject reference).
+
+**Highlights:**
+
+- **feat(pipeline-stack-detect):** nova bash skripta sa detekcijom 7+ stack kategorija:
+  - **.NET** (high confidence) — `*.sln` ili `*.csproj`
+  - **PHP/Symfony** (high) — `composer.json` + `symfony.lock` / `config/packages/` / `bin/console`
+  - **PHP generic** (medium) — `composer.json` bez Symfony markers
+  - **Node/Next** (high) — `package.json` + `next.config.{js,ts,mjs}`
+  - **Node/Vite** (high) — `package.json` + `vite.config.{js,ts,mjs}`
+  - **Node/React** (medium) — `package.json` sa `react` u dependencies
+  - **Node generic** (low) — `package.json` bez framework markers
+  - **KMP/Compose** (high) — `settings.gradle.kts` + `composeApp/` ili `commonMain/`
+  - **Android (KMP-less)** (medium) — `build.gradle.kts` + `AndroidManifest.xml`
+  - **Python/Django** (high) — `manage.py` + `requirements.txt`/`pyproject.toml`
+  - **Python/FastAPI** (high) — `pyproject.toml`/`requirements.txt` sa `fastapi` dependency
+  - **Python generic** (low) — `pyproject.toml`/`requirements.txt` bez framework
+- **Multi-stack monorepo support** — BambiProject (jedini real-world test) detektovan kao **3 stacks simultaneously** (.NET + Node/Vite + KMP/Compose). Skripta lista svaki sa confidence + signal files.
+- **Output modes:** human-readable po default (color-coded confidence column + signals path), `--json` flag za machine-readable (v6.12 template scaffolding ce konzumirati).
+- **Internal dir exclusion:** scan skipuje `.claude/`, `.apd/`, `audit/`, `node_modules/`, `vendor/`, `.git/`, `build/`, `dist/`, `target/`, `.next/`, `.gradle/` — fokus na real project structure.
+- **Exit code:** 0 always po default (informational, nije failure). `--strict` flag exit 1 ako zero stacks detected.
+- **feat(apd dispatcher):** `apd stack` (alias `apd st`) sub-command + `apd audit-drift` (alias `apd drift`) sub-command. Help text updated.
+- **docs(SPEC.md):** `apd stack` entry u CLI subcommand tabeli.
+- **test(test-codex-adapter §73) +15 assertions:** 11 static (script exists, sources libs, 5 stack signal patterns, --json mode, internal dir exclusion, apd dispatcher wires stack + audit-drift) + 5 live (empty/strict/synthetic .NET/synthetic PHP-Symfony/JSON output).
+- **Test count 572 → 588 PASS / 0 FAIL.**
+
+**Live-tested empirical evidence:**
+
+| Project | Detected | Notes |
+|---|---|---|
+| BambiProject | .NET (high) + Node/Vite (high) + KMP/Compose (high) | Real 3-stack monorepo correctly identified |
+| Festico | PHP/Symfony (high) + Node/Next (high) | Real 2-stack project correctly identified |
+
+**Why "v6.11 read-only":** detection is foundation. v6.12 ce konzumirati JSON output da bira template-e pri `apd-setup` invocation. Razvoj kao odvojeni faze omogucuje empirical iteration — sad korisnik moze testirati detection na vlastitim projektima i prijaviti false positives/negatives pre nego sto template scaffolding zavisi od njega.
+
+**Backlog open:**
+
+- v6.11 live test u Bambi/Festico/Test (vec ad-hoc validovano kroz development cycle)
+- v6.12 stack-aware template scaffolding — `apd-setup` invokes pipeline-stack-detect, generira agente + skills + conventions per stack (.NET prvi target)
+- v6.13 drugi stack (TBD posle v6.12 evaluation)
+- v7.0 max_defects parser removal
+
 ## v6.10.0 — 2026-05-26
 
 Prvi minor u v6.10-v7.0 setup+audit improvement chain-u (per project-v6.10-v7.0-setup-audit-roadmap memo). Drift detection u `apd-audit` skill + side-fix u `apd-init` koji je BambiProject + Festico evidence izneo.

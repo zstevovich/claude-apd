@@ -1,0 +1,267 @@
+#!/bin/bash
+# APD Stack Detect — read-only repo signal scan for supported stacks.
+#
+# Detects up to 7 stack categories from filesystem signals:
+#   - .NET           — *.sln, *.csproj
+#   - PHP/Symfony    — composer.json (+ symfony.lock / config/packages / bin/console)
+#   - PHP generic    — composer.json (no Symfony markers)
+#   - Node/Next      — package.json + next.config.{js,ts,mjs}
+#   - Node/Vite      — package.json + vite.config.{js,ts,mjs}
+#   - Node/React     — package.json + react in dependencies (no Next/Vite hits)
+#   - Node generic   — package.json (no Next/Vite/React markers)
+#   - KMP/Compose    — settings.gradle.kts + composeApp/ OR androidMain
+#   - Android (KMP-less) — build.gradle.kts + AndroidManifest.xml
+#   - Python/Django  — manage.py + requirements.txt or pyproject.toml
+#   - Python/FastAPI — pyproject.toml or requirements.txt with fastapi
+#   - Python generic — pyproject.toml or requirements.txt
+#
+# Multi-stack monorepos are common (Bambi has .NET + Node + KMP) — output
+# lists every detected stack with confidence and signal file paths.
+#
+# Output: human-readable by default; --json for machine-readable.
+#
+# Exit code: 0 always (informational). Use --strict to exit 1 if zero
+# stacks detected.
+#
+# Usage:
+#   pipeline-stack-detect              human output, exit 0
+#   pipeline-stack-detect --json       machine output
+#   pipeline-stack-detect --strict     exit 1 if no stacks detected
+
+set -u
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+
+JSON_OUTPUT=false
+STRICT=false
+for arg in "$@"; do
+    case "$arg" in
+        --json) JSON_OUTPUT=true ;;
+        --strict) STRICT=true ;;
+        --help|-h)
+            sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+    esac
+done
+
+# DETECTIONS: name|confidence|signals (pipe-separated)
+DETECTIONS=()
+
+# Helper: find first N matching files (depth-limited to avoid node_modules + vendor)
+_find_signal() {
+    local pattern="$1" max_depth="${2:-4}"
+    find "$PROJECT_DIR" -maxdepth "$max_depth" -type f -name "$pattern" \
+        \( -not -path "*/node_modules/*" \
+           -not -path "*/vendor/*" \
+           -not -path "*/.git/*" \
+           -not -path "*/build/*" \
+           -not -path "*/dist/*" \
+           -not -path "*/target/*" \
+           -not -path "*/.next/*" \
+           -not -path "*/.gradle/*" \
+           -not -path "*/.claude/*" \
+           -not -path "*/.apd/*" \
+           -not -path "*/audit/*" \
+        \) 2>/dev/null | head -5
+}
+
+_find_dir() {
+    local pattern="$1" max_depth="${2:-4}"
+    find "$PROJECT_DIR" -maxdepth "$max_depth" -type d -name "$pattern" \
+        \( -not -path "*/node_modules/*" \
+           -not -path "*/vendor/*" \
+           -not -path "*/.git/*" \
+        \) 2>/dev/null | head -3
+}
+
+# Relative path display
+_rel() {
+    echo "${1#$PROJECT_DIR/}"
+}
+
+# ============================================================
+# .NET detection
+# ============================================================
+SLN_FILES=$(_find_signal "*.sln")
+CSPROJ_FILES=$(_find_signal "*.csproj")
+if [ -n "$SLN_FILES" ] || [ -n "$CSPROJ_FILES" ]; then
+    signals=""
+    [ -n "$SLN_FILES" ] && signals="$signals$(echo "$SLN_FILES" | while IFS= read -r f; do _rel "$f"; done | head -2 | tr '\n' ',' | sed 's/,$//'),"
+    [ -n "$CSPROJ_FILES" ] && signals="$signals$(echo "$CSPROJ_FILES" | while IFS= read -r f; do _rel "$f"; done | head -2 | tr '\n' ',' | sed 's/,$//')"
+    signals="${signals%,}"
+    DETECTIONS+=(".NET|high|$signals")
+fi
+
+# ============================================================
+# PHP / Symfony detection
+# ============================================================
+COMPOSER_FILES=$(_find_signal "composer.json" 3)
+if [ -n "$COMPOSER_FILES" ]; then
+    composer_rel=$(echo "$COMPOSER_FILES" | head -1)
+    composer_rel_disp=$(_rel "$composer_rel")
+    # Detect Symfony-specific signals
+    SYMFONY_LOCK=$(_find_signal "symfony.lock" 3)
+    CONFIG_PKG=$(_find_dir "packages" 4 | grep -E '/config/packages$' | head -1)
+    BIN_CONSOLE=$(find "$PROJECT_DIR" -maxdepth 3 -type f -name "console" -path "*/bin/*" 2>/dev/null | head -1)
+    if [ -n "$SYMFONY_LOCK" ] || [ -n "$CONFIG_PKG" ] || [ -n "$BIN_CONSOLE" ]; then
+        sym_signals="$composer_rel_disp"
+        [ -n "$SYMFONY_LOCK" ] && sym_signals="$sym_signals,$(_rel "$(echo "$SYMFONY_LOCK" | head -1)")"
+        [ -n "$CONFIG_PKG" ] && sym_signals="$sym_signals,$(_rel "$CONFIG_PKG")"
+        DETECTIONS+=("PHP/Symfony|high|$sym_signals")
+    else
+        DETECTIONS+=("PHP generic|medium|$composer_rel_disp")
+    fi
+fi
+
+# ============================================================
+# Node detection (Next > Vite > React > generic)
+# ============================================================
+PACKAGE_FILES=$(_find_signal "package.json" 4)
+if [ -n "$PACKAGE_FILES" ]; then
+    # Look for framework configs across all package.json siblings
+    NEXT_CONFIGS=$(find "$PROJECT_DIR" -maxdepth 5 -type f \
+        \( -name "next.config.js" -o -name "next.config.ts" -o -name "next.config.mjs" \) \
+        -not -path "*/node_modules/*" 2>/dev/null | head -3)
+    VITE_CONFIGS=$(find "$PROJECT_DIR" -maxdepth 5 -type f \
+        \( -name "vite.config.js" -o -name "vite.config.ts" -o -name "vite.config.mjs" \) \
+        -not -path "*/node_modules/*" 2>/dev/null | head -3)
+    REACT_IN_DEPS=false
+    while IFS= read -r pkg; do
+        if grep -qE '"react"\s*:\s*"' "$pkg" 2>/dev/null; then
+            REACT_IN_DEPS=true
+            break
+        fi
+    done <<< "$PACKAGE_FILES"
+
+    pkg_disp=$(_rel "$(echo "$PACKAGE_FILES" | head -1)")
+    if [ -n "$NEXT_CONFIGS" ]; then
+        nc_disp=$(_rel "$(echo "$NEXT_CONFIGS" | head -1)")
+        DETECTIONS+=("Node/Next|high|$pkg_disp,$nc_disp")
+    elif [ -n "$VITE_CONFIGS" ]; then
+        vc_disp=$(_rel "$(echo "$VITE_CONFIGS" | head -1)")
+        DETECTIONS+=("Node/Vite|high|$pkg_disp,$vc_disp")
+    elif [ "$REACT_IN_DEPS" = true ]; then
+        DETECTIONS+=("Node/React|medium|$pkg_disp")
+    else
+        DETECTIONS+=("Node generic|low|$pkg_disp")
+    fi
+fi
+
+# ============================================================
+# Kotlin Multiplatform / Compose / Android detection
+# ============================================================
+GRADLE_KTS=$(_find_signal "settings.gradle.kts" 4)
+BUILD_KTS=$(_find_signal "build.gradle.kts" 4)
+if [ -n "$GRADLE_KTS" ] || [ -n "$BUILD_KTS" ]; then
+    COMPOSE_DIR=$(_find_dir "composeApp" 5)
+    COMMON_MAIN=$(_find_dir "commonMain" 7)
+    ANDROID_MANIFEST=$(_find_signal "AndroidManifest.xml" 6)
+
+    if [ -n "$COMPOSE_DIR" ] || [ -n "$COMMON_MAIN" ]; then
+        kmp_signals=""
+        [ -n "$GRADLE_KTS" ] && kmp_signals="$(_rel "$(echo "$GRADLE_KTS" | head -1)")"
+        [ -n "$COMPOSE_DIR" ] && kmp_signals="$kmp_signals,$(_rel "$(echo "$COMPOSE_DIR" | head -1)")"
+        kmp_signals="${kmp_signals#,}"
+        DETECTIONS+=("KMP/Compose|high|$kmp_signals")
+    elif [ -n "$ANDROID_MANIFEST" ]; then
+        and_signals="$(_rel "$(echo "$BUILD_KTS" | head -1)"),$(_rel "$(echo "$ANDROID_MANIFEST" | head -1)")"
+        DETECTIONS+=("Android (KMP-less)|medium|$and_signals")
+    fi
+fi
+
+# ============================================================
+# Python detection (Django > FastAPI > generic)
+# ============================================================
+MANAGE_PY=$(_find_signal "manage.py" 3)
+PYPROJECT=$(_find_signal "pyproject.toml" 3)
+REQUIREMENTS=$(_find_signal "requirements.txt" 3)
+if [ -n "$MANAGE_PY" ]; then
+    # Django: manage.py present
+    py_signals="$(_rel "$(echo "$MANAGE_PY" | head -1)")"
+    [ -n "$PYPROJECT" ] && py_signals="$py_signals,$(_rel "$(echo "$PYPROJECT" | head -1)")"
+    [ -z "$PYPROJECT" ] && [ -n "$REQUIREMENTS" ] && py_signals="$py_signals,$(_rel "$(echo "$REQUIREMENTS" | head -1)")"
+    DETECTIONS+=("Python/Django|high|$py_signals")
+elif [ -n "$PYPROJECT" ] || [ -n "$REQUIREMENTS" ]; then
+    # Check for FastAPI dependency
+    FASTAPI_HIT=false
+    for f in $PYPROJECT $REQUIREMENTS; do
+        if grep -qiE 'fastapi' "$f" 2>/dev/null; then
+            FASTAPI_HIT=true
+            break
+        fi
+    done
+    py_disp=""
+    [ -n "$PYPROJECT" ] && py_disp="$(_rel "$(echo "$PYPROJECT" | head -1)")"
+    [ -z "$py_disp" ] && [ -n "$REQUIREMENTS" ] && py_disp="$(_rel "$(echo "$REQUIREMENTS" | head -1)")"
+    if [ "$FASTAPI_HIT" = true ]; then
+        DETECTIONS+=("Python/FastAPI|high|$py_disp")
+    else
+        DETECTIONS+=("Python generic|low|$py_disp")
+    fi
+fi
+
+# ============================================================
+# Render output
+# ============================================================
+if [ "$JSON_OUTPUT" = true ]; then
+    echo "{"
+    echo "  \"project_dir\": \"$PROJECT_DIR\","
+    echo "  \"detected_count\": ${#DETECTIONS[@]},"
+    echo "  \"stacks\": ["
+    n=${#DETECTIONS[@]}
+    i=0
+    for entry in "${DETECTIONS[@]}"; do
+        i=$((i + 1))
+        IFS='|' read -r name conf signals <<< "$entry"
+        # signals is comma-separated → JSON array
+        signals_json=$(echo "$signals" | awk -F',' '{
+            printf "["
+            for (k=1; k<=NF; k++) {
+                gsub(/^[ \t]+|[ \t]+$/, "", $k)
+                if ($k != "") printf "%s\"%s\"", (k>1 && printed ? "," : ""), $k
+                printed=1
+            }
+            printf "]"
+        }')
+        comma=","
+        [ "$i" = "$n" ] && comma=""
+        echo "    {\"name\": \"$name\", \"confidence\": \"$conf\", \"signals\": $signals_json}$comma"
+    done
+    echo "  ]"
+    echo "}"
+else
+    echo ""
+    echo "${B}APD Stack Detection${R} ($(_rel "$PROJECT_DIR"))"
+    echo ""
+    if [ ${#DETECTIONS[@]} -eq 0 ]; then
+        echo "${Y}No supported stacks detected${R}"
+        echo ""
+        echo "  Supported stacks (v6.11+): .NET, PHP/Symfony, Node (Next/Vite/React), KMP/Compose, Android, Python (Django/FastAPI)"
+        echo "  Project may use an unsupported stack, or signal files may be outside scan depth (max 4-7 levels)."
+    else
+        printf "  %-22s  %-10s  %s\n" "Stack" "Confidence" "Signals"
+        printf "  %-22s  %-10s  %s\n" "-----" "----------" "-------"
+        for entry in "${DETECTIONS[@]}"; do
+            IFS='|' read -r name conf signals <<< "$entry"
+            # Color confidence
+            conf_color="$conf"
+            case "$conf" in
+                high) conf_color="${G}high${R}" ;;
+                medium) conf_color="${Y}medium${R}" ;;
+                low) conf_color="${D}low${R}" ;;
+            esac
+            printf "  %-22s  %-19s  %s\n" "$name" "$conf_color" "$signals"
+        done
+    fi
+    echo ""
+    echo "${D}Tip: pass --json for machine-readable output (v6.12+ template scaffolding will consume this).${R}"
+    echo ""
+fi
+
+# Exit handling
+if [ "$STRICT" = true ] && [ ${#DETECTIONS[@]} -eq 0 ]; then
+    exit 1
+fi
+exit 0

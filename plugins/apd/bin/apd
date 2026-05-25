@@ -14,6 +14,8 @@
 #   gh <step>         GitHub sync
 #   report [--history [N]] Pipeline run report
 #   report maxturns        Telemetry: agent rapid re-dispatch (maxTurn exhaust proxy)
+#   stack [--json]    Detect supported stacks in repo (v6.11+)
+#   audit-drift       Detect drift vs framework baseline (v6.10+)
 #   test              Quick static hook test
 #   toggle [on|off]   Toggle claude-apd plugin in CC settings (smart-detection)
 
@@ -49,6 +51,12 @@ case "$CMD" in
         ;;
     report|rp)
         exec bash "$CORE_DIR/pipeline-report" "$@"
+        ;;
+    stack|st)
+        exec bash "$CORE_DIR/pipeline-stack-detect" "$@"
+        ;;
+    audit-drift|drift)
+        exec bash "$CORE_DIR/pipeline-audit-drift" "$@"
         ;;
     test)
         exec bash "$CORE_DIR/test-hooks" "$@"
@@ -170,6 +178,8 @@ case "$CMD" in
         echo "    contracts         Check cross-layer type contracts"
         echo "    gh <step>         GitHub sync"
         echo "    report            Pipeline run report (--history [N] for history)"
+        echo "    stack             Detect supported stacks in repo (--json for machine output)"
+        echo "    audit-drift       Detect drift vs framework baseline (settings/version/workflow)"
         echo "    test              Quick static hook test"
         echo "    toggle [on|off]   Toggle claude-apd in CC settings (smart-detection)"
         echo "    cdx <sub>         Codex runtime adapter (init|test) — see 'apd cdx help'"
