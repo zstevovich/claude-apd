@@ -107,6 +107,26 @@ Check `.apd/memory/`:
 - `session-log.md` — exists (may be empty for new projects)
 - No `[fill in]` placeholders blocking the next task
 
+### 8. Drift detection (v6.10+)
+
+Invoke the drift script via Bash hook or shell:
+
+```bash
+bash ${APD_PLUGIN_ROOT}/bin/core/pipeline-audit-drift
+```
+
+(Path resolution: `$APD_PLUGIN_ROOT` is the plugin's `plugins/apd/` directory; resolved automatically by `resolve-project.sh` which the script sources.)
+
+**Three dimensions:**
+
+1. `.claude/settings.json` (or Codex equivalent) deny patterns — compares against current framework baseline (8 mkdir patterns: 4 slash-prefixed + 4 bare-dir). Pre-v6.10 re-inits left projects with only 4 patterns.
+2. `.claude/.apd-config` APD_VERSION — compares against currently loaded plugin version. Stale value (minor/major lag) means stale workflow/agent templates.
+3. `.claude/rules/workflow.md` content markers — checks for v6.7+ guidance markers (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`). Missing markers indicate stale workflow.md.
+
+Output buckets: CRITICAL / IMPORTANT (most common) / INFO / CLEAN. Recovery actions point to re-run of `apd cdx init` (Codex) or `/apd-setup` (CC); v6.10+ python merge fix writes all 8 deny patterns.
+
+Exit code 1 on any IMPORTANT or CRITICAL finding; 0 on INFO-only or CLEAN.
+
 ## Output Format
 
 ```

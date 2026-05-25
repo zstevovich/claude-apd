@@ -121,6 +121,26 @@ Check `.claude/memory/`:
 - `session-log.md` — exists (may be empty for new projects)
 - No `[fill in]` placeholders in the last session-log entry (blocks new tasks)
 
+### 8. Drift Detection (v6.10+)
+
+Run the dedicated drift script — it scans three dimensions where projects typically lag behind the framework baseline:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-audit-drift
+```
+
+**Dimensions checked:**
+
+1. **`.claude/settings.json` deny patterns** — compares against current framework baseline (8 mkdir patterns: 4 slash-prefixed + 4 bare-dir). Pre-v6.10 re-inits left projects with only 4 patterns; v6.10 closes the bypass vector by writing all 8 on re-init.
+2. **`.claude/.apd-config` APD_VERSION** — compares against the currently loaded plugin version. Stale `APD_VERSION` means the project was configured under an older minor and may carry stale workflow/agent templates. Patch-only drift is INFO; minor-or-major drift is IMPORTANT.
+3. **`.claude/rules/workflow.md` content markers** — checks for presence of v6.7+ guidance markers (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`). Missing markers indicate workflow.md was last refreshed under a pre-v6.7 framework — orchestrator does not see plan-spec consistency / rationale gate / v6.9 deprecation guidance.
+
+**Output buckets:** CRITICAL (drift blocks pipeline structurally, rare) / IMPORTANT (drift compromises guard coverage or orchestrator guidance, most common) / INFO (patch-level, non-blocking) / CLEAN (project tracks current baseline).
+
+**Recovery:** all drift findings point to `/apd-setup` (v6.10+ auto-fixes settings.json missing patterns + refreshes workflow.md + bumps `APD_VERSION` in `.apd-config`). Manual fixes are documented per item in the drift script output.
+
+**Exit code:** drift script exits 1 if any CRITICAL or IMPORTANT finding, 0 if only INFO or CLEAN. Use in CI / pre-commit hooks if desired.
+
 ## Output Format
 
 ```

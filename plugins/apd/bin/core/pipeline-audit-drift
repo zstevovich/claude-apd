@@ -1,0 +1,198 @@
+#!/bin/bash
+# APD Audit Drift — qualitative drift detection across three dimensions:
+#   1. settings.json deny patterns (missing baseline entries)
+#   2. .apd-config APD_VERSION (stale vs current plugin)
+#   3. workflow.md content markers (missing v6.7+ guidance)
+#
+# Output: severity-bucketed findings (CRITICAL / IMPORTANT / INFO / CLEAN)
+# with per-item recovery action.
+#
+# Exit code: 0 if no drift detected, 1 if any IMPORTANT or CRITICAL drift.
+# INFO-only drift returns 0 (informational, doesn't fail audit).
+#
+# Designed to be called from /apd-audit skill Section 8.
+
+set -u
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+
+# Framework-self short-circuit: drift checks are irrelevant for the framework
+# source repo (no project state to drift from).
+if [ "${APD_FRAMEWORK_SELF:-false}" = "true" ]; then
+    echo "Drift detection skipped (framework source repo)."
+    exit 0
+fi
+
+# Only meaningful when APD is active in this project.
+if [ "${APD_ACTIVE:-false}" != "true" ]; then
+    echo "Drift detection skipped (APD inactive in this project)."
+    exit 0
+fi
+
+CLAUDE_DIR="$PROJECT_DIR/.claude"
+SETTINGS_FILE="$CLAUDE_DIR/settings.json"
+APD_CONFIG="$CLAUDE_DIR/.apd-config"
+WORKFLOW_FILE="$CLAUDE_DIR/rules/workflow.md"
+FRAMEWORK_WORKFLOW="$APD_PLUGIN_ROOT/rules/workflow.md"
+
+CURRENT_PLUGIN_VERSION="${APD_VERSION:-unknown}"
+
+CRITICAL=()
+IMPORTANT=()
+INFO=()
+
+# ============================================================
+# Dimension A — settings.json deny patterns drift
+# ============================================================
+# Baseline kept in sync with apd-init `required_deny` python list.
+# When you add/remove a pattern there, update this list too.
+EXPECTED_DENY=(
+    "Bash(mkdir */.apd/pipeline/*)"
+    "Bash(mkdir -p */.apd/pipeline/*)"
+    "Bash(mkdir */.apd/pipeline)"
+    "Bash(mkdir -p */.apd/pipeline)"
+    "Bash(mkdir .apd/pipeline/*)"
+    "Bash(mkdir -p .apd/pipeline/*)"
+    "Bash(mkdir .apd/pipeline)"
+    "Bash(mkdir -p .apd/pipeline)"
+)
+
+if [ -f "$SETTINGS_FILE" ] && command -v jq >/dev/null 2>&1; then
+    MISSING_DENY=()
+    for pattern in "${EXPECTED_DENY[@]}"; do
+        if ! jq -e --arg p "$pattern" '.permissions.deny // [] | index($p)' "$SETTINGS_FILE" >/dev/null 2>&1; then
+            MISSING_DENY+=("$pattern")
+        fi
+    done
+    if [ ${#MISSING_DENY[@]} -gt 0 ]; then
+        # Bare-dir patterns (no leading slash glob) are the closing-bypass entries
+        # introduced in v6.10. Slash-prefixed missing = older drift.
+        IMPORTANT+=("[.claude/settings.json] ${#MISSING_DENY[@]} of ${#EXPECTED_DENY[@]} deny patterns missing")
+        IMPORTANT+=("  Missing: ${MISSING_DENY[*]}")
+        IMPORTANT+=("  Effect: 'mkdir .apd/pipeline' (bez prefix slash) je bypass vector — guard ne hvata")
+        IMPORTANT+=("  Recovery: re-run '/apd-setup' (v6.10+ python merge fix), OR manually add missing patterns to settings.json permissions.deny array")
+    fi
+elif [ -f "$SETTINGS_FILE" ]; then
+    INFO+=("[.claude/settings.json] jq not available — cannot parse deny patterns")
+fi
+
+# ============================================================
+# Dimension B — .apd-config APD_VERSION drift
+# ============================================================
+if [ -f "$APD_CONFIG" ]; then
+    CONFIG_VERSION=$(grep -E '^APD_VERSION=' "$APD_CONFIG" 2>/dev/null | cut -d'=' -f2 | tr -d '[:space:]"')
+    if [ -z "$CONFIG_VERSION" ]; then
+        IMPORTANT+=("[.claude/.apd-config] APD_VERSION not set")
+        IMPORTANT+=("  Effect: cannot detect drift, audit cannot establish baseline")
+        IMPORTANT+=("  Recovery: re-run '/apd-setup' to write current APD_VERSION")
+    elif [ "$CONFIG_VERSION" != "$CURRENT_PLUGIN_VERSION" ]; then
+        # Parse semver minor (first two segments) for severity decision
+        CONFIG_MAJOR_MINOR=$(echo "$CONFIG_VERSION" | cut -d'.' -f1-2)
+        PLUGIN_MAJOR_MINOR=$(echo "$CURRENT_PLUGIN_VERSION" | cut -d'.' -f1-2)
+        if [ "$CONFIG_MAJOR_MINOR" != "$PLUGIN_MAJOR_MINOR" ]; then
+            IMPORTANT+=("[.claude/.apd-config] APD_VERSION=$CONFIG_VERSION stale vs current plugin v$CURRENT_PLUGIN_VERSION")
+            IMPORTANT+=("  Effect: project was configured under an older minor — workflow.md + agent templates may carry stale patterns")
+            IMPORTANT+=("  Recovery: re-run '/apd-setup' to refresh templates + bump APD_VERSION in .apd-config")
+        else
+            INFO+=("[.claude/.apd-config] APD_VERSION=$CONFIG_VERSION lags current plugin v$CURRENT_PLUGIN_VERSION by patch only")
+            INFO+=("  Effect: minimal — patch-level changes usually do not affect project content")
+            INFO+=("  Recovery: optional re-run '/apd-setup' OR ignore until next minor")
+        fi
+    fi
+fi
+
+# ============================================================
+# Dimension C — workflow.md content markers drift
+# ============================================================
+if [ -f "$WORKFLOW_FILE" ] && [ -f "$FRAMEWORK_WORKFLOW" ]; then
+    # Markers track the v6.7+ guidance milestones. If framework has them
+    # but project workflow does not, project is running stale guidance.
+    MARKERS=(
+        "Implements:"
+        "rationale gate"
+        "DEPRECATED"
+        "unconditional"
+    )
+    MISSING_MARKERS=()
+    for marker in "${MARKERS[@]}"; do
+        # grep -c returns "0" + exit 1 on no matches; ignore exit code, just
+        # capture stdout. Fall back to 0 if file unreadable.
+        local_count=$(grep -c "$marker" "$WORKFLOW_FILE" 2>/dev/null) || true
+        framework_count=$(grep -c "$marker" "$FRAMEWORK_WORKFLOW" 2>/dev/null) || true
+        local_count=${local_count:-0}
+        framework_count=${framework_count:-0}
+        # Framework has it but project does not → drift
+        if [ "$framework_count" -gt 0 ] && [ "$local_count" -eq 0 ] 2>/dev/null; then
+            MISSING_MARKERS+=("$marker")
+        fi
+    done
+    if [ ${#MISSING_MARKERS[@]} -gt 0 ]; then
+        IMPORTANT+=("[.claude/rules/workflow.md] ${#MISSING_MARKERS[@]} v6.7+ guidance markers missing")
+        IMPORTANT+=("  Missing: ${MISSING_MARKERS[*]}")
+        IMPORTANT+=("  Effect: orchestrator does not see plan-spec Implements format / rationale gate / v6.9 DEPRECATED markers / brainstorm-marker unconditional guidance")
+        IMPORTANT+=("  Recovery: re-run '/apd-setup' to refresh workflow.md from current framework template")
+    fi
+fi
+
+# ============================================================
+# Render output
+# ============================================================
+TOTAL=$((${#CRITICAL[@]} + ${#IMPORTANT[@]} + ${#INFO[@]}))
+
+echo ""
+echo "${B}APD Drift Detection${R} (v6.10+)"
+echo ""
+
+if [ ${#CRITICAL[@]} -gt 0 ]; then
+    echo "${R}${B}CRITICAL:${R}"
+    n=0
+    for line in "${CRITICAL[@]}"; do
+        if [[ "$line" =~ ^\[ ]]; then
+            n=$((n + 1))
+            echo "  $n. $line"
+        else
+            echo "  $line"
+        fi
+    done
+    echo ""
+fi
+
+if [ ${#IMPORTANT[@]} -gt 0 ]; then
+    echo "${Y}${B}IMPORTANT:${R}"
+    n=0
+    for line in "${IMPORTANT[@]}"; do
+        if [[ "$line" =~ ^\[ ]]; then
+            n=$((n + 1))
+            echo "  $n. $line"
+        else
+            echo "  $line"
+        fi
+    done
+    echo ""
+fi
+
+if [ ${#INFO[@]} -gt 0 ]; then
+    echo "${D}INFO:${R}"
+    n=0
+    for line in "${INFO[@]}"; do
+        if [[ "$line" =~ ^\[ ]]; then
+            n=$((n + 1))
+            echo "  $n. $line"
+        else
+            echo "  $line"
+        fi
+    done
+    echo ""
+fi
+
+if [ $TOTAL -eq 0 ]; then
+    echo "${G}CLEAN:${R} no drift detected — project tracks current framework baseline"
+    echo ""
+fi
+
+# Exit 1 if any CRITICAL or IMPORTANT drift (INFO-only = exit 0)
+if [ ${#CRITICAL[@]} -gt 0 ] || [ ${#IMPORTANT[@]} -gt 0 ]; then
+    exit 1
+fi
+exit 0

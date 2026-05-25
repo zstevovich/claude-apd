@@ -535,8 +535,15 @@ required_allow = [
     'Bash(bash .claude/bin/apd *)', 'Bash(bash .claude/bin/apd pipeline *)'
 ]
 required_deny = [
+    # v6.5+ slash-prefixed (relative-path glob)
     'Bash(mkdir */.apd/pipeline/*)', 'Bash(mkdir -p */.apd/pipeline/*)',
-    'Bash(mkdir */.apd/pipeline)', 'Bash(mkdir -p */.apd/pipeline)'
+    'Bash(mkdir */.apd/pipeline)', 'Bash(mkdir -p */.apd/pipeline)',
+    # v6.10+ bare-dir (literal path without leading glob) — closes bypass vector
+    # where 'mkdir .apd/pipeline' is run from project root without slash prefix.
+    # Pre-v6.10 re-inits left projects with only 4 patterns; v6.10 audit drift
+    # detection flags this and recommends re-run of apd-setup.
+    'Bash(mkdir .apd/pipeline/*)', 'Bash(mkdir -p .apd/pipeline/*)',
+    'Bash(mkdir .apd/pipeline)', 'Bash(mkdir -p .apd/pipeline)'
 ]
 existing_allow = s.get('permissions', {}).get('allow', [])
 existing_deny = s.get('permissions', {}).get('deny', [])

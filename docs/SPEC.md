@@ -42,6 +42,7 @@ Top-level dispatcher routes by 1st arg. Resolves project root via `bin/lib/resol
 | `pipeline` / `pl` | `bin/core/pipeline-advance` | Pipeline gate operations (steps + reset/rollback/status/stats/metrics) |
 | `doctor` / `dr` | `bin/core/pipeline-doctor` | 11-section audit of pipeline + project |
 | `report` / `rp` | `bin/core/pipeline-report` | Render formatted summary |
+| `audit-drift` (v6.10) | `bin/core/pipeline-audit-drift` | Drift detection across 3 dimensions (settings.json deny patterns, .apd-config APD_VERSION, workflow.md content markers). Invoked from `/apd-audit` skill Section 8. Exit 1 on IMPORTANT/CRITICAL findings, 0 on INFO-only/CLEAN. |
 | `gh` / `github` | `bin/core/gh-sync` | GitHub Issues sync (best-effort, never blocks) |
 | `test` | `bin/core/test-hooks` | Static hook check |
 | `test-system` | `bin/core/test-system` | E2E synthetic pipeline smoke |

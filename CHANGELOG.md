@@ -1,5 +1,58 @@
 # Changelog
 
+## v6.10.0 — 2026-05-26
+
+Prvi minor u v6.10-v7.0 setup+audit improvement chain-u (per project-v6.10-v7.0-setup-audit-roadmap memo). Drift detection u `apd-audit` skill + side-fix u `apd-init` koji je BambiProject + Festico evidence izneo.
+
+**Empirical trigger:**
+
+BambiProject + Festico oba imali drift posle vise re-init-a:
+- `.claude/settings.json` deny patterns: **4/8** (samo slash-prefixed; bare-dir 4 missing). To je bypass vector: `mkdir .apd/pipeline` (bez prefix slash) ne hvata se guard-om.
+- BambiProject `.claude/.apd-config` `APD_VERSION=6.8.11` vs plugin v6.9.0 (1 minor stale)
+- BambiProject `.claude/rules/workflow.md` 4 markeri missing (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`) — workflow je iz v6.0/v6.5 ere, nije refresh-ovan kroz v6.7-v6.9 chain
+
+**Root cause apd-init python merge bug:** `required_deny` python lista u `apd-init` imala je samo 4 patterns (slash-prefixed); template literal je imao 8. Re-init je ucvrscivao samo 4, freshly-init dobijao 8. BambiProject + Festico oba su prosli re-init kroz v6.5-v6.9 period i ostali na 4.
+
+**Highlights:**
+
+### A. Pre-req fix: apd-init python merge
+
+- **fix(apd-init):** `required_deny` python list 4 → 8 patterns (dodato 4 bare-dir variants). Zatvara bypass vector + omogucuje da v6.10 drift detection ne flaguje BambiProject/Festico kao stale zauvek (jednom kad se re-run apd-setup).
+
+### B. New script: pipeline-audit-drift
+
+- **feat(pipeline-audit-drift):** nova bash skripta sa 3 drift dimensions:
+  - settings.json deny patterns vs framework baseline (8 patterns hardcoded, SSOT sa apd-init)
+  - .apd-config APD_VERSION vs current plugin version (minor/major drift = IMPORTANT, patch-only = INFO)
+  - workflow.md content markers (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`) — framework workflow.md baseline kao reference
+- Severity buckets: CRITICAL / IMPORTANT / INFO / CLEAN, sa per-item recovery action
+- Framework self-detection: skipuje drift checks kad APD_FRAMEWORK_SELF=true (na samom framework repo-u)
+- Exit code: 1 ako CRITICAL/IMPORTANT, 0 ako INFO-only ili CLEAN — usable u CI / pre-commit hooks
+
+### C. Skill integration
+
+- **fix(skills/apd-audit/SKILL.md):** novi Section 8 "Drift Detection (v6.10+)" — opisuje 3 dimensions, output buckets, recovery action (re-run `/apd-setup`)
+- **fix(plugins/apd/skills/apd-audit/SKILL.md):** Codex mirror sa istom sekcijom
+
+### D. SPEC.md + tests
+
+- **docs(SPEC.md):** `apd audit-drift` (v6.10) entry u CLI subcommand tabeli
+- **test(test-codex-adapter §72) +13 assertions:** 8 static (script exists/executable, sources libs, deny patterns baseline, APD_VERSION check, workflow markers check, apd-init python merge lock-in 8 patterns, CC + Codex skill Section 8) + 5 live (clean project → exit 0, missing deny patterns → IMPORTANT, stale APD_VERSION minor → IMPORTANT, stale workflow markers → IMPORTANT, patch-only APD_VERSION → INFO + exit 0)
+- **Test count 559 → 572 PASS / 0 FAIL.**
+
+**Migration:**
+
+Projekti koji su radili re-init kroz v6.5-v6.9 (verovatno vecina realnih projekata) videce drift u `/apd-audit` dok ne re-run `/apd-setup` (v6.10+ ce sad pisati svih 8 patterns). Run `bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-audit-drift` da vidi konkretne missing items.
+
+**Roadmap continuity:**
+
+- **v6.11:** Stack detection mehanizam (read-only) — detect .NET/PHP/Symfony/Node/Next/KMP signals
+- **v6.12:** Stack-aware template scaffolding (.NET prvi, BambiProject reference)
+- **v6.13:** Drugi stack (TBD posle v6.12 evaluation)
+- **v7.0:** max_defects parser removal + finalizacija
+
+Phased pristup omogucuje empirical iteration izmedju faza i risk amortization.
+
 ## v6.9.0 — 2026-05-24
 
 Minor release — closes v6.8 chain sa tri strukturalne intervencije:

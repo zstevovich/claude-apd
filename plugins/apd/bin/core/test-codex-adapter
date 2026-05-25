@@ -7151,6 +7151,248 @@ else
 fi
 
 # -----------------------------------------------------------
+# 72. v6.10 — apd-audit drift detection + recommendations
+#     Three drift dimensions: (A) settings.json deny patterns missing
+#     bare-dir variants (pre-v6.10 re-init bug), (B) .apd-config
+#     APD_VERSION stale vs current plugin, (C) workflow.md content
+#     markers missing v6.7+ guidance. Plus apd-init python merge
+#     `required_deny` lock-in at 8 patterns (closes the bug that left
+#     BambiProject + Festico with only 4 patterns after re-init).
+# -----------------------------------------------------------
+section "72. v6.10 apd-audit drift detection"
+
+DRIFT_SCRIPT="$APD_PLUGIN_ROOT/bin/core/pipeline-audit-drift"
+
+# Static A: drift script exists and is executable
+_check "pipeline-audit-drift exists and is executable" test -x "$DRIFT_SCRIPT"
+
+# Static B: drift script sources resolve-project.sh + style.sh
+if grep -qE 'source.*resolve-project\.sh' "$DRIFT_SCRIPT" && grep -qE 'source.*style\.sh' "$DRIFT_SCRIPT"; then
+    pass "pipeline-audit-drift sources required libs"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-audit-drift missing source for resolve-project.sh or style.sh"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: drift script checks all 8 expected deny patterns (4 slash-prefixed + 4 bare-dir)
+if grep -qE 'Bash\(mkdir \.apd/pipeline\)' "$DRIFT_SCRIPT" \
+   && grep -qE 'Bash\(mkdir \*/.apd/pipeline\)' "$DRIFT_SCRIPT"; then
+    pass "pipeline-audit-drift expects both bare-dir and slash-prefixed deny patterns"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-audit-drift missing complete deny patterns baseline"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: drift script reads APD_VERSION from .apd-config
+if grep -qE 'APD_VERSION=' "$DRIFT_SCRIPT" && grep -qE 'CURRENT_PLUGIN_VERSION' "$DRIFT_SCRIPT"; then
+    pass "pipeline-audit-drift reads APD_VERSION from .apd-config"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-audit-drift missing APD_VERSION drift check"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: drift script checks workflow.md content markers
+if grep -qE 'MARKERS=' "$DRIFT_SCRIPT" && grep -qE 'Implements:|rationale gate|DEPRECATED|unconditional' "$DRIFT_SCRIPT"; then
+    pass "pipeline-audit-drift checks workflow.md content markers"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-audit-drift missing workflow.md marker check"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static F: apd-init python merge has all 8 deny patterns (v6.10 pre-req fix)
+# Closes the bug that left re-initialized projects with only 4 patterns.
+APD_INIT="$APD_PLUGIN_ROOT/bin/core/apd-init"
+if grep -qE "Bash\(mkdir \.apd/pipeline\)" "$APD_INIT" \
+   && grep -qE "Bash\(mkdir -p \.apd/pipeline\)" "$APD_INIT" \
+   && grep -qE "Bash\(mkdir \.apd/pipeline/\*\)" "$APD_INIT" \
+   && grep -qE "Bash\(mkdir -p \.apd/pipeline/\*\)" "$APD_INIT"; then
+    pass "apd-init python merge required_deny includes 4 bare-dir patterns (v6.10 fix)"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-init python merge missing bare-dir deny patterns (v6.10 pre-req regression)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static G: CC apd-audit SKILL.md has Section 8 (Drift Detection)
+if grep -qE '### 8\. Drift Detection' "$REPO_ROOT/skills/apd-audit/SKILL.md"; then
+    pass "CC apd-audit SKILL.md has Section 8 Drift Detection"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-audit SKILL.md missing Section 8 Drift Detection"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static H: Codex apd-audit SKILL.md has Section 8 (Drift Detection) mirror
+if grep -qE 'Drift detection|drift detection' "$APD_PLUGIN_ROOT/skills/apd-audit/SKILL.md"; then
+    pass "Codex apd-audit SKILL.md mirror has Drift detection section"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex apd-audit SKILL.md missing Drift detection section"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup for behavioural tests
+V6_10_SCRATCH="$(mktemp -d -t apd-v6_10.XXXXXX)"
+mkdir -p "$V6_10_SCRATCH/.claude/rules" "$V6_10_SCRATCH/.apd"
+touch "$V6_10_SCRATCH/.apd/config"
+
+run_drift_v6_10() {
+    APD_PROJECT_DIR="$V6_10_SCRATCH" bash "$DRIFT_SCRIPT" 2>&1
+    _rc=$?
+    echo "EXIT=$_rc"
+}
+
+# Live I: CLEAN project (sva 3 dimensions valid) → exit 0
+# Write canonical 8 deny patterns + current APD_VERSION + all 4 markers
+cat > "$V6_10_SCRATCH/.claude/settings.json" <<EOF
+{
+  "permissions": {
+    "deny": [
+      "Bash(mkdir */.apd/pipeline/*)",
+      "Bash(mkdir -p */.apd/pipeline/*)",
+      "Bash(mkdir */.apd/pipeline)",
+      "Bash(mkdir -p */.apd/pipeline)",
+      "Bash(mkdir .apd/pipeline/*)",
+      "Bash(mkdir -p .apd/pipeline/*)",
+      "Bash(mkdir .apd/pipeline)",
+      "Bash(mkdir -p .apd/pipeline)"
+    ]
+  }
+}
+EOF
+cat > "$V6_10_SCRATCH/.claude/.apd-config" <<EOF
+PROJECT_NAME=clean-test
+APD_VERSION=$(cat "$APD_PLUGIN_ROOT/VERSION")
+STACK=test
+EOF
+cat > "$V6_10_SCRATCH/.claude/rules/workflow.md" <<'EOF'
+# Workflow
+
+**Implements:** R1 — plan-spec consistency demo
+**rationale gate** — v6.7 reference
+**DEPRECATED as of v6.9** — max_defects soft removal
+**unconditional** — brainstorm-marker v6.8.11
+EOF
+CLEAN_OUT="$(run_drift_v6_10)"
+if echo "$CLEAN_OUT" | grep -qE "EXIT=0" && echo "$CLEAN_OUT" | grep -qE "CLEAN|no drift detected"; then
+    pass "clean project (all 3 dimensions valid) → exit 0 + CLEAN"
+    PASSES=$((PASSES + 1))
+else
+    fail "clean project should produce CLEAN + exit 0: $CLEAN_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live J: missing 4 bare-dir deny patterns → IMPORTANT + exit 1
+cat > "$V6_10_SCRATCH/.claude/settings.json" <<EOF
+{
+  "permissions": {
+    "deny": [
+      "Bash(mkdir */.apd/pipeline/*)",
+      "Bash(mkdir -p */.apd/pipeline/*)",
+      "Bash(mkdir */.apd/pipeline)",
+      "Bash(mkdir -p */.apd/pipeline)"
+    ]
+  }
+}
+EOF
+DENY_DRIFT_OUT="$(run_drift_v6_10)"
+if echo "$DENY_DRIFT_OUT" | grep -qE "EXIT=1" && echo "$DENY_DRIFT_OUT" | grep -qE "4 of 8 deny patterns missing"; then
+    pass "settings.json missing 4 bare-dir patterns → IMPORTANT + exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "settings.json drift should be detected: $DENY_DRIFT_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live K: stale APD_VERSION (different minor) → IMPORTANT + exit 1
+# Restore canonical settings, change only APD_VERSION
+cat > "$V6_10_SCRATCH/.claude/settings.json" <<EOF
+{
+  "permissions": {
+    "deny": [
+      "Bash(mkdir */.apd/pipeline/*)",
+      "Bash(mkdir -p */.apd/pipeline/*)",
+      "Bash(mkdir */.apd/pipeline)",
+      "Bash(mkdir -p */.apd/pipeline)",
+      "Bash(mkdir .apd/pipeline/*)",
+      "Bash(mkdir -p .apd/pipeline/*)",
+      "Bash(mkdir .apd/pipeline)",
+      "Bash(mkdir -p .apd/pipeline)"
+    ]
+  }
+}
+EOF
+cat > "$V6_10_SCRATCH/.claude/.apd-config" <<EOF
+PROJECT_NAME=stale-test
+APD_VERSION=6.5.0
+STACK=test
+EOF
+APD_VER_OUT="$(run_drift_v6_10)"
+if echo "$APD_VER_OUT" | grep -qE "EXIT=1" && echo "$APD_VER_OUT" | grep -qE "APD_VERSION=6\.5\.0 stale"; then
+    pass "stale APD_VERSION (different minor) → IMPORTANT + exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "APD_VERSION drift should be detected: $APD_VER_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live L: missing workflow.md markers → IMPORTANT + exit 1
+# Restore canonical settings + APD_VERSION; write stale workflow
+cat > "$V6_10_SCRATCH/.claude/.apd-config" <<EOF
+PROJECT_NAME=stale-workflow-test
+APD_VERSION=$(cat "$APD_PLUGIN_ROOT/VERSION")
+STACK=test
+EOF
+cat > "$V6_10_SCRATCH/.claude/rules/workflow.md" <<'EOF'
+# Stale workflow
+
+No modern markers present here.
+EOF
+WORKFLOW_OUT="$(run_drift_v6_10)"
+if echo "$WORKFLOW_OUT" | grep -qE "EXIT=1" && echo "$WORKFLOW_OUT" | grep -qE "v6\.7\+ guidance markers missing"; then
+    pass "stale workflow.md (no v6.7+ markers) → IMPORTANT + exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md drift should be detected: $WORKFLOW_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live M: patch-only APD_VERSION drift → INFO + exit 0
+# Set APD_VERSION to current minor with different patch (e.g. 6.9.0 → 6.9.99)
+CURRENT_VER=$(cat "$APD_PLUGIN_ROOT/VERSION")
+CURRENT_MAJOR_MINOR=$(echo "$CURRENT_VER" | cut -d'.' -f1-2)
+cat > "$V6_10_SCRATCH/.claude/.apd-config" <<EOF
+PROJECT_NAME=patch-drift-test
+APD_VERSION=${CURRENT_MAJOR_MINOR}.99
+STACK=test
+EOF
+# Restore canonical workflow
+cat > "$V6_10_SCRATCH/.claude/rules/workflow.md" <<'EOF'
+# Workflow
+
+**Implements:** R1
+**rationale gate** — v6.7
+**DEPRECATED as of v6.9**
+**unconditional** — v6.8.11
+EOF
+PATCH_OUT="$(run_drift_v6_10)"
+if echo "$PATCH_OUT" | grep -qE "EXIT=0" \
+   && echo "$PATCH_OUT" | grep -qE "INFO:" \
+   && echo "$PATCH_OUT" | grep -qE "lags current plugin"; then
+    pass "patch-only APD_VERSION drift → INFO + exit 0 (non-blocking)"
+    PASSES=$((PASSES + 1))
+else
+    fail "patch-only APD_VERSION drift should produce INFO: $PATCH_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$V6_10_SCRATCH"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
