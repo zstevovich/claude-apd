@@ -7749,6 +7749,108 @@ fi
 rm -rf "$V6_12_SCRATCH"
 
 # -----------------------------------------------------------
+# 75. v6.12.1 — verify-contracts detect_language() BSD-grep + pipefail fix
+#     Bug surfaced 2026-05-28 in BambiProject: `apd contracts <src> <dst>`
+#     reported every backend dir as "unknown". Two root causes:
+#       1. `grep -qv X` exits 1 on empty stdin → kills script under set -e
+#       2. `grep -q .` reads first line → SIGPIPE on upstream find →
+#          pipefail rejects pipe → if-branch evaluates as no-match
+#     Fix: capture filtered output into variable, check non-empty.
+# -----------------------------------------------------------
+section "75. v6.12.1 verify-contracts detect_language fix"
+
+VC_SCRIPT="$APD_PLUGIN_ROOT/bin/core/verify-contracts"
+
+# Static A: detect_language no longer uses grep -qv (broken pattern) in EXECUTABLE code.
+# Comments documenting the bug can mention `grep -qv` — pattern excludes lines
+# that have `#` (comment marker) before the grep call.
+if ! grep -qE '^[^#]*grep -qv' "$VC_SCRIPT"; then
+    pass "verify-contracts removed broken 'grep -qv' pattern from executable code"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-contracts still uses 'grep -qv' in code (BSD-grep + pipefail regression)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: detect_language uses capture-then-check pattern (no SIGPIPE risk)
+if grep -qE 'ts_files=\$\(|cs_files=\$\(' "$VC_SCRIPT" \
+   && grep -qE '\[ -n "\$ts_files" \]' "$VC_SCRIPT"; then
+    pass "verify-contracts uses capture-into-variable pattern (SIGPIPE-safe)"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-contracts missing capture-into-variable pattern"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: detect_language has parens around find -o for portability
+if grep -qE '\\\( -name.*-o -name.*\\\)' "$VC_SCRIPT"; then
+    pass "verify-contracts uses parens around find -o for GNU/BSD precedence"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-contracts missing parens around find -o (precedence portability)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live D: extract detect_language and run it under set -euo pipefail
+# against (a) empty dir, (b) C# dir, (c) TS dir. All three must exit 0.
+V6_12_1_SCRATCH="$(mktemp -d -t apd-v6_12_1.XXXXXX)"
+mkdir -p "$V6_12_1_SCRATCH/empty" "$V6_12_1_SCRATCH/csharp/src" "$V6_12_1_SCRATCH/typescript/src"
+touch "$V6_12_1_SCRATCH/csharp/src/Foo.cs"
+touch "$V6_12_1_SCRATCH/typescript/src/foo.ts"
+# Also seed obj/bin to test that those filters work
+mkdir -p "$V6_12_1_SCRATCH/csharp/src/bin" "$V6_12_1_SCRATCH/csharp/src/obj"
+touch "$V6_12_1_SCRATCH/csharp/src/bin/Excluded.cs"
+touch "$V6_12_1_SCRATCH/csharp/src/obj/Excluded.cs"
+# And node_modules to test TS filter
+mkdir -p "$V6_12_1_SCRATCH/typescript/src/node_modules"
+touch "$V6_12_1_SCRATCH/typescript/src/node_modules/excluded.ts"
+
+DETECT_TEST_SH="$V6_12_1_SCRATCH/test_detect.sh"
+# Extract the detect_language function body from the actual script
+awk '/^detect_language\(\) \{/,/^\}/' "$VC_SCRIPT" > "$DETECT_TEST_SH.body"
+cat > "$DETECT_TEST_SH" <<EOF
+#!/bin/bash
+set -euo pipefail
+$(cat "$DETECT_TEST_SH.body")
+echo "EMPTY=\$(detect_language $V6_12_1_SCRATCH/empty)"
+echo "CSHARP=\$(detect_language $V6_12_1_SCRATCH/csharp)"
+echo "TYPESCRIPT=\$(detect_language $V6_12_1_SCRATCH/typescript)"
+EOF
+DETECT_OUT=$(bash "$DETECT_TEST_SH" 2>&1)
+DETECT_RC=$?
+if [ "$DETECT_RC" -eq 0 ] \
+   && echo "$DETECT_OUT" | grep -qE 'EMPTY=unknown' \
+   && echo "$DETECT_OUT" | grep -qE 'CSHARP=csharp' \
+   && echo "$DETECT_OUT" | grep -qE 'TYPESCRIPT=typescript'; then
+    pass "detect_language under set -euo pipefail: empty=unknown, csharp dir=csharp, ts dir=typescript"
+    PASSES=$((PASSES + 1))
+else
+    fail "detect_language regression: rc=$DETECT_RC, output: $DETECT_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live E: empty dir must not crash under set -e (regression vector)
+mkdir -p "$V6_12_1_SCRATCH/just_empty"
+cat > "$V6_12_1_SCRATCH/empty_test.sh" <<EOF
+#!/bin/bash
+set -euo pipefail
+$(cat "$DETECT_TEST_SH.body")
+result=\$(detect_language $V6_12_1_SCRATCH/just_empty)
+echo "RESULT=\$result"
+EOF
+EMPTY_OUT=$(bash "$V6_12_1_SCRATCH/empty_test.sh" 2>&1)
+EMPTY_RC=$?
+if [ "$EMPTY_RC" -eq 0 ] && echo "$EMPTY_OUT" | grep -qE 'RESULT=unknown'; then
+    pass "detect_language on empty dir: exit 0, returns 'unknown' (no script crash)"
+    PASSES=$((PASSES + 1))
+else
+    fail "empty dir regression: rc=$EMPTY_RC, output: $EMPTY_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$V6_12_1_SCRATCH"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

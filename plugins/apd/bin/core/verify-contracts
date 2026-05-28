@@ -159,9 +159,21 @@ extract_cs_types() {
 # ============================================================
 detect_language() {
     local dir="$1"
-    if find "$dir" -name "*.ts" -o -name "*.tsx" 2>/dev/null | grep -qv node_modules; then
+    # v6.12.1 BSD-grep + set -euo pipefail fix. Two original bugs:
+    #   1. `grep -qv X` returns exit 1 on empty stdin → kills script under set -e
+    #   2. `grep -q .` reads first line and exits → SIGPIPE on the upstream
+    #      `find` pipe → pipefail rejects the whole pipe → if-branch evaluates
+    #      as "no match" even when files exist
+    # Fix: capture filtered output into a variable (no SIGPIPE risk), then
+    # check non-empty with `[ -n "$var" ]`. `|| true` at the end neutralizes
+    # the exit-1-on-no-matches from grep filters with empty input.
+    # Plus parens around `-o` for find precedence portability (GNU vs BSD).
+    local ts_files cs_files
+    ts_files=$(find "$dir" \( -name "*.ts" -o -name "*.tsx" \) 2>/dev/null | grep -v node_modules 2>/dev/null || true)
+    cs_files=$(find "$dir" -name "*.cs" 2>/dev/null | grep -v bin 2>/dev/null | grep -v obj 2>/dev/null || true)
+    if [ -n "$ts_files" ]; then
         echo "typescript"
-    elif find "$dir" -name "*.cs" 2>/dev/null | grep -v bin | grep -qv obj; then
+    elif [ -n "$cs_files" ]; then
         echo "csharp"
     else
         echo "unknown"

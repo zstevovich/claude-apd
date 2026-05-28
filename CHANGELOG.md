@@ -1,5 +1,43 @@
 # Changelog
 
+## v6.12.1 — 2026-05-28
+
+Hot-fix za `verify-contracts` skriptu. Bug surfaced 2026-05-28 u BambiProject — `apd contracts <src> <dst>` raportirao backend dir kao "unknown" cak iako tu postoji 100+ `.cs` fajlova.
+
+**Two root causes u `detect_language()` funkciji:**
+
+1. **`grep -qv X` exit 1 on empty stdin** — na praznom inputu (no files matched by find), `grep -qv` izbacuje "no matches" exit 1. Sa `set -euo pipefail` to ubija skriptu pre nego sto stigne do `elif` brange-a.
+2. **`grep -q .` SIGPIPE on upstream find** — `grep -q .` cita prvi red i exit-uje, sto triggers SIGPIPE na upstream `find`. Sa `pipefail`, ceo pipe vraca non-zero, if-branch evaluates kao "no match" cak kad fajlovi postoje.
+
+**Fix:** capture filtered output u variable, check non-empty sa `[ -n "$var" ]`. `|| true` na pipe-u neutralizuje exit-1-on-no-matches od grep-a sa empty input-om. Plus zagrade oko find `-o` operatora za portability izmedju GNU i BSD find implementacija.
+
+```bash
+# Before (broken)
+if find "$dir" -name "*.ts" -o -name "*.tsx" 2>/dev/null | grep -qv node_modules; then
+
+# After (fixed)
+local ts_files
+ts_files=$(find "$dir" \( -name "*.ts" -o -name "*.tsx" \) 2>/dev/null | grep -v node_modules 2>/dev/null || true)
+if [ -n "$ts_files" ]; then
+```
+
+**Verification cross-project:**
+
+| Dir | Pre-fix | Post-fix |
+|---|---|---|
+| BambiProject `src/` (100+ .cs) | unknown ❌ | **csharp** ✓ |
+| BambiProject `apps/backoffice/` | unknown ❌ | **typescript** ✓ |
+| Festico `web/` (.ts/.tsx) | typescript (worked) | **typescript** ✓ |
+| Empty dir | crash (set -e) | **unknown** ✓ (no crash) |
+
+**Test §75 +5 assertions:** 3 static (no `grep -qv` u code, capture-into-var pattern, parens oko find -o) + 2 live (detect_language pod set -euo pipefail vraca tacne language tag-ove na empty/csharp/typescript dir-ovima; empty dir ne crash-uje).
+
+**Test count 610 → 615 PASS / 0 FAIL.**
+
+**Out of scope (separate discussion za v6.13/v6.14):**
+
+User-ova druga observacija — `verify-contracts` pun directory mode ocekuje "one backend types dir ↔ one frontend types dir" layout (npr. `server/src/types/` ↔ `client/src/types/`). BambiProject ima DTO-ove razbacane po feature folderima (`src/PLAZMA.Application/Features/**/*.cs`), a backoffice koristi `apps/backoffice/src/features/**/types.ts` plus `src/types/`. To je arhitektonska pretpostavka, ne BSD grep bug — zahteva dizajn promene (multi-dir glob support, feature-folder DTO scan, ili config field `apd:contracts.layout`). Za sad: `--changed` mode (koji koristi git diff) je upotrebljiv put.
+
 ## v6.12.0 — 2026-05-26
 
 Treci minor u v6.10-v7.0 setup+audit chain-u — **stack-aware template scaffolding**. .NET prvi target stack (BambiProject reference). Realizacija "knowledge encoding system" pillar-a: orchestrator pri `apd-setup` invokeu dobija stack-specific agente + skills automatski, umesto 50-100h manuelne customizacije.
