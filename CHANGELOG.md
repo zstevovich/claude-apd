@@ -1,5 +1,52 @@
 # Changelog
 
+## v6.12.3 — 2026-05-28
+
+Treci hot-fix isti dan, **strukturalan umesto manual** posle user-ove primedbe da "v6.12.2 ne pravi NOVU konfabulaciju ali ne POPRAVLJA postojecu". Implementiran **drift dimension D — feature claim drift** u `pipeline-audit-drift` (v6.10 family).
+
+**Sta dim D radi:**
+
+Skenira `.claude/rules/workflow.md` + `.claude/CLAUDE.md` + `CLAUDE.md` (project root) za bilo koju liniju koja pominje BOTH:
+- contracts command (`verify-contracts` ili `apd contracts`)
+- AND unsupported language (PHP / Python / Java / Go / Ruby / Kotlin / Rust)
+
+Match = IMPORTANT drift sa per-claim breakdown. awk-based detection (ne grep regex) jer pattern zahteva "both X and Y in same line in any order" — grep regex ne moze cisto da to izrazi.
+
+**Sample output (synthetic confabulation):**
+
+```
+IMPORTANT:
+  1. [.claude/rules/workflow.md] Feature claim drift — 3 unsupported language claim(s)
+    - contracts command → PHP (verify-contracts supports TypeScript ↔ C# only as of v6.12+)
+    - contracts command → Python (...)
+    - contracts command → Go (...)
+    Effect: orchestrator (or human reading docs) believes feature exists; relies on it; silent gap in cross-layer review coverage.
+    Recovery: edit the file — replace 'apd verify-contracts ... <lang>' claims with 'manual cross-layer type mapping (see workflow.md sekcija 7 for the table)'. Framework reality: verify-contracts errors on unsupported langs (v6.12.2+ shows file-count + supported pairs).
+```
+
+**Why structural fix over manual cleanup:**
+
+User insight: anti-pattern u apd-setup skill (v6.12.2) sprecava buduce konfabulacije ali ne popravlja postojece. apd-setup re-run nije pouzdan cleanup jer je additive (ne destructive). Manual edit je 2-min posao za jedan projekat, ali class problem moze se ponoviti — drift detection zatvara **klasu**, ne instance.
+
+**Falsefree validation:**
+
+- Synthetic project sa 3 false claims (PHP + Python + Go) → detected sa per-claim listom
+- Festico u trenutnom stanju (sekcija 7 ima manuelnu guidance) → NE flag-ovano (manuelni "Backend DTO is source of truth" + "For each field, map the type" ne hvata jer nema command+lang kombinacije na istoj liniji)
+- Clean workflow.md sa "Manual cross-layer review — automatic verification only for TS ↔ C# pairs" → NE flag-ovano
+
+**Highlights:**
+
+- **feat(pipeline-audit-drift):** new `_check_feature_claims()` helper, iterates 7 unsupported languages × 2 file types (workflow.md + CLAUDE.md). awk-based both-on-same-line detection.
+- **fix(skills/apd-audit/SKILL.md):** Section 8 dimension 4 documented (CC + Codex mirror)
+- **test(test-codex-adapter §77) +8 assertions:** 5 static + 3 live (confabulation detected, clean guidance not flagged, CLAUDE.md scan covered)
+- **Test count 624 → 632 PASS / 0 FAIL.**
+
+**Migration:** projekti sa postojecom konfabulacijom u workflow.md/CLAUDE.md videce IMPORTANT u `apd audit-drift`. Recovery action u poruci eksplicit kaze sta da urade — replace sa "manual cross-layer type mapping" reference.
+
+**Strukturalno postignuto:**
+
+v6.12.2 anti-pattern (prevent) + v6.12.3 drift detection (detect existing) = oba sloja pokrivena za confabulation pattern. Festico-style problem ne moze tiho da prodje vise — ili apd-setup ne pisuje confabulation, ili audit ga catch-uje.
+
 ## v6.12.2 — 2026-05-28
 
 Second hot-fix isti dan, posle Festico-ovog second observation-a. `verify-contracts` ima dva fail-quietly pattern-a koja prave **silent false-pass** iluziju:

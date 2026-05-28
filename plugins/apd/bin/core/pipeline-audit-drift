@@ -103,6 +103,56 @@ if [ -f "$APD_CONFIG" ]; then
 fi
 
 # ============================================================
+# Dimension D — feature claim drift (v6.12.3)
+# Scans workflow.md + CLAUDE.md for orchestrator confabulation patterns
+# claiming features the framework doesn't actually ship. First documented
+# instance: Festico apd-setup (2026-05-28) — orchestrator wrote that
+# `apd verify-contracts` auto-checks PHP DTO ↔ TS, which is false.
+# Framework supports TS ↔ C# only. Pattern can repeat for any
+# unsupported-language claim across verify-contracts / stack / scaffold.
+# ============================================================
+_check_feature_claims() {
+    local file="$1"
+    local file_label="$2"
+    [ -f "$file" ] || return 0
+
+    # Feature claim patterns: any line that mentions BOTH a contracts command
+    # (verify-contracts / apd contracts) AND an unsupported language marker
+    # (PHP/Python/Java/Go/Ruby/Kotlin/Rust). awk used because grep regex
+    # can't express "both X and Y in any order on same line" cleanly.
+    local found_claims=()
+
+    for lang in PHP Python Java Go Ruby Kotlin Rust; do
+        # awk: lowercase the line, check it contains both a contracts mention
+        # AND the language name. Each match is a confabulation candidate.
+        if awk -v lang="$(echo "$lang" | tr '[:upper:]' '[:lower:]')" '
+            {
+                line = tolower($0)
+                has_contracts = (line ~ /verify[- ]?contracts/ || line ~ /apd[ ]+contracts/)
+                has_lang = (index(line, lang) > 0)
+                if (has_contracts && has_lang) { found = 1; exit }
+            }
+            END { exit (found ? 0 : 1) }
+        ' "$file" 2>/dev/null; then
+            found_claims+=("contracts command → $lang")
+        fi
+    done
+
+    if [ ${#found_claims[@]} -gt 0 ]; then
+        IMPORTANT+=("[$file_label] Feature claim drift — ${#found_claims[@]} unsupported language claim(s)")
+        for claim in "${found_claims[@]}"; do
+            IMPORTANT+=("  - $claim (verify-contracts supports TypeScript ↔ C# only as of v6.12+)")
+        done
+        IMPORTANT+=("  Effect: orchestrator (or human reading docs) believes feature exists; relies on it; silent gap in cross-layer review coverage.")
+        IMPORTANT+=("  Recovery: edit the file — replace 'apd verify-contracts ... <lang>' claims with 'manual cross-layer type mapping (see workflow.md sekcija 7 for the table)'. Framework reality: verify-contracts errors on unsupported langs (v6.12.2+ shows file-count + supported pairs).")
+    fi
+}
+
+_check_feature_claims "$WORKFLOW_FILE" ".claude/rules/workflow.md"
+_check_feature_claims "$CLAUDE_DIR/CLAUDE.md" ".claude/CLAUDE.md"
+_check_feature_claims "$PROJECT_DIR/CLAUDE.md" "CLAUDE.md"
+
+# ============================================================
 # Dimension C — workflow.md content markers drift
 # ============================================================
 if [ -f "$WORKFLOW_FILE" ] && [ -f "$FRAMEWORK_WORKFLOW" ]; then

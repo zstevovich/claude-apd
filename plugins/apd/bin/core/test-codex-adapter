@@ -7989,6 +7989,147 @@ fi
 rm -rf "$V6_12_2_SCRATCH"
 
 # -----------------------------------------------------------
+# 77. v6.12.3 — pipeline-audit-drift Dimension D (feature claim drift)
+#     Strukturalan fix umesto manual cleanup za orchestrator confabulation
+#     pattern. Festico apd-setup (2026-05-28) generated false "apd
+#     verify-contracts checks PHP DTO ↔ TS automatically" claim. Scans
+#     workflow.md + CLAUDE.md for any line mentioning BOTH a contracts
+#     command AND an unsupported language (PHP/Python/Java/Go/Ruby/
+#     Kotlin/Rust). Detection prevents silent cross-layer review gaps
+#     across multiple projects, not just Festico.
+# -----------------------------------------------------------
+section "77. v6.12.3 pipeline-audit-drift Dimension D (feature claim drift)"
+
+DRIFT_SCRIPT="$APD_PLUGIN_ROOT/bin/core/pipeline-audit-drift"
+
+# Static A: drift script has _check_feature_claims helper
+if grep -qE '^_check_feature_claims\(\) \{' "$DRIFT_SCRIPT"; then
+    pass "pipeline-audit-drift has _check_feature_claims helper"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-audit-drift missing _check_feature_claims helper"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: helper iterates over unsupported language list
+if grep -qE 'for lang in PHP Python Java Go Ruby Kotlin Rust' "$DRIFT_SCRIPT"; then
+    pass "pipeline-audit-drift iterates over 7 unsupported languages"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-audit-drift missing unsupported language list"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: helper invoked for workflow.md AND CLAUDE.md
+if grep -qE '_check_feature_claims "\$WORKFLOW_FILE"' "$DRIFT_SCRIPT" \
+   && grep -qE '_check_feature_claims.*CLAUDE\.md' "$DRIFT_SCRIPT"; then
+    pass "pipeline-audit-drift scans workflow.md AND CLAUDE.md"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-audit-drift not scanning both file types"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: CC apd-audit SKILL.md documents dimension 4 (feature claim)
+if grep -qE '4\. .*[Ff]eature claim drift' "$REPO_ROOT/skills/apd-audit/SKILL.md"; then
+    pass "CC apd-audit SKILL.md documents dimension 4 (feature claim drift)"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-audit SKILL.md missing dimension 4 documentation"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: Codex apd-audit SKILL.md mirror has dimension 4
+if grep -qE '[Ff]eature claim drift' "$APD_PLUGIN_ROOT/skills/apd-audit/SKILL.md"; then
+    pass "Codex apd-audit SKILL.md mirror documents dimension 4"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex apd-audit SKILL.md missing dimension 4 documentation"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup for dim D behavioural tests
+V6_12_3_SCRATCH="$(mktemp -d -t apd-v6_12_3.XXXXXX)"
+mkdir -p "$V6_12_3_SCRATCH/.claude/rules" "$V6_12_3_SCRATCH/.apd"
+touch "$V6_12_3_SCRATCH/.apd/config"
+
+# Write canonical baseline (clean dims A/B/C) so we isolate dim D signals
+cat > "$V6_12_3_SCRATCH/.claude/.apd-config" <<EOF
+PROJECT_NAME=dim-d-test
+APD_VERSION=$(cat "$APD_PLUGIN_ROOT/VERSION")
+STACK=test
+EOF
+cat > "$V6_12_3_SCRATCH/.claude/settings.json" <<'EOF'
+{"permissions":{"deny":["Bash(mkdir */.apd/pipeline/*)","Bash(mkdir -p */.apd/pipeline/*)","Bash(mkdir */.apd/pipeline)","Bash(mkdir -p */.apd/pipeline)","Bash(mkdir .apd/pipeline/*)","Bash(mkdir -p .apd/pipeline/*)","Bash(mkdir .apd/pipeline)","Bash(mkdir -p .apd/pipeline)"]}}
+EOF
+
+# Live F: workflow.md WITH confabulation → drift IMPORTANT
+cat > "$V6_12_3_SCRATCH/.claude/rules/workflow.md" <<'EOF'
+# Workflow
+**Implements:** R1
+rationale gate
+DEPRECATED
+unconditional
+
+## Cross-layer verification
+apd verify-contracts automatically checks PHP DTO ↔ TypeScript types.
+For Python DTOs the apd contracts command also runs comparison.
+EOF
+CONFAB_OUT=$(APD_PROJECT_DIR="$V6_12_3_SCRATCH" bash "$DRIFT_SCRIPT" 2>&1; echo "EXIT=$?")
+if echo "$CONFAB_OUT" | grep -qE 'EXIT=1' \
+   && echo "$CONFAB_OUT" | grep -qE 'Feature claim drift' \
+   && echo "$CONFAB_OUT" | grep -qE 'PHP' \
+   && echo "$CONFAB_OUT" | grep -qE 'Python'; then
+    pass "workflow.md confabulation (PHP + Python) → IMPORTANT + exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "confabulation drift should be detected: $CONFAB_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live G: workflow.md WITHOUT confabulation (manual guidance) → no dim D flag
+cat > "$V6_12_3_SCRATCH/.claude/rules/workflow.md" <<'EOF'
+# Workflow
+**Implements:** R1
+rationale gate
+DEPRECATED
+unconditional
+
+## Cross-layer verification
+When a task involves backend + frontend/mobile:
+1. Backend DTO is the source of truth
+2. For each field, map the type to the frontend equivalent
+3. Manual cross-layer review — automatic verification only for TS ↔ C# pairs
+EOF
+CLEAN_OUT=$(APD_PROJECT_DIR="$V6_12_3_SCRATCH" bash "$DRIFT_SCRIPT" 2>&1; echo "EXIT=$?")
+if echo "$CLEAN_OUT" | grep -qE 'EXIT=0' \
+   && ! echo "$CLEAN_OUT" | grep -qE 'Feature claim drift'; then
+    pass "manual cross-layer guidance (no command + lang combo) → no false dim D flag"
+    PASSES=$((PASSES + 1))
+else
+    fail "clean workflow.md should not trigger dim D: $CLEAN_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live H: CLAUDE.md confabulation also detected (separate file scan)
+cat > "$V6_12_3_SCRATCH/CLAUDE.md" <<'EOF'
+# Project Instructions
+apd verify-contracts will automatically validate our Go DTO types against the TS frontend.
+EOF
+CLAUDE_OUT=$(APD_PROJECT_DIR="$V6_12_3_SCRATCH" bash "$DRIFT_SCRIPT" 2>&1; echo "EXIT=$?")
+if echo "$CLAUDE_OUT" | grep -qE 'EXIT=1' \
+   && echo "$CLAUDE_OUT" | grep -qE 'Feature claim drift' \
+   && echo "$CLAUDE_OUT" | grep -qE 'CLAUDE\.md'; then
+    pass "CLAUDE.md confabulation (Go) → IMPORTANT + file label includes CLAUDE.md"
+    PASSES=$((PASSES + 1))
+else
+    fail "CLAUDE.md confabulation should be detected: $CLAUDE_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$V6_12_3_SCRATCH"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

@@ -122,6 +122,7 @@ bash ${APD_PLUGIN_ROOT}/bin/core/pipeline-audit-drift
 1. `.claude/settings.json` (or Codex equivalent) deny patterns — compares against current framework baseline (8 mkdir patterns: 4 slash-prefixed + 4 bare-dir). Pre-v6.10 re-inits left projects with only 4 patterns.
 2. `.claude/.apd-config` APD_VERSION — compares against currently loaded plugin version. Stale value (minor/major lag) means stale workflow/agent templates.
 3. `.claude/rules/workflow.md` content markers — checks for v6.7+ guidance markers (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`). Missing markers indicate stale workflow.md.
+4. **Feature claim drift** (v6.12.3+) — scans workflow.md and CLAUDE.md for orchestrator confabulation: any line mentioning BOTH a contracts command (`verify-contracts`/`apd contracts`) AND an unsupported language (PHP/Python/Java/Go/Ruby/Kotlin/Rust). Festico apd-setup 2026-05-28 generated false "verify-contracts checks PHP automatically" claim; framework supports TS ↔ C# only. Prevents silent cross-layer review coverage gaps.
 
 Output buckets: CRITICAL / IMPORTANT (most common) / INFO / CLEAN. Recovery actions point to re-run of `apd cdx init` (Codex) or `/apd-setup` (CC); v6.10+ python merge fix writes all 8 deny patterns.
 
