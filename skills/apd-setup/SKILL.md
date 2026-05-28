@@ -159,6 +159,7 @@ The check must report `0 FAIL` before this skill finishes. If a FAIL surfaces, e
 - **Don't** populate `CLAUDE.md` with `{{PLACEHOLDER}}` values **→ Do** ask the user (or read from `CLAUDE_PLUGIN_OPTION_*` env vars) and fill every placeholder
 - **Don't** assume the stack from one folder name **→ Do** read enough of the project (`package.json`, `pom.xml`, `Cargo.toml`, etc.) to confirm before suggesting agents
 - **Don't** generate the reviewer agent with `model: sonnet` **→ Do** use `model: opus, effort: max, permissionMode: plan` — this is the one agent where shortcuts matter
+- **Don't promise framework features that don't exist in generated CLAUDE.md / workflow.md.** Especially: `apd verify-contracts` supports **TypeScript ↔ C# only** (v6.12+). For PHP/Python/Java/Go/Ruby/Kotlin/Rust backends, the verifier ERRORS — do NOT write "apd verify-contracts automatically checks <X> DTO ↔ TS types" in generated docs for those stacks. Instead write "Cross-layer type mapping is manual — see workflow.md sekcija 7 table". This anti-pattern was observed in Festico apd-setup (2026-05-28) — orchestrator confabulated PHP support claim that does not exist. When uncertain about framework feature scope, read `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/<command>` script header for exact supported scope, or `docs/SPEC.md`.
 
 ## Exit criteria
 

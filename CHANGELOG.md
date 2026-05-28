@@ -1,5 +1,72 @@
 # Changelog
 
+## v6.12.2 — 2026-05-28
+
+Second hot-fix isti dan, posle Festico-ovog second observation-a. `verify-contracts` ima dva fail-quietly pattern-a koja prave **silent false-pass** iluziju:
+
+1. **`--changed` mode poruka je ambigua** — "Changes do not affect types at layer boundaries" nije razlikovalo "no relevant change" od "language pair not supported". User koji menja PHP DTO dobija ovu poruku i misli "OK, ne treba nista".
+2. **Pun directory mode error message je generic** — "Unrecognized backend language" ne kaze user-u sta JE detektovano (sta tacno fail-uje).
+
+Plus dokumentacijska crisis: **Festico CLAUDE.md/workflow.md tvrde "apd verify-contracts proverava PHP DTO ↔ TS automatski"** — to je orchestrator-ova konfabulacija u apd-setup-u, ne framework template claim. Framework template ne pominje verify-contracts uopste. Orchestrator je verovatno video `apd verify` u SPEC-u i izmislio funkcionalnost.
+
+**Highlights:**
+
+### A. `--changed` mode preciznija detekcija
+
+- **Dodato:** detekcija `UNSUPPORTED_CHANGED` files — .php/.py/.java/.go/.rb/.kt/.rs unutar backend/frontend dirs
+- **Output:** kad detected promene u nepodrzanom jeziku, emit explicit:
+  ```
+  Detected N changed file(s) in unsupported language(s).
+    Sample (up to 5):
+      backend/src/Module/Foo.php
+    Contract verifier supports TypeScript ↔ C# only.
+    PHP/Python/Java/Go/Ruby/Kotlin/Rust require manual cross-layer review.
+    See workflow.md sekcija 7 (cross-layer type mapping) for the table.
+  ```
+- **Plus NOTE** posle "Changes detected in type files" hint-a: "verifier supports TypeScript ↔ C# only. For other backends, this command will error — see workflow.md sekcija 7 for manual review process."
+
+### B. Pun mode error enriched sa `_lang_summary`
+
+- **Nova helper funkcija:** `_lang_summary()` koristi `find -not -path` (bez grep pipe sa pipefail problema) da pobroji `.cs/.ts/.tsx/.php/.py/.java/.go/.rb/.kt/.rs` fajlove
+- **Error sad pokazuje:**
+  ```
+  ERROR: Unrecognized backend language in backend/src. Supported pairs: TypeScript ↔ C#.
+    Detected: 0 .cs, 0 .ts/.tsx, 658 .php, 0 .py, 0 .java, ...
+    PHP/Python/Java/Go/Ruby/Kotlin/Rust are not yet supported. For these stacks,
+    see workflow.md sekcija 7 (cross-layer type mapping) — manual review process.
+  ```
+
+### C. Skripta header eksplicit lista
+
+- "NOT supported (require manual cross-layer review): PHP, Python, Java, Go, Ruby, Kotlin, Rust"
+
+### D. apd-setup skill anti-pattern
+
+- Novi anti-pattern u `skills/apd-setup/SKILL.md`: "Don't promise framework features that don't exist in generated CLAUDE.md / workflow.md. Especially: `apd verify-contracts` supports TypeScript ↔ C# only (v6.12+)." Plus uputstvo: "When uncertain about framework feature scope, read `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/<command>` script header for exact supported scope, or `docs/SPEC.md`."
+- Empirical reference: Festico apd-setup 2026-05-28 (orchestrator confabulated PHP support claim)
+
+### E. Tests §76 +9 assertions
+
+- 6 static (header lists unsupported langs, `_lang_summary` helper, full mode invokes helper, `--changed` detects UNSUPPORTED_CHANGED, workflow.md sekcija 7 reference, apd-setup anti-pattern)
+- 3 live (PHP diff → unsupported warning, full mode shows .php file count, TS-only diff → no false unsupported warning)
+
+**Test count 615 → 624 PASS / 0 FAIL.**
+
+**Cross-project verification:**
+
+| Scenario | Pre-fix | Post-fix |
+|---|---|---|
+| Festico `backend/src` (658 .php) full mode | "Unrecognized backend language" (generic) | Explicit count + "see workflow.md sekcija 7" |
+| `--changed` sa PHP diff | "Changes do not affect types" (misleading) | "Detected N changed file(s) in unsupported language(s)" |
+| TS-only diff | works | still works (no false positive) |
+
+**Festico cleanup:** orchestrator-ova konfabulacija u Festico CLAUDE.md/workflow.md ostaje (per-project artifact, ne framework bug). User je vec dokumentovao limitation u Festico MEMORY.md. Sledeci `apd-setup` re-run sa v6.12.2+ NE bi smeo da re-konfabulira jer anti-pattern u skill-u je sad explicit. Plus drift detection (v6.10) ce flag-ovati stale workflow.md ako orchestrator ne updejtuje.
+
+**Out of scope (deferred za v6.13/v6.14):**
+
+- **PHP parser** — real feature work. Festico postoji + v6.13 ce verovatno imati PHP/Symfony stack-aware scaffolding pa moze biti grupisano tamo. Sa current `_lang_summary` helper-om, dodavanje PHP parser-a je incremental (extract_php_types funkcija + dodaje "$BACKEND_LANG = php" branch).
+- **Layout flexibility** (feature-folder DTO scan) — i dalje deferred za v6.14+.
+
 ## v6.12.1 — 2026-05-28
 
 Hot-fix za `verify-contracts` skriptu. Bug surfaced 2026-05-28 u BambiProject — `apd contracts <src> <dst>` raportirao backend dir kao "unknown" cak iako tu postoji 100+ `.cs` fajlova.

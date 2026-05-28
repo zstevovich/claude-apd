@@ -6,9 +6,14 @@
 #   verify-contracts --changed          # only changed files (for pre-commit)
 #   verify-contracts --help
 #
-# Supports: TypeScript (interface/type) and C# (class/record DTO)
-# Limitations: Regex-based, not a full parser. Covers ~80% of cases.
-#              Complex generics and deep nested types require manual review.
+# Supports: TypeScript (interface/type) and C# (class/record DTO).
+# NOT supported (require manual cross-layer review): PHP, Python, Java, Go,
+#              Ruby, Kotlin, Rust. For these stacks, see workflow.md sekcija 7
+#              (cross-layer type mapping) — automatic verification does not
+#              exist.
+# Limitations: Regex-based, not a full parser. Covers ~80% of cases for
+#              supported pairs (TS↔C#). Complex generics and deep nested
+#              types require manual review even on supported stacks.
 
 set -euo pipefail
 
@@ -273,13 +278,33 @@ if [ "${1:-}" = "--changed" ]; then
     HAS_BACKEND=$(echo "$CHANGED" | grep -qE '(src/|server/|backend/|api/).*(types|dto|model|response|Dto|DTO)' && echo "true" || echo "false")
     HAS_FRONTEND=$(echo "$CHANGED" | grep -qE '(client/|frontend/|web/|apps/).*(types|model|interface)' && echo "true" || echo "false")
 
+    # v6.12.2: detect changed files in unsupported languages (PHP/Python/Java/Go/Ruby/Kotlin/Rust)
+    # within backend/frontend dirs. Without this, user can't tell "no relevant
+    # changes" apart from "language pair not supported by verifier".
+    UNSUPPORTED_CHANGED=$(echo "$CHANGED" | grep -E '(src/|server/|backend/|api/|client/|frontend/|web/|apps/).*\.(php|py|java|go|rb|kt|rs)$' || true)
+
     if [ "$HAS_BACKEND" = "false" ] && [ "$HAS_FRONTEND" = "false" ]; then
+        if [ -n "$UNSUPPORTED_CHANGED" ]; then
+            unsupported_count=$(echo "$UNSUPPORTED_CHANGED" | wc -l | tr -d ' ')
+            printf '%s\n' "${YELLOW}Detected $unsupported_count changed file(s) in unsupported language(s).${NC}"
+            echo ""
+            echo "  Sample (up to 5):"
+            echo "$UNSUPPORTED_CHANGED" | head -5 | sed 's/^/    /'
+            echo ""
+            echo "  ${YELLOW}Contract verifier supports TypeScript ↔ C# only.${NC}"
+            echo "  PHP/Python/Java/Go/Ruby/Kotlin/Rust require manual cross-layer review."
+            echo "  See workflow.md sekcija 7 (cross-layer type mapping) for the table."
+            exit 0
+        fi
         echo "Changes do not affect types at layer boundaries."
         exit 0
     fi
 
     printf '%s\n' "${YELLOW}Changes detected in type files — run full verification:${NC}"
     echo "  bash $APD_SHORTCUT_DISPLAY verify-contracts <backend_types_dir> <frontend_types_dir>"
+    echo ""
+    echo "  ${YELLOW}NOTE:${NC} verifier supports TypeScript ↔ C# only. For other backends,"
+    echo "  this command will error — see workflow.md sekcija 7 for manual review process."
     exit 0
 fi
 
@@ -311,13 +336,36 @@ echo "Backend:  $1 ($BACKEND_LANG)"
 echo "Frontend: $2 ($FRONTEND_LANG)"
 echo ""
 
+# v6.12.2: helper to count files by language in an unknown-language dir,
+# so the error message tells the user WHAT was detected, not just "unknown".
+_lang_summary() {
+    local dir="$1"
+    local cs ts php py java go rb kt rs
+    # find -not -path replaces grep pipe to avoid pipefail multi-line counts.
+    # `tr -d '[:space:]'` collapses any stray whitespace from wc output.
+    cs=$(find "$dir" -name "*.cs" -not -path '*/bin/*' -not -path '*/obj/*' 2>/dev/null | wc -l | tr -d '[:space:]')
+    ts=$(find "$dir" \( -name "*.ts" -o -name "*.tsx" \) -not -path '*/node_modules/*' 2>/dev/null | wc -l | tr -d '[:space:]')
+    php=$(find "$dir" -name "*.php" -not -path '*/vendor/*' 2>/dev/null | wc -l | tr -d '[:space:]')
+    py=$(find "$dir" -name "*.py" -not -path '*/__pycache__/*' 2>/dev/null | wc -l | tr -d '[:space:]')
+    java=$(find "$dir" -name "*.java" -not -path '*/build/*' 2>/dev/null | wc -l | tr -d '[:space:]')
+    go=$(find "$dir" -name "*.go" 2>/dev/null | wc -l | tr -d '[:space:]')
+    rb=$(find "$dir" -name "*.rb" 2>/dev/null | wc -l | tr -d '[:space:]')
+    kt=$(find "$dir" -name "*.kt" 2>/dev/null | wc -l | tr -d '[:space:]')
+    rs=$(find "$dir" -name "*.rs" 2>/dev/null | wc -l | tr -d '[:space:]')
+    echo "  Detected: ${cs} .cs, ${ts} .ts/.tsx, ${php} .php, ${py} .py, ${java} .java, ${go} .go, ${rb} .rb, ${kt} .kt, ${rs} .rs"
+}
+
 # Extract types
 if [ "$BACKEND_LANG" = "typescript" ]; then
     BACKEND_TYPES_FILE=$(extract_ts_types "$BACKEND_DIR")
 elif [ "$BACKEND_LANG" = "csharp" ]; then
     BACKEND_TYPES_FILE=$(extract_cs_types "$BACKEND_DIR")
 else
-    echo "ERROR: Unrecognized backend language in $1. Supported: TypeScript, C#" >&2
+    echo "ERROR: Unrecognized backend language in $1. Supported pairs: TypeScript ↔ C#." >&2
+    _lang_summary "$BACKEND_DIR" >&2
+    echo "" >&2
+    echo "  PHP/Python/Java/Go/Ruby/Kotlin/Rust are not yet supported. For these stacks," >&2
+    echo "  see workflow.md sekcija 7 (cross-layer type mapping) — manual review process." >&2
     exit 1
 fi
 
@@ -326,7 +374,11 @@ if [ "$FRONTEND_LANG" = "typescript" ]; then
 elif [ "$FRONTEND_LANG" = "csharp" ]; then
     FRONTEND_TYPES_FILE=$(extract_cs_types "$FRONTEND_DIR")
 else
-    echo "ERROR: Unrecognized frontend language in $2. Supported: TypeScript, C#" >&2
+    echo "ERROR: Unrecognized frontend language in $2. Supported pairs: TypeScript ↔ C#." >&2
+    _lang_summary "$FRONTEND_DIR" >&2
+    echo "" >&2
+    echo "  PHP/Python/Java/Go/Ruby/Kotlin/Rust are not yet supported. For these stacks," >&2
+    echo "  see workflow.md sekcija 7 (cross-layer type mapping) — manual review process." >&2
     exit 1
 fi
 

@@ -7851,6 +7851,144 @@ fi
 rm -rf "$V6_12_1_SCRATCH"
 
 # -----------------------------------------------------------
+# 76. v6.12.2 — verify-contracts unsupported-language clarity
+#     Bug surfaced 2026-05-28 in Festico: --changed mode said "Changes
+#     do not affect types at layer boundaries" for PHP DTO diffs, which
+#     was ambiguous between "no relevant change" and "language pair not
+#     supported". Plus full directory mode error said only "Unrecognized
+#     backend language" without showing WHAT was detected.
+#
+#     Fix: --changed mode detects unsupported-language changes in
+#     backend/frontend dirs and emits explicit "unsupported language"
+#     warning with file samples. Full mode shows file count per
+#     language extension (`_lang_summary`). Plus apd-setup skill
+#     anti-pattern added to prevent orchestrator from confabulating
+#     PHP support claims in generated CLAUDE.md/workflow.md (the
+#     Festico-style confabulation pattern).
+# -----------------------------------------------------------
+section "76. v6.12.2 verify-contracts unsupported-language clarity"
+
+VC_SCRIPT="$APD_PLUGIN_ROOT/bin/core/verify-contracts"
+
+# Static A: header documents PHP/Python/Java/Go/Ruby/Kotlin/Rust as NOT supported
+if grep -qE 'NOT supported.*PHP, Python, Java, Go|PHP/Python/Java/Go.*not.*supported' "$VC_SCRIPT"; then
+    pass "verify-contracts header lists unsupported languages explicitly"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-contracts header missing explicit list of unsupported languages"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: _lang_summary helper exists
+if grep -qE '^_lang_summary\(\) \{' "$VC_SCRIPT"; then
+    pass "verify-contracts has _lang_summary helper for file-count error context"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-contracts missing _lang_summary helper"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: full mode error invokes _lang_summary
+if grep -qE '_lang_summary "\$BACKEND_DIR"' "$VC_SCRIPT" && grep -qE '_lang_summary "\$FRONTEND_DIR"' "$VC_SCRIPT"; then
+    pass "verify-contracts full mode invokes _lang_summary on unknown language"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-contracts full mode error not enriched with _lang_summary"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: --changed mode detects UNSUPPORTED_CHANGED files
+if grep -qE 'UNSUPPORTED_CHANGED' "$VC_SCRIPT"; then
+    pass "verify-contracts --changed mode tracks unsupported-language changes"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-contracts --changed mode missing UNSUPPORTED_CHANGED detection"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: --changed mode references workflow.md sekcija 7 (manual review fallback)
+if grep -qE 'sekcija 7|workflow\.md sekcija' "$VC_SCRIPT"; then
+    pass "verify-contracts points users to workflow.md sekcija 7 for manual review"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-contracts missing reference to manual review process"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static F: apd-setup skill has anti-pattern about feature confabulation
+if grep -qE "Don't promise framework features.*don't exist|verify-contracts.*TypeScript.*C#.*only.*v6\.12" "$REPO_ROOT/skills/apd-setup/SKILL.md"; then
+    pass "apd-setup SKILL.md has anti-pattern against feature confabulation"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-setup SKILL.md missing anti-pattern about confabulating PHP/Python support"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live G: --changed mode emits "unsupported language" warning for PHP diff
+V6_12_2_SCRATCH="$(mktemp -d -t apd-v6_12_2.XXXXXX)"
+cd "$V6_12_2_SCRATCH"
+git init -q
+git config user.email t@t.com
+git config user.name t
+mkdir -p backend/src/Module
+echo "<?php class Foo {}" > backend/src/Module/Foo.php
+git add . >/dev/null 2>&1
+cd - >/dev/null
+
+PHP_CHANGED_OUT=$(APD_PROJECT_DIR="$V6_12_2_SCRATCH" bash "$VC_SCRIPT" --changed 2>&1 || true)
+if echo "$PHP_CHANGED_OUT" | grep -qE "unsupported language" \
+   && echo "$PHP_CHANGED_OUT" | grep -qE "TypeScript . C#"; then
+    pass "--changed mode emits 'unsupported language' warning for PHP diff"
+    PASSES=$((PASSES + 1))
+else
+    fail "--changed mode should warn on unsupported PHP changes: $PHP_CHANGED_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live H: full mode error shows file count per language (_lang_summary)
+mkdir -p "$V6_12_2_SCRATCH/php_backend"
+for i in 1 2 3 4 5; do
+    echo "<?php class C$i {}" > "$V6_12_2_SCRATCH/php_backend/C$i.php"
+done
+mkdir -p "$V6_12_2_SCRATCH/ts_frontend"
+echo "export type Foo = { id: string }" > "$V6_12_2_SCRATCH/ts_frontend/types.ts"
+
+PHP_FULL_OUT=$(APD_PROJECT_DIR="$V6_12_2_SCRATCH" bash "$VC_SCRIPT" php_backend ts_frontend 2>&1 || true)
+if echo "$PHP_FULL_OUT" | grep -qE "Detected:.*5 \.php" \
+   && echo "$PHP_FULL_OUT" | grep -qE "Supported pairs.*TypeScript . C#"; then
+    pass "full mode error shows file count per language + supported pairs"
+    PASSES=$((PASSES + 1))
+else
+    fail "full mode error should show file counts: $PHP_FULL_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live I: no false-positive for normal TS-only diff (regression guard)
+rm -rf "$V6_12_2_SCRATCH"
+V6_12_2_SCRATCH="$(mktemp -d -t apd-v6_12_2b.XXXXXX)"
+cd "$V6_12_2_SCRATCH"
+git init -q
+git config user.email t@t.com
+git config user.name t
+mkdir -p apps/web/src/types
+echo "export type User = { id: string }" > apps/web/src/types/user.ts
+git add . >/dev/null 2>&1
+cd - >/dev/null
+
+TS_OUT=$(APD_PROJECT_DIR="$V6_12_2_SCRATCH" bash "$VC_SCRIPT" --changed 2>&1 || true)
+# Should detect frontend change and emit "run full verification" hint, NOT "unsupported language"
+if echo "$TS_OUT" | grep -qE "Changes detected in type files" \
+   && ! echo "$TS_OUT" | grep -qE "unsupported language"; then
+    pass "TS-only diff → 'changes detected' hint, no false 'unsupported' warning"
+    PASSES=$((PASSES + 1))
+else
+    fail "TS diff regression: $TS_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$V6_12_2_SCRATCH"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
