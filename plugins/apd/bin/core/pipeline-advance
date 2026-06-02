@@ -148,6 +148,81 @@ create_done() {
     fi
 }
 
+# archive_rationale — append the current task's adversarial rationale to a permanent
+# audit trail BEFORE pipeline state is wiped (spec re-advance + reset). Mirrors the
+# agent-history.log archival pattern. Without this, dismiss-heavy runs (high Do-share,
+# e.g. 11:1:10 / 8:1:7) lose their per-finding rationale on reset and cannot be
+# retro-audited — the in-flight gate (warns + A>=1) was the only check. Best-effort;
+# never blocks. Task name from spec.done (line1 col3); summary from .adversarial-summary.
+archive_rationale() {
+    # Skip verify-apd's synthetic Section 8 rationale (same rationale as #1 tagging).
+    [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ] && return 0
+    local rat="$PIPELINE_DIR/.adversarial-rationale.md"
+    [ -s "$rat" ] || return 0
+    [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ] || return 0
+    local archive="$MEMORY_DIR/adversarial-rationale-archive.md"
+    local ts task adv
+    ts=$(date +"%Y-%m-%d %H:%M:%S")
+    task=$(head -1 "$PIPELINE_DIR/spec.done" 2>/dev/null | cut -d'|' -f3)
+    [ -n "$task" ] || task="(unknown)"
+    adv=$(grep '^ADVERSARIAL:' "$PIPELINE_DIR/.adversarial-summary" 2>/dev/null | head -1)
+    [ -n "$adv" ] || adv="ADVERSARIAL:n/a"
+    {
+        echo ""
+        echo "<!-- ============================================================ -->"
+        echo "## Archived $ts — $task"
+        echo "**Summary:** $adv"
+        echo ""
+        cat "$rat"
+        echo ""
+    } >> "$archive" 2>/dev/null || true
+}
+
+# print_pipeline_state — read-only digest of pipeline state. The sanctioned
+# alternative to bash `cat`/`ls` on .apd/pipeline (which guard-bash-scope blocks).
+# Prints DIGESTS (counts/status lines) of pipeline-generated state, not raw
+# fabricatable dumps: spec-card/plan are the orchestrator's own (full echo lives
+# in `show spec|plan`), while .reviewed-files and adversarial state appear only as
+# counts/summary here so a read cannot be repurposed to fake review/adversarial state.
+print_pipeline_state() {
+    local pd="$PIPELINE_DIR"
+    echo ""
+    echo "  State (read-only):"
+    if [ -f "$pd/spec-card.md" ]; then
+        local _crit
+        _crit=$(grep -cE '^[[:space:]]*[-*]?[[:space:]]*\*{0,2}R[0-9]+\*{0,2}[:.) ]' "$pd/spec-card.md" 2>/dev/null)
+        echo "    spec-card.md: present (${_crit:-0} R-criteria) — full text: apd pipeline show spec"
+    else
+        echo "    spec-card.md: none"
+    fi
+    if [ -f "$pd/implementation-plan.md" ]; then
+        echo "    implementation-plan.md: present — full text: apd pipeline show plan"
+    else
+        echo "    implementation-plan.md: none"
+    fi
+    if [ -f "$pd/.reviewed-files" ]; then
+        local _rc
+        _rc=$(grep -c . "$pd/.reviewed-files" 2>/dev/null)
+        echo "    reviewed-files: ${_rc:-0} file(s) covered"
+    fi
+    if [ -f "$pd/.adversarial-summary" ]; then
+        local _adv
+        _adv=$(grep '^ADVERSARIAL:' "$pd/.adversarial-summary" 2>/dev/null | head -1)
+        echo "    adversarial: ${_adv:-n/a}"
+    fi
+    if [ -f "$pd/.adversarial-rationale.md" ]; then
+        local _fc _ndo _ndr
+        _fc=$(grep -c '^## Finding ' "$pd/.adversarial-rationale.md" 2>/dev/null)
+        _ndo=$(grep -c '^\*\*Status:\*\* dismissed$' "$pd/.adversarial-rationale.md" 2>/dev/null)
+        _ndr=$(grep -c '^\*\*Status:\*\* reviewer-self-dismissed$' "$pd/.adversarial-rationale.md" 2>/dev/null)
+        echo "    rationale: present (${_fc:-0} findings, Do=${_ndo:-0} Dr=${_ndr:-0})"
+    else
+        echo "    rationale: none"
+    fi
+    [ -f "$pd/.builder-count" ]  && echo "    builder cycles:  $(cat "$pd/.builder-count" 2>/dev/null)"
+    [ -f "$pd/.reviewer-count" ] && echo "    reviewer cycles: $(cat "$pd/.reviewer-count" 2>/dev/null)"
+}
+
 # Verify .done file signature
 verify_done() {
     local step="$1"
@@ -304,7 +379,7 @@ case "$STEP" in
                 # Sanitize reason (collapse newlines, truncate to ~200 chars)
                 _reason_sanitized="${SKIP_BRAINSTORM_REASON//$'\n'/ }"
                 _reason_sanitized="${_reason_sanitized:0:200}"
-                echo "${ts}|INFO|orchestrator|brainstorm-skipped|task=$ARG reason=${_reason_sanitized}" >> "$MEMORY_DIR/guard-audit.log"
+                echo "${ts}|$(_audit_type INFO)|orchestrator|brainstorm-skipped|task=$ARG reason=${_reason_sanitized}" >> "$MEMORY_DIR/guard-audit.log"
             fi
         fi
 
@@ -341,7 +416,7 @@ case "$STEP" in
             echo "" >&2
             if [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ]; then
                 _ts=$(date +"%Y-%m-%d %H:%M:%S")
-                echo "${_ts}|INFO|orchestrator|max-defects-deprecated|task=$ARG value=$CURRENT_MAX" >> "$MEMORY_DIR/guard-audit.log"
+                echo "${_ts}|$(_audit_type INFO)|orchestrator|max-defects-deprecated|task=$ARG value=$CURRENT_MAX" >> "$MEMORY_DIR/guard-audit.log"
             fi
         fi
 
@@ -374,6 +449,10 @@ case "$STEP" in
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
         fi
+        # Archive the completing task's adversarial rationale before it is wiped
+        # (spec re-advance is the most common rationale-loss point — new spec-card
+        # is already on disk, old rationale would vanish silently otherwise).
+        archive_rationale
         # v6.3 audit fix: also wipe .builder-count / .reviewer-count so a new
         # task doesn't inherit cycle counts from a prior task (would block first
         # dispatch with a misleading "task X has hit its budget" message).
@@ -1077,6 +1156,8 @@ function _check() {
         # next `pipeline-advance` call can warn about. The EXIT trap does not
         # remove this marker — only successful completion does.
         touch "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
+        # Archive adversarial rationale before reset wipes it (state still intact here)
+        archive_rationale
         # Auto-append to session-log before clearing flags
         if [ -f "$PIPELINE_DIR/spec.done" ]; then
             TASK_NAME=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f3 2>/dev/null)
@@ -1409,6 +1490,38 @@ EOF
                 PREV_TS=""
             fi
         done
+        print_pipeline_state
+        ;;
+
+    show)
+        # Sanctioned read-only state inspection — replaces bash cat/ls on
+        # .apd/pipeline (guard-blocked). spec/plan are the orchestrator's own
+        # authored files (safe full echo); default prints the digest.
+        case "$ARG" in
+            spec)
+                if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+                    cat "$PIPELINE_DIR/spec-card.md"
+                else
+                    echo "spec-card.md: none"
+                fi
+                ;;
+            plan)
+                if [ -f "$PIPELINE_DIR/implementation-plan.md" ]; then
+                    cat "$PIPELINE_DIR/implementation-plan.md"
+                else
+                    echo "implementation-plan.md: none"
+                fi
+                ;;
+            ""|state|status)
+                print_pipeline_state
+                ;;
+            *)
+                echo "Usage: apd pipeline show [spec|plan|state]" >&2
+                echo "  reviewed-files + adversarial appear as digests in 'state'" >&2
+                echo "  (raw generated state is not dumped — use 'state' for counts)" >&2
+                exit 1
+                ;;
+        esac
         ;;
 
     stats)
@@ -1599,6 +1712,7 @@ EOF
         echo "  pipeline-advance spec \"Task name\"" >&2
         echo "  pipeline-advance builder|reviewer|verifier" >&2
         echo "  pipeline-advance reset|status|stats|metrics" >&2
+        echo "  pipeline-advance show [spec|plan|state]   # read-only state inspection" >&2
         echo "  pipeline-advance rollback" >&2
         echo "  pipeline-advance init \"Description\"     # First setup only" >&2
         echo "" >&2

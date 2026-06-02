@@ -54,6 +54,7 @@ these tools:
 - `spec-card.md` is frozen after the spec gate; scope changes require rollback.
 - Reviewer and adversarial phases are read-only unless the task loops back to builder.
 - The verifier gate must run full verification before commit.
+- To inspect pipeline state use `apd pipeline status` / `apd pipeline show [spec|plan|state]` — do NOT `cat`/`ls` files under `.apd/pipeline/` (guard-bash-scope blocks bash access to protected state; it cannot tell a read from a fabrication attempt).
 - After `apd_adversarial_pass` with `total > 0`, write `.apd/pipeline/.adversarial-rationale.md` BEFORE running `apd_advance_pipeline("verifier")`. Format: `## Finding N — <title>` + `**Severity:** critical|important|minor` + `**Status:** accepted|dismissed|reviewer-self-dismissed` + `**Rationale:** <text ≥40 chars for dismissed/self-dismissed>`. Verifier hard-blocks on missing file, count mismatch, malformed fields, or the 100%-orchestrator-dismiss pattern.
 
 ### Mandatory skills

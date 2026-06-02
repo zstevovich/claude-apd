@@ -30,7 +30,13 @@ log_block() {
     local cmd="${RAW_COMMAND:-$COMMAND}"
     cmd="${cmd//$'\n'/ }"
     cmd="${cmd//$'\r'/ }"
-    echo "$(date +%Y-%m-%d\ %H:%M:%S)|BLOCK|${agent_info}|${reason}|${cmd}" >> "$log_file" 2>/dev/null
+    # guard-git carries its own log_block (does not source style.sh); mirror the
+    # _audit_type() contract so verify-apd's guard-coverage blocks are tagged
+    # SYNTHETIC, not BLOCK. guard-git produces the bulk of the self-test sweep
+    # (commit-no-prefix, mass-staging, force-push, destructive-git, ...).
+    local log_type="BLOCK"
+    [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ] && log_type="SYNTHETIC"
+    echo "$(date +%Y-%m-%d\ %H:%M:%S)|${log_type}|${agent_info}|${reason}|${cmd}" >> "$log_file" 2>/dev/null
   fi
 }
 

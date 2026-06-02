@@ -162,10 +162,14 @@ bash .claude/bin/apd pipeline builder
 bash .claude/bin/apd pipeline reviewer
 bash .claude/bin/apd pipeline verifier
 bash .claude/bin/apd pipeline status
+bash .claude/bin/apd pipeline show [spec|plan|state]   # read-only state inspection
 bash .claude/bin/apd pipeline reset
 bash .claude/bin/apd pipeline rollback
 bash .claude/bin/apd pipeline stats
 ```
+
+### Inspecting pipeline state
+To see what's in `.apd/pipeline/` (current phase, reviewed-files count, adversarial summary, rationale status, spec/plan), use `apd pipeline status` or `apd pipeline show`. **Do NOT `cat`/`ls` files under `.apd/pipeline/` directly — guard-bash-scope blocks bash access to protected pipeline state** (it cannot tell a read from a fabrication attempt). `apd pipeline show spec|plan` echoes your own spec-card/plan; `apd pipeline show state` prints a digest of the generated state.
 
 ### Hard rules
 - NEVER skip the Reviewer step

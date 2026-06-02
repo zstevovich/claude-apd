@@ -4,7 +4,7 @@
 # Usage: apd <command> [args...]
 #
 # Commands:
-#   pipeline <step>   Pipeline advance (spec/builder/reviewer/verifier/status/reset/rollback/metrics)
+#   pipeline <step>   Pipeline advance (spec/builder/reviewer/verifier/status/show/reset/rollback/metrics)
 #   doctor            Pipeline diagnostics
 #   init [--quick]    Initialize or update APD in a project
 #   update [project]  Pull latest plugin from GitHub + reinit project
@@ -173,7 +173,7 @@ case "$CMD" in
         echo "  Usage: apd <command> [args]"
         echo ""
         echo "  Commands:"
-        echo "    pipeline <step>   Pipeline advance (spec/builder/reviewer/verifier/status/reset)"
+        echo "    pipeline <step>   Pipeline advance (spec/builder/reviewer/verifier/status/show/reset)"
         echo "    doctor            Pipeline diagnostics"
         echo "    init [--quick]    Initialize or update APD in a project"
         echo "    update [project]  Pull latest plugin + reinit project (--check-only to dry-run)"

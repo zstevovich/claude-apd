@@ -8130,6 +8130,300 @@ fi
 rm -rf "$V6_12_3_SCRATCH"
 
 # -----------------------------------------------------------
+section "78. verify-apd synthetic audit tagging (guard-audit pollution fix)"
+# -----------------------------------------------------------
+STYLE_LIB="$APD_PLUGIN_ROOT/bin/lib/style.sh"
+REPORT_SCRIPT="$APD_PLUGIN_ROOT/bin/core/pipeline-report"
+ADVANCE_SCRIPT="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+VERIFY_APD_SCRIPT="$APD_PLUGIN_ROOT/bin/core/verify-apd"
+
+# Static A: _audit_type helper present in style.sh
+if grep -q '_audit_type()' "$STYLE_LIB"; then
+    pass "style.sh defines _audit_type helper"
+    PASSES=$((PASSES + 1))
+else
+    fail "style.sh missing _audit_type helper"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: log_block routes its log_type through _audit_type (no hardcoded BLOCK)
+if grep -q 'log_type=$(_audit_type BLOCK)' "$STYLE_LIB"; then
+    pass "log_block resolves log_type via _audit_type"
+    PASSES=$((PASSES + 1))
+else
+    fail "log_block does not route through _audit_type"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: verify-apd exports the synthetic flag
+if grep -q 'export APD_AUDIT_SYNTHETIC=1' "$VERIFY_APD_SCRIPT"; then
+    pass "verify-apd exports APD_AUDIT_SYNTHETIC=1"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-apd does not export APD_AUDIT_SYNTHETIC=1"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: pipeline-report counts only real BLOCK rows (excludes INFO/SYNTHETIC)
+if grep -q '\[ "$_type" = "BLOCK" \] || continue' "$REPORT_SCRIPT"; then
+    pass "pipeline-report block counter filters log_type==BLOCK"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-report does not filter log_type==BLOCK"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: pipeline-advance INFO writers route through _audit_type (>=2 sites)
+ADV_AT=$(grep -c '$(_audit_type INFO)' "$ADVANCE_SCRIPT")
+if [ "$ADV_AT" -ge 2 ]; then
+    pass "pipeline-advance INFO writers route through _audit_type ($ADV_AT sites)"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance INFO writers not tagged ($ADV_AT/2 sites)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live F: default log_block writes a BLOCK row
+AUDIT_SCRATCH="$(mktemp -d -t apd-audit-tag.XXXXXX)"
+MEMORY_DIR="$AUDIT_SCRATCH" STYLE_LIB="$STYLE_LIB" bash -c 'source "$STYLE_LIB"; log_block "tag-test" "git commit -m x"'
+DEFAULT_LINE=$(tail -1 "$AUDIT_SCRATCH/guard-audit.log" 2>/dev/null)
+if echo "$DEFAULT_LINE" | grep -q '|BLOCK|orchestrator|tag-test|'; then
+    pass "log_block (no flag) writes |BLOCK| row"
+    PASSES=$((PASSES + 1))
+else
+    fail "log_block default should write BLOCK: $DEFAULT_LINE"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live G: APD_AUDIT_SYNTHETIC=1 log_block writes SYNTHETIC, not BLOCK
+: > "$AUDIT_SCRATCH/guard-audit.log"
+MEMORY_DIR="$AUDIT_SCRATCH" STYLE_LIB="$STYLE_LIB" APD_AUDIT_SYNTHETIC=1 bash -c 'source "$STYLE_LIB"; log_block "tag-test" "git commit -m x"'
+SYNTH_LINE=$(tail -1 "$AUDIT_SCRATCH/guard-audit.log" 2>/dev/null)
+if echo "$SYNTH_LINE" | grep -q '|SYNTHETIC|orchestrator|tag-test|' && ! echo "$SYNTH_LINE" | grep -q '|BLOCK|'; then
+    pass "log_block (APD_AUDIT_SYNTHETIC=1) writes |SYNTHETIC| not |BLOCK|"
+    PASSES=$((PASSES + 1))
+else
+    fail "synthetic log_block should write SYNTHETIC: $SYNTH_LINE"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live H: _audit_type returns BLOCK by default, SYNTHETIC under the flag
+AT_OUT=$(STYLE_LIB="$STYLE_LIB" bash -c 'source "$STYLE_LIB"; printf "%s/" "$(_audit_type BLOCK)"; export APD_AUDIT_SYNTHETIC=1; printf "%s" "$(_audit_type BLOCK)"')
+if [ "$AT_OUT" = "BLOCK/SYNTHETIC" ]; then
+    pass "_audit_type: default=BLOCK, flagged=SYNTHETIC"
+    PASSES=$((PASSES + 1))
+else
+    fail "_audit_type contract broken: got '$AT_OUT' (want BLOCK/SYNTHETIC)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static I: guard-git carries its own log_block — must also honor the flag
+if grep -q 'APD_AUDIT_SYNTHETIC' "$APD_PLUGIN_ROOT/bin/core/guard-git"; then
+    pass "guard-git log_block honors APD_AUDIT_SYNTHETIC (own code path)"
+    PASSES=$((PASSES + 1))
+else
+    fail "guard-git log_block does not honor APD_AUDIT_SYNTHETIC"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live J: guard-git (bulk of the self-test sweep) tags SYNTHETIC under the flag
+GG_PROJ="$(mktemp -d -t apd-ggit.XXXXXX)"
+mkdir -p "$GG_PROJ/.apd/pipeline" "$GG_PROJ/.claude/memory" "$GG_PROJ/.claude"
+printf 'PROJECT_NAME=ggit\n' > "$GG_PROJ/.claude/.apd-config"
+APD_AUDIT_SYNTHETIC=1 APD_PROJECT_DIR="$GG_PROJ" bash "$APD_PLUGIN_ROOT/bin/core/guard-git" --command "git commit -m test" --agent-id "" --agent-type "" >/dev/null 2>&1
+GG_LINE=$(tail -1 "$GG_PROJ/.claude/memory/guard-audit.log" 2>/dev/null)
+if echo "$GG_LINE" | grep -q '|SYNTHETIC|' && ! echo "$GG_LINE" | grep -q '|BLOCK|'; then
+    pass "guard-git writes SYNTHETIC under APD_AUDIT_SYNTHETIC"
+    PASSES=$((PASSES + 1))
+else
+    fail "guard-git did not tag SYNTHETIC: $GG_LINE"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$GG_PROJ"
+
+rm -rf "$AUDIT_SCRATCH"
+
+# -----------------------------------------------------------
+section "79. adversarial rationale archive on reset/re-advance"
+# -----------------------------------------------------------
+ADVANCE_SCRIPT="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+
+# Static A: archive_rationale helper present
+if grep -q 'archive_rationale()' "$ADVANCE_SCRIPT"; then
+    pass "pipeline-advance defines archive_rationale helper"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing archive_rationale helper"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: called at >=2 sites (spec re-advance + reset), not just defined
+RAT_CALLS=$(grep -cE '^[[:space:]]*archive_rationale$' "$ADVANCE_SCRIPT")
+if [ "$RAT_CALLS" -ge 2 ]; then
+    pass "archive_rationale invoked at $RAT_CALLS sites (spec re-advance + reset)"
+    PASSES=$((PASSES + 1))
+else
+    fail "archive_rationale not wired at enough sites ($RAT_CALLS/2)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: skips under synthetic flag (no self-test pollution)
+if grep -q 'APD_AUDIT_SYNTHETIC:-.*= "1" \] && return 0' "$ADVANCE_SCRIPT" \
+   || grep -A3 'archive_rationale()' "$ADVANCE_SCRIPT" | grep -q 'APD_AUDIT_SYNTHETIC'; then
+    pass "archive_rationale skips under APD_AUDIT_SYNTHETIC"
+    PASSES=$((PASSES + 1))
+else
+    fail "archive_rationale does not skip synthetic runs"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup
+RAT_PROJ="$(mktemp -d -t apd-rat-arch.XXXXXX)"
+mkdir -p "$RAT_PROJ/.apd/pipeline" "$RAT_PROJ/.claude/memory" "$RAT_PROJ/.claude"
+printf 'PROJECT_NAME=rat-arch\n' > "$RAT_PROJ/.claude/.apd-config"
+printf '1717000000|2026-06-02 12:00:00|Dismiss Heavy Task\n' > "$RAT_PROJ/.apd/pipeline/spec.done"
+printf 'ADVERSARIAL:8:1:7\n' > "$RAT_PROJ/.apd/pipeline/.adversarial-summary"
+printf '## Finding 1 — t\n**Status:** dismissed\n**Rationale:** non-issue per scope\n' > "$RAT_PROJ/.apd/pipeline/.adversarial-rationale.md"
+APD_PROJECT_DIR="$RAT_PROJ" APD_RUNTIME=codex bash "$ADVANCE_SCRIPT" reset >/dev/null 2>&1
+RAT_ARCHIVE="$RAT_PROJ/.claude/memory/adversarial-rationale-archive.md"
+
+# Live D: archive created with task + summary + content
+if [ -f "$RAT_ARCHIVE" ] \
+   && grep -q 'Dismiss Heavy Task' "$RAT_ARCHIVE" \
+   && grep -q 'ADVERSARIAL:8:1:7' "$RAT_ARCHIVE" \
+   && grep -q 'non-issue per scope' "$RAT_ARCHIVE"; then
+    pass "reset archives rationale (task + summary + content)"
+    PASSES=$((PASSES + 1))
+else
+    fail "reset did not archive rationale correctly: $(cat "$RAT_ARCHIVE" 2>/dev/null)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live E: pipeline copy wiped after reset
+if [ ! -f "$RAT_PROJ/.apd/pipeline/.adversarial-rationale.md" ]; then
+    pass "reset still wipes pipeline .adversarial-rationale.md after archiving"
+    PASSES=$((PASSES + 1))
+else
+    fail "reset left .adversarial-rationale.md in pipeline"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live F: synthetic flag skips archival
+RAT_PROJ2="$(mktemp -d -t apd-rat-syn.XXXXXX)"
+mkdir -p "$RAT_PROJ2/.apd/pipeline" "$RAT_PROJ2/.claude/memory" "$RAT_PROJ2/.claude"
+printf 'PROJECT_NAME=rat-syn\n' > "$RAT_PROJ2/.claude/.apd-config"
+printf '1717000000|2026-06-02 12:00:00|Synthetic Task\n' > "$RAT_PROJ2/.apd/pipeline/spec.done"
+printf 'ADVERSARIAL:8:1:7\n' > "$RAT_PROJ2/.apd/pipeline/.adversarial-summary"
+printf '## Finding 1 — t\n**Status:** dismissed\n' > "$RAT_PROJ2/.apd/pipeline/.adversarial-rationale.md"
+APD_AUDIT_SYNTHETIC=1 APD_PROJECT_DIR="$RAT_PROJ2" APD_RUNTIME=codex bash "$ADVANCE_SCRIPT" reset >/dev/null 2>&1
+if [ ! -f "$RAT_PROJ2/.claude/memory/adversarial-rationale-archive.md" ]; then
+    pass "synthetic reset (APD_AUDIT_SYNTHETIC=1) does not archive rationale"
+    PASSES=$((PASSES + 1))
+else
+    fail "synthetic reset polluted the rationale archive"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$RAT_PROJ" "$RAT_PROJ2"
+
+# -----------------------------------------------------------
+section "80. sanctioned read-only pipeline state (apd pipeline show)"
+# -----------------------------------------------------------
+ADVANCE_SCRIPT="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+WORKFLOW_MD="$APD_PLUGIN_ROOT/rules/workflow.md"
+AGENTS_MD="$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"
+
+# Static A: show) case present
+if grep -qE '^[[:space:]]*show\)' "$ADVANCE_SCRIPT"; then
+    pass "pipeline-advance has show) case"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing show) case"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: print_pipeline_state helper present
+if grep -q 'print_pipeline_state()' "$ADVANCE_SCRIPT"; then
+    pass "pipeline-advance defines print_pipeline_state"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing print_pipeline_state"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: digest invoked at >=2 sites (status + show state)
+PPS_CALLS=$(grep -cE '^[[:space:]]*print_pipeline_state$' "$ADVANCE_SCRIPT")
+if [ "$PPS_CALLS" -ge 2 ]; then
+    pass "print_pipeline_state wired at $PPS_CALLS sites (status + show)"
+    PASSES=$((PASSES + 1))
+else
+    fail "print_pipeline_state not wired at enough sites ($PPS_CALLS/2)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: workflow.md steers away from bash cat/ls on .apd/pipeline
+if grep -q 'apd pipeline show' "$WORKFLOW_MD" && grep -qiE 'do NOT .*(cat|ls).*\.apd/pipeline' "$WORKFLOW_MD"; then
+    pass "workflow.md documents show + bans bash cat/ls on .apd/pipeline"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md missing show/state-inspection guidance"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: AGENTS.md (Codex) mirror
+if grep -q 'apd pipeline show' "$AGENTS_MD"; then
+    pass "AGENTS.md mirrors show state-inspection guidance"
+    PASSES=$((PASSES + 1))
+else
+    fail "AGENTS.md missing show guidance"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup
+SHOW_PROJ="$(mktemp -d -t apd-show.XXXXXX)"
+mkdir -p "$SHOW_PROJ/.apd/pipeline" "$SHOW_PROJ/.claude/memory" "$SHOW_PROJ/.claude"
+printf 'PROJECT_NAME=show-test\n' > "$SHOW_PROJ/.claude/.apd-config"
+printf '1717000000|2026-06-02 12:00:00|Show Task\n' > "$SHOW_PROJ/.apd/pipeline/spec.done"
+printf '# Spec: Show Task\n- **R1:** alpha\n- **R2:** beta\n' > "$SHOW_PROJ/.apd/pipeline/spec-card.md"
+printf '## Section\n**Implements:** R1, R2\n' > "$SHOW_PROJ/.apd/pipeline/implementation-plan.md"
+printf 'src/secret-a.ts\nsrc/secret-b.ts\nsrc/secret-c.ts\n' > "$SHOW_PROJ/.apd/pipeline/.reviewed-files"
+printf 'ADVERSARIAL:8:1:7\n' > "$SHOW_PROJ/.apd/pipeline/.adversarial-summary"
+printf '## Finding 1 — a\n**Status:** dismissed\n## Finding 2 — b\n**Status:** reviewer-self-dismissed\n' > "$SHOW_PROJ/.apd/pipeline/.adversarial-rationale.md"
+SHOW_STATE=$(APD_PROJECT_DIR="$SHOW_PROJ" APD_RUNTIME=codex bash "$ADVANCE_SCRIPT" show 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+
+# Live F: state digest shows the items the orchestrator used to bash-cat for
+if echo "$SHOW_STATE" | grep -q 'reviewed-files: 3 file(s)' \
+   && echo "$SHOW_STATE" | grep -q 'ADVERSARIAL:8:1:7' \
+   && echo "$SHOW_STATE" | grep -q 'Do=1 Dr=1'; then
+    pass "show state digest: reviewed count + adversarial + Do/Dr"
+    PASSES=$((PASSES + 1))
+else
+    fail "show state digest incomplete: $SHOW_STATE"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live G: show spec echoes the orchestrator's own spec-card
+SHOW_SPEC=$(APD_PROJECT_DIR="$SHOW_PROJ" APD_RUNTIME=codex bash "$ADVANCE_SCRIPT" show spec 2>&1)
+if echo "$SHOW_SPEC" | grep -qF '**R1:** alpha'; then
+    pass "show spec echoes orchestrator's own spec-card"
+    PASSES=$((PASSES + 1))
+else
+    fail "show spec did not echo spec-card: $SHOW_SPEC"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live H: digest does NOT raw-dump .reviewed-files paths (recon-bounded sanitization)
+if ! echo "$SHOW_STATE" | grep -q 'secret-a.ts'; then
+    pass "show state does not raw-dump reviewed-files paths (count only)"
+    PASSES=$((PASSES + 1))
+else
+    fail "show state leaked raw reviewed-files paths (recon surface)"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$SHOW_PROJ"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

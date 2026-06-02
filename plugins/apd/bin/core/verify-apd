@@ -9,6 +9,14 @@
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
 
+# Tag every audit entry this self-test triggers as SYNTHETIC, not BLOCK/INFO.
+# verify-apd's guard-coverage section actually invokes each guard (~10 per run)
+# and Section 8 drives a synthetic pipeline; without this, each `apd verify`
+# run wrote ~10 real-looking BLOCK lines into the project's guard-audit.log,
+# polluting `apd report` and any guard-audit analytics. Child guard/pipeline
+# processes inherit this and route through _audit_type() in style.sh.
+export APD_AUDIT_SYNTHETIC=1
+
 
 # Summary data — collected during checks
 SUM_PROJECT=""

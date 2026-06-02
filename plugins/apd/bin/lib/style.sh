@@ -205,6 +205,22 @@ show_pipeline() {
     echo "$bar"
 }
 
+# _audit_type DEFAULT_TYPE — resolve the guard-audit log_type (column 2).
+# Returns "SYNTHETIC" when APD_AUDIT_SYNTHETIC=1, otherwise DEFAULT_TYPE.
+# verify-apd exports APD_AUDIT_SYNTHETIC=1 so its self-test guard/pipeline
+# exercises (one ~10-guard coverage sweep per `apd verify` run) tag their
+# audit entries as SYNTHETIC instead of BLOCK/INFO. Analytics (`apd report`,
+# reset summary, cross-project tooling) count only real BLOCK/INFO and exclude
+# SYNTHETIC, so the framework's own self-test no longer pollutes the real
+# project's audit trail.
+_audit_type() {
+    if [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ]; then
+        echo "SYNTHETIC"
+    else
+        echo "${1:-BLOCK}"
+    fi
+}
+
 # log_block "reason" ["command_summary"]
 # Writes a guard block event to guard-audit.log for centralized audit trail.
 # Uses AGENT_ID, AGENT_TYPE from hook stdin JSON (set by guard scripts).
@@ -218,7 +234,8 @@ log_block() {
     [ -d "${MEMORY_DIR:-}" ] || return 0
     local agent_info="${AGENT_ID:-orchestrator}"
     [ -n "${AGENT_TYPE:-}" ] && agent_info="${agent_info}(${AGENT_TYPE})"
-    local ts
+    local ts log_type
     ts=$(date +"%Y-%m-%d %H:%M:%S")
-    echo "${ts}|BLOCK|${agent_info}|${reason}|${cmd_summary}" >> "$log_file"
+    log_type=$(_audit_type BLOCK)
+    echo "${ts}|${log_type}|${agent_info}|${reason}|${cmd_summary}" >> "$log_file"
 }
