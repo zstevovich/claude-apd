@@ -2,36 +2,36 @@
 
 ## v6.13.0 — 2026-06-02
 
-Tri **enforcement-neutralne** improvement-a izvedene iz tro-projektne log analize (Bambi/.NET, FiscalFusionAI/Python-ML, ig-commerce/Next.js) pod Opus 4.8. Sve tri su observability / audit / UX — **enforcement floor je netaknut** (cross-project fingerprint je pokazao da floor drži uniformno, varira samo bypass STIL po projektu). Minor: nove feature-i, backward-compatible.
+Three **enforcement-neutral** improvements derived from cross-project log analysis (Bambi/.NET, FiscalFusionAI/Python-ML, ig-commerce/Next.js) under Opus 4.8. All three are observability / audit / UX — **the enforcement floor is unchanged** (the cross-project comparison showed the floor holds uniformly; only the bypass *style* varies per project). Minor: new features, backward-compatible.
 
-### #1 — verify-apd self-test više ne zagađuje guard-audit telemetriju
+### #1 — verify-apd self-test no longer pollutes guard-audit telemetry
 
-Svaki `apd verify` run je opaljivao ~10 guard-ova u guard-coverage sekciji + Section 8 synthetic pipeline, pišući ~10 realnih `|BLOCK|` linija u projektni `guard-audit.log`. Po istoriji: ~75 takvih sweep-ova u Bambi, ~17 FFAI, ~11 ig-commerce — `apd report` i svaka guard-audit analitika su lagali o projektu.
+Every `apd verify` run fired ~10 guards in the guard-coverage section plus the Section 8 synthetic pipeline, writing ~10 real-looking `|BLOCK|` lines into the project's `guard-audit.log`. Historically: ~75 such sweeps in Bambi, ~17 in FFAI, ~11 in ig-commerce — `apd report` and any guard-audit analytics were misrepresenting the project.
 
-- **feat(style.sh):** nov `_audit_type()` helper — `log_block` rezolvuje log_type (`BLOCK` → `SYNTHETIC` kad je `APD_AUDIT_SYNTHETIC=1`).
-- **feat(guard-git):** guard-git nosi SOPSTVENI `log_block` (ne source-uje style.sh) i generiše većinu sweep-a (commit-no-prefix / mass-staging / force-push / destructive-git) — inline mirror istog flag-a.
-- **feat(verify-apd):** `export APD_AUDIT_SYNTHETIC=1` — child guard/pipeline procesi naslede.
-- **feat(pipeline-advance):** 2 INFO writer-a (brainstorm-skipped, max-defects-deprecated) rutiraju kroz `_audit_type`.
-- **fix(pipeline-report):** broji samo `log_type==BLOCK` — isključuje INFO/SYNTHETIC/PERMISSION_DENIED. **Bonus:** popravlja pre-postojeći bug gde su INFO entry-i (brainstorm-skipped) brojani kao guard blocks.
-- Reset summary (v6.8.9) već cas-uje log_type sa default-ignore — `SYNTHETIC` automatski ispada.
+- **feat(style.sh):** new `_audit_type()` helper — `log_block` resolves the log type (`BLOCK` → `SYNTHETIC` when `APD_AUDIT_SYNTHETIC=1`).
+- **feat(guard-git):** guard-git carries its OWN `log_block` (does not source style.sh) and produces most of the sweep (commit-no-prefix / mass-staging / force-push / destructive-git) — mirrors the same flag inline.
+- **feat(verify-apd):** `export APD_AUDIT_SYNTHETIC=1` — child guard/pipeline processes inherit it.
+- **feat(pipeline-advance):** the two INFO writers (brainstorm-skipped, max-defects-deprecated) route through `_audit_type`.
+- **fix(pipeline-report):** counts only `log_type==BLOCK` — excludes INFO/SYNTHETIC/PERMISSION_DENIED. **Bonus:** fixes a pre-existing bug where INFO entries (brainstorm-skipped) were counted as guard blocks.
+- The reset summary (v6.8.9) already cases on log_type with a default-ignore branch — `SYNTHETIC` falls out automatically.
 
-### #2 — adversarial rationale archive (dismiss-heavy runovi retroaktivno auditabilni)
+### #2 — adversarial rationale archive (dismiss-heavy runs become retro-auditable)
 
-Dismiss-heavy runovi (PT.1 11:1:10, FFAI Hotfix 8:1:7 tip) gubili su `.adversarial-rationale.md` na reset/re-advance → nemoguć retroaktivni audit; in-flight gate (warns + A≥1) je bio jedina provera.
+Dismiss-heavy runs (PT.1 11:1:10, FFAI Hotfix 8:1:7 class) lost `.adversarial-rationale.md` on reset/re-advance → no retroactive audit possible; the in-flight gate (warns + A≥1) was the only check.
 
-- **feat(pipeline-advance):** nov `archive_rationale()` (mirror agent-history.log pattern) — pri spec re-advance + reset append u trajni `<memory>/adversarial-rationale-archive.md` PRE wipe-a. Entry: `## Archived <ts> — <task>` + `**Summary:** ADVERSARIAL:T:A:D` + pun rationale body. Task-ime iz `spec.done`. Skip pod `APD_AUDIT_SYNTHETIC=1`. NE arhivira na rollback (same-task re-run, intermediate noise). Cross-reference sa `pipeline-metrics.log` po timestamp-u.
+- **feat(pipeline-advance):** new `archive_rationale()` (mirrors the agent-history.log pattern) — on spec re-advance and reset, appends to a permanent `<memory>/adversarial-rationale-archive.md` BEFORE the wipe. Entry: `## Archived <ts> — <task>` + `**Summary:** ADVERSARIAL:T:A:D` + full rationale body. Task name from `spec.done`. Skipped under `APD_AUDIT_SYNTHETIC=1`. Does NOT archive on rollback (same-task re-run, intermediate noise). Cross-reference with `pipeline-metrics.log` by timestamp.
 
-### #4 — sankcionisan read-only pipeline state
+### #4 — sanctioned read-only pipeline state
 
-Najčešći *pravi* `pipeline-state-write` BLOCK na sva tri projekta je bio orchestrator koji **čita** state preko bash-a (`cat .reviewed-files`, `ls .apd/pipeline`) → BLOCK → recover, gubi turn. Guard ispravno brani bash pristup (read može biti recon za fake-review), ali nije postojao čist read kanal.
+The most frequent *real* `pipeline-state-write` BLOCK across all three projects was the orchestrator **reading** state via bash (`cat .reviewed-files`, `ls .apd/pipeline`) → BLOCK → recover, losing a turn each time. The guard correctly blocks bash access (a read can be recon for a fake-review bypass), but there was no clean read channel.
 
-- **feat(pipeline-advance):** `apd pipeline show [spec|plan|state]` + `print_pipeline_state()` digest (i `status` ga prikazuje). `spec`/`plan` = pun echo (orchestrator-ovi sopstveni fajlovi); `state`/default = digest (criteria count, plan?, reviewed-files COUNT, adversarial T:A:D, rationale findings + Do/Dr, cycle counts). Generated state se NIKAD raw-dump-uje — samo count/digest (recon-bounded). **Guard netaknut** — samo dodat legitiman kanal.
-- **docs(workflow.md + AGENTS.md):** „Inspecting pipeline state" — koristi `apd pipeline show`/`status`, NE bash cat/ls na `.apd/pipeline`.
+- **feat(pipeline-advance):** `apd pipeline show [spec|plan|state]` + a `print_pipeline_state()` digest (also shown by `status`). `spec`/`plan` = full echo (the orchestrator's own authored files); `state`/default = digest (criteria count, plan present?, reviewed-files COUNT, adversarial T:A:D, rationale findings + Do/Dr, cycle counts). Generated state is NEVER raw-dumped — counts/digest only (recon-bounded). **Guard untouched** — only a legitimate channel added.
+- **docs(workflow.md + AGENTS.md):** "Inspecting pipeline state" — use `apd pipeline show`/`status`, do NOT bash cat/ls on `.apd/pipeline`.
 
-### Ostalo
+### Other
 
 - **docs(SPEC.md):** guard-audit `TYPE` (BLOCK/INFO/PERMISSION_DENIED/SYNTHETIC), `adversarial-rationale-archive.md`, `show` subcommand.
-- **test(test-codex-adapter §78–§80):** +26 assertions (uklj. guard-git static+live). **632 → 656 PASS / 0 FAIL.**
+- **test(test-codex-adapter §78–§80):** +26 assertions (incl. guard-git static+live). **632 → 656 PASS / 0 FAIL.**
 
 ## v6.12.3 — 2026-05-28
 
