@@ -35,15 +35,15 @@ The most frequent *real* `pipeline-state-write` BLOCK across all three projects 
 
 ## v6.12.3 — 2026-05-28
 
-Treci hot-fix isti dan, **strukturalan umesto manual** posle user-ove primedbe da "v6.12.2 ne pravi NOVU konfabulaciju ali ne POPRAVLJA postojecu". Implementiran **drift dimension D — feature claim drift** u `pipeline-audit-drift` (v6.10 family).
+Third hot-fix the same day, **structural instead of manual** after the user's point that "v6.12.2 prevents NEW confabulation but does not FIX existing ones". Implemented **drift dimension D — feature claim drift** in `pipeline-audit-drift` (v6.10 family).
 
-**Sta dim D radi:**
+**What dim D does:**
 
-Skenira `.claude/rules/workflow.md` + `.claude/CLAUDE.md` + `CLAUDE.md` (project root) za bilo koju liniju koja pominje BOTH:
-- contracts command (`verify-contracts` ili `apd contracts`)
-- AND unsupported language (PHP / Python / Java / Go / Ruby / Kotlin / Rust)
+Scans `.claude/rules/workflow.md` + `.claude/CLAUDE.md` + `CLAUDE.md` (project root) for any line that mentions BOTH:
+- a contracts command (`verify-contracts` or `apd contracts`)
+- AND an unsupported language (PHP / Python / Java / Go / Ruby / Kotlin / Rust)
 
-Match = IMPORTANT drift sa per-claim breakdown. awk-based detection (ne grep regex) jer pattern zahteva "both X and Y in same line in any order" — grep regex ne moze cisto da to izrazi.
+Match = IMPORTANT drift with a per-claim breakdown. awk-based detection (not a grep regex) because the pattern requires "both X and Y in the same line in any order" — a grep regex cannot express that cleanly.
 
 **Sample output (synthetic confabulation):**
 
@@ -57,15 +57,15 @@ IMPORTANT:
     Recovery: edit the file — replace 'apd verify-contracts ... <lang>' claims with 'manual cross-layer type mapping (see workflow.md sekcija 7 for the table)'. Framework reality: verify-contracts errors on unsupported langs (v6.12.2+ shows file-count + supported pairs).
 ```
 
-**Why structural fix over manual cleanup:**
+**Why a structural fix over manual cleanup:**
 
-User insight: anti-pattern u apd-setup skill (v6.12.2) sprecava buduce konfabulacije ali ne popravlja postojece. apd-setup re-run nije pouzdan cleanup jer je additive (ne destructive). Manual edit je 2-min posao za jedan projekat, ali class problem moze se ponoviti — drift detection zatvara **klasu**, ne instance.
+User insight: the anti-pattern in the apd-setup skill (v6.12.2) prevents future confabulations but does not fix existing ones. An apd-setup re-run is not a reliable cleanup because it is additive (not destructive). A manual edit is a 2-minute job for one project, but the class of problem can recur — drift detection closes the **class**, not the instance.
 
-**Falsefree validation:**
+**Validation:**
 
-- Synthetic project sa 3 false claims (PHP + Python + Go) → detected sa per-claim listom
-- Festico u trenutnom stanju (sekcija 7 ima manuelnu guidance) → NE flag-ovano (manuelni "Backend DTO is source of truth" + "For each field, map the type" ne hvata jer nema command+lang kombinacije na istoj liniji)
-- Clean workflow.md sa "Manual cross-layer review — automatic verification only for TS ↔ C# pairs" → NE flag-ovano
+- Synthetic project with 3 false claims (PHP + Python + Go) → detected with a per-claim list
+- Festico in its current state (section 7 has manual guidance) → NOT flagged (the manual "Backend DTO is source of truth" + "For each field, map the type" is not caught because there is no command+language combination on the same line)
+- Clean workflow.md with "Manual cross-layer review — automatic verification only for TS ↔ C# pairs" → NOT flagged
 
 **Highlights:**
 
@@ -74,27 +74,27 @@ User insight: anti-pattern u apd-setup skill (v6.12.2) sprecava buduce konfabula
 - **test(test-codex-adapter §77) +8 assertions:** 5 static + 3 live (confabulation detected, clean guidance not flagged, CLAUDE.md scan covered)
 - **Test count 624 → 632 PASS / 0 FAIL.**
 
-**Migration:** projekti sa postojecom konfabulacijom u workflow.md/CLAUDE.md videce IMPORTANT u `apd audit-drift`. Recovery action u poruci eksplicit kaze sta da urade — replace sa "manual cross-layer type mapping" reference.
+**Migration:** projects with existing confabulation in workflow.md/CLAUDE.md will see IMPORTANT in `apd audit-drift`. The recovery action in the message explicitly states what to do — replace with a "manual cross-layer type mapping" reference.
 
-**Strukturalno postignuto:**
+**What this achieves structurally:**
 
-v6.12.2 anti-pattern (prevent) + v6.12.3 drift detection (detect existing) = oba sloja pokrivena za confabulation pattern. Festico-style problem ne moze tiho da prodje vise — ili apd-setup ne pisuje confabulation, ili audit ga catch-uje.
+v6.12.2 anti-pattern (prevent) + v6.12.3 drift detection (detect existing) = both layers covered for the confabulation pattern. A Festico-style problem can no longer slip through silently — either apd-setup does not write confabulation, or the audit catches it.
 
 ## v6.12.2 — 2026-05-28
 
-Second hot-fix isti dan, posle Festico-ovog second observation-a. `verify-contracts` ima dva fail-quietly pattern-a koja prave **silent false-pass** iluziju:
+Second hot-fix the same day, after Festico's second observation. `verify-contracts` has two fail-quietly patterns that create a **silent false-pass** illusion:
 
-1. **`--changed` mode poruka je ambigua** — "Changes do not affect types at layer boundaries" nije razlikovalo "no relevant change" od "language pair not supported". User koji menja PHP DTO dobija ovu poruku i misli "OK, ne treba nista".
-2. **Pun directory mode error message je generic** — "Unrecognized backend language" ne kaze user-u sta JE detektovano (sta tacno fail-uje).
+1. **`--changed` mode message is ambiguous** — "Changes do not affect types at layer boundaries" did not distinguish "no relevant change" from "language pair not supported". A user editing a PHP DTO gets this message and thinks "OK, nothing to do".
+2. **Full directory mode error message is generic** — "Unrecognized backend language" does not tell the user what WAS detected (what exactly is failing).
 
-Plus dokumentacijska crisis: **Festico CLAUDE.md/workflow.md tvrde "apd verify-contracts proverava PHP DTO ↔ TS automatski"** — to je orchestrator-ova konfabulacija u apd-setup-u, ne framework template claim. Framework template ne pominje verify-contracts uopste. Orchestrator je verovatno video `apd verify` u SPEC-u i izmislio funkcionalnost.
+Plus a documentation crisis: **Festico CLAUDE.md/workflow.md claim "apd verify-contracts checks PHP DTO ↔ TS automatically"** — that is the orchestrator's confabulation in apd-setup, not a framework template claim. The framework template does not mention verify-contracts at all. The orchestrator probably saw `apd verify` in the SPEC and invented the functionality.
 
 **Highlights:**
 
-### A. `--changed` mode preciznija detekcija
+### A. `--changed` mode — more precise detection
 
-- **Dodato:** detekcija `UNSUPPORTED_CHANGED` files — .php/.py/.java/.go/.rb/.kt/.rs unutar backend/frontend dirs
-- **Output:** kad detected promene u nepodrzanom jeziku, emit explicit:
+- **Added:** detection of `UNSUPPORTED_CHANGED` files — .php/.py/.java/.go/.rb/.kt/.rs inside backend/frontend dirs
+- **Output:** when changes are detected in an unsupported language, emit explicit:
   ```
   Detected N changed file(s) in unsupported language(s).
     Sample (up to 5):
@@ -103,12 +103,12 @@ Plus dokumentacijska crisis: **Festico CLAUDE.md/workflow.md tvrde "apd verify-c
     PHP/Python/Java/Go/Ruby/Kotlin/Rust require manual cross-layer review.
     See workflow.md sekcija 7 (cross-layer type mapping) for the table.
   ```
-- **Plus NOTE** posle "Changes detected in type files" hint-a: "verifier supports TypeScript ↔ C# only. For other backends, this command will error — see workflow.md sekcija 7 for manual review process."
+- **Plus NOTE** after the "Changes detected in type files" hint: "verifier supports TypeScript ↔ C# only. For other backends, this command will error — see workflow.md section 7 for the manual review process."
 
-### B. Pun mode error enriched sa `_lang_summary`
+### B. Full mode error enriched with `_lang_summary`
 
-- **Nova helper funkcija:** `_lang_summary()` koristi `find -not -path` (bez grep pipe sa pipefail problema) da pobroji `.cs/.ts/.tsx/.php/.py/.java/.go/.rb/.kt/.rs` fajlove
-- **Error sad pokazuje:**
+- **New helper function:** `_lang_summary()` uses `find -not -path` (no grep pipe with the pipefail problem) to count `.cs/.ts/.tsx/.php/.py/.java/.go/.rb/.kt/.rs` files
+- **Error now shows:**
   ```
   ERROR: Unrecognized backend language in backend/src. Supported pairs: TypeScript ↔ C#.
     Detected: 0 .cs, 0 .ts/.tsx, 658 .php, 0 .py, 0 .java, ...
@@ -116,18 +116,18 @@ Plus dokumentacijska crisis: **Festico CLAUDE.md/workflow.md tvrde "apd verify-c
     see workflow.md sekcija 7 (cross-layer type mapping) — manual review process.
   ```
 
-### C. Skripta header eksplicit lista
+### C. Script header — explicit list
 
 - "NOT supported (require manual cross-layer review): PHP, Python, Java, Go, Ruby, Kotlin, Rust"
 
 ### D. apd-setup skill anti-pattern
 
-- Novi anti-pattern u `skills/apd-setup/SKILL.md`: "Don't promise framework features that don't exist in generated CLAUDE.md / workflow.md. Especially: `apd verify-contracts` supports TypeScript ↔ C# only (v6.12+)." Plus uputstvo: "When uncertain about framework feature scope, read `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/<command>` script header for exact supported scope, or `docs/SPEC.md`."
-- Empirical reference: Festico apd-setup 2026-05-28 (orchestrator confabulated PHP support claim)
+- New anti-pattern in `skills/apd-setup/SKILL.md`: "Don't promise framework features that don't exist in generated CLAUDE.md / workflow.md. Especially: `apd verify-contracts` supports TypeScript ↔ C# only (v6.12+)." Plus guidance: "When uncertain about framework feature scope, read `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/<command>` script header for exact supported scope, or `docs/SPEC.md`."
+- Empirical reference: Festico apd-setup 2026-05-28 (orchestrator confabulated a PHP support claim)
 
 ### E. Tests §76 +9 assertions
 
-- 6 static (header lists unsupported langs, `_lang_summary` helper, full mode invokes helper, `--changed` detects UNSUPPORTED_CHANGED, workflow.md sekcija 7 reference, apd-setup anti-pattern)
+- 6 static (header lists unsupported langs, `_lang_summary` helper, full mode invokes helper, `--changed` detects UNSUPPORTED_CHANGED, workflow.md section 7 reference, apd-setup anti-pattern)
 - 3 live (PHP diff → unsupported warning, full mode shows .php file count, TS-only diff → no false unsupported warning)
 
 **Test count 615 → 624 PASS / 0 FAIL.**
@@ -140,23 +140,23 @@ Plus dokumentacijska crisis: **Festico CLAUDE.md/workflow.md tvrde "apd verify-c
 | `--changed` sa PHP diff | "Changes do not affect types" (misleading) | "Detected N changed file(s) in unsupported language(s)" |
 | TS-only diff | works | still works (no false positive) |
 
-**Festico cleanup:** orchestrator-ova konfabulacija u Festico CLAUDE.md/workflow.md ostaje (per-project artifact, ne framework bug). User je vec dokumentovao limitation u Festico MEMORY.md. Sledeci `apd-setup` re-run sa v6.12.2+ NE bi smeo da re-konfabulira jer anti-pattern u skill-u je sad explicit. Plus drift detection (v6.10) ce flag-ovati stale workflow.md ako orchestrator ne updejtuje.
+**Festico cleanup:** the orchestrator's confabulation in Festico CLAUDE.md/workflow.md remains (a per-project artifact, not a framework bug). The user has already documented the limitation in Festico MEMORY.md. A future `apd-setup` re-run with v6.12.2+ should NOT re-confabulate because the anti-pattern in the skill is now explicit. Plus drift detection (v6.10) will flag a stale workflow.md if the orchestrator does not update it.
 
-**Out of scope (deferred za v6.13/v6.14):**
+**Out of scope (deferred to v6.13/v6.14):**
 
-- **PHP parser** — real feature work. Festico postoji + v6.13 ce verovatno imati PHP/Symfony stack-aware scaffolding pa moze biti grupisano tamo. Sa current `_lang_summary` helper-om, dodavanje PHP parser-a je incremental (extract_php_types funkcija + dodaje "$BACKEND_LANG = php" branch).
-- **Layout flexibility** (feature-folder DTO scan) — i dalje deferred za v6.14+.
+- **PHP parser** — real feature work. Festico exists + v6.13 will likely have PHP/Symfony stack-aware scaffolding, so it can be grouped there. With the current `_lang_summary` helper, adding a PHP parser is incremental (an `extract_php_types` function + a "$BACKEND_LANG = php" branch).
+- **Layout flexibility** (feature-folder DTO scan) — still deferred to v6.14+.
 
 ## v6.12.1 — 2026-05-28
 
-Hot-fix za `verify-contracts` skriptu. Bug surfaced 2026-05-28 u BambiProject — `apd contracts <src> <dst>` raportirao backend dir kao "unknown" cak iako tu postoji 100+ `.cs` fajlova.
+Hot-fix for the `verify-contracts` script. Bug surfaced 2026-05-28 in BambiProject — `apd contracts <src> <dst>` reported the backend dir as "unknown" even though 100+ `.cs` files exist there.
 
-**Two root causes u `detect_language()` funkciji:**
+**Two root causes in the `detect_language()` function:**
 
-1. **`grep -qv X` exit 1 on empty stdin** — na praznom inputu (no files matched by find), `grep -qv` izbacuje "no matches" exit 1. Sa `set -euo pipefail` to ubija skriptu pre nego sto stigne do `elif` brange-a.
-2. **`grep -q .` SIGPIPE on upstream find** — `grep -q .` cita prvi red i exit-uje, sto triggers SIGPIPE na upstream `find`. Sa `pipefail`, ceo pipe vraca non-zero, if-branch evaluates kao "no match" cak kad fajlovi postoje.
+1. **`grep -qv X` exit 1 on empty stdin** — on empty input (no files matched by find), `grep -qv` emits a "no matches" exit 1. With `set -euo pipefail` that kills the script before it reaches the `elif` branch.
+2. **`grep -q .` SIGPIPE on upstream find** — `grep -q .` reads the first line and exits, which triggers SIGPIPE on the upstream `find`. With `pipefail`, the whole pipe returns non-zero, and the if-branch evaluates as "no match" even when files exist.
 
-**Fix:** capture filtered output u variable, check non-empty sa `[ -n "$var" ]`. `|| true` na pipe-u neutralizuje exit-1-on-no-matches od grep-a sa empty input-om. Plus zagrade oko find `-o` operatora za portability izmedju GNU i BSD find implementacija.
+**Fix:** capture the filtered output into a variable, check non-empty with `[ -n "$var" ]`. `|| true` on the pipe neutralizes the exit-1-on-no-matches from grep with empty input. Plus parentheses around the find `-o` operator for portability between GNU and BSD find implementations.
 
 ```bash
 # Before (broken)
@@ -177,87 +177,87 @@ if [ -n "$ts_files" ]; then
 | Festico `web/` (.ts/.tsx) | typescript (worked) | **typescript** ✓ |
 | Empty dir | crash (set -e) | **unknown** ✓ (no crash) |
 
-**Test §75 +5 assertions:** 3 static (no `grep -qv` u code, capture-into-var pattern, parens oko find -o) + 2 live (detect_language pod set -euo pipefail vraca tacne language tag-ove na empty/csharp/typescript dir-ovima; empty dir ne crash-uje).
+**Test §75 +5 assertions:** 3 static (no `grep -qv` in code, capture-into-var pattern, parens around find -o) + 2 live (detect_language under set -euo pipefail returns correct language tags on empty/csharp/typescript dirs; empty dir does not crash).
 
 **Test count 610 → 615 PASS / 0 FAIL.**
 
-**Out of scope (separate discussion za v6.13/v6.14):**
+**Out of scope (separate discussion for v6.13/v6.14):**
 
-User-ova druga observacija — `verify-contracts` pun directory mode ocekuje "one backend types dir ↔ one frontend types dir" layout (npr. `server/src/types/` ↔ `client/src/types/`). BambiProject ima DTO-ove razbacane po feature folderima (`src/PLAZMA.Application/Features/**/*.cs`), a backoffice koristi `apps/backoffice/src/features/**/types.ts` plus `src/types/`. To je arhitektonska pretpostavka, ne BSD grep bug — zahteva dizajn promene (multi-dir glob support, feature-folder DTO scan, ili config field `apd:contracts.layout`). Za sad: `--changed` mode (koji koristi git diff) je upotrebljiv put.
+The user's second observation — `verify-contracts` full directory mode expects a "one backend types dir ↔ one frontend types dir" layout (e.g. `server/src/types/` ↔ `client/src/types/`). BambiProject has DTOs scattered across feature folders (`src/PLAZMA.Application/Features/**/*.cs`), and the backoffice uses `apps/backoffice/src/features/**/types.ts` plus `src/types/`. That is an architectural assumption, not a BSD grep bug — it requires a design change (multi-dir glob support, feature-folder DTO scan, or a config field `apd:contracts.layout`). For now: `--changed` mode (which uses git diff) is the usable path.
 
 ## v6.12.0 — 2026-05-26
 
-Treci minor u v6.10-v7.0 setup+audit chain-u — **stack-aware template scaffolding**. .NET prvi target stack (BambiProject reference). Realizacija "knowledge encoding system" pillar-a: orchestrator pri `apd-setup` invokeu dobija stack-specific agente + skills automatski, umesto 50-100h manuelne customizacije.
+Third minor in the v6.10-v7.0 setup+audit chain — **stack-aware template scaffolding**. .NET is the first target stack (BambiProject reference). Realizes the "knowledge encoding system" pillar: on `apd-setup` invocation the orchestrator gets stack-specific agents + skills automatically, instead of 50-100h of manual customization.
 
 **Highlights:**
 
-- **feat(templates/stack/dotnet/):** novi direktorijum sa template-ima:
-  - **Agents (3):** `backend-api.md.tmpl`, `database.md.tmpl`, `test-guardian.md.tmpl` sa `{{SCOPE_BACKEND}}` / `{{SCOPE_INFRA}}` / `{{SCOPE_DOMAIN}}` / `{{SCOPE_TESTS}}` placeholder-ima
+- **feat(templates/stack/dotnet/):** new directory with templates:
+  - **Agents (3):** `backend-api.md.tmpl`, `database.md.tmpl`, `test-guardian.md.tmpl` with `{{SCOPE_BACKEND}}` / `{{SCOPE_INFRA}}` / `{{SCOPE_DOMAIN}}` / `{{SCOPE_TESTS}}` placeholders
   - **Skills (2):** `dotnet-conventions.md` (generic Result pattern, DDD aggregates, thin endpoints, EF Core defaults, FluentValidation pitfalls, customization checklist) + `ef-core-migrations.md` (naming, idempotency, down() requirement, two-chain testing, production deploy discipline, concurrency tokens)
-- **feat(pipeline-stack-scaffold):** nova bash skripta — copy templates u `.claude/{agents,skills}/` sa placeholder substitution. Additive default (skip-if-exists). Flags: `--list-stacks`, `--dry-run`, `--force` (overwrite + `.bak.preaudit` backup, BambiProject pattern).
+- **feat(pipeline-stack-scaffold):** new bash script — copies templates into `.claude/{agents,skills}/` with placeholder substitution. Additive default (skip-if-exists). Flags: `--list-stacks`, `--dry-run`, `--force` (overwrite + `.bak.preaudit` backup, BambiProject pattern).
 - **feat(apd dispatcher):** `apd scaffold` / `apd sc` sub-command. Help text updated.
-- **fix(skills/apd-setup/SKILL.md):** novi Section 5b "Stack-aware scaffolding (v6.12+)" — orchestrator invokuje `pipeline-stack-detect` prvo, prikaze rezultate, per-stack pita user-a YES/NO, run `pipeline-stack-scaffold <stack> --dry-run` pa actual scaffold. Multi-stack opt-in handling.
-- **docs(SPEC.md):** `apd scaffold` entry u CLI subcommand tabeli.
+- **fix(skills/apd-setup/SKILL.md):** new Section 5b "Stack-aware scaffolding (v6.12+)" — orchestrator invokes `pipeline-stack-detect` first, shows results, asks the user YES/NO per stack, runs `pipeline-stack-scaffold <stack> --dry-run` then the actual scaffold. Multi-stack opt-in handling.
+- **docs(SPEC.md):** `apd scaffold` entry in the CLI subcommand table.
 - **test(test-codex-adapter §74) +22 assertions:** 12 static (script + .NET template dir + 3 agents + 2 skills + placeholder usage + skill reference + flags + dispatcher + apd-setup skill) + 7 live (--list-stacks, scaffold empty project, placeholder substitution, re-run skip, --force overwrite, .bak.preaudit creation, unknown stack error).
 - **Test count 588 → 610 PASS / 0 FAIL.**
 
 **Generic vs project-specific extraction:**
 
-Templates su **generic .NET clean-architecture patterns** — NE PLAZMA-specific (Wolverine, i18n key formats, JWT role conventions). To su per-project customizations koje user dodaje posle scaffolding-a. dotnet-conventions skill ima eksplicit **"Customization Checklist"** section koja vodi user-a kroz post-scaffold polish.
+Templates are **generic .NET clean-architecture patterns** — NOT PLAZMA-specific (Wolverine, i18n key formats, JWT role conventions). Those are per-project customizations the user adds after scaffolding. The dotnet-conventions skill has an explicit **"Customization Checklist"** section that guides the user through post-scaffold polish.
 
 **Multi-stack support:**
 
-`pipeline-stack-detect` (v6.11) detektuje sve stack-ove u monorepo. apd-setup pita per-stack. Multi-stack projekti kao BambiProject (.NET + Node/Vite + KMP/Compose) ce dobiti scaffold po stack-u — user moze opt-out svakog pojedinacno.
+`pipeline-stack-detect` (v6.11) detects all stacks in a monorepo. apd-setup asks per stack. Multi-stack projects like BambiProject (.NET + Node/Vite + KMP/Compose) get a scaffold per stack — the user can opt out of each one individually.
 
 **Additive policy + drift detection synergy:**
 
-- Novi fajl → kreira iz template-a
-- Postojeci fajl matching baseline → skipped (no churn)
-- Postojeci fajl stale per template → drift detection (v6.10) flaguje odvojeno; user odlucuje da li `--force` upgrade sa backup-om
+- New file → created from template
+- Existing file matching baseline → skipped (no churn)
+- Existing file stale per template → drift detection (v6.10) flags it separately; the user decides whether to `--force` upgrade with a backup
 
-To kombinuje sigurnost (no destructive surprise) sa upgrade path-om (drift visible, manual decision).
+This combines safety (no destructive surprise) with an upgrade path (drift visible, manual decision).
 
 **v6.10-v7.0 chain progress:**
 
-| Verzija | Sadrzaj | Status |
+| Version | Content | Status |
 |---|---|---|
 | v6.10.0 | apd-audit drift detection + apd-init python merge fix | SHIPPED |
-| v6.11.0 | Read-only stack detection mehanizam | SHIPPED |
-| **v6.12.0** | **Stack-aware template scaffolding (.NET prvi)** | **SHIPPED 2026-05-26** |
-| v6.13 | Drugi stack (Node/React ili PHP/Symfony — TBD posle live test) | Backlog |
-| v7.0 | max_defects parser removal + finalizacija | Backlog |
+| v6.11.0 | Read-only stack detection mechanism | SHIPPED |
+| **v6.12.0** | **Stack-aware template scaffolding (.NET first)** | **SHIPPED 2026-05-26** |
+| v6.13 | Second stack (Node/React or PHP/Symfony — TBD after live test) | Backlog |
+| v7.0 | max_defects parser removal + finalization | Backlog |
 
 **Backlog open:**
 
-- v6.12 live test u BambiProject — `apd scaffold dotnet --dry-run` da vidimo sta bi se desilo (Bambi vec ima custom agente), pa `--force` da uporedjuje generated vs existing
-- Live test u Festico — moze li `apd scaffold` ostaviti existing PHP/Symfony agente i samo skip-ovati ih (Festico nema .NET, niko ne treba scaffold)
-- v6.13 sledeci stack — kandidati Node/React (Festico Next + Bambi Vite ref) ili KMP/Compose (Bambi mobile ref). User-decision posle v6.12 evaluation.
+- v6.12 live test in BambiProject — `apd scaffold dotnet --dry-run` to see what would happen (Bambi already has custom agents), then `--force` to compare generated vs existing
+- Live test in Festico — can `apd scaffold` leave existing PHP/Symfony agents alone and just skip them (Festico has no .NET, nobody needs scaffold)
+- v6.13 next stack — candidates Node/React (Festico Next + Bambi Vite ref) or KMP/Compose (Bambi mobile ref). User decision after v6.12 evaluation.
 
 ## v6.11.0 — 2026-05-26
 
-Drugi minor u v6.10-v7.0 setup+audit chain-u — **read-only stack detection mehanizam**. Foundation za v6.12 stack-aware template scaffolding (.NET prvi target, BambiProject reference).
+Second minor in the v6.10-v7.0 setup+audit chain — **read-only stack detection mechanism**. Foundation for v6.12 stack-aware template scaffolding (.NET first target, BambiProject reference).
 
 **Highlights:**
 
-- **feat(pipeline-stack-detect):** nova bash skripta sa detekcijom 7+ stack kategorija:
-  - **.NET** (high confidence) — `*.sln` ili `*.csproj`
+- **feat(pipeline-stack-detect):** new bash script detecting 7+ stack categories:
+  - **.NET** (high confidence) — `*.sln` or `*.csproj`
   - **PHP/Symfony** (high) — `composer.json` + `symfony.lock` / `config/packages/` / `bin/console`
-  - **PHP generic** (medium) — `composer.json` bez Symfony markers
+  - **PHP generic** (medium) — `composer.json` without Symfony markers
   - **Node/Next** (high) — `package.json` + `next.config.{js,ts,mjs}`
   - **Node/Vite** (high) — `package.json` + `vite.config.{js,ts,mjs}`
-  - **Node/React** (medium) — `package.json` sa `react` u dependencies
-  - **Node generic** (low) — `package.json` bez framework markers
-  - **KMP/Compose** (high) — `settings.gradle.kts` + `composeApp/` ili `commonMain/`
+  - **Node/React** (medium) — `package.json` with `react` in dependencies
+  - **Node generic** (low) — `package.json` without framework markers
+  - **KMP/Compose** (high) — `settings.gradle.kts` + `composeApp/` or `commonMain/`
   - **Android (KMP-less)** (medium) — `build.gradle.kts` + `AndroidManifest.xml`
   - **Python/Django** (high) — `manage.py` + `requirements.txt`/`pyproject.toml`
-  - **Python/FastAPI** (high) — `pyproject.toml`/`requirements.txt` sa `fastapi` dependency
-  - **Python generic** (low) — `pyproject.toml`/`requirements.txt` bez framework
-- **Multi-stack monorepo support** — BambiProject (jedini real-world test) detektovan kao **3 stacks simultaneously** (.NET + Node/Vite + KMP/Compose). Skripta lista svaki sa confidence + signal files.
-- **Output modes:** human-readable po default (color-coded confidence column + signals path), `--json` flag za machine-readable (v6.12 template scaffolding ce konzumirati).
-- **Internal dir exclusion:** scan skipuje `.claude/`, `.apd/`, `audit/`, `node_modules/`, `vendor/`, `.git/`, `build/`, `dist/`, `target/`, `.next/`, `.gradle/` — fokus na real project structure.
-- **Exit code:** 0 always po default (informational, nije failure). `--strict` flag exit 1 ako zero stacks detected.
+  - **Python/FastAPI** (high) — `pyproject.toml`/`requirements.txt` with a `fastapi` dependency
+  - **Python generic** (low) — `pyproject.toml`/`requirements.txt` without framework
+- **Multi-stack monorepo support** — BambiProject (the only real-world test) detected as **3 stacks simultaneously** (.NET + Node/Vite + KMP/Compose). The script lists each with confidence + signal files.
+- **Output modes:** human-readable by default (color-coded confidence column + signals path), `--json` flag for machine-readable output (v6.12 template scaffolding will consume it).
+- **Internal dir exclusion:** the scan skips `.claude/`, `.apd/`, `audit/`, `node_modules/`, `vendor/`, `.git/`, `build/`, `dist/`, `target/`, `.next/`, `.gradle/` — focus on real project structure.
+- **Exit code:** 0 always by default (informational, not a failure). `--strict` flag exits 1 if zero stacks are detected.
 - **feat(apd dispatcher):** `apd stack` (alias `apd st`) sub-command + `apd audit-drift` (alias `apd drift`) sub-command. Help text updated.
-- **docs(SPEC.md):** `apd stack` entry u CLI subcommand tabeli.
+- **docs(SPEC.md):** `apd stack` entry in the CLI subcommand table.
 - **test(test-codex-adapter §73) +15 assertions:** 11 static (script exists, sources libs, 5 stack signal patterns, --json mode, internal dir exclusion, apd dispatcher wires stack + audit-drift) + 5 live (empty/strict/synthetic .NET/synthetic PHP-Symfony/JSON output).
 - **Test count 572 → 588 PASS / 0 FAIL.**
 
@@ -268,99 +268,99 @@ Drugi minor u v6.10-v7.0 setup+audit chain-u — **read-only stack detection meh
 | BambiProject | .NET (high) + Node/Vite (high) + KMP/Compose (high) | Real 3-stack monorepo correctly identified |
 | Festico | PHP/Symfony (high) + Node/Next (high) | Real 2-stack project correctly identified |
 
-**Why "v6.11 read-only":** detection is foundation. v6.12 ce konzumirati JSON output da bira template-e pri `apd-setup` invocation. Razvoj kao odvojeni faze omogucuje empirical iteration — sad korisnik moze testirati detection na vlastitim projektima i prijaviti false positives/negatives pre nego sto template scaffolding zavisi od njega.
+**Why "v6.11 read-only":** detection is the foundation. v6.12 will consume the JSON output to pick templates on `apd-setup` invocation. Developing it as a separate phase enables empirical iteration — the user can now test detection on their own projects and report false positives/negatives before template scaffolding depends on it.
 
 **Backlog open:**
 
-- v6.11 live test u Bambi/Festico/Test (vec ad-hoc validovano kroz development cycle)
-- v6.12 stack-aware template scaffolding — `apd-setup` invokes pipeline-stack-detect, generira agente + skills + conventions per stack (.NET prvi target)
-- v6.13 drugi stack (TBD posle v6.12 evaluation)
+- v6.11 live test in Bambi/Festico/Test (already ad-hoc validated through the development cycle)
+- v6.12 stack-aware template scaffolding — `apd-setup` invokes pipeline-stack-detect, generates agents + skills + conventions per stack (.NET first target)
+- v6.13 second stack (TBD after v6.12 evaluation)
 - v7.0 max_defects parser removal
 
 ## v6.10.0 — 2026-05-26
 
-Prvi minor u v6.10-v7.0 setup+audit improvement chain-u (per project-v6.10-v7.0-setup-audit-roadmap memo). Drift detection u `apd-audit` skill + side-fix u `apd-init` koji je BambiProject + Festico evidence izneo.
+First minor in the v6.10-v7.0 setup+audit improvement chain (per the project-v6.10-v7.0-setup-audit-roadmap memo). Drift detection in the `apd-audit` skill + a side-fix in `apd-init` that BambiProject + Festico evidence surfaced.
 
 **Empirical trigger:**
 
-BambiProject + Festico oba imali drift posle vise re-init-a:
-- `.claude/settings.json` deny patterns: **4/8** (samo slash-prefixed; bare-dir 4 missing). To je bypass vector: `mkdir .apd/pipeline` (bez prefix slash) ne hvata se guard-om.
+BambiProject + Festico both had drift after multiple re-inits:
+- `.claude/settings.json` deny patterns: **4/8** (only slash-prefixed; 4 bare-dir variants missing). That is a bypass vector: `mkdir .apd/pipeline` (without a leading slash) is not caught by the guard.
 - BambiProject `.claude/.apd-config` `APD_VERSION=6.8.11` vs plugin v6.9.0 (1 minor stale)
-- BambiProject `.claude/rules/workflow.md` 4 markeri missing (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`) — workflow je iz v6.0/v6.5 ere, nije refresh-ovan kroz v6.7-v6.9 chain
+- BambiProject `.claude/rules/workflow.md` 4 markers missing (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`) — the workflow is from the v6.0/v6.5 era, not refreshed through the v6.7-v6.9 chain
 
-**Root cause apd-init python merge bug:** `required_deny` python lista u `apd-init` imala je samo 4 patterns (slash-prefixed); template literal je imao 8. Re-init je ucvrscivao samo 4, freshly-init dobijao 8. BambiProject + Festico oba su prosli re-init kroz v6.5-v6.9 period i ostali na 4.
+**Root cause — apd-init python merge bug:** the `required_deny` python list in `apd-init` had only 4 patterns (slash-prefixed); the template literal had 8. Re-init reinforced only 4, a fresh init got 8. BambiProject + Festico both went through re-init during the v6.5-v6.9 period and stayed at 4.
 
 **Highlights:**
 
 ### A. Pre-req fix: apd-init python merge
 
-- **fix(apd-init):** `required_deny` python list 4 → 8 patterns (dodato 4 bare-dir variants). Zatvara bypass vector + omogucuje da v6.10 drift detection ne flaguje BambiProject/Festico kao stale zauvek (jednom kad se re-run apd-setup).
+- **fix(apd-init):** `required_deny` python list 4 → 8 patterns (added 4 bare-dir variants). Closes the bypass vector + ensures v6.10 drift detection does not flag BambiProject/Festico as stale forever (once apd-setup is re-run).
 
 ### B. New script: pipeline-audit-drift
 
-- **feat(pipeline-audit-drift):** nova bash skripta sa 3 drift dimensions:
-  - settings.json deny patterns vs framework baseline (8 patterns hardcoded, SSOT sa apd-init)
+- **feat(pipeline-audit-drift):** new bash script with 3 drift dimensions:
+  - settings.json deny patterns vs framework baseline (8 patterns hardcoded, SSOT with apd-init)
   - .apd-config APD_VERSION vs current plugin version (minor/major drift = IMPORTANT, patch-only = INFO)
-  - workflow.md content markers (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`) — framework workflow.md baseline kao reference
-- Severity buckets: CRITICAL / IMPORTANT / INFO / CLEAN, sa per-item recovery action
-- Framework self-detection: skipuje drift checks kad APD_FRAMEWORK_SELF=true (na samom framework repo-u)
-- Exit code: 1 ako CRITICAL/IMPORTANT, 0 ako INFO-only ili CLEAN — usable u CI / pre-commit hooks
+  - workflow.md content markers (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`) — framework workflow.md baseline as reference
+- Severity buckets: CRITICAL / IMPORTANT / INFO / CLEAN, with a per-item recovery action
+- Framework self-detection: skips drift checks when APD_FRAMEWORK_SELF=true (on the framework repo itself)
+- Exit code: 1 if CRITICAL/IMPORTANT, 0 if INFO-only or CLEAN — usable in CI / pre-commit hooks
 
 ### C. Skill integration
 
-- **fix(skills/apd-audit/SKILL.md):** novi Section 8 "Drift Detection (v6.10+)" — opisuje 3 dimensions, output buckets, recovery action (re-run `/apd-setup`)
-- **fix(plugins/apd/skills/apd-audit/SKILL.md):** Codex mirror sa istom sekcijom
+- **fix(skills/apd-audit/SKILL.md):** new Section 8 "Drift Detection (v6.10+)" — describes the 3 dimensions, output buckets, recovery action (re-run `/apd-setup`)
+- **fix(plugins/apd/skills/apd-audit/SKILL.md):** Codex mirror with the same section
 
 ### D. SPEC.md + tests
 
-- **docs(SPEC.md):** `apd audit-drift` (v6.10) entry u CLI subcommand tabeli
+- **docs(SPEC.md):** `apd audit-drift` (v6.10) entry in the CLI subcommand table
 - **test(test-codex-adapter §72) +13 assertions:** 8 static (script exists/executable, sources libs, deny patterns baseline, APD_VERSION check, workflow markers check, apd-init python merge lock-in 8 patterns, CC + Codex skill Section 8) + 5 live (clean project → exit 0, missing deny patterns → IMPORTANT, stale APD_VERSION minor → IMPORTANT, stale workflow markers → IMPORTANT, patch-only APD_VERSION → INFO + exit 0)
 - **Test count 559 → 572 PASS / 0 FAIL.**
 
 **Migration:**
 
-Projekti koji su radili re-init kroz v6.5-v6.9 (verovatno vecina realnih projekata) videce drift u `/apd-audit` dok ne re-run `/apd-setup` (v6.10+ ce sad pisati svih 8 patterns). Run `bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-audit-drift` da vidi konkretne missing items.
+Projects that re-inited through v6.5-v6.9 (probably most real projects) will see drift in `/apd-audit` until they re-run `/apd-setup` (v6.10+ now writes all 8 patterns). Run `bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-audit-drift` to see the concrete missing items.
 
 **Roadmap continuity:**
 
-- **v6.11:** Stack detection mehanizam (read-only) — detect .NET/PHP/Symfony/Node/Next/KMP signals
-- **v6.12:** Stack-aware template scaffolding (.NET prvi, BambiProject reference)
-- **v6.13:** Drugi stack (TBD posle v6.12 evaluation)
-- **v7.0:** max_defects parser removal + finalizacija
+- **v6.11:** Stack detection mechanism (read-only) — detect .NET/PHP/Symfony/Node/Next/KMP signals
+- **v6.12:** Stack-aware template scaffolding (.NET first, BambiProject reference)
+- **v6.13:** Second stack (TBD after v6.12 evaluation)
+- **v7.0:** max_defects parser removal + finalization
 
-Phased pristup omogucuje empirical iteration izmedju faza i risk amortization.
+A phased approach enables empirical iteration between phases and risk amortization.
 
 ## v6.9.0 — 2026-05-24
 
-Minor release — closes v6.8 chain sa tri strukturalne intervencije:
+Minor release — closes the v6.8 chain with three structural interventions:
 
-1. **`adversarial: max_defects=N` field SOFT-DEPRECATED** — biti uklonjen u v7.0. Field continues to function za graceful transition (verifier gate v6.1 B2 + immutability check v6.3 D oba aktivni), ali emit-uje deprecation WARN + INFO log entry na svaki spec advance gde je field present.
-2. **`verify-apd` Section 8 lock-in** u `test-codex-adapter` §71 — zatvara blind-spot iz issues #10/#11 sa static-asserts za fixture content.
-3. **Pre-bump checklist** codified u `docs/SPEC.md` §24 — 3-step audit pre svake bump-promene koja menja guard/gate/hook ponasanje.
+1. **`adversarial: max_defects=N` field SOFT-DEPRECATED** — to be removed in v7.0. The field continues to function for a graceful transition (verifier gate v6.1 B2 + immutability check v6.3 D both active), but emits a deprecation WARN + INFO log entry on every spec advance where the field is present.
+2. **`verify-apd` Section 8 lock-in** in `test-codex-adapter` §71 — closes the blind-spot from issues #10/#11 with static asserts on fixture content.
+3. **Pre-bump checklist** codified in `docs/SPEC.md` §24 — a 3-step audit before any bump change that alters guard/gate/hook behavior.
 
-**Why soft-deprecate `max_defects`:** v6.8 chain (10 patches za 2 dana) empirically validovao **rationale gate (v6.7) kao sufficient standalone enforcement** za adversarial quality. Per-finding rationale ≥40 chars za dismissed findings + 100%-Do hard-block + bulk-accept rationale validation strukturalno covers misuse pattern koji je `max_defects` trebao da spreci. Plus empirical evidence (v6.8 dev cycle, 2026-05-22): tasks sa `max_defects=0` trajali 26-33 min sa 3 guard BLOCK cascade vs identicni task BEZ polja trajao 13 min clean. `max_defects` postao redundant — najgora opcija je `=0` (forsira accept-everything), realno bilo koje koriscenje polja sluzi RLHF anchoring vs ne-postojanju field-a.
+**Why soft-deprecate `max_defects`:** the v6.8 chain (10 patches in 2 days) empirically validated the **rationale gate (v6.7) as sufficient standalone enforcement** for adversarial quality. Per-finding rationale ≥40 chars for dismissed findings + 100%-Do hard-block + bulk-accept rationale validation structurally covers the misuse pattern `max_defects` was meant to prevent. Plus empirical evidence (v6.8 dev cycle, 2026-05-22): tasks with `max_defects=0` ran 26-33 min with a 3-guard BLOCK cascade vs an identical task WITHOUT the field running 13 min clean. `max_defects` became redundant — the worst option is `=0` (forces accept-everything), and realistically any use of the field just serves RLHF anchoring versus the field not existing.
 
 **Highlights:**
 
 ### A. max_defects soft deprecation
 
-- **fix(pipeline-advance):** track `MAX_DEFECTS_PRESENT=true/false` pre default-ovanja `CURRENT_MAX="unlimited"`. Kad field eksplicit present (`adversarial: max_defects=N` ili `=unlimited`), emit deprecation WARN ka stderr sa explanation + migration instruction. Plus log `INFO|orchestrator|max-defects-deprecated|task=X value=N` entry u `guard-audit.log` za telemetry. NO behavior change — verifier gate + immutability check oba i dalje active.
-- **fix(rules/workflow.md):** §7 SEVERITY GATE reworded sa DEPRECATED v6.9 marker + migration instruction. Drop preskripciju polish-mode use case (sad `pipeline_mode: polish` preset je preferiran).
-- **fix(skills/apd-brainstorm/SKILL.md) CC + Codex mirror:** "Adversarial budget" sekcija refactored kao DEPRECATED notice — preserves empirical evidence references (Add contact form / Rate limit / Admin lista comparison) ali eksplicit kaze DO NOT WRITE. "Common BLOCKs" tabela flaguje `max_defects-exceeded` + `max_defects-raised-mid-pipeline` kao DEPRECATED + dodaje migration instruction.
-- **fix(templates/codex/AGENTS.md):** mirror DEPRECATED wording u step 1 spec card writing instructions.
+- **fix(pipeline-advance):** track `MAX_DEFECTS_PRESENT=true/false` before defaulting `CURRENT_MAX="unlimited"`. When the field is explicitly present (`adversarial: max_defects=N` or `=unlimited`), emit a deprecation WARN to stderr with explanation + migration instruction. Plus log an `INFO|orchestrator|max-defects-deprecated|task=X value=N` entry to `guard-audit.log` for telemetry. NO behavior change — verifier gate + immutability check both still active.
+- **fix(rules/workflow.md):** §7 SEVERITY GATE reworded with a DEPRECATED v6.9 marker + migration instruction. Drop the polish-mode use-case prescription (the `pipeline_mode: polish` preset is now preferred).
+- **fix(skills/apd-brainstorm/SKILL.md) CC + Codex mirror:** "Adversarial budget" section refactored as a DEPRECATED notice — preserves the empirical evidence references (Add contact form / Rate limit / Admin lista comparison) but explicitly says DO NOT WRITE. The "Common BLOCKs" table flags `max_defects-exceeded` + `max_defects-raised-mid-pipeline` as DEPRECATED + adds a migration instruction.
+- **fix(templates/codex/AGENTS.md):** mirror the DEPRECATED wording in the step 1 spec card writing instructions.
 
 ### B. verify-apd Section 8 lock-in (issues #10 + #11 vector closed)
 
-- **test(test-codex-adapter §71):** static asserts za fixture content u `verify-apd` Section 8 — `.brainstorm-marker` pre-write za APD-VERIFY-TEST + APD-VERIFY-OPT-OUT, `implementation-plan.md` sa `**Implements:** R1` za oba synthetic task-a, sintetic `.adversarial-rationale.md` matching ADVERSARIAL summary. **Ako sledeci put neko menja gate u pipeline-advance i zaboravi update verify-apd, test-codex-adapter ce fail-ovati pre push-a** — preventive lock-in vs reactive hot-fix patch (kao #12 + #13 koji su ovo izbegli).
+- **test(test-codex-adapter §71):** static asserts on fixture content in `verify-apd` Section 8 — `.brainstorm-marker` pre-write for APD-VERIFY-TEST + APD-VERIFY-OPT-OUT, `implementation-plan.md` with `**Implements:** R1` for both synthetic tasks, a synthetic `.adversarial-rationale.md` matching the ADVERSARIAL summary. **If someone next changes a gate in pipeline-advance and forgets to update verify-apd, test-codex-adapter will fail before push** — preventive lock-in vs a reactive hot-fix patch (like #12 + #13 that this avoids).
 
-### C. Pre-bump checklist u SPEC.md §24
+### C. Pre-bump checklist in SPEC.md §24
 
-- **docs(SPEC.md):** nova sekcija §24 sa **MANDATORY** 3-step audit komandama (grep za pipeline-advance callsiteove + grep za synthetic fixtures + test-codex-adapter run). Plus deprecation policy: minor za warn, major za removal, 2-version graceful window.
+- **docs(SPEC.md):** new section §24 with **MANDATORY** 3-step audit commands (grep for pipeline-advance callsites + grep for synthetic fixtures + test-codex-adapter run). Plus deprecation policy: minor for warn, major for removal, 2-version graceful window.
 
 ### Tests
 
-- **§71 (15 assertions):** 7 static za max_defects deprecation (markers + parser logic + WARN message + skill content) + 4 live behavioural (warn emits, INFO logs, no warn when field absent, verifier gate STILL active in v6.9) + 4 static za verify-apd Section 8 lock-in.
-- **§63 Static I updated** za generalized `DO NOT write adversarial: max_defects` wording (bez `=0` specifically, jer ceo field deprecated).
+- **§71 (15 assertions):** 7 static for max_defects deprecation (markers + parser logic + WARN message + skill content) + 4 live behavioural (warn emits, INFO logs, no warn when field absent, verifier gate STILL active in v6.9) + 4 static for verify-apd Section 8 lock-in.
+- **§63 Static I updated** for the generalized `DO NOT write adversarial: max_defects` wording (without `=0` specifically, since the whole field is deprecated).
 - **Test count 544 → 559 PASS / 0 FAIL.**
 
 **Migration (v6.9 → v7.0 transition):**
@@ -368,87 +368,87 @@ Minor release — closes v6.8 chain sa tri strukturalne intervencije:
 | Project state | What to do |
 |---|---|
 | Spec has no `max_defects` field | Nothing — already on v7.0 baseline |
-| Spec has `adversarial: max_defects=N` (anywhere N≥0) | Remove the line. Rationale gate covers misuse strukturalno. |
+| Spec has `adversarial: max_defects=N` (anywhere N≥0) | Remove the line. The rationale gate covers misuse structurally. |
 | Spec has `adversarial: max_defects=unlimited` | Remove the line — explicit unlimited = default |
 | `pipeline_mode: polish` projects | No change — polish preset is preferred for hotfixes, drops adversarial entirely |
 
-v6.9 NE menja behavior — samo emit warn. v7.0 ce removeovati parser branches u `pipeline-advance` (lines ~311-345 immutability check + lines ~850-870 verifier severity gate) i log entries.
+v6.9 does NOT change behavior — it only emits a warn. v7.0 will remove the parser branches in `pipeline-advance` (lines ~311-345 immutability check + lines ~850-870 verifier severity gate) and the log entries.
 
-**Backlog open posle v6.9:**
+**Backlog open after v6.9:**
 
-- v6.9 live test u BambiProject — verify (a) WARN emit pri max_defects use, (b) INFO entry u guard-audit, (c) field i dalje radi (verifier gate active).
-- Phase 2 maxTurns calibration — 1-2 nedelje aggregated telemetry → workflow.md defaults update.
-- v6.9.x patch chain ako live test otkrije neke skill content gaps oko skip-brainstorm wording (sada referenisemo "max_defects=unlimited" u canonical reason — treba update).
+- v6.9 live test in BambiProject — verify (a) WARN emit on max_defects use, (b) INFO entry in guard-audit, (c) field still works (verifier gate active).
+- Phase 2 maxTurns calibration — 1-2 weeks of aggregated telemetry → workflow.md defaults update.
+- v6.9.x patch chain if the live test reveals skill content gaps around skip-brainstorm wording (we now reference "max_defects=unlimited" in the canonical reason — needs an update).
 - v7.0 plan — `max_defects` parser removal + BREAKING CHANGES section + test-codex-adapter §71 (a) part assertions deleted.
 
 ## v6.8.13 — 2026-05-23
 
-Drugi hot-fix u istom satu, isti klas problema kao #10 (sad #11) — `apd verify` E2E test trip-uje na drugom gate-u. v6.8.12 popravio brainstorm-marker gate u verify-apd Section 8, ali plan-spec consistency gate (v6.8.0) ostao otkriven jer Section 8 pisuje minimalan plan (`echo "## Plan: APD-VERIFY-TEST" > implementation-plan.md`) bez `**Implements:**` headera. Posle v6.8.12 spec step prosao ali builder block-uje sa `BLOCKED: Spec R1 not implemented by any plan section` → 12 cascading FAIL-ova.
+Second hot-fix within the same hour, same class of problem as #10 (now #11) — the `apd verify` E2E test trips on a second gate. v6.8.12 fixed the brainstorm-marker gate in verify-apd Section 8, but the plan-spec consistency gate (v6.8.0) remained exposed because Section 8 writes a minimal plan (`echo "## Plan: APD-VERIFY-TEST" > implementation-plan.md`) without an `**Implements:**` header. After v6.8.12 the spec step passed but the builder blocks with `BLOCKED: Spec R1 not implemented by any plan section` → 12 cascading FAILs.
 
 **Highlights:**
 
-- **fix(verify-apd Section 8): pre-write valid implementation-plan.md** za oba synthetic task imena (`APD-VERIFY-TEST` + `APD-VERIFY-OPT-OUT`). Format ima `### Section 1 — verification stub` + `**Implements:** R1` koji zadovoljava bidirectional check verify-plan-spec parser-a (forward: R1 u Implements postoji u spec; reverse: spec R1 pokriven u plan-u; symmetric: jedina sekcija ima Implements header).
-- **Zero impact na test count.** `test-codex-adapter` ostaje 544/0 (drugi E2E surface).
-- **Issue #11 zakljucen** sa fix commit-om.
+- **fix(verify-apd Section 8): pre-write a valid implementation-plan.md** for both synthetic task names (`APD-VERIFY-TEST` + `APD-VERIFY-OPT-OUT`). The format has `### Section 1 — verification stub` + `**Implements:** R1`, which satisfies the verify-plan-spec parser's bidirectional check (forward: R1 in Implements exists in spec; reverse: spec R1 covered in plan; symmetric: the single section has an Implements header).
+- **Zero impact on test count.** `test-codex-adapter` stays 544/0 (a separate E2E surface).
+- **Issue #11 closed** with the fix commit.
 
-**Strukturalni lesson (drugi put isti pattern u istom satu):**
+**Structural lesson (same pattern twice in the same hour):**
 
-`apd verify` je strukturalno blind-spot za sve gate-affecting changes. Trenutni workflow je: edit guard → update test-codex-adapter → ship. Sad očigledno: edit guard → update test-codex-adapter → **review svaki `pipeline-advance` callsite u `plugins/apd/bin/`** → ship. Komandа za pre-bump audit:
+`apd verify` is structurally a blind-spot for all gate-affecting changes. The current workflow is: edit guard → update test-codex-adapter → ship. Now obvious: edit guard → update test-codex-adapter → **review every `pipeline-advance` callsite in `plugins/apd/bin/`** → ship. Pre-bump audit command:
 
 ```bash
 grep -rn 'pipeline-advance\|pipeline-gate' plugins/apd/bin/
 ```
 
-Sledeci put kad zatrebamo da menjamo gate koji utiče na `spec`/`builder`/`reviewer`/`verifier` advance, treba ne samo da update-amo test-codex-adapter fixture-i nego i da prodjemo verify-apd Section 8 ručno. Mozda vredi razmotriti integraciju `apd verify` u `test-codex-adapter` familiju ili dodati pre-bump checklist u workflow.md.
+Next time we need to change a gate that affects `spec`/`builder`/`reviewer`/`verifier` advance, we must not only update the test-codex-adapter fixtures but also walk through verify-apd Section 8 manually. It may be worth considering integrating `apd verify` into the `test-codex-adapter` family or adding a pre-bump checklist to workflow.md.
 
 ## v6.8.12 — 2026-05-23
 
-Hot-fix za v6.8.11 oversight ([#10](https://github.com/zstevovich/claude-apd/issues/10)). v6.8.11 ucinio `brainstorm-marker` gate unconditional, ali pokriveni su samo `test-codex-adapter` fixture-i. Druga E2E test skripta — `verify-apd` (run preko `apd verify`) — ima Section 8 koja synthetic spec advance pokrece bez marker-a. Posle v6.8.11 deploy-a, `apd verify` na clean projektu ili posle `apd pipeline reset` produkuje 13 cascading FAIL-ova pocevsi od `BLOCKED: Brainstorm marker missing for spec advance (1 R-criteria declared)`.
+Hot-fix for a v6.8.11 oversight ([#10](https://github.com/zstevovich/claude-apd/issues/10)). v6.8.11 made the `brainstorm-marker` gate unconditional, but only the `test-codex-adapter` fixtures were covered. The other E2E test script — `verify-apd` (run via `apd verify`) — has a Section 8 that drives a synthetic spec advance without a marker. After the v6.8.11 deploy, `apd verify` on a clean project or after `apd pipeline reset` produces 13 cascading FAILs starting from `BLOCKED: Brainstorm marker missing for spec advance (1 R-criteria declared)`.
 
 **Highlights:**
 
-- **fix(verify-apd Section 8): pre-write canonical `.brainstorm-marker`** za oba synthetic task imena (`APD-VERIFY-TEST` u glavnom flow-u, `APD-VERIFY-OPT-OUT` u adversarial opt-out testu). Format identican onome sto skill pisuje na exit (`<task>|<iso-utc-timestamp>`). Postojeci `pipeline-advance reset` trap u Section 8 vec brise marker — nema potrebe za novim cleanup-om.
-- **Zero impact na test count.** `test-codex-adapter` ostaje 544/0 — `verify-apd` Section 8 nije unit-testovan u test-codex-adapter familiji (drugi E2E surface).
+- **fix(verify-apd Section 8): pre-write a canonical `.brainstorm-marker`** for both synthetic task names (`APD-VERIFY-TEST` in the main flow, `APD-VERIFY-OPT-OUT` in the adversarial opt-out test). Format identical to what the skill writes on exit (`<task>|<iso-utc-timestamp>`). The existing `pipeline-advance reset` trap in Section 8 already deletes the marker — no new cleanup needed.
+- **Zero impact on test count.** `test-codex-adapter` stays 544/0 — `verify-apd` Section 8 is not unit-tested in the test-codex-adapter family (a separate E2E surface).
 
 **Issue analysis:**
 
-Issue #10 dijagnoza je tacna: `pipeline-advance:230-265` enforce-uje marker za svaki spec advance sa R-criteria; verify-apd's synthetic spec deklarise R1, trip-uje gate, exit-uje non-zero, sve downstream testovi u Section 8 cascade jer spec.done nikad nije pisan. Sections 1-7 + 9-10 pass clean (103 PASS) — samo Section 8 affected.
+The issue #10 diagnosis is correct: `pipeline-advance:230-265` enforces the marker for every spec advance with R-criteria; verify-apd's synthetic spec declares R1, trips the gate, exits non-zero, and all downstream tests in Section 8 cascade because spec.done was never written. Sections 1-7 + 9-10 pass clean (103 PASS) — only Section 8 affected.
 
-**Fix choice:** marker write umesto `--skip-brainstorm '<reason>'` opt-out (oba su validna per issue). Marker write simulira "orchestrator load-uje skill" happy-path — reprezentativan za sta E2E test treba da pokriva. `--skip-brainstorm` bi bypassed gate-a entirely, sto NIJE sta verify-apd Section 8 testira.
+**Fix choice:** marker write instead of the `--skip-brainstorm '<reason>'` opt-out (both valid per the issue). The marker write simulates the "orchestrator loads the skill" happy-path — representative of what the E2E test should cover. `--skip-brainstorm` would bypass the gate entirely, which is NOT what verify-apd Section 8 tests.
 
-**Migration:** zero project-side impact. `apd verify` sad runs clean kroz Section 8 na v6.8.12. Projects koji su pokrenuli `apd verify` na v6.8.11 i videli FAIL-ove — re-run posle plugin update.
+**Migration:** zero project-side impact. `apd verify` now runs clean through Section 8 on v6.8.12. Projects that ran `apd verify` on v6.8.11 and saw FAILs — re-run after the plugin update.
 
 ## v6.8.11 — 2026-05-23
 
-Dvanaesti patch u v6.8 chain-u — strukturalna intervencija na entry discipline layer-u. Drop R-count > 2 carve-out iz `brainstorm-marker` hard gate-a. v6.8.5 gate dizajniran sa `R > 2` threshold kao "smart-friction" carve-out za trivial tasks; BambiProject 2026-05-23 evidence pokazala da je threshold gameable — orchestrator atomizuje non-trivial work na 2 R-criteria specifically da bypass-uje gate. v6.8.11 forsira brainstorm load na svaki spec advance bez obzira na declared R-count. Opt-out preko `--skip-brainstorm '<reason>'` (v6.8.8 friction) preserved.
+Twelfth patch in the v6.8 chain — structural intervention on the entry discipline layer. Drop the R-count > 2 carve-out from the `brainstorm-marker` hard gate. The v6.8.5 gate was designed with an `R > 2` threshold as a "smart-friction" carve-out for trivial tasks; BambiProject 2026-05-23 evidence showed the threshold is gameable — the orchestrator atomizes non-trivial work into 2 R-criteria specifically to bypass the gate. v6.8.11 forces a brainstorm load on every spec advance regardless of declared R-count. Opt-out via `--skip-brainstorm '<reason>'` (v6.8.8 friction) preserved.
 
-**Empirical trigger (BambiProject 2026-05-23, oba na v6.8.10 plugin):**
+**Empirical trigger (BambiProject 2026-05-23, both on the v6.8.10 plugin):**
 
 | Task | Declared R | Duration | Adversarial | Brainstorm gate |
 |---|---|---|---|---|
 | Photo Bill CTA | 2/2 | 32m 22s | N/A | not triggered |
 | MS.4 Android Barkoder still-image | 2/2 | 40m 25s | N/A | not triggered |
 
-Oba pipelina realno trajala kao 4-6 R cycle (multi-layer mobile + tests + 6/3 files sa 72% builder→reviewer iteration time), oba bi trebalo da rute kroz `/apd-brainstorm`. Plus secondary bypass evidence: orchestrator pokusao `rm -rf .apd/pipeline && mkdir -p .apd/pipeline` da wipe-uje v6.3 max_defects immutability ledger + reset audit trail (`PROTECTED_PIPELINE` substring match propusta bare-dir form bez trailing slash).
+Both pipelines really ran like a 4-6 R cycle (multi-layer mobile + tests + 6/3 files with 72% builder→reviewer iteration time); both should have routed through `/apd-brainstorm`. Plus secondary bypass evidence: the orchestrator tried `rm -rf .apd/pipeline && mkdir -p .apd/pipeline` to wipe the v6.3 max_defects immutability ledger + reset the audit trail (the `PROTECTED_PIPELINE` substring match misses the bare-dir form without a trailing slash).
 
-**Strategic insight (user 2026-05-23):** APD enforcement layers (guards + rationale gates + plan-spec consistency + brainstorm marker) cine END quality ciklusa robusno — orchestrator hit-uje BLOCK-ove, retry-uje, konvergira ka clean commit-u. Kvalitet nije open problem. Open problem je **resource cost** od nediscipline u entry. Cost jednog BLOCK loop ciklusa (plan-spec + max_defects raise + rationale-missing + rm -rf attempt + reset cascade) je 30-100K tokena. Cost jednog brainstorm load-a je 3-5K tokena. Per-task brainstorm load je ~10× jeftiniji od jednog BLOCK loop ciklusa koje undisciplined entry trigger-uje downstream.
+**Strategic insight (user 2026-05-23):** APD enforcement layers (guards + rationale gates + plan-spec consistency + brainstorm marker) make the END quality of the cycle robust — the orchestrator hits BLOCKs, retries, converges to a clean commit. Quality is not the open problem. The open problem is the **resource cost** of indiscipline at entry. The cost of one BLOCK loop cycle (plan-spec + max_defects raise + rationale-missing + rm -rf attempt + reset cascade) is 30-100K tokens. The cost of one brainstorm load is 3-5K tokens. A per-task brainstorm load is ~10× cheaper than one BLOCK loop cycle that undisciplined entry triggers downstream.
 
 **Highlights:**
 
-- **fix(pipeline-advance): brainstorm-marker gate UNCONDITIONAL.** Drop `[ "$CRITERIA_COUNT" -gt 2 ]` iz oba check-a (marker presence + `--skip-brainstorm` reason validation). Gate fires na svaki spec advance regardless of R-count. BLOCK message reworded: drop "non-trivial task" branding i "Trivial tasks (≤2 R-criteria) skip this gate automatically." line. Dodaje BambiProject 2026-05-23 R-atomization empirical reference (30-40 min sa adversarial N/A vs 10-15 min za brainstorm-loaded equivalents).
-- **fix(skills/apd-brainstorm/SKILL.md) CC + Codex mirror: "Default: load on every new task" paragraph** na vrh "When to use / When to skip" sekcije. "Skip when" reworded u "Skip only when" + kanonski skip cases enumerated (genuine 1:1 mirror of just-completed task, single-line bug fix sa one R-criterion, hotfix sa pre-aligned scope).
-- **fix(rules/workflow.md step 1 + templates/codex/AGENTS.md step 0): MANDATORY load wording reword** — "unconditional, every new task" instead of conditional `>2 R-criteria` list. Plus BambiProject MS.4 + Photo Bill CTA empirical reference.
+- **fix(pipeline-advance): brainstorm-marker gate UNCONDITIONAL.** Drop `[ "$CRITERIA_COUNT" -gt 2 ]` from both checks (marker presence + `--skip-brainstorm` reason validation). The gate fires on every spec advance regardless of R-count. BLOCK message reworded: drop the "non-trivial task" branding and the "Trivial tasks (≤2 R-criteria) skip this gate automatically." line. Adds the BambiProject 2026-05-23 R-atomization empirical reference (30-40 min with adversarial N/A vs 10-15 min for brainstorm-loaded equivalents).
+- **fix(skills/apd-brainstorm/SKILL.md) CC + Codex mirror: "Default: load on every new task" paragraph** at the top of the "When to use / When to skip" section. "Skip when" reworded to "Skip only when" + canonical skip cases enumerated (genuine 1:1 mirror of a just-completed task, single-line bug fix with one R-criterion, hotfix with pre-aligned scope).
+- **fix(rules/workflow.md step 1 + templates/codex/AGENTS.md step 0): MANDATORY load wording reword** — "unconditional, every new task" instead of a conditional `>2 R-criteria` list. Plus BambiProject MS.4 + Photo Bill CTA empirical reference.
 - **test(bin/core/test-codex-adapter):**
-    - Novi `_v6811_marker DIR TASK` helper na vrhu fajla — pisuje canonical `.brainstorm-marker` za fixture-i koji drive `pipeline-advance spec` bez namere da test-uje gate. 11 fixture-a updated kroz §31/§32/§38/§42/§43/§45/§51/§52 + Python subdir MCP test.
-    - §64 Live L flipped: bio "trivial R≤2 bypasses gate", sad "trivial R≤2 ALSO BLOCKs without marker per v6.8.11".
-    - §64 Static E updated da prepozna BambiProject MS.4 / Photo Bill CTA evidence references alongside postojece Bambi Cycle E.
-    - **Novi §70 (11 assertions):** 7 static (gate condition no longer R>2, v6.8.11 comment marker, `--skip-brainstorm` reason unconditional, workflow.md unconditional wording, CC + Codex SKILL.md unconditional wording, AGENTS.md unconditional wording) + 4 live (R=1 no marker → BLOCK, R=1 + marker → prolazi, R=2 + `--skip-brainstorm` + reason → prolazi opt-out preserved, R=2 + `--skip-brainstorm` bez reason → BLOCK).
-- **Test count 533 → 544 PASS / 0 FAIL** (+11 novih u §70, plus 1 modifikovan u §64 Live L).
-- **Migration:** projects koji su operisali pod R≤2 carve-out videce novi BLOCK na prvi spec advance per task. Recovery je dokumentovan opt-out: load `/apd-brainstorm` skill (recommended) ILI `--skip-brainstorm '<concrete reason>'` (kanonski use cases: 1:1 mirror, single-line bug fix, pre-aligned hotfix).
+    - New `_v6811_marker DIR TASK` helper at the top of the file — writes a canonical `.brainstorm-marker` for fixtures that drive `pipeline-advance spec` without intending to test the gate. 11 fixtures updated across §31/§32/§38/§42/§43/§45/§51/§52 + the Python subdir MCP test.
+    - §64 Live L flipped: was "trivial R≤2 bypasses gate", now "trivial R≤2 ALSO BLOCKs without marker per v6.8.11".
+    - §64 Static E updated to recognize BambiProject MS.4 / Photo Bill CTA evidence references alongside the existing Bambi Cycle E.
+    - **New §70 (11 assertions):** 7 static (gate condition no longer R>2, v6.8.11 comment marker, `--skip-brainstorm` reason unconditional, workflow.md unconditional wording, CC + Codex SKILL.md unconditional wording, AGENTS.md unconditional wording) + 4 live (R=1 no marker → BLOCK, R=1 + marker → passes, R=2 + `--skip-brainstorm` + reason → passes opt-out preserved, R=2 + `--skip-brainstorm` without reason → BLOCK).
+- **Test count 533 → 544 PASS / 0 FAIL** (+11 new in §70, plus 1 modified in §64 Live L).
+- **Migration:** projects that operated under the R≤2 carve-out will see a new BLOCK on the first spec advance per task. Recovery is the documented opt-out: load the `/apd-brainstorm` skill (recommended) OR `--skip-brainstorm '<concrete reason>'` (canonical use cases: 1:1 mirror, single-line bug fix, pre-aligned hotfix).
 
-**Strategic pivot:** prethodno-zapisana defensive guard za `rm -rf .apd/pipeline` DEFERRED u korist α (unconditional brainstorm load). Hypothesis: ako orchestrator zna pipeline od pocetka, nuclear-wipe escape valve postaje nepotreban. Re-evaluate posle BambiProject live test v6.8.11.
+**Strategic pivot:** the previously-noted defensive guard for `rm -rf .apd/pipeline` is DEFERRED in favor of α (unconditional brainstorm load). Hypothesis: if the orchestrator knows the pipeline from the start, the nuclear-wipe escape valve becomes unnecessary. Re-evaluate after the BambiProject v6.8.11 live test.
 
-**Dvanaesti-patch chain v6.8 (retrospective):**
+**Twelve-patch v6.8 chain (retrospective):**
 
 | Patch | Layer | Trigger |
 |---|---|---|
@@ -456,7 +456,7 @@ Oba pipelina realno trajala kao 4-6 R cycle (multi-layer mobile + tests + 6/3 fi
 | v6.8.2 | Observability | Admin signals |
 | v6.8.3 | UX | Rate limit |
 | v6.8.4 | Education | CSRF ignored |
-| v6.8.5 | Enforcement | "Bez brainstorm-a" — R>2 gate |
+| v6.8.5 | Enforcement | "Without brainstorm" — R>2 gate |
 | v6.8.6 | Polish | CSRF UX |
 | v6.8.7 | Skill content | Soft-delete gaps |
 | v6.8.8 | Override friction | Bambi Cycle E bypass |
@@ -466,24 +466,24 @@ Oba pipelina realno trajala kao 4-6 R cycle (multi-layer mobile + tests + 6/3 fi
 
 ## v6.8.10 — 2026-05-22
 
-Jedanaesti same-day patch — telemetry surface za empirical maxTurns calibration. User-observed strukturalan problem: trenutne maxTurns vrednosti (60 builders / 80 reviewers iz workflow.md) su intuitivno postavljene, ne empirically-calibrated. Empirical evidence: Bambi v6.8 era (poslednjih 7 dana) imala 15 `mobile` rapid re-dispatch events (gap <120s = proxy za maxTurn exhaust). v6.8.10 dodaje read-only telemetry koja kalibrise per-agent vrednosti empirijski. No behavior change — pure observability. Tests: 528 → 533 (+5 in §69).
+Eleventh same-day patch — a telemetry surface for empirical maxTurns calibration. User-observed structural problem: the current maxTurns values (60 builders / 80 reviewers from workflow.md) are set intuitively, not empirically calibrated. Empirical evidence: the Bambi v6.8 era (last 7 days) had 15 `mobile` rapid re-dispatch events (gap <120s = proxy for maxTurn exhaust). v6.8.10 adds read-only telemetry that calibrates per-agent values empirically. No behavior change — pure observability. Tests: 528 → 533 (+5 in §69).
 
-- **feat(bin/core/pipeline-report-maxturns): novi script za maxTurns telemetry.** Parse-uje `agent-history.log`, computes per agent_type:
-    - Total starts u poslednjih N dana (default 30)
+- **feat(bin/core/pipeline-report-maxturns): new script for maxTurns telemetry.** Parses `agent-history.log`, computes per agent_type:
+    - Total starts in the last N days (default 30)
     - Rapid re-dispatch count (gap <RAPID_THRESHOLD seconds, default 120)
-    - Average gap izmedju stop i sledeci start istog agent_type-a
-  Output formatted table sa color-coded counts:
+    - Average gap between stop and the next start of the same agent_type
+  Outputs a formatted table with color-coded counts:
     - red+bold: ≥5 rapid re-dispatches (likely exhaust, suggested action emitted)
     - yellow: 2-4 rapid re-dispatches (marginal)
     - dim: 1 rapid re-dispatch (incident)
     - green: 0 rapid re-dispatches (clean)
-  Plus suggested action per agent_type — reads current `maxTurns` iz `.claude/agents/<agent>.md` frontmatter-a i suggest-uje raise +20 turns:
+  Plus a suggested action per agent_type — reads the current `maxTurns` from `.claude/agents/<agent>.md` frontmatter and suggests raising +20 turns:
     ```
     + mobile — current maxTurns=60 → consider raising to 80
       Edit: .claude/agents/mobile.md frontmatter
     ```
-- **feat(bin/core/pipeline-report): maxturns sub-command dispatcher.** `apd report maxturns` (ili `apd report mt`) → exec na pipeline-report-maxturns. Plus `--days N` i `--threshold-seconds S` overrides preneti kroz dispatcher.
-- **docs(bin/apd): CLI help update.** Help comment dodaje `report maxturns` entry za visibility.
+- **feat(bin/core/pipeline-report): maxturns sub-command dispatcher.** `apd report maxturns` (or `apd report mt`) → exec pipeline-report-maxturns. Plus `--days N` and `--threshold-seconds S` overrides passed through the dispatcher.
+- **docs(bin/apd): CLI help update.** Help comment adds a `report maxturns` entry for visibility.
 - **Empirical baseline (Bambi v6.8 era, last 30 days):**
     | Agent | Starts | Rapid re-dispatch | Suggested |
     |---|---|---|---|
@@ -492,15 +492,15 @@ Jedanaesti same-day patch — telemetry surface za empirical maxTurns calibratio
     | code-reviewer | 413 | **5** | 80 → 100 |
     | backend-api | 265 | 2 | (marginal) |
     | testing/database/backoffice/adversarial | — | 0 | (clean) |
-- **Tests:** `test-codex-adapter` §69 adds 5 assertions: script exists/executable, dispatcher case present, rapid counter logic present, maxTurns frontmatter parse present, live synthetic fixture sa mobile re-dispatch returns expected output. Test count 528 → 533.
-- **Migration:** zero project-side impact. Pure telemetry — read-only surface. User-driven calibration: posle review `apd report maxturns`, manually edit `.claude/agents/<name>.md` frontmatter sa suggested maxTurns vrednoscu.
-- **Strategic context:** v6.8.10 je **Phase 1 telemetry-first** korak ka eventual per-agent maxTurns kalibraciji. Phase 2 (sledecu 1-2 nedelje cross-project usage-a) — calibrate defaults u workflow.md based on aggregated telemetry. Phase 3 (potencijalan v6.9+) — adaptive scaling per task complexity (R-criteria count → suggested adjustment).
+- **Tests:** `test-codex-adapter` §69 adds 5 assertions: script exists/executable, dispatcher case present, rapid counter logic present, maxTurns frontmatter parse present, live synthetic fixture with mobile re-dispatch returns expected output. Test count 528 → 533.
+- **Migration:** zero project-side impact. Pure telemetry — read-only surface. User-driven calibration: after reviewing `apd report maxturns`, manually edit `.claude/agents/<name>.md` frontmatter with the suggested maxTurns value.
+- **Strategic context:** v6.8.10 is a **Phase 1 telemetry-first** step toward eventual per-agent maxTurns calibration. Phase 2 (next 1-2 weeks of cross-project usage) — calibrate defaults in workflow.md based on aggregated telemetry. Phase 3 (potential v6.9+) — adaptive scaling per task complexity (R-criteria count → suggested adjustment).
 
 ## v6.8.9 — 2026-05-22
 
-Deseti same-day patch — trivijal session-log bug fix otkriven u Bambi Product sort_order task post-mortem-u. Pre-v6.8.9: `pipeline-advance reset` loop kroz `guard-audit.log` broji SVE entry-e bez filtera po `log_type` field-u. INFO entries (`brainstorm-skipped` iz v6.8.8) se brojili kao "blocks" → false positive `Problems: Guard blocks detected` za task koji je realno bio clean. Bambi Product sort_order (19m 12s, ZERO BLOCK, 1 INFO entry sa brainstorm skip reason) izlozio bug — session-log report-ovan kao "Guard blocks detected" iako pipeline pravilno prosao. Tests: 524 → 528 (+4 in §68).
+Tenth same-day patch — trivial session-log bug fix discovered in the Bambi Product sort_order task post-mortem. Pre-v6.8.9: `pipeline-advance reset` loops through `guard-audit.log` and counts ALL entries without filtering by the `log_type` field. INFO entries (`brainstorm-skipped` from v6.8.8) were counted as "blocks" → false positive `Problems: Guard blocks detected` for a task that was actually clean. Bambi Product sort_order (19m 12s, ZERO BLOCK, 1 INFO entry with a brainstorm skip reason) exposed the bug — session-log reported "Guard blocks detected" even though the pipeline passed correctly. Tests: 524 → 528 (+4 in §68).
 
-- **fix(pipeline-advance reset): case-based `log_type` filter za guard-audit counting.**
+- **fix(pipeline-advance reset): case-based `log_type` filter for guard-audit counting.**
     ```bash
     case "$log_type" in
         BLOCK)
@@ -511,102 +511,102 @@ Deseti same-day patch — trivijal session-log bug fix otkriven u Bambi Product 
             SKIP_EVENTS=$((SKIP_EVENTS + 1))
             SKIP_REASONS="${SKIP_REASONS}${log_reason}\n"
             ;;
-        *) ;;  # PERMISSION_DENIED i ostali — ignorisani u summary
+        *) ;;  # PERMISSION_DENIED and others — ignored in summary
     esac
     ```
-- **feat(pipeline-advance reset): SKIP_SUMMARY za INFO events.** Posle BLOCKS counter logike, paralelni `SKIP_SUMMARY` builds string "<N> info events: <top-3 reasons>". Visible u session-log kao **odvojena** linija (ne kao false-positive guard block).
-- **feat(session-log entry): conditional `**Skip events:**` line.** Dodate se samo kad `SKIP_SUMMARY` non-empty (no noise za task-ove bez INFO events; explicit visibility kad postoje). Format primer:
+- **feat(pipeline-advance reset): SKIP_SUMMARY for INFO events.** After the BLOCKS counter logic, a parallel `SKIP_SUMMARY` builds the string "<N> info events: <top-3 reasons>". Visible in the session-log as a **separate** line (not as a false-positive guard block).
+- **feat(session-log entry): conditional `**Skip events:**` line.** Added only when `SKIP_SUMMARY` is non-empty (no noise for tasks without INFO events; explicit visibility when present). Format example:
     ```
     **Guardrail that helped:** N/A
     **Skip events:** 1 info events: brainstorm-skipped (1x)
     ```
-    Plus `Problems:` field ostaje "No problems" (jer GUARD_SUMMARY="N/A" — BLOCK counter nije incremented).
-- **Test §68 (4 static assertions):** case-based filter, SKIP_SUMMARY variable, conditional Skip events line, BLOCK/INFO counter increments u odvojenim branches.
+    Plus the `Problems:` field stays "No problems" (because GUARD_SUMMARY="N/A" — the BLOCK counter was not incremented).
+- **Test §68 (4 static assertions):** case-based filter, SKIP_SUMMARY variable, conditional Skip events line, BLOCK/INFO counter increments in separate branches.
 - **Test count 524 → 528 PASS / 0 FAIL.**
-- **Migration:** zero project-side impact. Pre-v6.8.9 session-log entries imaju "false positive" `Problems: Guard blocks detected` za task-ove sa samo INFO events (npr. brainstorm-skipped) — ali ti entries vec postoje + ne mogu se retroaktivno fix-ovati. Nove entries posle v6.8.9 install-a prikazuju correct semantic.
+- **Migration:** zero project-side impact. Pre-v6.8.9 session-log entries have a "false positive" `Problems: Guard blocks detected` for tasks with only INFO events (e.g. brainstorm-skipped) — but those entries already exist + cannot be retroactively fixed. New entries after the v6.8.9 install show the correct semantics.
 
 ## v6.8.8 — 2026-05-22
 
-Deveti same-day patch — strukturalno zatvaranje `--skip-brainstorm` escape valve-a. Live evidence iz Bambi Cycle E task-a (2026-05-22, 3h cascade vs Test 20min clean isti dan + Export CSV 15m clean): orchestrator hit brainstorm-marker BLOCK ali bypassed sa `--skip-brainstorm` flag-om. Self-reflective signal iz orchestrator-a: "Skill bi bio ceremonija nad već postignutim alignment-om" ali "Skill verovatno proverava i stvari koje ja propustam... Da sam ga učitao, možda bih izbegao kasniji max_defects problem". Tenzija: skill content "When to skip" gentle dozvoljava skipping pri pre-aligned design-u, hard gate forsira load — orchestrator razresava preko jeftin override-a + scope-only rationalizacije. v6.8.8 zatvara strukturalno: `--skip-brainstorm` requires explicit reason argument. Tests: 515 → 524 (+9 in §67).
+Ninth same-day patch — structurally closing the `--skip-brainstorm` escape valve. Live evidence from the Bambi Cycle E task (2026-05-22, 3h cascade vs Test 20min clean the same day + Export CSV 15m clean): the orchestrator hit the brainstorm-marker BLOCK but bypassed it with the `--skip-brainstorm` flag. Self-reflective signal from the orchestrator: "the skill would be ceremony over an already-achieved alignment" but "the skill probably also checks things I miss... had I loaded it, I might have avoided the later max_defects problem". Tension: the skill content "When to skip" gently allows skipping for pre-aligned design, the hard gate forces a load — the orchestrator resolves it via a cheap override + scope-only rationalization. v6.8.8 closes it structurally: `--skip-brainstorm` requires an explicit reason argument. Tests: 515 → 524 (+9 in §67).
 
-- **fix(pipeline-advance): `--skip-brainstorm` requires reason argument.** Pre-v6.8.8: `--skip-brainstorm` je boolean flag bez argument-a — jeftin override koji orchestrator koristi automatic. v6.8.8: argument MUST follow the flag. Bez reason → BLOCK sa specificnom porukom koja trazi:
+- **fix(pipeline-advance): `--skip-brainstorm` requires reason argument.** Pre-v6.8.8: `--skip-brainstorm` was a boolean flag without an argument — a cheap override the orchestrator uses automatically. v6.8.8: an argument MUST follow the flag. Without a reason → BLOCK with a specific message requiring:
     1. Scope alignment (user approved design informally)
     2. APD config clarity (max_defects + plan **Implements:** on EVERY section + rationale .md format)
-  Plus log entry u guard-audit.log: `INFO|orchestrator|brainstorm-skipped|task=X reason=Y` (sanitized + truncated to 200 chars).
-- **fix(pipeline-advance): brainstorm-marker BLOCK message reorganized.** Pre-v6.8.8: "Two ways forward (a) Load skill (b) Override". v6.8.8: "(a) **RECOMMENDED** — Load skill / (b) Override — **ONLY IF** scope IS pre-aligned AND APD config decisions ARE explicit, requires concrete reason". Plus eksplicit empirijska referenca: "Bambi Cycle E 3h cascade pattern" kao learning material. Plus EXAMPLE reason sa konkretnim text-om.
-- **fix(skills/apd-brainstorm/SKILL.md, CC + Codex): "When to skip" TWO-PART CHECK preformulisanje.**
+  Plus a log entry in guard-audit.log: `INFO|orchestrator|brainstorm-skipped|task=X reason=Y` (sanitized + truncated to 200 chars).
+- **fix(pipeline-advance): brainstorm-marker BLOCK message reorganized.** Pre-v6.8.8: "Two ways forward (a) Load skill (b) Override". v6.8.8: "(a) **RECOMMENDED** — Load skill / (b) Override — **ONLY IF** scope IS pre-aligned AND APD config decisions ARE explicit, requires concrete reason". Plus an explicit empirical reference: "Bambi Cycle E 3h cascade pattern" as learning material. Plus an EXAMPLE reason with concrete text.
+- **fix(skills/apd-brainstorm/SKILL.md, CC + Codex): "When to skip" TWO-PART CHECK rewording.**
     1. Scope is aligned (task specified OR user approved informally)
     2. APD config decisions are explicit (4 sub-questions: budget, plan format, rationale format, BLOCK recovery)
   
-  Both parts MUST be YES za legitimno skipping. **"If you cannot confirm BOTH — DO NOT skip"** sa empirical evidence reference (Bambi Cycle E). Override flag eksplicit zahteva reason mentioning BOTH parts.
-- **fix(SKILL.md Step 5 marker write section): Override description update.** Sa boolean flag → reason argument. Format primer + audit log mention.
-- **Strategic note:** v6.8.8 NIJE forsiranje load skill-a apsolutno — orchestrator i dalje moze legitimno da skip-uje kad je oba uslova ispunjena. Cilj je **friction proporcionalan riziku**: mental friction (eksplicit reason write) → orchestrator preispituje "da li mi stvarno treba skip" → ako da, pisuje audit-traceable rationale. Ovo je analogno v6.7 rationale gate-u za adversarial dismissal — pattern "force structured rationale" generalizovan na skip override.
-- **Tests:** `test-codex-adapter` §67 adds 9 assertions: SKIP_BRAINSTORM_REASON parser + missing-reason BLOCK + brainstorm-skipped audit log + RECOMMENDED na (a) + empirical reference + TWO-PART CHECK u CC + Codex skills + live BLOCK bez reason + live PASS sa reason. Plus §60 Live J updated za novu sintaksu (test fixture migration). Test count 515 → 524.
-- **Migration:** projekti koji koriste `--skip-brainstorm` (bez argument-a) u skriptama dobijaju BLOCK na sledeci task. Quick fix — dodaj reason argument: `--skip-brainstorm "<concrete reason>"`. Bambi orchestrator-ova self-reflective lesson je doslovan template za reason content.
+  Both parts MUST be YES for legitimate skipping. **"If you cannot confirm BOTH — DO NOT skip"** with an empirical evidence reference (Bambi Cycle E). The override flag explicitly requires a reason mentioning BOTH parts.
+- **fix(SKILL.md Step 5 marker write section): Override description update.** From boolean flag → reason argument. Format example + audit log mention.
+- **Strategic note:** v6.8.8 is NOT forcing a skill load absolutely — the orchestrator can still legitimately skip when both conditions are met. The goal is **friction proportional to risk**: mental friction (writing an explicit reason) → the orchestrator re-examines "do I really need to skip" → if yes, it writes an audit-traceable rationale. This is analogous to the v6.7 rationale gate for adversarial dismissal — the "force structured rationale" pattern generalized to the skip override.
+- **Tests:** `test-codex-adapter` §67 adds 9 assertions: SKIP_BRAINSTORM_REASON parser + missing-reason BLOCK + brainstorm-skipped audit log + RECOMMENDED on (a) + empirical reference + TWO-PART CHECK in CC + Codex skills + live BLOCK without reason + live PASS with reason. Plus §60 Live J updated for the new syntax (test fixture migration). Test count 515 → 524.
+- **Migration:** projects that use `--skip-brainstorm` (without an argument) in scripts will get a BLOCK on the next task. Quick fix — add a reason argument: `--skip-brainstorm "<concrete reason>"`. The Bambi orchestrator's self-reflective lesson is a literal template for the reason content.
 
 ## v6.8.7 — 2026-05-22
 
-Eighth same-day patch — skill content polish za 2 signala iz Soft-delete task post-mortem-a (live evidence 2026-05-22 15:04-15:30). Oba signala su iz skill education layer-a (v6.8.4) — orchestrator je naucio dela skill-a ali ne kompletno. v6.8.7 popunjava te edukacione gap-ove. Tests: 507 → 515 (+8 in §66).
+Eighth same-day patch — skill content polish for 2 signals from the Soft-delete task post-mortem (live evidence 2026-05-22 15:04-15:30). Both signals are from the skill education layer (v6.8.4) — the orchestrator learned parts of the skill but not all of it. v6.8.7 fills those education gaps. Tests: 507 → 515 (+8 in §66).
 
-- **(A) fix(apd-brainstorm): Step 4 design summary template forsira Risks + Rollback eksplicit fields.** Pre-v6.8.7 template imao Goal / Scope / Approach / Files / Mode / Adversarial budget — ali NE Risks / Rollback. Orchestrator je u Soft-delete spec-u izostavio Risks (legitime 3 risks: concurrent delete+read race, migration nad postojecom tabelom, CSRF reuse) i Rollback (revert commit + opcioni DROP COLUMN). v6.8.7 template eksplicit dodaje fields + warning: "Risks + Rollback are NOT optional for tasks with DB migration / new public endpoint / auth changes / external API". Trivial tasks mogu da kazu "minimal" ili "revert commit", ali bez explicit dokumentacije adversarial reviewer ne moze da hvata gap.
-- **(B) fix(apd-brainstorm): Downstream gates section eksplicit "NO RESERVED NAMES" rule + Agents/Notes u format primeru.** Soft-delete plan empirical evidence: orchestrator naucio `**Implements:** none` pattern za file-list sekcije (Files to modify, Files to create) ali zaboravio za Agents/Notes — asymmetric learning triggered plan-spec-consistency BLOCK na 2 missing header-a (issues=2). v6.8.7 format primer dodaje Agents + Notes sa eksplicit komentarom "← NO RESERVED NAMES — Agents needs **Implements:** too". Plus eksplicit warning prose: "**EVERY `### Section` MUST have `**Implements:**` header — NO EXCEPTIONS.** The rule is uniform across functional sections (Backend, Frontend, Database, Tests) AND scaffolding sections."
-- **(C) fix(workflow.md §3c): NO RESERVED NAMES rule explicit u format primeru + Rules bullet.** Bullet apdejtovan iz "set to `none` for scaffolding sections (file lists, agents, notes, documentation)" u eksplicit "NO RESERVED NAMES" warning + concrete empirical evidence reference + "Treat EVERY `###` section the same way: declare R-ids OR `none`."
+- **(A) fix(apd-brainstorm): Step 4 design summary template forces explicit Risks + Rollback fields.** Pre-v6.8.7 the template had Goal / Scope / Approach / Files / Mode / Adversarial budget — but NOT Risks / Rollback. In the Soft-delete spec the orchestrator omitted Risks (3 legitimate risks: concurrent delete+read race, migration over an existing table, CSRF reuse) and Rollback (revert commit + optional DROP COLUMN). v6.8.7 template explicitly adds the fields + warning: "Risks + Rollback are NOT optional for tasks with DB migration / new public endpoint / auth changes / external API". Trivial tasks may say "minimal" or "revert commit", but without explicit documentation the adversarial reviewer cannot catch the gap.
+- **(B) fix(apd-brainstorm): Downstream gates section explicit "NO RESERVED NAMES" rule + Agents/Notes in the format example.** Soft-delete plan empirical evidence: the orchestrator learned the `**Implements:** none` pattern for file-list sections (Files to modify, Files to create) but forgot it for Agents/Notes — asymmetric learning triggered a plan-spec-consistency BLOCK on 2 missing headers (issues=2). v6.8.7 format example adds Agents + Notes with an explicit comment "← NO RESERVED NAMES — Agents needs **Implements:** too". Plus explicit warning prose: "**EVERY `### Section` MUST have `**Implements:**` header — NO EXCEPTIONS.** The rule is uniform across functional sections (Backend, Frontend, Database, Tests) AND scaffolding sections."
+- **(C) fix(workflow.md §3c): NO RESERVED NAMES rule explicit in the format example + Rules bullet.** Bullet updated from "set to `none` for scaffolding sections (file lists, agents, notes, documentation)" to an explicit "NO RESERVED NAMES" warning + concrete empirical evidence reference + "Treat EVERY `###` section the same way: declare R-ids OR `none`."
 - **(D) fix(plugins/apd/skills/apd-brainstorm/SKILL.md): Codex mirror parity.** Step 4 Risks/Rollback warning + Downstream gates NO RESERVED NAMES rule.
-- **Empirical baseline za v6.8.7 trigger (Soft-delete task, 2026-05-22):** 20m 58s pipeline, 5:1:4 ADVERSARIAL (real adversarial work), 3 BLOCK-ova (sve intended) — brainstorm-marker + plan-spec-consistency (issues=2 Agents/Notes) + rationale-100pct-orch-dismiss. v6.8.7 cilj: smanjiti 2 missing Implements u plan-spec issues count → 0 u sledecem task-u.
-- **Tests:** `test-codex-adapter` §66 adds 8 static assertions: CC skill Step 4 template forsira Risks + Rollback, CC skill non-optional warning, CC skill NO RESERVED NAMES rule, CC skill Agents/Notes Implements u format primeru, Codex mirror non-optional warning, Codex mirror NO RESERVED NAMES, workflow.md NO RESERVED NAMES, workflow.md scaffolding lista. Test count 507 → 515.
+- **Empirical baseline for the v6.8.7 trigger (Soft-delete task, 2026-05-22):** 20m 58s pipeline, 5:1:4 ADVERSARIAL (real adversarial work), 3 BLOCKs (all intended) — brainstorm-marker + plan-spec-consistency (issues=2 Agents/Notes) + rationale-100pct-orch-dismiss. v6.8.7 goal: reduce the 2 missing Implements in the plan-spec issues count → 0 in the next task.
+- **Tests:** `test-codex-adapter` §66 adds 8 static assertions: CC skill Step 4 template forces Risks + Rollback, CC skill non-optional warning, CC skill NO RESERVED NAMES rule, CC skill Agents/Notes Implements in the format example, Codex mirror non-optional warning, Codex mirror NO RESERVED NAMES, workflow.md NO RESERVED NAMES, workflow.md scaffolding list. Test count 507 → 515.
 - **Migration:** zero project-side impact. Pure skill/workflow content polish.
 
 ## v6.8.6 — 2026-05-22
 
-Seventh same-day patch — UX polish za 2 bug-a iz CSRF live test post-mortem-a (user observation). Oba bug-a su tehnicki **intended behavior** ali sa zbunjujucim BLOCK porukama. v6.8.6 ne menja logic, samo refine messages. Tests: 502 → 507 (+5 in §65).
+Seventh same-day patch — UX polish for 2 bugs from the CSRF live test post-mortem (user observation). Both bugs are technically **intended behavior** but with confusing BLOCK messages. v6.8.6 does not change logic, only refines messages. Tests: 502 → 507 (+5 in §65).
 
-- **fix(track-agent): jasnija poruka za adversarial-out-of-order BLOCK.** Pre-v6.8.6: orchestrator dispatchuje adversarial-reviewer pre reviewer.done → SubagentStart hook exit 2 + start event NIJE zapisan u .agents (intentional — fake start ne sme da bude logged ako gate blokira). User je interpretisao kao bug ("hook nije zabeležio prvi start event") jer ga BLOCK poruka nije eksplicit upozorila. Sad poruka ukljucuje:
+- **fix(track-agent): clearer message for the adversarial-out-of-order BLOCK.** Pre-v6.8.6: the orchestrator dispatches adversarial-reviewer before reviewer.done → SubagentStart hook exit 2 + the start event is NOT written to .agents (intentional — a fake start must not be logged if the gate blocks). The user interpreted it as a bug ("the hook didn't record the first start event") because the BLOCK message didn't warn them explicitly. Now the message includes:
     - "NOTE: This SubagentStart was rejected — the start event is NOT recorded in .agents."
     - "After running 'apd pipeline reviewer', re-dispatch adversarial-reviewer (fresh agent dispatch, not retry)."
-    Korisnik znade tacno sta da uradi.
-- **fix(guard-pipeline-state): typo detection + correction hint.** Pre-v6.8.6: orchestrator pisuje `.adversarial-rationale` (bez `.md` extension) → guard blokira sa generic "Direct write to pipeline state file: .adversarial-rationale". Korisnik je morao da odgovara: "mozda treba .md?". v6.8.6 case statement detect-uje 3 tipa typo case-ova:
+    The user knows exactly what to do.
+- **fix(guard-pipeline-state): typo detection + correction hint.** Pre-v6.8.6: the orchestrator writes `.adversarial-rationale` (without the `.md` extension) → the guard blocks with a generic "Direct write to pipeline state file: .adversarial-rationale". The user had to ask: "maybe it needs .md?". The v6.8.6 case statement detects 3 typo cases:
     - `.adversarial-rationale` → "Did you mean '.adversarial-rationale.md'?"
     - `spec-card` → "Did you mean 'spec-card.md'?"
     - `implementation-plan` → "Did you mean 'implementation-plan.md'?"
-    Sve tri standardne pipeline state markdown fajl-ove sa potencijalom za ext typo dobijaju eksplicit correction suggestion.
-- **Live evidence (CSRF task, 2026-05-22):** orchestrator je hit oba scenarija — re-dispatch adversarial posle prvog BLOCK-a + pipeline-state-direct-write BLOCK na `.adversarial-rationale`. Oba su radila gate-skim semantics OK ali su confused orchestrator-a + kosta minute u recovery-u. v6.8.6 cilj: <5s recovery po typo-u.
-- **Tests:** `test-codex-adapter` §65 adds 5 assertions: track-agent "NOT recorded" note + re-dispatch instruction, guard-pipeline-state typo case + "Did you mean" hint, live BLOCK output sa typo-bait input. Test count 502 → 507.
+    All three standard pipeline state markdown files with extension-typo potential get an explicit correction suggestion.
+- **Live evidence (CSRF task, 2026-05-22):** the orchestrator hit both scenarios — re-dispatch adversarial after the first BLOCK + pipeline-state-direct-write BLOCK on `.adversarial-rationale`. Both had OK gate semantics but confused the orchestrator + cost minutes in recovery. v6.8.6 goal: <5s recovery per typo.
+- **Tests:** `test-codex-adapter` §65 adds 5 assertions: track-agent "NOT recorded" note + re-dispatch instruction, guard-pipeline-state typo case + "Did you mean" hint, live BLOCK output with typo-bait input. Test count 502 → 507.
 - **Migration:** zero impact. Pure message polish.
 
 ## v6.8.5 — 2026-05-22
 
-Sixth same-day patch — hard gate koji **forsira `/apd-brainstorm` skill load** pre netrivijalnog spec advance-a. v6.8.4 educational layer je passive (workflow.md MANDATORY guidance je tekstualan), pa orchestrator ga je preskakao. Live evidence iz Test CSRF task-a (2026-05-22): 4 BLOCK-ova u 7 minuta (plan-spec-consistency + adversarial-before-reviewer × 2 + pipeline-state-direct-write) uprkos v6.8.0-4 chain-u. User-ova teza: "bez brainstorm skill-a necemo naterati orchestrator-a da postuje discipline" empirijski potvrdjena. v6.8.5 transformise skill load iz "preporuke" u "mandatory checkpoint" preko marker fajla. Tests: 489 → 502 (+13 in §64).
+Sixth same-day patch — hard gate that **forces a `/apd-brainstorm` skill load** before a non-trivial spec advance. The v6.8.4 educational layer is passive (workflow.md MANDATORY guidance is textual), so the orchestrator skipped it. Live evidence from the Test CSRF task (2026-05-22): 4 BLOCKs in 7 minutes (plan-spec-consistency + adversarial-before-reviewer × 2 + pipeline-state-direct-write) despite the v6.8.0-4 chain. The user's thesis: "without the brainstorm skill we won't make the orchestrator respect discipline" — empirically confirmed. v6.8.5 transforms the skill load from a "recommendation" into a "mandatory checkpoint" via a marker file. Tests: 489 → 502 (+13 in §64).
 
-- **feat(pipeline-advance): brainstorm-marker hard gate.** Pre `create_done "spec"` u spec branch-u, novi check: ako R-criteria count u spec-card.md > 2 i `.apd/pipeline/.brainstorm-marker` ne postoji (ili task name unutar njega ne match-uje), BLOCK sa eksplicit instrukcijom "Load /apd-brainstorm skill first". `log_block "brainstorm-marker-missing"` u guard-audit.log.
-- **feat(pipeline-advance): `--skip-brainstorm` override flag.** Escape valve za eksperimentalne / pre-specified task-ove. `bash .claude/bin/apd pipeline spec --skip-brainstorm "Task name"`. Flag parsiran iz `$@` (moze pre ili posle task name-a).
-- **feat(apd-brainstorm SKILL.md): Step 5 instructs marker write.** Skill exit action sad ukljucuje:
+- **feat(pipeline-advance): brainstorm-marker hard gate.** Before `create_done "spec"` in the spec branch, a new check: if the R-criteria count in spec-card.md > 2 and `.apd/pipeline/.brainstorm-marker` does not exist (or the task name inside it does not match), BLOCK with an explicit instruction "Load /apd-brainstorm skill first". `log_block "brainstorm-marker-missing"` to guard-audit.log.
+- **feat(pipeline-advance): `--skip-brainstorm` override flag.** Escape valve for experimental / pre-specified tasks. `bash .claude/bin/apd pipeline spec --skip-brainstorm "Task name"`. Flag parsed from `$@` (can be before or after the task name).
+- **feat(apd-brainstorm SKILL.md): Step 5 instructs marker write.** The skill exit action now includes:
     ```bash
     printf '%s|%s\n' "Task name" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .apd/pipeline/.brainstorm-marker
     bash .claude/bin/apd pipeline spec "Task name"
     ```
-    Plus eksplicit explanation o gate-u i override flag-u. Codex mirror identican (sa `apd:apd_advance_pipeline` MCP tool path).
-- **fix(guard-pipeline-state): allowlist `.brainstorm-marker`.** Bez ovog allowlist-a, skill bi udari u BLOCK kad pokusa da pisuje marker. Header comment + case statement updated.
-- **fix(guard-file-edit, Codex): allowlist `.brainstorm-marker`.** AUTHORING_ALLOWLIST dobija novi entry. Codex orchestrator moze da pisuje marker preko apply_patch / Edit / Write.
-- **fix(guard-bash-scope): allow brainstorm-marker bash redirect.** Skill koristi `printf > .apd/pipeline/.brainstorm-marker` — bez ove exception bi udari u "Bash redirect to protected pipeline state directory" BLOCK.
-- **fix(pipeline-advance reset cleanup): wipe `.brainstorm-marker`.** Oba reset path-a (spec re-advance soft cleanup + explicit `pipeline-advance reset`) dobijaju `.brainstorm-marker` u rm -f listi. Sledeci task starts fresh.
-- **Trivial tasks bypass automatic.** R-count ≤ 2 (hotfix/polish) ne triggers gate — orchestrator nije forsiran da load skill za 1-2 R-criterion task-ove. Smart-friction: friction samo gde se cascade BLOCK pattern observed.
-- **Empirical baseline iz v6.8 dev cycle-a (5 task-a u Test-u):**
-    | Task | Duration | T:A:D | BLOCK-ovi | brainstorm load |
+    Plus an explicit explanation of the gate and the override flag. Codex mirror identical (with the `apd:apd_advance_pipeline` MCP tool path).
+- **fix(guard-pipeline-state): allowlist `.brainstorm-marker`.** Without this allowlist, the skill would hit a BLOCK when it tries to write the marker. Header comment + case statement updated.
+- **fix(guard-file-edit, Codex): allowlist `.brainstorm-marker`.** AUTHORING_ALLOWLIST gets a new entry. The Codex orchestrator can write the marker via apply_patch / Edit / Write.
+- **fix(guard-bash-scope): allow brainstorm-marker bash redirect.** The skill uses `printf > .apd/pipeline/.brainstorm-marker` — without this exception it would hit the "Bash redirect to protected pipeline state directory" BLOCK.
+- **fix(pipeline-advance reset cleanup): wipe `.brainstorm-marker`.** Both reset paths (spec re-advance soft cleanup + explicit `pipeline-advance reset`) get `.brainstorm-marker` in the rm -f list. The next task starts fresh.
+- **Trivial tasks bypass automatically.** R-count ≤ 2 (hotfix/polish) does not trigger the gate — the orchestrator is not forced to load the skill for 1-2 R-criterion tasks. Smart-friction: friction only where the cascade BLOCK pattern was observed.
+- **Empirical baseline from the v6.8 dev cycle (5 tasks in Test):**
+    | Task | Duration | T:A:D | BLOCKs | brainstorm load |
     |---|---|---|---|---|
     | Landing page (v6.6 baseline) | 8m 49s | 5:0:5 | 0 | n/a |
-    | Add contact form | 33 min | 0:0:0 (anticipatorni) | 3 cascade | NE |
-    | Admin lista | 13m 25s | 10:1:9 | 2 rationale | NE |
-    | Rate limit | 26m 11s | 8:8:0 (forced accept) | 3 | NE |
-    | **CSRF zaštita (v6.8.4)** | **N/A (in progress)** | **N/A** | **4 BLOCK-ova u 7min** | **NE** |
-  Pattern: orchestrator preskakao skill load sve 4 task-a uprkos workflow.md hint-u + v6.8.4 SKILL update. v6.8.5 hard gate je realan jedini structural fix.
-- **Tests:** `test-codex-adapter` §64 adds 13 assertions: BRAINSTORM_MARKER + SKIP_BRAINSTORM static parsers, reset cleanup, guard-pipeline-state + guard-file-edit + guard-bash-scope allowlists, CC + Codex SKILL.md marker instruction, live R>2 without marker → BLOCK, --skip-brainstorm override radi, matching marker → spec advance prolazi, R≤2 trivial bypass automatic, reset wipes marker. Test count 489 → 502.
-- **Migration:** projekti koji upgrade v6.8.4 → v6.8.5 i nastavljaju aktivnu pipeline-u: ako sledeci task ima >2 R-criteria, orchestrator dobija BLOCK sa instrukcijom. Quick fix — load `/apd-brainstorm` skill, walk through it (skill pise marker), pa `apd pipeline spec`. Trivial tasks (1-2 R) ne pucaju.
+    | Add contact form | 33 min | 0:0:0 (anticipatory) | 3 cascade | NO |
+    | Admin lista | 13m 25s | 10:1:9 | 2 rationale | NO |
+    | Rate limit | 26m 11s | 8:8:0 (forced accept) | 3 | NO |
+    | **CSRF protection (v6.8.4)** | **N/A (in progress)** | **N/A** | **4 BLOCKs in 7min** | **NO** |
+  Pattern: the orchestrator skipped the skill load on all 4 tasks despite the workflow.md hint + v6.8.4 SKILL update. The v6.8.5 hard gate is realistically the only structural fix.
+- **Tests:** `test-codex-adapter` §64 adds 13 assertions: BRAINSTORM_MARKER + SKIP_BRAINSTORM static parsers, reset cleanup, guard-pipeline-state + guard-file-edit + guard-bash-scope allowlists, CC + Codex SKILL.md marker instruction, live R>2 without marker → BLOCK, --skip-brainstorm override works, matching marker → spec advance passes, R≤2 trivial bypass automatic, reset wipes marker. Test count 489 → 502.
+- **Migration:** projects that upgrade v6.8.4 → v6.8.5 and continue an active pipeline: if the next task has >2 R-criteria, the orchestrator gets a BLOCK with an instruction. Quick fix — load the `/apd-brainstorm` skill, walk through it (the skill writes the marker), then `apd pipeline spec`. Trivial tasks (1-2 R) do not break.
 
 ## v6.8.4 — 2026-05-22
 
-Fifth same-day patch — strukturalna intervencija na obrazovnom surface-u, ne na guard layer-u. **Root cause spotted by user observation:** `apd-brainstorm` SKILL.md jos uvek preskripuje `max_defects=0` u Adversarial budget table-u uprkos v6.8.1 workflow §0b update-u. Orchestrator citajuci skill je tako i dalje uci pre-v6.8.1 guidance, sto je triggered cascade BLOCK-ove u Add contact form (33 min, 3 cascade BLOCK-a) i Rate limit (26 min, T=8:A=8:D=0 forced accept all). v6.8.4 transformise apd-brainstorm iz "vague-task clarifier" u **"APD pipeline tutor"** — orchestrator dobija edukaciju o gate-ovima PRE pisanja spec-a. Plus workflow.md/AGENTS.md eksplicit MANDATORY load skill za netrivijalne task-ove. Tests: 480 → 489 (+9 in §63).
+Fifth same-day patch — structural intervention on the educational surface, not the guard layer. **Root cause spotted by user observation:** `apd-brainstorm` SKILL.md still prescribes `max_defects=0` in the Adversarial budget table despite the v6.8.1 workflow §0b update. The orchestrator reading the skill therefore still learns pre-v6.8.1 guidance, which triggered cascade BLOCKs in Add contact form (33 min, 3 cascade BLOCKs) and Rate limit (26 min, T=8:A=8:D=0 forced accept all). v6.8.4 transforms apd-brainstorm from a "vague-task clarifier" into an **"APD pipeline tutor"** — the orchestrator gets education about the gates BEFORE writing the spec. Plus workflow.md/AGENTS.md explicit MANDATORY load skill for non-trivial tasks. Tests: 480 → 489 (+9 in §63).
 
-- **fix(skills/apd-brainstorm/SKILL.md): drop pre-v6.8.1 max_defects=0 preskripcija.** Pre-v6.8.4 tabela:
+- **fix(skills/apd-brainstorm/SKILL.md): drop the pre-v6.8.1 max_defects=0 prescription.** Pre-v6.8.4 table:
     ```
     | 1–2 (hotfix)     | max_defects=unlimited |
     | 3–4 (real task)  | max_defects=0         |
@@ -618,51 +618,51 @@ Fifth same-day patch — strukturalna intervencija na obrazovnom surface-u, ne n
     | polish-mode (1-2 R hotfix)         | pipeline_mode: polish    |
     | Power-user explicit budget         | max_defects=N (rare)     |
     ```
-    Plus eksplicit "DO NOT write max_defects=0 for standard tasks" sa empirical evidence iz v6.8 dev cycle-a.
-- **feat(skills/apd-brainstorm/SKILL.md): nova sekcija "Downstream gates the spec triggers".** Educate-uje orchestrator-a PRE pisanja spec-a o:
-    - Implementation plan format sa `**Implements:** R1, R3` headerima per sekciji + scaffolding `none`
+    Plus explicit "DO NOT write max_defects=0 for standard tasks" with empirical evidence from the v6.8 dev cycle.
+- **feat(skills/apd-brainstorm/SKILL.md): new section "Downstream gates the spec triggers".** Educates the orchestrator BEFORE writing the spec about:
+    - Implementation plan format with `**Implements:** R1, R3` headers per section + scaffolding `none`
     - Plan-spec gate bidirectional check + v6.8.1 strict default
     - Adversarial rationale file format (Finding/Severity/Status/Rationale) + v7.1 + v7.6 BLOCK consequences
-- **feat(skills/apd-brainstorm/SKILL.md): nova sekcija "Common BLOCKs + recovery".** Tabela sa 7 BLOCK reason-a (plan-spec-consistency, max_defects-exceeded, max_defects-raised-mid-pipeline, rationale-missing, rationale-100pct-orch-dismiss, max_builder_cycles-exceeded, adversarial-before-reviewer) + konkretan quick fix per slucaj.
-- **fix(plugins/apd/skills/apd-brainstorm/SKILL.md): Codex mirror update.** Slicna struktura, krace teze (Codex skill je generalno saze-ija). Drop preskripciju + dodaj gates + BLOCKs sekcije.
-- **fix(workflow.md step 1): MANDATORY load /apd-brainstorm BEFORE writing spec-card.md** kad ANY:
-    - Task je vague/broad/improve X style
-    - Task ima >2 R-criteria
-    - Task uvodi DB migration ili security surface
-    - User nije pre-specified files/R-criteria/budget
-  Plus eksplicit description "Skill is the APD pipeline tutor (v6.8.4+)" + empirical reference.
-- **fix(templates/codex/AGENTS.md): step 0 MANDATORY brainstorm load** + step 1 (Write spec card) dobija "DO NOT write `adversarial: max_defects=0`" eksplicit warning sa rationale.
-- **Empirical baseline (4 task-a u v6.8 dev cycle):**
+- **feat(skills/apd-brainstorm/SKILL.md): new section "Common BLOCKs + recovery".** Table with 7 BLOCK reasons (plan-spec-consistency, max_defects-exceeded, max_defects-raised-mid-pipeline, rationale-missing, rationale-100pct-orch-dismiss, max_builder_cycles-exceeded, adversarial-before-reviewer) + a concrete quick fix per case.
+- **fix(plugins/apd/skills/apd-brainstorm/SKILL.md): Codex mirror update.** Similar structure, terser (the Codex skill is generally more concise). Drop the prescription + add the gates + BLOCKs sections.
+- **fix(workflow.md step 1): MANDATORY load /apd-brainstorm BEFORE writing spec-card.md** when ANY:
+    - Task is vague/broad/improve X style
+    - Task has >2 R-criteria
+    - Task introduces a DB migration or security surface
+    - User has not pre-specified files/R-criteria/budget
+  Plus an explicit description "Skill is the APD pipeline tutor (v6.8.4+)" + empirical reference.
+- **fix(templates/codex/AGENTS.md): step 0 MANDATORY brainstorm load** + step 1 (Write spec card) gets a "DO NOT write `adversarial: max_defects=0`" explicit warning with rationale.
+- **Empirical baseline (4 tasks in the v6.8 dev cycle):**
     | Task | Duration | T:A:D | BLOCK-ovi | `max_defects` field |
     |---|---|---|---|---|
     | Landing page (v6.6 baseline) | 8m 49s | 5:0:5 | 0 | unlimited (no field) |
-    | Add contact form | **33 min** | 0:0:0 (anticipatorni) | 3 cascade | **=0 explicit** |
+    | Add contact form | **33 min** | 0:0:0 (anticipatory) | 3 cascade | **=0 explicit** |
     | Admin lista | 13m 25s | 10:1:9 | 2 rationale | unlimited (no field) |
     | Rate limit | **26m 11s** | **8:8:0** (forced accept) | 3 | **=0 explicit** |
-  Pattern: max_defects=0 = 2x-4x slower vs no-field. Apd-brainstorm SKILL bio uzrok pisanja max_defects=0.
-- **Tests:** `test-codex-adapter` §63 adds 9 static assertions: CC skill drops 3-4 preskripciju, default omit-field, Downstream gates section, Common BLOCKs section, Codex mirror parity (drop + sections), workflow.md MANDATORY load, AGENTS.md step 0 MANDATORY, AGENTS.md spec-card warning. Test count 480 → 489.
+  Pattern: max_defects=0 = 2x-4x slower vs no field. The apd-brainstorm SKILL was the cause of writing max_defects=0.
+- **Tests:** `test-codex-adapter` §63 adds 9 static assertions: CC skill drops the 3-4 prescription, default omit-field, Downstream gates section, Common BLOCKs section, Codex mirror parity (drop + sections), workflow.md MANDATORY load, AGENTS.md step 0 MANDATORY, AGENTS.md spec-card warning. Test count 480 → 489.
 - **Migration:** zero project-side impact. Skill content + workflow guidance polish.
 
 ## v6.8.3 — 2026-05-22
 
-Same-day usability patch responding to v6.8.2 live evidence (Test 2nd task): `verify-plan-spec` log_block radi ali workflow.md MANDATORY/Sanity preventive guidance NIJE pomogao — orchestrator je ponovo zaboravio `**Implements:**` headers (2× plan-spec-consistency BLOCK u 17s razmaka) i ponovo zaboravio `.adversarial-rationale.md` (rationale-missing + 100pct-orch-dismiss BLOCK pair). Root cause: workflow.md je context-document koji se cita pri SessionStart-u, ne aktivno u tool-call kontekstu pri plan/rationale writing-u. Tests: 476 → 480 (+4 in §62).
+Same-day usability patch responding to v6.8.2 live evidence (Test 2nd task): `verify-plan-spec` log_block works but the workflow.md MANDATORY/Sanity preventive guidance did NOT help — the orchestrator again forgot the `**Implements:**` headers (2× plan-spec-consistency BLOCK 17s apart) and again forgot `.adversarial-rationale.md` (rationale-missing + 100pct-orch-dismiss BLOCK pair). Root cause: workflow.md is a context document read at SessionStart, not actively in the tool-call context during plan/rationale writing. Tests: 476 → 480 (+4 in §62).
 
-- **fix(pipeline-advance): actionable BLOCK message za plan-spec consistency.** Pre-v6.8.3: `BLOCKED: plan-spec consistency check failed. Fix .apd/pipeline/implementation-plan.md per the messages above` — vague, orchestrator mora da ide nazad u workflow.md za sintaksu (~60s cost). v6.8.3: konkretan copy-paste fix template direktno u BLOCK output sa `### Backend / **Implements:** R1, R3` primer + `### Files to modify / **Implements:** none` primer + "Apply fix, then re-run" instrukcija. Orchestrator apply odmah (~5-10s).
-- **fix(workflow): §3c MANDATORY marker na vrhu sekcije.** Premostio "rules-na-dnu" problem: pre-v6.8.3 pravila su bila ispod format primera (1 scroll). v6.8.3 dodaje eksplicit **MANDATORY** marker odmah ispod naslova §3c sa "Common mistake" warning ("write plan without **Implements:** headers → BLOCK → go back and add. Saves 60s by writing headers from the start").
-- **fix(AGENTS.md): step 3 MANDATORY marker (Codex mirror).** Codex orchestrator dobija jednaku visualno-istaknutu instrukciju. Plus "Write headers FROM THE START — verify-plan-spec strict mode hard-BLOCKS otherwise" eksplicit pre apokaliptic.
-- **Empirical baseline (v6.8.2 Test):** 2 plan-spec-consistency BLOCK-ova (12 issues → 9 issues → pass) u 17s razmaka + 2 rationale BLOCK-ova (rationale-missing → rationale-100pct-orch-dismiss). Net cost ~3-5 min recovery vs ~5-10s sa v6.8.3 inline templates. **Realan limit:** orchestrator-ov RLHF training pattern i memory weight mogu i dalje da zaboravljaju. v6.8.3 ne brise BLOCK pattern — smanjuje friction recovery.
-- **Tests:** `test-codex-adapter` §62 adds 4 static assertions: pipeline-advance BLOCK contains `**Implements:** R1, R3` literal, `**Implements:** none` scaffolding hint, workflow §3c MANDATORY marker, Codex AGENTS.md MANDATORY marker. Test count 476 → 480.
-- **Strategic note:** v6.8.3 close-uje "vague BLOCK message" gap. Sledeci patch (ako bude) verovatno targira **session-start hook reminder** ili **on-demand plan-check command** za preventive validation. Open question za buduce.
+- **fix(pipeline-advance): actionable BLOCK message for plan-spec consistency.** Pre-v6.8.3: `BLOCKED: plan-spec consistency check failed. Fix .apd/pipeline/implementation-plan.md per the messages above` — vague, the orchestrator has to go back to workflow.md for the syntax (~60s cost). v6.8.3: a concrete copy-paste fix template directly in the BLOCK output with a `### Backend / **Implements:** R1, R3` example + `### Files to modify / **Implements:** none` example + "Apply fix, then re-run" instruction. The orchestrator applies immediately (~5-10s).
+- **fix(workflow): §3c MANDATORY marker at the top of the section.** Bridged the "rules-at-the-bottom" problem: pre-v6.8.3 the rules were below the format example (1 scroll). v6.8.3 adds an explicit **MANDATORY** marker right under the §3c heading with a "Common mistake" warning ("write plan without **Implements:** headers → BLOCK → go back and add. Saves 60s by writing headers from the start").
+- **fix(AGENTS.md): step 3 MANDATORY marker (Codex mirror).** The Codex orchestrator gets the same visually-prominent instruction. Plus "Write headers FROM THE START — verify-plan-spec strict mode hard-BLOCKS otherwise" stated explicitly up front.
+- **Empirical baseline (v6.8.2 Test):** 2 plan-spec-consistency BLOCKs (12 issues → 9 issues → pass) 17s apart + 2 rationale BLOCKs (rationale-missing → rationale-100pct-orch-dismiss). Net cost ~3-5 min recovery vs ~5-10s with v6.8.3 inline templates. **Real limit:** the orchestrator's RLHF training pattern and memory weight can still cause forgetting. v6.8.3 does not erase the BLOCK pattern — it reduces recovery friction.
+- **Tests:** `test-codex-adapter` §62 adds 4 static assertions: pipeline-advance BLOCK contains the `**Implements:** R1, R3` literal, `**Implements:** none` scaffolding hint, workflow §3c MANDATORY marker, Codex AGENTS.md MANDATORY marker. Test count 476 → 480.
+- **Strategic note:** v6.8.3 closes the "vague BLOCK message" gap. The next patch (if any) probably targets a **session-start hook reminder** or an **on-demand plan-check command** for preventive validation. Open question for the future.
 
 ## v6.8.2 — 2026-05-22
 
-Same-day observability patch responding to v6.8.1 live verification in `~/Projects/Test` "Admin lista kontakt poruka" task (13m 25s, 3× ubrzanje vs v6.8.0 baseline). Run prosao clean ali otkrio dva fina signala: (a) `verify-plan-spec` ne loguje BLOCK-ove u guard-audit.log dok ostali gateovi rade (observability gap); (b) orchestrator zaboravlja `.adversarial-rationale.md` pre verifier advance-a — gate radi reactive (v7.1 BLOCK), ali workflow guidance nije visually prominent. Tests: 472 → 476 (+4 in §61).
+Same-day observability patch responding to v6.8.1 live verification in the `~/Projects/Test` "Admin lista kontakt poruka" task (13m 25s, 3× speedup vs v6.8.0 baseline). The run passed clean but surfaced two fine signals: (a) `verify-plan-spec` does not log BLOCKs to guard-audit.log while the other gates do (observability gap); (b) the orchestrator forgets `.adversarial-rationale.md` before the verifier advance — the gate works reactively (v7.1 BLOCK), but the workflow guidance is not visually prominent. Tests: 472 → 476 (+4 in §61).
 
-- **fix(verify-plan-spec): log_block "plan-spec-consistency" call u BLOCK granu.** Strict-mode BLOCK sad pise entry u guard-audit.log sa format `BLOCK|orchestrator|plan-spec-consistency|issues=N mode=strict`. Format konzistentan sa ostalim gate log entries (max_defects-exceeded, rationale-missing, etc.). `apd report` i forensic analiza sad imaju vidljivost u plan-spec block events.
-- **fix(workflow): step 6 + step 7 jaca preventivna reminder za .adversarial-rationale.md.** Step 6 — eksplicitan **MANDATORY** marker za pisanje rationale fajla "BEFORE attempting verifier advance"; eksplicit objasnjenje "Common mistake: orchestrator finishes adversarial dispatch, jumps directly to verifier, hits v7.1 BLOCK". Step 7 — novi **Sanity check FIRST** bullet koji eksplicitno trazi `.adversarial-rationale.md` presence pre `apd pipeline verifier`. Pre-v6.8.2 instrukcija je bila tu, ali ugnezdjena u dugacku checklist; sad je visually salient. Codex AGENTS.md vec ima jednako jaku instrukciju (linije 46 + 57) — workflow.md sad u paritetu.
-- **Empirical baseline iz v6.8.1 live verify:** Pipeline duration 13m 25s vs 33m predhodnog task-a istog scope-a (**3.0× ubrzanje**). ADVERSARIAL:10:1:9 — real adversarial work, ne front-load anticipation. Spec `max_defects=unlimited` (workflow §0b update aktivan). Plan ima `**Implements:**` headere na svim sekcijama (strict default forsira). 2 BLOCK-ova u session-log: `rationale-missing (1x)` + `rationale-100pct-orch-dismiss (1x)` — gate radio reactive ali efektivno; orchestrator naucio u realtime-u (3 ponasanja zapisana po user-u). Zero max_defects/cycle-cap cascade BLOCK-ova.
-- **Tests:** `test-codex-adapter` §61 adds 4 assertions: (a) verify-plan-spec source contains log_block call sa plan-spec-consistency reason, (b) workflow.md step 6 has MANDATORY marker za rationale file, (c) workflow.md step 7 has preventive Sanity check, (d) live default-strict BLOCK actually writes entry to guard-audit.log. Test count 472 → 476.
-- **Migration:** zero impact na postojece projekte. Pure observability + docs polish. Korisnici koji vec imaju v6.8.1 install: jedna marketplace upgrade + reinstall, no project-side fixup needed.
+- **fix(verify-plan-spec): log_block "plan-spec-consistency" call in the BLOCK branch.** A strict-mode BLOCK now writes an entry to guard-audit.log with the format `BLOCK|orchestrator|plan-spec-consistency|issues=N mode=strict`. Format consistent with the other gate log entries (max_defects-exceeded, rationale-missing, etc.). `apd report` and forensic analysis now have visibility into plan-spec block events.
+- **fix(workflow): step 6 + step 7 stronger preventive reminder for .adversarial-rationale.md.** Step 6 — an explicit **MANDATORY** marker for writing the rationale file "BEFORE attempting verifier advance"; an explicit explanation "Common mistake: orchestrator finishes adversarial dispatch, jumps directly to verifier, hits v7.1 BLOCK". Step 7 — a new **Sanity check FIRST** bullet that explicitly requires `.adversarial-rationale.md` presence before `apd pipeline verifier`. Pre-v6.8.2 the instruction was there, but nested in a long checklist; now it is visually salient. The Codex AGENTS.md already has an equally strong instruction (lines 46 + 57) — workflow.md is now at parity.
+- **Empirical baseline from the v6.8.1 live verify:** Pipeline duration 13m 25s vs 33m for the previous task of the same scope (**3.0× speedup**). ADVERSARIAL:10:1:9 — real adversarial work, not front-load anticipation. Spec `max_defects=unlimited` (workflow §0b update active). Plan has `**Implements:**` headers on all sections (strict default forces it). 2 BLOCKs in the session-log: `rationale-missing (1x)` + `rationale-100pct-orch-dismiss (1x)` — the gate worked reactively but effectively; the orchestrator learned in real time (3 behaviors recorded by the user). Zero max_defects/cycle-cap cascade BLOCKs.
+- **Tests:** `test-codex-adapter` §61 adds 4 assertions: (a) verify-plan-spec source contains a log_block call with the plan-spec-consistency reason, (b) workflow.md step 6 has a MANDATORY marker for the rationale file, (c) workflow.md step 7 has a preventive Sanity check, (d) a live default-strict BLOCK actually writes an entry to guard-audit.log. Test count 472 → 476.
+- **Migration:** zero impact on existing projects. Pure observability + docs polish. Users who already have a v6.8.1 install: one marketplace upgrade + reinstall, no project-side fixup needed.
 
 ## v6.8.1 — 2026-05-22
 
@@ -674,27 +674,27 @@ Same-day patch responding to live evidence from `~/Projects/Test` "Add contact f
 
 Plus the v6.8.0 verify-plan-spec gate emitted 11 WARN linija but orchestrator ignored them (soft-warn mode = ignored signal). Tests: 468 → 472 (+4 in §60).
 
-- **fix(workflow): §0b removes preskripciju `max_defects=0` for real-task default.** Default is now `unlimited` (= no field in spec-card.md). Polje opcioni power-user override za polish-mode tasks gde stvarno znas budget unapred. Rationale: v6.7 rationale gate (per-finding ≥40 chars + 100%-Do hard-block) strukturalno covers same misuse pattern without preflight budget cap; v6.1 B2 budget cap is now belt-without-suspenders.
+- **fix(workflow): §0b removes the `max_defects=0` prescription for the real-task default.** Default is now `unlimited` (= no field in spec-card.md). The field remains an optional power-user override for polish-mode tasks where you genuinely know the budget up front. Rationale: the v6.7 rationale gate (per-finding ≥40 chars + 100%-Do hard-block) structurally covers the same misuse pattern without a preflight budget cap; the v6.1 B2 budget cap is now belt-without-suspenders.
 - **fix(verify-plan-spec): DEFAULT_MODE flip from `warn` to `strict`.** Single-line change. Plan sections without `**Implements:**` headers, or plans missing R-ids from spec-card.md, now BLOCK by default. Graceful migration path: set `plan_consistency_gate: warn` in spec-card.md to keep v6.8.0 soft behavior; `plan_consistency_gate: off` to skip entirely.
 - **test(test-codex-adapter): §60 — strict-by-default lock-in.** Four new assertions: no-mode-field + missing-R-id → BLOCK + exit 1; no-mode-field + section-without-Implements → BLOCK + exit 1; no-mode-field + perfect plan → exit 0 silent; explicit `plan_consistency_gate: warn` override → WARN + exit 0 (migration path verification). Plus updated §59 Static E from `DEFAULT_MODE="warn"` baseline to `DEFAULT_MODE="strict"`. Plus retro-added `plan_consistency_gate: off` to 5 existing test fixtures (§42 builder cycle cap, §43 reviewer cycle cap + polish mode, §45 reviewer rollback, §51 stale dispatch filter, §52 rationale gate) so they continue testing their own gate logic without v6.8 strict mode interference.
-- **Migration note.** Projekti koji upgrade v6.8.0 → v6.8.1 i jos uvek imaju plan-ove bez `**Implements:**` header-a dobijaju BLOCK na prvi `apd pipeline builder`. Fix: dodati `**Implements:** R1, R3` (ili `none`) headere na svakoj `### Section`. Alternativa: dodati `plan_consistency_gate: warn` u spec-card.md za soft mode tokom prelaza. **Projekti koji imaju `max_defects=0` u svojim spec-card template-ima ili reuse-uju spec patterns dobijaju soft hint** (no automatic BLOCK on field presence; field continues to work as before — but workflow.md guidance više ne preporucuje pisati ga).
-- **Empirical record.** `.claude/memory/status.md` v6.8.1 phase section zapisuje detalje 2026-05-22 Test 33-min run-a kao baseline za buduce force-multiplier comparisons. `feedback-max-defects-zero-friction` memory entry trebalo bi dodati nezavisno za projekt memory.
+- **Migration note.** Projects that upgrade v6.8.0 → v6.8.1 and still have plans without `**Implements:**` headers get a BLOCK on the first `apd pipeline builder`. Fix: add `**Implements:** R1, R3` (or `none`) headers on every `### Section`. Alternative: add `plan_consistency_gate: warn` to spec-card.md for soft mode during the transition. **Projects that have `max_defects=0` in their spec-card templates or reuse spec patterns get a soft hint** (no automatic BLOCK on field presence; the field continues to work as before — but workflow.md guidance no longer recommends writing it).
+- **Empirical record.** The `.claude/memory/status.md` v6.8.1 phase section records details of the 2026-05-22 Test 33-min run as a baseline for future force-multiplier comparisons. A `feedback-max-defects-zero-friction` memory entry should be added separately to the project memory.
 
 ## v6.8.0 — 2026-05-22
 
-New structural gate that closes the **plan-spec ambiguity rupu**: orchestrator-authored `implementation-plan.md` is now mechanically verified against `spec-card.md` R-criteria via per-section `**Implements:**` headers. Bidirectional check — every spec `R*` must be referenced by ≥1 plan section, every plan section must declare R-ids or `none`. Ships with `plan_consistency_gate: strict|warn|off` field in spec-card.md; default `warn` in v6.8.0 (issues emit WARN, no block) to give postojeci projekti grace window. v6.8.1 will flip default to `strict`. Tests: 456 → 468 (+12 in §59; baseline +37 already grew from §53–§58 across v6.7.x).
+New structural gate that closes the **plan-spec ambiguity gap**: orchestrator-authored `implementation-plan.md` is now mechanically verified against `spec-card.md` R-criteria via per-section `**Implements:**` headers. Bidirectional check — every spec `R*` must be referenced by ≥1 plan section, every plan section must declare R-ids or `none`. Ships with `plan_consistency_gate: strict|warn|off` field in spec-card.md; default `warn` in v6.8.0 (issues emit WARN, no block) to give existing projects a grace window. v6.8.1 will flip default to `strict`. Tests: 456 → 468 (+12 in §59; baseline +37 already grew from §53–§58 across v6.7.x).
 
 - **feat(verify): new `plugins/apd/bin/core/verify-plan-spec` parser.** Parses `### Section` headings in `.apd/pipeline/implementation-plan.md`, extracts per-section `**Implements:** R1, R3` declarations, runs three checks: (1) forward — every R-id in `**Implements:**` must exist in spec-card.md, (2) reverse — every spec R-id must appear in ≥1 section's `**Implements:**`, (3) symmetric — every section must have an `**Implements:**` header (or `**Implements:** none` for scaffolding like file lists, agents, notes). Backward compat: if spec-card.md is missing R-criteria entirely, or if implementation-plan.md doesn't exist, exit 0 silent (other gates already block).
-- **feat(pipeline): `pipeline-advance builder` calls verify-plan-spec.** Gate runs after the existing implementation-plan.md presence check, before BUILDER_RAN. Skripta sama odlucuje exit code po mode-u (read from spec-card.md). v6.8.0 default mode `warn`: issues print to stderr but `pipeline-advance` continues. `plan_consistency_gate: strict` opt-in: BLOCK with explicit error directing orchestrator to fix the plan or downgrade to `warn`.
-- **feat(spec-card): tri-level `plan_consistency_gate` field.** New opt-out field in spec-card.md alongside existing `adversarial: max_defects=N` / `adversarial: rationale_gate=off` patterns. Three values: `strict` (BLOCK on missing/unknown R-id or missing `**Implements:**`), `warn` (emit WARN, no block), `off` (skip entirely — for exploratory/experimental tasks where plan is deliberately rough draft). Default v6.8.0 = `warn`, v6.8.1+ = `strict`.
+- **feat(pipeline): `pipeline-advance builder` calls verify-plan-spec.** Gate runs after the existing implementation-plan.md presence check, before BUILDER_RAN. The script itself decides the exit code by mode (read from spec-card.md). v6.8.0 default mode `warn`: issues print to stderr but `pipeline-advance` continues. `plan_consistency_gate: strict` opt-in: BLOCK with explicit error directing orchestrator to fix the plan or downgrade to `warn`.
+- **feat(spec-card): three-level `plan_consistency_gate` field.** New opt-out field in spec-card.md alongside existing `adversarial: max_defects=N` / `adversarial: rationale_gate=off` patterns. Three values: `strict` (BLOCK on missing/unknown R-id or missing `**Implements:**`), `warn` (emit WARN, no block), `off` (skip entirely — for exploratory/experimental tasks where plan is deliberately rough draft). Default v6.8.0 = `warn`, v6.8.1+ = `strict`.
 - **docs: workflow.md §3c rewritten.** New format example shows every `### Section` with mandatory `**Implements:**` header (Backend → R1, R3; Frontend → R2, R4; Files to modify/create/Agents/Notes → `none`). Two new bullets in Rules section: format requirement + opt-out field semantics.
 - **docs: AGENTS.md (Codex) Order of operations step 3.** Mirror update — Codex orchestrator gets the same instruction with same opt-out flag reference.
 - **docs: SPEC.md §9.** New `verify-plan-spec` row in verifiers table; spans gate behavior, mode parser, exit codes, builder-branch caller.
-- **Strict simetricno pravilo, no reserved section names.** Earlier design draft considered exempting `Files to modify`, `Files to create`, `Agents`, `Notes` from the `**Implements:**` requirement. Rejected in favor of explicit `**Implements:** none` on those sections — eliminates parser special cases, gives consistent rule to orchestrator, and the WARN-on-missing-header signal genuinely distinguishes "orchestrator forgot" from "scaffolding section by design".
-- **Gaming pattern closed by reverse check.** Mehanicki `**Implements:** none` na sve sekcije ne defeat-uje gate jer reverse check pucа na nepokrivenim R-id-ovima — every spec R* must appear in ≥1 non-none section.
+- **Strict symmetric rule, no reserved section names.** An earlier design draft considered exempting `Files to modify`, `Files to create`, `Agents`, `Notes` from the `**Implements:**` requirement. Rejected in favor of explicit `**Implements:** none` on those sections — eliminates parser special cases, gives a consistent rule to the orchestrator, and the WARN-on-missing-header signal genuinely distinguishes "orchestrator forgot" from "scaffolding section by design".
+- **Gaming pattern closed by reverse check.** Mechanically putting `**Implements:** none` on all sections does not defeat the gate because the reverse check fails on uncovered R-ids — every spec R* must appear in ≥1 non-none section.
 - **Tests:** `test-codex-adapter` §59 adds 12 assertions covering: binary exists/executable, forward+reverse+mode-parser+DEFAULT_MODE static greps (5), live perfect plan, live missing-R, live unknown-R-id, live section-without-Implements (default warn mode, 4), live opt-out off, live strict mode + missing-R, live strict mode + section-without-Implements (3). Live setup uses isolated synthetic project with .apd/pipeline/{spec-card.md,implementation-plan.md} fixtures. Test count 456 → 468.
 - **Migration:** postojeci projekti continue to work — gate emits WARN, doesn't block. To upgrade plan-ove to the new format, add `**Implements:** R1, R3` (or `none`) to each `### Section`. v6.8.1 will flip default to `strict`; CHANGELOG v6.8.1 entry will document migration step explicitly.
-- **Why this matters strategically.** Diskusioni record (`~/.claude/plans/hajde-da-prodiskutujemo-na-sequential-giraffe.md`, 2026-05-20) traces the root cause analysis: pravi koren defekata nije adversarial dismissal ili builder overrun, već **rasplinut spec → rasplinut plan → builder radi u magli → downstream gateovi rade na sirokoj ambiguity surface**. Trenutni pipeline ima dva mehanicka anchor-a (`verify-trace` for spec↔tests, presence check for plan), ali nepokrivena rupa između je da plan tehnicki postoji ali ne mapira eksplicit na R-kriterije. v6.8 zatvara taj sloj.
+- **Why this matters strategically.** The discussion record (`~/.claude/plans/hajde-da-prodiskutujemo-na-sequential-giraffe.md`, 2026-05-20) traces the root cause analysis: the real root of defects is not adversarial dismissal or builder overrun, but **a fuzzy spec → fuzzy plan → builder works in the fog → downstream gates operate on a wide ambiguity surface**. The current pipeline has two mechanical anchors (`verify-trace` for spec↔tests, presence check for plan), but the uncovered gap between them is that the plan technically exists yet does not map explicitly to the R-criteria. v6.8 closes that layer.
 
 ## v6.7.7 — 2026-05-20
 
@@ -1298,7 +1298,7 @@ The CC `SessionStart` hook was fixed in CC 2.1.101 (re-confirmed on 2.1.119). Co
 
 ### Documentation
 
-- **`docs/SPEC.md`** — §1 (Distribution: `apd update` row), §2 (CLI surface: `update` subcommand), §4.2 (Codex hooks: now 2 hooks, SessionStart tabela), §11.2 (Codex session-start dual path — TUI hook + exec `defaultPrompt`), §12 (hooks.json content), §14 (SessionStart known-limitations updated).
+- **`docs/SPEC.md`** — §1 (Distribution: `apd update` row), §2 (CLI surface: `update` subcommand), §4.2 (Codex hooks: now 2 hooks, SessionStart table), §11.2 (Codex session-start dual path — TUI hook + exec `defaultPrompt`), §12 (hooks.json content), §14 (SessionStart known-limitations updated).
 
 ## v5.0.1 — 2026-04-24
 
