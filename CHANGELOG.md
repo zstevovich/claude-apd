@@ -1,5 +1,33 @@
 # Changelog
 
+## v6.14.0 — 2026-06-04
+
+A new recovery command (`reconstruct-agents`), an apd-brainstorm skill audit fix, and a CHANGELOG language cleanup. The new subcommand makes this a minor.
+
+### `apd pipeline reconstruct-agents` — recovery for CC SubagentStop hook non-delivery
+
+**Trigger (BambiProject, 2026-06-04):** Claude Code stopped firing the SubagentStop hook for a session while still firing other hooks (the security-guidance Stop hook ran cleanly). Subagents genuinely ran (full transcripts on disk — migration, review, tests passed) but `.agents` stayed empty, so the builder gate could not confirm a builder was dispatched and the whole chain blocked. Confirmed CC-side (not APD): `track-agent` logs its payload as its first action, and zero entries after the freeze means CC never invoked the hook; `track-agent` was byte-identical across versions and stable for days; security-guidance does not register SubagentStop.
+
+- **feat(pipeline-advance):** new `apd pipeline reconstruct-agents` case. Rebuilds `.apd/pipeline/.agents` from CC subagent transcripts at `${CLAUDE_CONFIG_DIR:-~/.claude}/projects/<slug>/<session>/subagents/agent-<id>.jsonl` (+`.meta.json` for `agentType`). Writes a start+stop pair ONLY for agent-ids whose transcript file exists (CC ground truth the orchestrator cannot fabricate) and whose completion is after `spec.done`. Skips already-recorded ids. Guarantees start < stop (non-zero duration). Loud `INFO|reconstruct-agents|...` audit entry.
+- **Integrity:** a phantom agent with no transcript is never reconstructed — so a genuine hook-failure is recoverable while fabrication stays blocked. This is the distinction a hand-written `.agents` (which the guard blocks, and which is a social-engineering risk) cannot make: the transcript-existence precondition mechanizes the check instead of trusting the premise.
+- **docs(SPEC.md):** `reconstruct-agents` row in the pipeline subcommand list, with the CC-bug diagnosis.
+
+### apd-brainstorm skill audit
+
+Audit found two defects in the shipped skill (CC + Codex mirror), both fixed:
+
+- **Language:** Serbian prose had crept into the shipped skill during the Serbian-chat period (CLAUDE.md requires English docs). Translated to English; content/structure unchanged. (Note: `apd-toggle`'s Serbian is intentional — multilingual trigger phrases the skill must recognize — and is left as-is.)
+- **Stale `max_defects` in the `--skip-brainstorm` reason:** the override checklist + example modeled confirming `max_defects=unlimited`, contradicting the skill's own "DEPRECATED — DO NOT write" guidance (v6.9). Removed from the checklist and example; the adversarial budget is simply the default (no field).
+- **test(test-codex-adapter §82):** asserts both apd-brainstorm SKILL.md files are free of Serbian markers + the skip-reason carries no deprecated `max_defects`.
+
+### CHANGELOG language cleanup
+
+- **docs(CHANGELOG):** the v6.8.0–v6.12.3 entries (and a stray word in v5.0.2) were written in Serbian; translated to English preserving all technical tokens, tables, and code blocks. The v6.13.0 entry was likewise rewritten to English.
+
+### Tests
+
+- **test-codex-adapter §81–§82:** +11 assertions. **656 → 667 PASS / 0 FAIL.**
+
 ## v6.13.0 — 2026-06-02
 
 Three **enforcement-neutral** improvements derived from cross-project log analysis (Bambi/.NET, FiscalFusionAI/Python-ML, ig-commerce/Next.js) under Opus 4.8. All three are observability / audit / UX — **the enforcement floor is unchanged** (the cross-project comparison showed the floor holds uniformly; only the bypass *style* varies per project). Minor: new features, backward-compatible.

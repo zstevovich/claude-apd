@@ -8424,6 +8424,142 @@ fi
 rm -rf "$SHOW_PROJ"
 
 # -----------------------------------------------------------
+section "81. reconstruct-agents — CC SubagentStop hook-failure recovery"
+# -----------------------------------------------------------
+ADVANCE_SCRIPT="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+
+# Static A: reconstruct-agents) case present
+if grep -qE '^[[:space:]]*reconstruct-agents\)' "$ADVANCE_SCRIPT"; then
+    pass "pipeline-advance has reconstruct-agents) case"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-advance missing reconstruct-agents) case"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: requires the transcript .jsonl (ground truth), not just meta
+if grep -q 'require the transcript itself = proof it ran' "$ADVANCE_SCRIPT" \
+   && grep -q '_jsonl="${_meta%.meta.json}.jsonl"' "$ADVANCE_SCRIPT"; then
+    pass "reconstruct-agents requires transcript .jsonl (fabrication-resistant)"
+    PASSES=$((PASSES + 1))
+else
+    fail "reconstruct-agents does not require transcript existence"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: writes a loud audit-log entry
+if grep -q 'INFO|reconstruct-agents|rebuilt' "$ADVANCE_SCRIPT"; then
+    pass "reconstruct-agents writes audit-log entry"
+    PASSES=$((PASSES + 1))
+else
+    fail "reconstruct-agents missing audit-log entry"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: documented in usage + apd dispatcher help
+if grep -q 'reconstruct-agents' "$ADVANCE_SCRIPT" && grep -q 'reconstruct-agents' "$APD_PLUGIN_ROOT/bin/apd"; then
+    pass "reconstruct-agents in pipeline-advance usage + apd help"
+    PASSES=$((PASSES + 1))
+else
+    fail "reconstruct-agents not documented in usage/help"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup: project + fake CC transcript dir (real agent + phantom)
+RECON_PROJ="$(mktemp -d -t apd-recon.XXXXXX)"
+RECON_FC="$(mktemp -d -t apd-fakeclaude.XXXXXX)"
+mkdir -p "$RECON_PROJ/.apd/pipeline" "$RECON_PROJ/.claude/memory" "$RECON_PROJ/.claude"
+printf 'PROJECT_NAME=recon\n' > "$RECON_PROJ/.claude/.apd-config"
+printf '1700000000|2026-06-04 17:06:42|Recon Task\n' > "$RECON_PROJ/.apd/pipeline/spec.done"
+RECON_SLUG=$(printf '%s' "$RECON_PROJ" | sed 's#[^A-Za-z0-9]#-#g')
+RECON_SUB="$RECON_FC/projects/$RECON_SLUG/sess-x/subagents"
+mkdir -p "$RECON_SUB"
+# real agent: meta + transcript
+printf '{"agentType":"database","description":"m","toolUseId":"t"}\n' > "$RECON_SUB/agent-areal111.meta.json"
+printf '{"l":1}\n{"l":2}\n' > "$RECON_SUB/agent-areal111.jsonl"
+# phantom agent: meta only, NO transcript
+printf '{"agentType":"backend-api","description":"phantom"}\n' > "$RECON_SUB/agent-aphantom9.meta.json"
+CLAUDE_CONFIG_DIR="$RECON_FC" APD_PROJECT_DIR="$RECON_PROJ" APD_RUNTIME=codex bash "$ADVANCE_SCRIPT" reconstruct-agents >/dev/null 2>&1
+RECON_AGENTS="$RECON_PROJ/.apd/pipeline/.agents"
+
+# Live E: real agent reconstructed (start + stop)
+if grep -qE '\|start\|database\|areal111$' "$RECON_AGENTS" 2>/dev/null \
+   && grep -qE '\|stop\|database\|areal111$' "$RECON_AGENTS" 2>/dev/null; then
+    pass "reconstruct-agents rebuilds real (transcript-backed) agent"
+    PASSES=$((PASSES + 1))
+else
+    fail "reconstruct-agents did not rebuild real agent: $(cat "$RECON_AGENTS" 2>/dev/null)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live F: phantom (no transcript) NOT reconstructed
+if ! grep -q 'aphantom9' "$RECON_AGENTS" 2>/dev/null; then
+    pass "reconstruct-agents rejects phantom agent (no transcript = stays blocked)"
+    PASSES=$((PASSES + 1))
+else
+    fail "reconstruct-agents wrongly reconstructed a phantom agent"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live G: audit entry written
+if grep -q 'reconstruct-agents|rebuilt 1' "$RECON_PROJ/.claude/memory/guard-audit.log" 2>/dev/null; then
+    pass "reconstruct-agents logged the rebuild to guard-audit"
+    PASSES=$((PASSES + 1))
+else
+    fail "reconstruct-agents did not log audit entry"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live H: non-zero duration (start timestamp strictly before stop)
+RECON_START=$(grep -E '\|start\|database\|areal111$' "$RECON_AGENTS" 2>/dev/null | cut -d'|' -f1)
+RECON_STOP=$(grep -E '\|stop\|database\|areal111$' "$RECON_AGENTS" 2>/dev/null | cut -d'|' -f1)
+if [ -n "$RECON_START" ] && [ -n "$RECON_STOP" ] && [ "$RECON_START" != "$RECON_STOP" ]; then
+    pass "reconstruct-agents produces non-zero duration (start < stop)"
+    PASSES=$((PASSES + 1))
+else
+    fail "reconstruct-agents zero-duration pair (start=$RECON_START stop=$RECON_STOP)"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$RECON_PROJ" "$RECON_FC"
+
+# -----------------------------------------------------------
+section "82. apd-brainstorm skill is English + skip-reason has no deprecated max_defects"
+# -----------------------------------------------------------
+REPO_ROOT_82="$APD_PLUGIN_ROOT/../.."
+BS_CC="$REPO_ROOT_82/skills/apd-brainstorm/SKILL.md"
+BS_CDX="$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"
+# Unambiguously-Serbian tokens that never appear in English prose
+SR_MARKERS='naucio|zaborav|trajal|trajao|identicni|loguje|znas|uradis|necemo|generalizuje|vrati'
+
+# Static A: CC apd-brainstorm has no Serbian prose
+if [ -f "$BS_CC" ] && ! grep -qiE "$SR_MARKERS" "$BS_CC"; then
+    pass "CC apd-brainstorm/SKILL.md is free of Serbian markers"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC apd-brainstorm has Serbian: $(grep -niE "$SR_MARKERS" "$BS_CC" 2>/dev/null | head -2)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: Codex apd-brainstorm mirror has no Serbian prose
+if [ -f "$BS_CDX" ] && ! grep -qiE "$SR_MARKERS" "$BS_CDX"; then
+    pass "Codex apd-brainstorm/SKILL.md is free of Serbian markers"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex apd-brainstorm has Serbian: $(grep -niE "$SR_MARKERS" "$BS_CDX" 2>/dev/null | head -2)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: the --skip-brainstorm example no longer models deprecated max_defects
+if ! grep -nE 'skip-brainstorm "[^"]*max_defects' "$BS_CC" >/dev/null 2>&1; then
+    pass "CC skip-brainstorm example does not reference deprecated max_defects"
+    PASSES=$((PASSES + 1))
+else
+    fail "CC skip-brainstorm example still references max_defects"
+    FAILS=$((FAILS + 1))
+fi
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

@@ -1524,6 +1524,64 @@ EOF
         esac
         ;;
 
+    reconstruct-agents)
+        # Recovery for a CC SubagentStop hook NON-DELIVERY (harness bug, observed
+        # 2026-06-04): CC ran subagents but never fired SubagentStop, so .agents
+        # is missing entries for agents that genuinely ran. Rebuild .agents from
+        # the CC subagent TRANSCRIPTS on disk. The transcript file is CC ground
+        # truth (written per agent; the orchestrator cannot fabricate it), so a
+        # genuine hook-failure is recoverable while a phantom agent with no
+        # transcript stays blocked. Loud audit trail. Distinguishes the true
+        # case from fabrication, which orchestrator-written .agents cannot.
+        if [ ! -f "$PIPELINE_DIR/spec.done" ]; then
+            echo "BLOCKED: no active pipeline (spec.done missing) — nothing to scope reconstruction against." >&2
+            exit 1
+        fi
+        RA_SPEC_TS=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f1)
+        # CC transcript dir: project path with every non-alnum char → '-'
+        RA_SLUG=$(printf '%s' "$PROJECT_DIR" | sed 's#[^A-Za-z0-9]#-#g')
+        RA_BASE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$RA_SLUG"
+        if [ ! -d "$RA_BASE" ]; then
+            echo "BLOCKED: CC transcript dir not found: $RA_BASE" >&2
+            echo "  Cannot reconstruct without CC subagent transcripts (ground truth)." >&2
+            exit 1
+        fi
+        AGENTS_LOG="$PIPELINE_DIR/.agents"
+        touch "$AGENTS_LOG"
+        RA_COUNT=0
+        for _meta in "$RA_BASE"/*/subagents/agent-*.meta.json; do
+            [ -f "$_meta" ] || continue
+            _jsonl="${_meta%.meta.json}.jsonl"
+            [ -f "$_jsonl" ] || continue   # require the transcript itself = proof it ran
+            _id=$(basename "$_meta" | sed 's/^agent-//; s/\.meta\.json$//')
+            grep -qF "|${_id}" "$AGENTS_LOG" 2>/dev/null && continue   # already recorded
+            _stop=$(stat -f %m "$_jsonl" 2>/dev/null || stat -c %Y "$_jsonl" 2>/dev/null || echo 0)
+            [ "$_stop" -ge "$RA_SPEC_TS" ] 2>/dev/null || continue     # current-task window only
+            _start=$(stat -f %m "$_meta" 2>/dev/null || stat -c %Y "$_meta" 2>/dev/null || echo "$_stop")
+            # Guarantee start < stop (non-zero duration) so validate-agent does not
+            # flag the pair as zero-duration/suspicious on coarse-mtime filesystems.
+            [ "$_start" -lt "$_stop" ] 2>/dev/null || _start=$(( _stop - 60 ))
+            _type=$(sed -n 's/.*"agentType"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_meta" | head -1)
+            [ -n "$_type" ] || continue
+            _sh=$(date -r "$_start" +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "@$_start" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
+            _eh=$(date -r "$_stop" +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "@$_stop" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
+            printf '%s|start|%s|%s\n' "$_sh" "$_type" "$_id" >> "$AGENTS_LOG"
+            printf '%s|stop|%s|%s\n'  "$_eh" "$_type" "$_id" >> "$AGENTS_LOG"
+            RA_COUNT=$((RA_COUNT + 1))
+            echo "  + ${_type} (${_id})  ${_sh} → ${_eh}"
+        done
+        if [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ]; then
+            echo "$(date +"%Y-%m-%d %H:%M:%S")|INFO|reconstruct-agents|rebuilt $RA_COUNT transcript-backed agent pair(s) from $RA_BASE" >> "$MEMORY_DIR/guard-audit.log"
+        fi
+        if [ "$RA_COUNT" -eq 0 ]; then
+            echo "No transcript-backed agents to reconstruct (none after spec, or all already recorded)." >&2
+        else
+            echo "" >&2
+            echo "Reconstructed $RA_COUNT agent pair(s) from CC transcripts — each backed by a real" >&2
+            echo "subagent transcript on disk (NOT fabricated). Re-run 'apd pipeline builder'." >&2
+        fi
+        ;;
+
     stats)
         SKIP_LOG="$MEMORY_DIR/pipeline-skip-log.md"
         if [ ! -f "$SKIP_LOG" ]; then
@@ -1713,6 +1771,7 @@ EOF
         echo "  pipeline-advance builder|reviewer|verifier" >&2
         echo "  pipeline-advance reset|status|stats|metrics" >&2
         echo "  pipeline-advance show [spec|plan|state]   # read-only state inspection" >&2
+        echo "  pipeline-advance reconstruct-agents       # rebuild .agents from CC transcripts (hook-failure recovery)" >&2
         echo "  pipeline-advance rollback" >&2
         echo "  pipeline-advance init \"Description\"     # First setup only" >&2
         echo "" >&2

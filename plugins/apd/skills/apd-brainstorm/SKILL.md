@@ -23,9 +23,9 @@ after the user explicitly approves the design summary.
 
 1. **Scope is aligned** — task fully specified OR user approved design informally, AND
 2. **APD config decisions are explicit** — you can answer YES to ALL:
-   - Adversarial budget: omit field (= unlimited) za standard tasks
+   - Adversarial budget: omit the field (= unlimited) — `max_defects` is deprecated (v6.9)
    - Plan: `**Implements:**` on EVERY `### Section` (NO RESERVED NAMES — includes Agents, Notes)
-   - Rationale: `.apd/pipeline/.adversarial-rationale.md` (sa `.md`!) with per-finding blocks
+   - Rationale: `.apd/pipeline/.adversarial-rationale.md` (note the `.md` extension!) with per-finding blocks
    - BLOCK recovery patterns known
 
 Canonical skip cases: genuine 1:1 mirror of a just-completed task, single-line bug fix with one R-criterion, hotfix with explicit pre-aligned design.
@@ -71,8 +71,8 @@ spec-card.md. A vague spec produces vague code.
    `apd_advance_pipeline('spec', ...)` reads it. R-count > 2 in spec-card.md
    without marker → hard BLOCK. **Override (v6.8.8+, rare — requires concrete
    reason):** pass `skip_brainstorm='<reason mentioning scope alignment AND
-   APD config clarity>'` to the tool call. Empty reason → BLOCK. Skip event
-   loguje INFO entry u guard-audit.log za audit trail.
+   APD config clarity>'` to the tool call. Empty reason → BLOCK. The skip event
+   logs an INFO entry to guard-audit.log for the audit trail.
 
 **Adversarial budget — `max_defects` field is DEPRECATED as of v6.9.**
 
@@ -83,13 +83,13 @@ Will be removed in v7.0. **DO NOT write `adversarial: max_defects=...` in new sp
 | Standard task (1–7 R, almost all) | **omit `max_defects` field** — default = unlimited |
 | polish-mode (1–2 R hotfix) | `pipeline_mode: polish` — lower cycle caps + skip adversarial entirely |
 
-Empirical evidence (v6.8 dev cycle, 2026-05-22): tasks sa `max_defects=0` trajali 26-33 min sa 3 guard BLOCK-a; identicni task BEZ polja trajao 13 min clean. v6.8 chain (10 patches) validated rationale gate as sufficient standalone enforcement.
+Empirical evidence (v6.8 dev cycle, 2026-05-22): tasks with `max_defects=0` ran 26-33 min with 3 guard BLOCKs; an identical task without the field ran 13 min clean. The v6.8 chain (10 patches) validated the rationale gate as sufficient standalone enforcement.
 
 ## Downstream gates the spec triggers
 
 After spec advance, orchestrator MUST write these files. Brainstorm should mentally prepare for them:
 
-**Implementation plan** (`.apd/pipeline/implementation-plan.md`): **EVERY** `### Section` MUST start with `**Implements:** R1, R3` (or `none` for scaffolding) — **NO RESERVED NAMES**. This applies uniformly to functional sections (Backend, Frontend, Database, Tests) AND scaffolding sections (Files to modify, Files to create, Agents, Notes). Empirical evidence (Soft-delete task 2026-05-22): orchestrator naucio Implements pattern za Files-to-mod/create ali zaboravio za Agents/Notes — asymmetric learning triggered plan-spec-consistency BLOCK na 2 missing headera. `verify-plan-spec` strict mode (v6.8.1+ default) hard-BLOCKS `apd:apd_advance_pipeline('builder')` otherwise. Bidirectional check: every R-id from spec must appear in ≥1 section's **Implements:** line.
+**Implementation plan** (`.apd/pipeline/implementation-plan.md`): **EVERY** `### Section` MUST start with `**Implements:** R1, R3` (or `none` for scaffolding) — **NO RESERVED NAMES**. This applies uniformly to functional sections (Backend, Frontend, Database, Tests) AND scaffolding sections (Files to modify, Files to create, Agents, Notes). Empirical evidence (Soft-delete task 2026-05-22): the orchestrator learned the Implements pattern for Files-to-mod/create but forgot it for Agents/Notes — asymmetric learning triggered a plan-spec-consistency BLOCK on 2 missing headers. `verify-plan-spec` strict mode (v6.8.1+ default) hard-BLOCKS `apd:apd_advance_pipeline('builder')` otherwise. Bidirectional check: every R-id from spec must appear in ≥1 section's **Implements:** line.
 
 **Adversarial rationale** (`.apd/pipeline/.adversarial-rationale.md`): after `apd:apd_adversarial_pass(...)`, write one block per finding (`## Finding N` + `**Severity:**` + `**Status:**` + `**Rationale:**`) BEFORE `apd:apd_advance_pipeline('verifier')`. v7.1 BLOCK otherwise. v7.6 BLOCK if 100% orchestrator-dismissed (T≥3 && A==0 && Do≥1) — at least one accept OR reclassify to reviewer-self-dismissed.
 
