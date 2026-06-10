@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>v6.14.0</b> &middot; MIT &middot; macOS + Linux
+  <b>v6.15.0</b> &middot; MIT &middot; macOS + Linux
 </p>
 
 ![APD Demo](docs/demo/apd-demo.gif)
@@ -84,7 +84,7 @@ codex plugin marketplace upgrade codex-apd                    # pulls latest mai
 To pin the upgrade to a specific tag or branch (e.g. for pre-release testing):
 ```bash
 codex plugin marketplace remove codex-apd
-codex plugin marketplace add zstevovich/claude-apd@v6.14.0     # or @<branch> for a feature branch
+codex plugin marketplace add zstevovich/claude-apd@v6.15.0     # or @<branch> for a feature branch
 ```
 
 **Codex — direct-drop install:**
@@ -166,6 +166,7 @@ Every rule is backed by a hook script that **blocks** violations. No bypass from
 | Superpowers agents replacing APD roles | `pipeline-advance` (agent type check) |
 | Spec modified mid-pipeline | `pipeline-advance` (sha256 hash freeze) |
 | More than 7 acceptance criteria per spec | `pipeline-advance` (forces decomposition) |
+| Spec advance without the pipeline-guide marker | `pipeline-advance` (guide gate, no skip flag) |
 | Builder dispatch without implementation plan | `pipeline-advance` (hard block) |
 | Pipeline step forgery | Compiled Go binary creates HMAC-signed .done files — orchestrator cannot forge signatures |
 | SendMessage during pipeline | guard-send-message blocks — must use Agent() for tracked dispatch |
@@ -222,7 +223,7 @@ ${CLAUDE_PLUGIN_ROOT}/                # = repo root for CC; CC auto-discovers ho
 └── plugins/apd/                      # Plugin payload — single source of truth for both runtimes
     ├── .apd-version                  # CC version constraints (MIN_CC_VERSION, FUNC_CC_VERSION)
     ├── .codex-plugin/plugin.json     # Codex plugin manifest
-    ├── .mcp.json                     # Codex MCP self-registration (cwd: ".", 8 tools)
+    ├── .mcp.json                     # Codex MCP self-registration (cwd: ".", 9 tools)
     ├── VERSION                       # Plugin version (read by every script + MCP server)
     ├── bin/
     │   ├── apd                       # Single entry point
@@ -231,7 +232,7 @@ ${CLAUDE_PLUGIN_ROOT}/                # = repo root for CC; CC auto-discovers ho
     │   ├── adapter/cdx/              # Codex install + doctor + skills + agents
     │   ├── compiled/                 # Go binaries (validate-agent)
     │   └── lib/                      # resolve-project.sh + style.sh
-    ├── mcp/apd_mcp_server.py         # Codex MCP server (8 tools)
+    ├── mcp/apd_mcp_server.py         # Codex MCP server (9 tools)
     ├── rules/workflow.md             # Pipeline workflow rules (copied to project on init)
     ├── templates/                    # Agent + project templates (CC + Codex scaffold)
     └── skills/                       # 7 Codex skills (brainstorm, tdd, debug, finish, audit, github, miro)
@@ -310,7 +311,8 @@ Allowed paths: src/ tests/
 
 | Skill | When | Required? |
 |-------|------|-----------|
-| `/apd-brainstorm` | Before spec — vague or complex task | Mandatory |
+| `/apd-pipeline-guide` | Before EVERY spec — pipeline operating manual, writes the gate marker | Mandatory (no skip) |
+| `/apd-brainstorm` | Before the guide — vague or complex task clarification | Recommended when scope is unclear |
 | `/apd-tdd` | During builder implementation | Mandatory |
 | `/apd-debug` | On verifier failure or critical review finding | Mandatory |
 | `/apd-finish` | After successful commit | Mandatory |

@@ -53,7 +53,11 @@ PLUGIN_KEY="apd@$MARKETPLACE_NAME"
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 CODEX_CONFIG="$CODEX_HOME/config.toml"
 CODEX_SKILLS_DIR="$CODEX_HOME/skills"
-ALL_SKILLS=(apd-brainstorm apd-tdd apd-debug apd-finish)
+# v6.15 — full Codex skill set (was 4 phase skills; stale since v5.0.7 added
+# audit/github/miro and v6.15 added pipeline-guide). Marketplace mode ships all
+# of these automatically; this list drives the deprecated legacy-symlink mode
+# and the status output.
+ALL_SKILLS=(apd-pipeline-guide apd-brainstorm apd-tdd apd-debug apd-finish apd-audit apd-github apd-miro)
 
 if [ ! -d "$SKILL_SRC_DIR" ]; then
     echo "ERROR: APD skill sources missing at $SKILL_SRC_DIR" >&2
@@ -345,7 +349,7 @@ case "$SUB" in
         done
         echo ""
         echo "  Restart Codex to pick up newly installed skills."
-        echo "  Skills load as \$apd-brainstorm / \$apd-tdd / \$apd-debug / \$apd-finish."
+        echo "  Skills load as \$apd-pipeline-guide / \$apd-brainstorm / \$apd-tdd / \$apd-debug / \$apd-finish / ..."
         echo "  Note: direct-drop skills do NOT appear in the \`/\` slash menu —"
         echo "  that surface is plugin-scoped only (see \`--marketplace\` for WIP path)."
         ;;

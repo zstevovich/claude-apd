@@ -85,9 +85,15 @@ If you see any FAIL items, follow the instructions in the output to fix them.
 
 ## Step 5 — Your first pipeline task
 
-### 5.1 Write the spec card
+### 5.1 Load the pipeline guide, then write the spec card
 
-Write `.apd/pipeline/spec-card.md` with acceptance criteria using R* format:
+Every task starts by loading `/apd-pipeline-guide` — the pipeline operating
+manual. It walks through the gate at each advance, the plan and rationale file
+contracts, and writes `.apd/pipeline/.guide-marker`; the spec advance
+hard-blocks without it (no skip flag). If the task scope is vague, load
+`/apd-brainstorm` first to converge on a design with the user.
+
+Then write `.apd/pipeline/spec-card.md` with acceptance criteria using R* format:
 
 ```markdown
 ## Add user login endpoint
@@ -129,17 +135,30 @@ Write `.apd/pipeline/implementation-plan.md`:
 ## Implementation Plan: Add user login endpoint
 
 ### Agents
+**Implements:** none
+
 - backend-builder
 
 ### Files to create
+**Implements:** R1, R2, R3
+
 - `src/Auth/LoginHandler.cs` — POST endpoint, validates credentials, returns JWT
 
 ### Files to modify
+**Implements:** none
+
 - `src/Auth/AuthModule.cs` — register the new endpoint
 
 ### Notes
+**Implements:** none
+
 - Use bcrypt for password comparison (existing UserService.VerifyPassword)
 ```
+
+> **Every `### Section` needs an `**Implements:**` header** — functional sections
+> map to R-ids, scaffolding sections (Agents, Notes, Files to modify/create with
+> no direct R mapping) use `none`. The builder advance hard-blocks otherwise
+> (`verify-plan-spec`, strict by default).
 
 ### 5.3 Dispatch a builder
 
@@ -232,9 +251,12 @@ BLOCKED: File apps/frontend/App.tsx is outside allowed scope.
 # Agent tries to read secrets:
 BLOCKED: Access to sensitive files not permitted.
 
-# Orchestrator writes directly to .apd/pipeline/:
+# Orchestrator touches .apd/pipeline/ via bash:
 BLOCKED: Bash write to protected pipeline state directory.
-   Do not write directly to .apd/pipeline/ — use the apd command instead.
+   Bash access to .apd/pipeline/ is blocked. Use the right channel:
+     READ state      → apd pipeline show [spec|plan|state]
+     WRITE your file → Write/Edit tool (spec-card.md, implementation-plan.md, ...)
+     ADVANCE phase   → apd pipeline <spec|builder|reviewer|verifier|reset>
 ```
 
 All blocks are logged to `guard-audit.log` with agent ID and timestamp.
@@ -370,18 +392,18 @@ Open `AGENTS.md` and replace the `Project context` block with your stack, entry 
 apd cdx doctor
 ```
 
-Expected output: **PASS: N, FAIL: 0, WARN: M**. Doctor verifies prerequisites, global Codex config, `.codex/` wiring, `.apd/` content, AGENTS.md, and the MCP server (Python syntax + all 6 tools registered). Non-zero exit = number of failed checks.
+Expected output: **PASS: N, FAIL: 0, WARN: M**. Doctor verifies prerequisites, global Codex config, `.codex/` wiring, `.apd/` content, AGENTS.md, and the MCP server (Python syntax + all 9 tools registered). Non-zero exit = number of failed checks.
 
-## B-Step 4b — Install the four phase skills (optional but recommended)
+## B-Step 4b — Install the Codex skills (optional but recommended)
 
-Codex doesn't have CC's slash-skill system, but APD ships four skill files (`apd-brainstorm`, `apd-tdd`, `apd-debug`, `apd-finish`) that the orchestrator can load by reference. Drop them into `~/.codex/skills/`:
+Codex doesn't have CC's slash-skill system, but APD ships its Codex skill set (`apd-pipeline-guide`, `apd-brainstorm`, `apd-tdd`, `apd-debug`, `apd-finish`, `apd-audit`, `apd-github`, `apd-miro`) that the orchestrator can load by reference. Drop them into `~/.codex/skills/`:
 
 ```bash
-apd cdx skills install                              # symlinks the four skills
+apd cdx skills install                              # registers the skill set
 apd cdx skills status                               # show install state
 ```
 
-In a Codex session the orchestrator can then invoke them as `$apd-tdd`, `$apd-brainstorm`, etc. On Codex 0.124+, the marketplace install (B-Step 0 above) also surfaces these skills in the `/` slash menu; `apd cdx skills install` (default since v5.0.8) wires the same registration. The `--legacy-symlink` mode is preserved for backward compatibility but deprecated — prefer the marketplace path.
+In a Codex session the orchestrator can then invoke them as `$apd-pipeline-guide`, `$apd-tdd`, `$apd-brainstorm`, etc. On Codex 0.124+, the marketplace install (B-Step 0 above) also surfaces these skills in the `/` slash menu; `apd cdx skills install` (default since v5.0.8) wires the same registration. The `--legacy-symlink` mode is preserved for backward compatibility but deprecated — prefer the marketplace path.
 
 ## B-Step 5 — Start a Codex session
 

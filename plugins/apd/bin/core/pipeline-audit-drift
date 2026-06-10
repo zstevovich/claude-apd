@@ -32,7 +32,10 @@ fi
 
 CLAUDE_DIR="$PROJECT_DIR/.claude"
 SETTINGS_FILE="$CLAUDE_DIR/settings.json"
-APD_CONFIG="$CLAUDE_DIR/.apd-config"
+# v6.15 audit fix — read the activation config through the resolver (XRT-4),
+# not a hardcoded legacy path: pure-Codex projects keep it at .apd/config.
+APD_CONFIG="${APD_CONFIG_FILE:-$CLAUDE_DIR/.apd-config}"
+APD_CONFIG_LABEL="${APD_CONFIG#"$PROJECT_DIR"/}"
 WORKFLOW_FILE="$CLAUDE_DIR/rules/workflow.md"
 FRAMEWORK_WORKFLOW="$APD_PLUGIN_ROOT/rules/workflow.md"
 
@@ -83,7 +86,7 @@ fi
 if [ -f "$APD_CONFIG" ]; then
     CONFIG_VERSION=$(grep -E '^APD_VERSION=' "$APD_CONFIG" 2>/dev/null | cut -d'=' -f2 | tr -d '[:space:]"')
     if [ -z "$CONFIG_VERSION" ]; then
-        IMPORTANT+=("[.claude/.apd-config] APD_VERSION not set")
+        IMPORTANT+=("[$APD_CONFIG_LABEL] APD_VERSION not set")
         IMPORTANT+=("  Effect: cannot detect drift, audit cannot establish baseline")
         IMPORTANT+=("  Recovery: re-run '/apd-setup' to write current APD_VERSION")
     elif [ "$CONFIG_VERSION" != "$CURRENT_PLUGIN_VERSION" ]; then
@@ -91,11 +94,11 @@ if [ -f "$APD_CONFIG" ]; then
         CONFIG_MAJOR_MINOR=$(echo "$CONFIG_VERSION" | cut -d'.' -f1-2)
         PLUGIN_MAJOR_MINOR=$(echo "$CURRENT_PLUGIN_VERSION" | cut -d'.' -f1-2)
         if [ "$CONFIG_MAJOR_MINOR" != "$PLUGIN_MAJOR_MINOR" ]; then
-            IMPORTANT+=("[.claude/.apd-config] APD_VERSION=$CONFIG_VERSION stale vs current plugin v$CURRENT_PLUGIN_VERSION")
+            IMPORTANT+=("[$APD_CONFIG_LABEL] APD_VERSION=$CONFIG_VERSION stale vs current plugin v$CURRENT_PLUGIN_VERSION")
             IMPORTANT+=("  Effect: project was configured under an older minor — workflow.md + agent templates may carry stale patterns")
             IMPORTANT+=("  Recovery: re-run '/apd-setup' to refresh templates + bump APD_VERSION in .apd-config")
         else
-            INFO+=("[.claude/.apd-config] APD_VERSION=$CONFIG_VERSION lags current plugin v$CURRENT_PLUGIN_VERSION by patch only")
+            INFO+=("[$APD_CONFIG_LABEL] APD_VERSION=$CONFIG_VERSION lags current plugin v$CURRENT_PLUGIN_VERSION by patch only")
             INFO+=("  Effect: minimal — patch-level changes usually do not affect project content")
             INFO+=("  Recovery: optional re-run '/apd-setup' OR ignore until next minor")
         fi
@@ -163,6 +166,7 @@ if [ -f "$WORKFLOW_FILE" ] && [ -f "$FRAMEWORK_WORKFLOW" ]; then
         "rationale gate"
         "DEPRECATED"
         "unconditional"
+        "apd-pipeline-guide"
     )
     MISSING_MARKERS=()
     for marker in "${MARKERS[@]}"; do
@@ -180,7 +184,7 @@ if [ -f "$WORKFLOW_FILE" ] && [ -f "$FRAMEWORK_WORKFLOW" ]; then
     if [ ${#MISSING_MARKERS[@]} -gt 0 ]; then
         IMPORTANT+=("[.claude/rules/workflow.md] ${#MISSING_MARKERS[@]} v6.7+ guidance markers missing")
         IMPORTANT+=("  Missing: ${MISSING_MARKERS[*]}")
-        IMPORTANT+=("  Effect: orchestrator does not see plan-spec Implements format / rationale gate / v6.9 DEPRECATED markers / brainstorm-marker unconditional guidance")
+        IMPORTANT+=("  Effect: orchestrator does not see plan-spec Implements format / rationale gate / v6.9 DEPRECATED markers / v6.15 apd-pipeline-guide gate guidance (stale copies still instruct --skip-brainstorm, removed in v6.15)")
         IMPORTANT+=("  Recovery: re-run '/apd-setup' to refresh workflow.md from current framework template")
     fi
 fi

@@ -57,7 +57,7 @@ Per-project shortcuts: `.claude/bin/apd` (CC) and `.codex/bin/apd` (Codex) — b
 
 ## 3. MCP server (Codex-only) — `plugins/apd/mcp/apd_mcp_server.py`
 
-FastMCP wrapper, runs via `uv run --with mcp python …`. **v6.0 self-registers via plugin-shipped `plugins/apd/.mcp.json`** with `cwd: "."` (resolves to plugin root in the Codex plugin cache, where `mcp/apd_mcp_server.py` now lives because all framework binaries moved into `plugins/apd/` in v6.0). 8 tools (full param details + security in §18).
+FastMCP wrapper, runs via `uv run --with mcp python …`. **v6.0 self-registers via plugin-shipped `plugins/apd/.mcp.json`** with `cwd: "."` (resolves to plugin root in the Codex plugin cache, where `mcp/apd_mcp_server.py` now lives because all framework binaries moved into `plugins/apd/` in v6.0). 9 tools (full param details + security in §18).
 
 `<project>/.codex/config.toml` carries a complete `[mcp_servers.apd]` override written by `install-codex-config`: `command = "uv"`, `args = ["run", "--with", "mcp", "python", "mcp/apd_mcp_server.py"]`, `cwd = "<plugin-root>"`, plus all 8 `[mcp_servers.apd.tools.<name>] approval_mode = "approve"` blocks. This is deliberate even though plugin `.mcp.json` also contains approval metadata: live Codex 0.125 testing showed plugin-shipped `approval_mode` does not suppress the TUI MCP approval prompt, while project `config.toml` approvals do. Per-tool blocks must not be written without the parent transport block, because TOML then creates an implicit `mcp_servers.apd` table and Codex fails with `invalid transport in mcp_servers.apd`.
 
@@ -121,7 +121,7 @@ See §17.2 for per-guard internals. Block convention: exit 2 = BLOCK, exit 0 = A
 
 ### 5.1 Phase order (7 phases)
 
-1. **spec** — `apd_advance_pipeline("spec", task)` validates ≤7 R-criteria, freezes spec-card.md via SHA256, archives prior `.agents` log
+1. **spec** — `apd_advance_pipeline("spec", task)` validates ≤7 R-criteria, requires `.guide-marker` matching the task name (v6.15 — written by `/apd-pipeline-guide` skill; unconditional, NO skip flag; `--skip-brainstorm` removed with a hard-error shim until v7.0), freezes spec-card.md via SHA256, archives prior `.agents` log
 2. **builder** — orchestrator writes `implementation-plan.md`, dispatches builder agent (CC) or implements inline (Codex). Advance blocks if planned agents not dispatched
 3. **reviewer** — diff review. Sets `.adversarial-pending` (Full) OR honors `adversarial: skip — <reason>` line in spec-card if ≤2 R-criteria (Lean opt-out)
 4. **adversarial pass** (Full only) — records via `apd_adversarial_pass(...)` (Codex) or direct Write to `.adversarial-summary` (CC)
@@ -139,6 +139,7 @@ See §17.2 for per-guard internals. Block convention: exit 2 = BLOCK, exit 0 = A
 | File | Set by | Purpose |
 |---|---|---|
 | `spec-card.md` | spec phase | Frozen task spec |
+| `.guide-marker` | apd-pipeline-guide skill (pre-spec) | **v6.15:** `<task-name>\|<ISO-8601>` single line written by the skill's exit step. Spec advance hard-blocks on missing marker or task-name mismatch — unconditional, no skip flag (replaces v6.8.5/v6.8.11 `.brainstorm-marker` + `--skip-brainstorm` valve; legacy marker stays guard-allowlisted until v7.0 but does NOT satisfy the gate). Wiped on reset + task completion |
 | `.spec-hash` | spec phase | SHA256 of spec body for tamper detection |
 | `.spec-max-defects-history` | spec phase | `<task>\|<value>` snapshot of last accepted `max_defects` for the task; pipeline-advance blocks re-spec that RAISES the value for the same task (v6.3 D). Reset wipes — explicit pivot escape valve |
 | `.builder-count` | builder phase | Plain integer counter; pipeline-advance builder increments per dispatch and blocks on exceeding `builder: max_cycles=N` from spec-card (default 2, v6.3 C). `pipeline_mode: polish` lowers default to 1 (v6.3 B). Preserved across rollback + re-advance; reset wipes. **v6.6.1:** BUILDER_RAN only accepts `.agents` stop events with `_ts >= SPEC_TS_HUMAN` (ISO-8601 lexical compare). Pre-spec dispatches accumulate into `STALE_DISPATCH` and the gate blocks with explanatory message. Defeats post-hoc pipeline-reconstruction bypass where orchestrator works inline, writes spec-card + plan retroactively, and chains pipeline-advance to fabricate the gate sequence. |
@@ -164,7 +165,7 @@ See §17.2 for per-guard internals. Block convention: exit 2 = BLOCK, exit 0 = A
 | `pipeline-metrics.log` | Pipe-delimited per-task: `ts\|task\|spec_ts\|builder_ts\|reviewer_ts\|verifier_ts\|status\|adv_t\|adv_a\|adv_d\|agents_t\|agents_x\|adv_do\|adv_dr\|adv_w` | Skips `APD-VERIFY-*` synthetic test runs. **v6.7.1:** columns 13–15 added (`adv_do` = orchestrator dismissals, `adv_dr` = reviewer-self-dismissals, `adv_w` = soft-warn count from rationale-quality scan). `adv_d` in column 10 stays as `adv_do + adv_dr` sum for backward compat with v6.6 and earlier readers. Old 12-column rows render the same as before in `apd report`; new 15-column rows add a `Dismissal split: Do=N (orchestrator) Dr=N (reviewer-self)` line + a `Rationale warns: N` line when non-zero |
 | `agent-history.log` | Concatenated `.agents` files | Skips `APD-VERIFY-*` |
 | `session-log.md` | Markdown auto-summary entry per task | Uses `NEW_RULE` arg or "None" default |
-| `guard-audit.log` | Pipe-delimited: `ts\|TYPE\|agent_info\|reason\|cmd_summary` | Sanitised newlines since F3. `TYPE` ∈ `BLOCK` (real guard block), `INFO` (telemetry: brainstorm-skipped, `*-deprecated`), `PERMISSION_DENIED`, `SYNTHETIC` (verify-apd self-test — guard-coverage sweep + Section 8 synthetic pipeline; tagged via `_audit_type()` when `APD_AUDIT_SYNTHETIC=1` so `apd report`/reset-summary/analytics exclude self-test noise; `guard-git` carries its own `log_block` and mirrors the same flag inline). Readers count only `BLOCK` for guard-block metrics |
+| `guard-audit.log` | Pipe-delimited: `ts\|TYPE\|agent_info\|reason\|cmd_summary` | Sanitised newlines since F3. `TYPE` ∈ `BLOCK` (real guard block), `INFO` (telemetry: `*-deprecated`; `brainstorm-skipped` historical — emitter removed in v6.15, entries persist in old logs), `PERMISSION_DENIED`, `SYNTHETIC` (verify-apd self-test — guard-coverage sweep + Section 8 synthetic pipeline; tagged via `_audit_type()` when `APD_AUDIT_SYNTHETIC=1` so `apd report`/reset-summary/analytics exclude self-test noise; `guard-git` carries its own `log_block` and mirrors the same flag inline). Readers count only `BLOCK` for guard-block metrics |
 | `zombie-audit.log` | Pipe-delimited: `ts\|agent_type\|pid\|cmd` | v6.3 A — written by `track-agent` SubagentStop zombie sweep. Append-only, never read by APD itself; for human + telemetry follow-up |
 | `agent-overrun.log` | Pipe-delimited: `ts\|agent_type\|agent_id\|duration_sec` | **v6.7.2 (F2):** written by `track-agent` SubagentStop when agent ran longer than `APD_AGENT_LONG_RUN_THRESHOLD_SEC` (default 600s) AND no file writes in the trailing 5 min (via `git status --porcelain` + `stat` mtime check). Surface as a stderr WARN at stop time; log is append-only for follow-up. Disable: `APD_AGENT_LONG_RUN_THRESHOLD_SEC=0`. Targets the 2026-05-11 intra-dispatch overrun pattern (1 builder, 23 min, 15 min of post-success "verification" loop without code changes) |
 
@@ -195,12 +196,13 @@ Server-side reads `scope: [...]` from agent's frontmatter. Caller-supplied `allo
 
 ## 7. Skills
 
-### 7.1 CC skills (`skills/`, 9 total)
+### 7.1 CC skills (`skills/`, 10 total)
 
 | Skill | Trigger | Phase |
 |---|---|---|
 | `apd-setup` | Initial / re-init project | Bootstrap |
-| `apd-brainstorm` | Pre-spec clarification (vague task) | Pre-spec |
+| `apd-pipeline-guide` | **v6.15:** Pipeline operating manual — MANDATORY every task, writes `.guide-marker` (spec gate requires it, no skip) | Pre-spec |
+| `apd-brainstorm` | Pre-spec clarification (vague task only; advisory, no gate role since v6.15) | Pre-spec |
 | `apd-tdd` | TDD discipline during builder | Builder |
 | `apd-debug` | Test/build/verify failure | Builder/Verifier |
 | `apd-finish` | Post-commit decision (push/PR/keep/discard) | Post-commit |
@@ -209,9 +211,9 @@ Server-side reads `scope: [...]` from agent's frontmatter. Caller-supplied `allo
 | `apd-miro` | Miro dashboard sync | Anytime |
 | `apd-toggle` | **v6.7.5:** Toggle `claude-apd@zstevovich-plugins` in CC settings; wraps `apd toggle` + invokes `/reload-plugins` for in-session pickup | Anytime |
 
-### 7.2 Codex skills (`plugins/apd/skills/`, 7 total)
+### 7.2 Codex skills (`plugins/apd/skills/`, 8 total)
 
-`apd-brainstorm`, `apd-tdd`, `apd-debug`, `apd-finish`, `apd-audit`, `apd-github`, `apd-miro`. Each: `SKILL.md` (markdown body) + `agents/openai.yaml` (Codex skill manifest). `apd-setup` remains CC-only — Codex uses the `apd cdx init` CLI.
+`apd-pipeline-guide` (v6.15), `apd-brainstorm`, `apd-tdd`, `apd-debug`, `apd-finish`, `apd-audit`, `apd-github`, `apd-miro`. Each: `SKILL.md` (markdown body) + `agents/openai.yaml` (Codex skill manifest). `apd-setup` remains CC-only — Codex uses the `apd cdx init` CLI.
 
 ### 7.3 Skill evals (`plugins/apd/evals/`, 27 scenarios)
 
@@ -243,7 +245,7 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 
 | Script | Coverage |
 |---|---|
-| `bin/core/test-codex-adapter` | 403 checks: tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema/runtime filtering, adversarial pre-flight gate, severity gate, spec-card markdown-bold tolerance, guard-bash-scope read/write distinction, pipeline-gate stage completeness, parallel same-type dispatch gate, mkdir deny patterns, spec/builder/superpowers lock-in, apd_pipeline_metrics MCP tool, C2 Phase 2a/2b parser+migrate, codex-doctor C2 hint, v6.3 D max_defects immutability, v6.3 E communication discipline, v6.3 A SubagentStop zombie sweep, v6.3 C builder cycle cap, v6.3 B reviewer cycle cap + pipeline_mode polish, v6.4 F4 stop-language audit, audit fixes: guard-bash-scope write-target + reviewer rollback adversarial-summary cleanup, v6.4 G1 codex-doctor version-mismatch + --fix, v6.4 G2 [features].codex_hooks → [features].hooks rename, v6.5 framework self-detection |
+| `bin/core/test-codex-adapter` | 665 checks (v6.15): tool registration, contract, env propagation, opt-out flow, report rendering, skill-eval schema/runtime filtering, adversarial pre-flight gate, severity gate, spec-card markdown-bold tolerance, guard-bash-scope read/write distinction, pipeline-gate stage completeness, parallel same-type dispatch gate, mkdir deny patterns, spec/builder/superpowers lock-in, apd_pipeline_metrics MCP tool, C2 Phase 2a/2b parser+migrate, codex-doctor C2 hint, v6.3 D max_defects immutability, v6.3 E communication discipline, v6.3 A SubagentStop zombie sweep, v6.3 C builder cycle cap, v6.3 B reviewer cycle cap + pipeline_mode polish, v6.4 F4 stop-language audit, audit fixes: guard-bash-scope write-target + reviewer rollback adversarial-summary cleanup, v6.4 G1 codex-doctor version-mismatch + --fix, v6.4 G2 [features].codex_hooks → [features].hooks rename, v6.5 framework self-detection |
 | `bin/core/test-hooks` | Static: hooks.json schema, placeholder fillness |
 | `bin/core/test-system` | E2E synthetic pipeline (creates `/tmp/apd-test-XXXX`); 2 sections (Pipeline Lifecycle, Spec Enforcement) |
 | `bin/core/verify-apd` | 60+ checks on configured project. **In-monorepo run mis-resolves** — copy example to `/tmp` for accurate result. |
@@ -385,7 +387,7 @@ Exit 0 if no FAIL; 1 otherwise. Auto-heals legacy hook paths if found.
 | Guard | Trigger | Concrete checks |
 |---|---|---|
 | `guard-git` | PreToolUse Bash + git matcher | Force-push, `git add .`, `--no-verify`, `git reset --hard`, commits without `APD_ORCHESTRATOR_COMMIT` env when pipeline incomplete |
-| `guard-bash-scope` | PreToolUse Bash | Bash writes outside agent scope: `cp`, `mv`, `mkdir`, `>`/`>>` redirect, runtime exec (`node -e`, `python -c`) targeting forbidden paths |
+| `guard-bash-scope` | PreToolUse Bash | Bash writes outside agent scope: `cp`, `mv`, `mkdir`, `>`/`>>` redirect, runtime exec (`node -e`, `python -c`) targeting forbidden paths. **v6.15 (#5):** pipeline-state BLOCK message is three-way (`_pipeline_block_guidance`): reads → `apd pipeline show [spec\|plan\|state]`, allowlisted-file writes → Write/Edit tool, transitions → `apd pipeline <phase>` — same guidance from all 3 branches (write-op, redirect, runtime-write) |
 | `guard-scope` | PreToolUse Write/Edit | Canonicalizes via realpath; rejects unresolved `..`; checks file inside PROJECT_DIR; prefix-matches against `--allowed_paths` list |
 | `guard-orchestrator` | PreToolUse Write/Edit | Blocks if no `agent_id` (= orchestrator) AND target matches stack code patterns (php=`.php`, nodejs=`.js\|.ts\|.tsx\|.jsx\|.mjs\|.cjs`, python=`.py`, dotnet=`.cs\|.fs`, go=`.go`, java=`.java\|.kt\|.scala`). Allows `.claude/*`, `CLAUDE.md`, `.gitignore`, `*.md`, `docs/*`, config formats (json, yaml, toml, xml, lock) |
 | `guard-pipeline-state` | PreToolUse Write/Edit | Only guards `.apd/pipeline/*`; allows orchestrator to write `spec-card.md`, `implementation-plan.md`, `.adversarial-summary`, `.adversarial-rationale.md` (v6.7.4); blocks all others (`.done`, `.agents`, `.spec-hash`, `.trace-summary`, `verified.timestamp`) |
@@ -458,7 +460,7 @@ All log via shared `log_block` to `<memory>/guard-audit.log` (sanitised newlines
 ### 17.1 Module-level + bootstrap
 
 - FastMCP wrapper: `mcp = FastMCP("apd")`. Functions decorated `@mcp.tool()` auto-exposed.
-- 8 tools registered.
+- 9 tools registered.
 - No persistent daemon — Codex spawns fresh process per session via `uv run --with mcp python mcp/apd_mcp_server.py` (cwd resolves to plugin root via plugin-shipped `.mcp.json`).
 - `APD_PLUGIN_ROOT = Path(__file__).resolve().parent.parent` resolves to `plugins/apd/` (v6.0+). All sibling paths (`bin/`, `templates/`, `rules/`, `VERSION`) live in the same plugin folder so Codex's plugin cache contains everything the server needs.
 - `_bootstrap_shortcut()` fires on `__name__ == "__main__"`. Creates `<project>/.codex/bin/apd` shell wrapper execing plugin entry. Idempotent: skips if shortcut exists with correct path substring. Only runs if `.codex/` dir exists. `mkdir -p` parent + `chmod 0o755`.
@@ -824,13 +826,13 @@ grep -rn 'APD-VERIFY-\|spec-card.md.*<<.*EOF\|implementation-plan.md.*<<' plugin
 bash plugins/apd/bin/core/test-codex-adapter | tail -5
 ```
 
-If new guard added to `pipeline-advance`, every callsite above MUST be reviewed for fixture compatibility — not just `test-codex-adapter` family. `verify-apd` Section 8 is a distinct E2E surface with its own synthetic fixtures (`.brainstorm-marker`, `implementation-plan.md`, `.adversarial-rationale.md`).
+If new guard added to `pipeline-advance`, every callsite above MUST be reviewed for fixture compatibility — not just `test-codex-adapter` family. `verify-apd` Section 8 is a distinct E2E surface with its own synthetic fixtures (`.guide-marker`, `implementation-plan.md`, `.adversarial-rationale.md`).
 
 ### 24.2 Test lock-in expectations
 
 Test-codex-adapter §71 (added v6.9) static-asserts that `verify-apd` Section 8 contains:
 
-- `.brainstorm-marker` pre-write for both `APD-VERIFY-TEST` + `APD-VERIFY-OPT-OUT`
+- `.guide-marker` pre-write for both `APD-VERIFY-TEST` + `APD-VERIFY-OPT-OUT` (was `.brainstorm-marker` pre-v6.15)
 - `implementation-plan.md` with `**Implements:** R1` for both synthetic tasks
 - Synthetic `.adversarial-rationale.md` matching adversarial summary
 

@@ -1,5 +1,43 @@
 # Changelog
 
+## v6.15.0 — 2026-06-10
+
+The brainstorm/tutor split: a new mandatory `apd-pipeline-guide` skill takes over the pipeline-contract education that v6.8.4 had bolted onto `apd-brainstorm`, and the spec gate moves to its marker — unconditionally, with no skip flag. Plus a three-way guard message for pipeline-state blocks and a batch of pre-release audit fixes. New skill + gate swap = minor.
+
+### `apd-pipeline-guide` — the pipeline operating manual (new skill, mandatory)
+
+**Why (root cause, empirical):** `apd-brainstorm` carried two unrelated roles — interactive scope clarification (legitimately skippable when scope is pre-aligned) and the pipeline tutor (never legitimately skippable). The skip valve discarded education along with ceremony: an orchestrator with a clear task rationally skips a skill NAMED "brainstorm", unaware it carries the gate contract. Bambi 2026-06-09/10: 8/8 runs skipped with textbook-legitimate reasons — and the residual skip→BLOCK tail (~19%, forgotten `**Implements:**` headers) was exactly education-shaped. The v6.8.8 TWO-PART CHECK ("scope AND APD config clear") was this disease's patch: the guide function smuggled into a skip condition, recited rather than loaded.
+
+- **feat(skills/apd-pipeline-guide):** new skill, CC + Codex mirror (with `agents/openai.yaml`). Content: pipeline phase map with the gate at each advance, implementation-plan `**Implements:**` contract (NO RESERVED NAMES), adversarial rationale `.md` contract, common BLOCKs + recovery table, and the sanctioned `apd pipeline show` read path. Exit step writes `.apd/pipeline/.guide-marker` (`<task-name>|<ISO-8601>`).
+- **feat(pipeline-advance):** spec advance requires `.guide-marker` matching the task name — **unconditional, NO skip flag** (`guide-marker-missing` BLOCK). Reading the contract is cheaper than negotiating about it (~10× cheaper than one BLOCK loop). The BLOCK message routes vague scope to `/apd-brainstorm` FIRST, then the guide.
+- **feat(skills/apd-brainstorm):** redesigned to pure clarification (CC + Codex) — its original identity. Marker mechanics, TWO-PART CHECK, and all `--skip-brainstorm` content removed; hand-off now goes through the guide. Description states explicitly: skipping brainstorm never skips the guide.
+- **BREAKING-ish:** `--skip-brainstorm` is REMOVED. A hard-error shim (kept until v7.0) explains the change and points at the guide — a silent fallback would resurrect the no-education path. The `brainstorm-skipped` INFO emitter is gone (historical log entries remain parseable). Legacy `.brainstorm-marker` stays guard-allowlisted until v7.0 for mid-flight upgrade tasks but does NOT satisfy the gate.
+- **Guards:** `guard-pipeline-state` / `guard-bash-scope` / `guard-file-edit` allowlist `.guide-marker`. Reset wipes both markers. `verify-apd` Section 8 pre-writes the guide marker (SPEC §24 callsite grep done).
+- **docs:** workflow.md step 1 + mandatory-skills table, Codex AGENTS.md step 0 + table, SPEC.md (lifecycle, skills 10 CC / 8 Codex, `.guide-marker` state row), README skills + enforcement tables, GETTING-STARTED first-task walkthrough.
+- **Enforcement floor unchanged:** same trust model as the old marker — the split raises EDUCATION, not enforcement; the floor stays on the existing guards.
+
+**Migration:** load `/apd-pipeline-guide` before every spec advance (~2 min). Projects mid-task during upgrade hit ONE `guide-marker-missing` BLOCK; recovery is loading the guide. Any automation passing `--skip-brainstorm` gets a hard error with instructions.
+
+### Three-way guard message for pipeline-state blocks (#5)
+
+Cross-project telemetry showed the most common real block is `pipeline-state-write` — and the orchestrator mostly READS (`cat .reviewed-files`), burning a turn per block because the old message ("use the apd command instead") pointed at the wrong channel. Live evidence (Bambi 2026-06-10, v6.13+): the workflow.md instruction alone did not change behavior; the message at the moment of error is the lever.
+
+- **fix(guard-bash-scope):** new `_pipeline_block_guidance()` emitted from all 3 pipeline-state BLOCK branches (write-op, redirect, runtime-write): READ → `apd pipeline show [spec|plan|state]`, WRITE allowlisted file → Write/Edit tool, ADVANCE → `apd pipeline <phase>`. Enforcement-neutral (wording only).
+
+### Pre-release framework audit (9 findings, all fixed)
+
+- **fix(pipeline-advance):** 3 hardcoded `.claude/bin/apd` BLOCK-message paths → `$APD_SHORTCUT_DISPLAY` (one dated back to v6.8.3; misdirected Codex projects).
+- **fix(pipeline-audit-drift):** dimension B read the hardcoded legacy `.claude/.apd-config` instead of the resolver's `$APD_CONFIG_FILE` — pure-Codex projects (config at `.apd/config`) were misreported. Labels now dynamic; drift test fixtures repointed to the realistic installer layout.
+- **docs(GETTING-STARTED):** the first-task walkthrough would have BLOCKed as documented — no guide-load step, and the implementation-plan example lacked `**Implements:**` headers (stale since the v6.8.1 strict default). Both fixed; guard example message updated to the three-way guidance.
+- **docs:** MCP tool count corrected to 9 at six stale sites (GETTING-STARTED said 6; README ×2, SPEC ×2, CLAUDE.md said 8 — stale since v6.2 added `apd_pipeline_metrics`).
+- **fix(cdx/skills-install):** `ALL_SKILLS` list 4 → 8 (stale since v5.0.7 added audit/github/miro; now includes the guide).
+- **fix(test-system):** repaired — broken since v6.8.1/v6.8.11 (un-run E2E surface): marker pre-writes + plan `Implements` fixtures added (15 FAIL on the old HEAD → only pre-existing environment failures remain).
+- **docs(SPEC/CLAUDE.md):** stale test-suite counts refreshed.
+
+### Tests
+
+- `_v6811_marker` helper → `_guide_marker` (20 fixture callsites). §63/§64/§66/§67/§70/§71/§78/§80/§82 rewritten or extended for the split + #5 lock-in (incl. name-mismatch and legacy-marker-does-not-satisfy live checks). Drift fixtures updated for the new workflow marker (`apd-pipeline-guide`). **667 → 665 PASS / 0 FAIL** (rewritten sections carry slightly fewer, stronger assertions).
+
 ## v6.14.0 — 2026-06-04
 
 A new recovery command (`reconstruct-agents`), an apd-brainstorm skill audit fix, and a CHANGELOG language cleanup. The new subcommand makes this a minor.

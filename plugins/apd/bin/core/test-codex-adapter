@@ -43,14 +43,15 @@ _check() {
     fi
 }
 
-# v6.8.11 — brainstorm-marker gate is unconditional. Test fixtures that drive
-# `pipeline-advance spec <task>` must pre-write the marker matching the task
-# name, otherwise every fixture would BLOCK on the gate. Helper writes a
-# canonical marker file under the given project dir.
-_v6811_marker() {
+# v6.15 — guide-marker gate is unconditional (replaced the v6.8.11
+# brainstorm-marker gate). Test fixtures that drive `pipeline-advance spec
+# <task>` must pre-write the marker matching the task name, otherwise every
+# fixture would BLOCK on the gate. Helper writes a canonical marker file
+# under the given project dir.
+_guide_marker() {
     local proj_dir="$1" task="$2"
     mkdir -p "$proj_dir/.apd/pipeline"
-    printf '%s|%s\n' "$task" "2026-05-23T12:00:00Z" > "$proj_dir/.apd/pipeline/.brainstorm-marker"
+    printf '%s|%s\n' "$task" "2026-06-10T12:00:00Z" > "$proj_dir/.apd/pipeline/.guide-marker"
 }
 
 _check_file_contains() {
@@ -752,7 +753,7 @@ cat > "$SUBDIR_MCP/.apd/pipeline/spec-card.md" <<'EOF'
 **Acceptance criteria:**
 - R1: spec advance works from a subdirectory
 EOF
-_v6811_marker "$SUBDIR_MCP" "subdir smoke"
+_guide_marker "$SUBDIR_MCP" "subdir smoke"
 
 SUBDIR_OUT="$(cd "$SUBDIR_MCP/sub/dir" && python3 - <<PY
 import sys
@@ -3145,7 +3146,7 @@ cat > "$PLAN_DIR/.apd/pipeline/spec-card.md" <<'EOF'
 **Acceptance criteria:**
 - R1: x
 EOF
-_v6811_marker "$PLAN_DIR" "task"
+_guide_marker "$PLAN_DIR" "task"
 
 (cd "$PLAN_DIR" && APD_PROJECT_DIR="$PLAN_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task" >/dev/null 2>&1)
 (cd "$PLAN_DIR" && APD_PROJECT_DIR="$PLAN_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder >/dev/null 2>&1)
@@ -3582,7 +3583,7 @@ EOF
 
 # A: first advance with max_defects=1 → snapshot file created with task-A|1
 _write_spec_d 1
-_v6811_marker "$D_DIR" "task-A"
+_guide_marker "$D_DIR" "task-A"
 (cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" >/dev/null 2>&1)
 RC=$?
 SNAP=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
@@ -3596,7 +3597,7 @@ fi
 
 # B: same task, raise max_defects (1→3) → BLOCK with explanatory message
 _write_spec_d 3
-_v6811_marker "$D_DIR" "task-A"
+_guide_marker "$D_DIR" "task-A"
 B_OUT=$(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" 2>&1)
 RC=$?
 if [ "$RC" = "1" ] && echo "$B_OUT" | grep -q "max_defects raised from 1 to 3"; then
@@ -3609,7 +3610,7 @@ fi
 
 # C: same task, raise to unlimited → BLOCK
 _write_spec_d unlimited
-_v6811_marker "$D_DIR" "task-A"
+_guide_marker "$D_DIR" "task-A"
 C_OUT=$(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" 2>&1)
 RC=$?
 if [ "$RC" = "1" ] && echo "$C_OUT" | grep -q "max_defects raised from 1 to unlimited"; then
@@ -3622,7 +3623,7 @@ fi
 
 # D: same task, lower max_defects (1→0) → allow + snapshot updated
 _write_spec_d 0
-_v6811_marker "$D_DIR" "task-A"
+_guide_marker "$D_DIR" "task-A"
 (cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" >/dev/null 2>&1)
 RC=$?
 SNAP_D=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
@@ -3636,7 +3637,7 @@ fi
 
 # E: different task name → snapshot replaced freely (no constraint across tasks)
 _write_spec_d 5
-_v6811_marker "$D_DIR" "task-B"
+_guide_marker "$D_DIR" "task-B"
 (cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-B" >/dev/null 2>&1)
 RC=$?
 SNAP_E=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
@@ -3660,7 +3661,7 @@ fi
 
 # G: after reset, same task name can pick any max_defects (snapshot fresh)
 _write_spec_d 9
-_v6811_marker "$D_DIR" "task-A"
+_guide_marker "$D_DIR" "task-A"
 (cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" >/dev/null 2>&1)
 RC=$?
 SNAP_G=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
@@ -3877,7 +3878,7 @@ _c_advance_builder() {
 
 # A: default cap=2 — first dispatch allowed, counter=1
 _c_write_spec ""
-_v6811_marker "$C_DIR" "cycle-task"
+_guide_marker "$C_DIR" "cycle-task"
 APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
 OUT_A=$(_c_advance_builder)
 RC=$?
@@ -3926,7 +3927,7 @@ fi
 # E: spec re-advance wipes the counter (v6.3 audit fix: prevents counter
 # from carrying over into a new task and blocking its first dispatch).
 _c_write_spec 4
-_v6811_marker "$C_DIR" "cycle-task"
+_guide_marker "$C_DIR" "cycle-task"
 APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
 if [ ! -f "$C_DIR/.apd/pipeline/.builder-count" ]; then
     pass "spec re-advance wipes .builder-count (audit fix)"
@@ -3952,7 +3953,7 @@ fi
 
 # F: max_cycles=unlimited disables the cap
 _c_write_spec unlimited
-_v6811_marker "$C_DIR" "cycle-task"
+_guide_marker "$C_DIR" "cycle-task"
 APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
 # After spec re-advance, counter is wiped → 0
 for _ in 1 2 3 4 5; do
@@ -4021,7 +4022,7 @@ _b_advance() {
 
 # A: default reviewer cap = 2, first + second advance allowed
 _b_write_spec "" ""
-_v6811_marker "$R_DIR" "b-task"
+_guide_marker "$R_DIR" "b-task"
 _b_advance spec "b-task" >/dev/null 2>&1   # writes spec.done
 _b_advance builder >/dev/null 2>&1 # writes builder.done, counter B=1
 OUT_A=$(_b_advance reviewer)
@@ -4079,7 +4080,7 @@ fi
 
 # D: pipeline_mode: polish — builder + reviewer defaults both drop to 1
 _b_write_spec "polish" ""
-_v6811_marker "$R_DIR" "b-task"
+_guide_marker "$R_DIR" "b-task"
 _b_advance spec "b-task" >/dev/null 2>&1
 _b_advance builder >/dev/null 2>&1  # counter B=1
 OUT_D=$(_b_advance builder)
@@ -4107,7 +4108,7 @@ fi
 # E: explicit reviewer: max_cycles=3 overrides polish preset
 APD_PROJECT_DIR="$R_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
 _b_write_spec "polish" "3"
-_v6811_marker "$R_DIR" "b-task"
+_guide_marker "$R_DIR" "b-task"
 _b_advance spec "b-task" >/dev/null 2>&1
 _b_advance builder >/dev/null 2>&1   # builder still capped at 1 — single dispatch needed for reviewer to run
 _b_advance reviewer >/dev/null 2>&1  # R=1
@@ -4219,7 +4220,7 @@ plan_consistency_gate: off
 - R1: x
 EOF
 echo "implementation plan" > "$RB_DIR/.apd/pipeline/implementation-plan.md"
-_v6811_marker "$RB_DIR" "rb-task"
+_guide_marker "$RB_DIR" "rb-task"
 APD_PROJECT_DIR="$RB_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "rb-task" >/dev/null 2>&1
 APD_PROJECT_DIR="$RB_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder >/dev/null 2>&1
 APD_PROJECT_DIR="$RB_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reviewer >/dev/null 2>&1
@@ -4800,7 +4801,7 @@ test agent
 EOF_AGENT
 
 # Advance spec to get a fresh SPEC_TS_HUMAN (current year)
-_v6811_marker "$STALE_DIR" "stale-test"
+_guide_marker "$STALE_DIR" "stale-test"
 APD_PROJECT_DIR="$STALE_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "stale-test" >/dev/null 2>&1
 
 # Write a pre-spec human-format entry (year 2020 — guaranteed older than spec.done)
@@ -4944,7 +4945,7 @@ model: opus
 ---
 test
 EOF_AA
-    _v6811_marker "$dir" "v67-task"
+    _guide_marker "$dir" "v67-task"
     APD_PROJECT_DIR="$dir" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
         spec "v67-task" >/dev/null 2>&1
     local _hb1 _hb2 _hr1 _hr2 _ha1 _ha2
@@ -6044,7 +6045,7 @@ cat > "$V68_2_SCRATCH/.apd/pipeline/implementation-plan.md" <<'EOF'
 
 - src/api.ts
 EOF
-cd "$V68_2_SCRATCH" && bash "$VPS" 2>&1 >/dev/null
+cd "$V68_2_SCRATCH" && bash "$VPS" >/dev/null 2>&1
 LOG_FILE="$V68_2_SCRATCH/.apd/memory/guard-audit.log"
 cd - >/dev/null
 if [ -f "$LOG_FILE" ] && grep -q "plan-spec-consistency" "$LOG_FILE"; then
@@ -6104,90 +6105,96 @@ else
 fi
 
 # -----------------------------------------------------------
-# 63. v6.8.4 — apd-brainstorm SKILL postaje APD pipeline tutor
-#     Pre-v6.8.4 SKILL.md je preskripuvao max_defects=0 za real task
-#     (3-4 R) i complex (5+ R). To je outdated guidance — v6.8.1 workflow
-#     §0b je vec uklonio preskripciju ali skill je ostao stari. Live
-#     evidence (2026-05-22): orchestrator i dalje pisao max_defects=0
-#     jer ga je SKILL.md ucio tako. v6.8.4 popravlja: drop preskripciju,
-#     dodaje sekciju "Downstream gates the spec triggers" + "Common BLOCKs +
-#     recovery". CC + Codex mirror. Plus workflow.md / AGENTS.md step 0
-#     MANDATORY load skill za netrivijalne task-ove.
+# 63. v6.15 — apd-pipeline-guide skill split
+#     The v6.8.4 "pipeline tutor" role bolted onto apd-brainstorm proved
+#     mislabeled: orchestrators rationally skipped a skill NAMED brainstorm
+#     when scope was clear, unaware it carried the gate contract (Bambi
+#     2026-06-09/10: 8/8 runs skipped with legitimate reasons — and lost
+#     the education with it). v6.15 splits: apd-pipeline-guide = mandatory
+#     operating manual (writes .guide-marker, no skip); apd-brainstorm =
+#     pure clarification dialogue, advisory only.
 # -----------------------------------------------------------
-section "63. apd-brainstorm pipeline tutor (v6.8.4)"
+section "63. apd-pipeline-guide skill split (v6.15)"
 
+# v6.15 — the v6.8.4 "pipeline tutor" content moved OUT of apd-brainstorm into
+# the new apd-pipeline-guide skill. Brainstorm is pure clarification again;
+# guide is the mandatory operating manual that writes .guide-marker.
+GUIDE_CC="$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md"
+GUIDE_CDX="$APD_PLUGIN_ROOT/skills/apd-pipeline-guide/SKILL.md"
 CC_SKILL="$REPO_ROOT/skills/apd-brainstorm/SKILL.md"
 CDX_SKILL="$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"
 
-# Static A: CC skill drops max_defects=0 preskripciju iz default budget table
-if ! grep -qE '3.4 \(real task\).*max_defects=0' "$CC_SKILL"; then
-    pass "CC apd-brainstorm: removed pre-v6.8.1 max_defects=0 preskripcija za real task"
+# Static A: CC guide skill exists with plan Implements contract
+if [ -f "$GUIDE_CC" ] && grep -qE 'NO RESERVED NAMES' "$GUIDE_CC" && grep -qE '\*\*Implements:\*\*' "$GUIDE_CC"; then
+    pass "CC apd-pipeline-guide: exists + carries plan **Implements:** contract"
     PASSES=$((PASSES + 1))
 else
-    fail "CC apd-brainstorm: still has outdated max_defects=0 preskripcija"
+    fail "CC apd-pipeline-guide missing or lacks plan Implements contract"
     FAILS=$((FAILS + 1))
 fi
 
-# Static B: CC skill defaults to omit-field
-if grep -qE 'omit field.*unlimited' "$CC_SKILL"; then
-    pass "CC apd-brainstorm: default budget = omit field (= unlimited)"
+# Static B: CC guide has adversarial rationale contract
+if grep -qE '\.adversarial-rationale\.md' "$GUIDE_CC" && grep -qE 'reviewer-self-dismissed' "$GUIDE_CC"; then
+    pass "CC apd-pipeline-guide: adversarial rationale .md contract present"
     PASSES=$((PASSES + 1))
 else
-    fail "CC apd-brainstorm: missing omit-field default guidance"
+    fail "CC apd-pipeline-guide missing rationale contract"
     FAILS=$((FAILS + 1))
 fi
 
-# Static C: CC skill has Downstream gates section
-if grep -qE 'Downstream gates' "$CC_SKILL"; then
-    pass "CC apd-brainstorm: 'Downstream gates' section present (plan + rationale format)"
+# Static C: CC guide has Common BLOCKs recovery table + guide-marker-missing row
+if grep -qE 'Common BLOCK' "$GUIDE_CC" && grep -qE 'guide-marker-missing' "$GUIDE_CC"; then
+    pass "CC apd-pipeline-guide: 'Common BLOCKs + recovery' table present"
     PASSES=$((PASSES + 1))
 else
-    fail "CC apd-brainstorm: missing 'Downstream gates' section"
+    fail "CC apd-pipeline-guide missing Common BLOCKs table"
     FAILS=$((FAILS + 1))
 fi
 
-# Static D: CC skill has Common BLOCKs recovery section
-if grep -qE 'Common BLOCK' "$CC_SKILL"; then
-    pass "CC apd-brainstorm: 'Common BLOCKs + recovery' section present"
+# Static D: CC guide instructs marker write + sanctioned read path
+if grep -qE '\.guide-marker' "$GUIDE_CC" && grep -qE 'apd pipeline show' "$GUIDE_CC"; then
+    pass "CC apd-pipeline-guide: .guide-marker write + apd pipeline show read path"
     PASSES=$((PASSES + 1))
 else
-    fail "CC apd-brainstorm: missing 'Common BLOCKs' section"
+    fail "CC apd-pipeline-guide missing marker write or show read path"
     FAILS=$((FAILS + 1))
 fi
 
-# Static E: Codex mirror dropped max_defects=0 preskripciju too
-if ! grep -qE '3.4 \(real task\).*max_defects=0' "$CDX_SKILL"; then
-    pass "Codex apd-brainstorm mirror: removed max_defects=0 preskripcija"
+# Static E: Codex guide mirror exists (contract + manifest)
+if [ -f "$GUIDE_CDX" ] && grep -qE 'NO RESERVED NAMES' "$GUIDE_CDX" && grep -qE 'Common BLOCK' "$GUIDE_CDX" \
+   && [ -f "$APD_PLUGIN_ROOT/skills/apd-pipeline-guide/agents/openai.yaml" ]; then
+    pass "Codex apd-pipeline-guide mirror: SKILL.md + agents/openai.yaml present"
     PASSES=$((PASSES + 1))
 else
-    fail "Codex apd-brainstorm mirror: still has outdated guidance"
+    fail "Codex apd-pipeline-guide mirror missing SKILL.md content or openai.yaml"
     FAILS=$((FAILS + 1))
 fi
 
-# Static F: Codex mirror has Downstream gates + Common BLOCKs
-if grep -qE 'Downstream gates' "$CDX_SKILL" && grep -qE 'Common BLOCK' "$CDX_SKILL"; then
-    pass "Codex apd-brainstorm mirror: gates + BLOCKs sections present"
+# Static F: anti-regression — brainstorm (CC + Codex) no longer carries tutor content
+if ! grep -qE 'NO RESERVED NAMES|Common BLOCK|Downstream gates' "$CC_SKILL" \
+   && ! grep -qE 'NO RESERVED NAMES|Common BLOCK|Downstream gates' "$CDX_SKILL"; then
+    pass "apd-brainstorm (CC + Codex) is clarification-only — tutor content moved to guide"
     PASSES=$((PASSES + 1))
 else
-    fail "Codex apd-brainstorm mirror: missing gates or BLOCKs sections"
+    fail "apd-brainstorm still carries tutor content (split regression)"
     FAILS=$((FAILS + 1))
 fi
 
-# Static G: workflow.md step 1 has MANDATORY brainstorm load criteria
-if grep -qE 'MANDATORY load.*apd-brainstorm.*BEFORE writing spec-card' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
-    pass "workflow.md step 1 has MANDATORY brainstorm load criteria"
+# Static G: workflow.md step 1 has MANDATORY guide load
+if grep -qE 'MANDATORY load.*apd-pipeline-guide.*BEFORE writing spec-card' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
+    pass "workflow.md step 1 has MANDATORY apd-pipeline-guide load"
     PASSES=$((PASSES + 1))
 else
-    fail "workflow.md step 1 missing MANDATORY brainstorm load criteria"
+    fail "workflow.md step 1 missing MANDATORY apd-pipeline-guide load"
     FAILS=$((FAILS + 1))
 fi
 
-# Static H: Codex AGENTS.md step 0 (MANDATORY brainstorm) present
-if grep -qE '0\..*MANDATORY load .apd-brainstorm' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
-    pass "Codex AGENTS.md has step 0 MANDATORY brainstorm load"
+# Static H: Codex AGENTS.md step 0 (MANDATORY guide) present
+if grep -qE '0\..*MANDATORY load .apd-pipeline-guide' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
+    pass "Codex AGENTS.md has step 0 MANDATORY apd-pipeline-guide load"
     PASSES=$((PASSES + 1))
 else
-    fail "Codex AGENTS.md missing step 0 MANDATORY brainstorm load"
+    fail "Codex AGENTS.md missing step 0 MANDATORY apd-pipeline-guide load"
     FAILS=$((FAILS + 1))
 fi
 
@@ -6202,86 +6209,84 @@ else
 fi
 
 # -----------------------------------------------------------
-# 64. v6.8.5 — brainstorm-marker hard gate
-#     v6.8.4 made apd-brainstorm SKILL the APD pipeline tutor but passive
-#     workflow.md MANDATORY guidance je insufficient — orchestrator skips
-#     skill load (Test CSRF task 2026-05-22: 4 BLOCK-ova including
-#     plan-spec-consistency + adversarial-before-reviewer + rationale path
-#     issues). v6.8.5 hard gate: pipeline-advance spec requires
-#     .brainstorm-marker fajl kad task ima >2 R-criteria. Marker is written
-#     by apd-brainstorm skill at exit. --skip-brainstorm override exists.
+# 64. v6.15 — guide-marker hard gate (replaces v6.8.5/v6.8.11
+#     brainstorm-marker gate). pipeline-advance spec requires
+#     .guide-marker matching the task name, UNCONDITIONALLY, with NO
+#     skip flag. Marker is written by apd-pipeline-guide skill at exit.
+#     --skip-brainstorm is a hard-error deprecation shim until v7.0.
 # -----------------------------------------------------------
-section "64. brainstorm-marker hard gate (v6.8.5)"
+section "64. guide-marker hard gate (v6.15)"
 
-# Static A: pipeline-advance has BRAINSTORM_MARKER check za R-count > 2
-if grep -qE 'BRAINSTORM_MARKER' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance contains BRAINSTORM_MARKER check"
+# Static A: pipeline-advance has GUIDE_MARKER check
+if grep -qE 'GUIDE_MARKER' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance contains GUIDE_MARKER check"
     PASSES=$((PASSES + 1))
 else
-    fail "pipeline-advance missing BRAINSTORM_MARKER check (v6.8.5 regression)"
+    fail "pipeline-advance missing GUIDE_MARKER check (v6.15 regression)"
     FAILS=$((FAILS + 1))
 fi
 
-# Static B: pipeline-advance parses --skip-brainstorm flag
-if grep -qE 'SKIP_BRAINSTORM' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance parses --skip-brainstorm override flag"
+# Static B: --skip-brainstorm survives only as a hard-error shim (no skip path)
+if grep -qE 'skip-brainstorm was removed in v6\.15' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && ! grep -qE 'SKIP_BRAINSTORM_REASON' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance: --skip-brainstorm is a hard-error shim, no reason path left"
     PASSES=$((PASSES + 1))
 else
-    fail "pipeline-advance missing --skip-brainstorm flag parser"
+    fail "pipeline-advance: --skip-brainstorm shim missing or skip path still present"
     FAILS=$((FAILS + 1))
 fi
 
-# Static C: reset cleanup wipes .brainstorm-marker
-if grep -qE 'rm.*\.brainstorm-marker' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance reset wipes .brainstorm-marker"
+# Static C: reset cleanup wipes .guide-marker
+if grep -qE 'rm.*\.guide-marker' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance reset wipes .guide-marker"
     PASSES=$((PASSES + 1))
 else
-    fail "pipeline-advance reset missing .brainstorm-marker cleanup"
+    fail "pipeline-advance reset missing .guide-marker cleanup"
     FAILS=$((FAILS + 1))
 fi
 
-# Static D: guard-pipeline-state allowlist .brainstorm-marker
-if grep -qE '\.brainstorm-marker' "$APD_PLUGIN_ROOT/bin/core/guard-pipeline-state"; then
-    pass "guard-pipeline-state (CC) allowlists .brainstorm-marker"
+# Static D: guard-pipeline-state allowlist .guide-marker
+if grep -qE '\.guide-marker' "$APD_PLUGIN_ROOT/bin/core/guard-pipeline-state"; then
+    pass "guard-pipeline-state (CC) allowlists .guide-marker"
     PASSES=$((PASSES + 1))
 else
-    fail "guard-pipeline-state (CC) missing .brainstorm-marker allowlist"
+    fail "guard-pipeline-state (CC) missing .guide-marker allowlist"
     FAILS=$((FAILS + 1))
 fi
 
-# Static E: guard-file-edit (Codex) allowlist .brainstorm-marker
-if grep -qE '\.brainstorm-marker' "$APD_PLUGIN_ROOT/bin/core/guard-file-edit"; then
-    pass "guard-file-edit (Codex) allowlists .brainstorm-marker"
+# Static E: guard-file-edit (Codex) allowlist .guide-marker
+if grep -qE '\.guide-marker' "$APD_PLUGIN_ROOT/bin/core/guard-file-edit"; then
+    pass "guard-file-edit (Codex) allowlists .guide-marker"
     PASSES=$((PASSES + 1))
 else
-    fail "guard-file-edit (Codex) missing .brainstorm-marker allowlist"
+    fail "guard-file-edit (Codex) missing .guide-marker allowlist"
     FAILS=$((FAILS + 1))
 fi
 
-# Static F: guard-bash-scope allows .brainstorm-marker bash redirect
-if grep -q '\.brainstorm-marker' "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope"; then
-    pass "guard-bash-scope allows .brainstorm-marker bash redirect"
+# Static F: guard-bash-scope allows .guide-marker bash redirect
+if grep -q '\.guide-marker' "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope"; then
+    pass "guard-bash-scope allows .guide-marker bash redirect"
     PASSES=$((PASSES + 1))
 else
-    fail "guard-bash-scope missing .brainstorm-marker bypass exception"
+    fail "guard-bash-scope missing .guide-marker bypass exception"
     FAILS=$((FAILS + 1))
 fi
 
-# Static G: apd-brainstorm SKILL.md instructs writing the marker
-if grep -qE '\.brainstorm-marker' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md"; then
-    pass "CC apd-brainstorm SKILL.md instructs .brainstorm-marker write"
+# Static G: apd-pipeline-guide SKILL.md instructs writing the marker
+if grep -qE '\.guide-marker' "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md"; then
+    pass "CC apd-pipeline-guide SKILL.md instructs .guide-marker write"
     PASSES=$((PASSES + 1))
 else
-    fail "CC apd-brainstorm SKILL.md missing marker write instruction"
+    fail "CC apd-pipeline-guide SKILL.md missing marker write instruction"
     FAILS=$((FAILS + 1))
 fi
 
-# Static H: Codex apd-brainstorm SKILL.md instructs writing the marker
-if grep -qE '\.brainstorm-marker' "$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"; then
-    pass "Codex apd-brainstorm SKILL.md instructs .brainstorm-marker write"
+# Static H: Codex apd-pipeline-guide SKILL.md instructs writing the marker
+if grep -qE '\.guide-marker' "$APD_PLUGIN_ROOT/skills/apd-pipeline-guide/SKILL.md"; then
+    pass "Codex apd-pipeline-guide SKILL.md instructs .guide-marker write"
     PASSES=$((PASSES + 1))
 else
-    fail "Codex apd-brainstorm SKILL.md missing marker write instruction"
+    fail "Codex apd-pipeline-guide SKILL.md missing marker write instruction"
     FAILS=$((FAILS + 1))
 fi
 
@@ -6306,9 +6311,9 @@ advance_spec_v685() {
     echo "EXIT=$_rc"
 }
 
-# Live I: R-count=4 (>2) without marker → BLOCK
+# Live I: R-count=4 without marker → BLOCK
 NO_MARKER_OUT="$(advance_spec_v685 spec "Test task")"
-if echo "$NO_MARKER_OUT" | grep -q "EXIT=1" && echo "$NO_MARKER_OUT" | grep -q "Brainstorm marker missing"; then
+if echo "$NO_MARKER_OUT" | grep -q "EXIT=1" && echo "$NO_MARKER_OUT" | grep -q "Guide marker missing"; then
     pass "spec advance: R-count=4 without marker → BLOCK + exit 1"
     PASSES=$((PASSES + 1))
 else
@@ -6316,31 +6321,18 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Live J: --skip-brainstorm override (sa reason argument per v6.8.8) allows spec advance
+# Live J: --skip-brainstorm (with reason) → hard-error shim, NO skip path (v6.15)
 SKIP_OUT="$(advance_spec_v685 spec "Test task" --skip-brainstorm "Pre-aligned scope + APD config clear")"
-if echo "$SKIP_OUT" | grep -q "EXIT=0"; then
-    pass "spec advance: --skip-brainstorm override (sa reason) allows spec advance"
+if echo "$SKIP_OUT" | grep -q "EXIT=1" && echo "$SKIP_OUT" | grep -q "removed in v6.15"; then
+    pass "spec advance: --skip-brainstorm → BLOCK with removal shim message"
     PASSES=$((PASSES + 1))
 else
-    fail "--skip-brainstorm override unexpected: $SKIP_OUT"
+    fail "--skip-brainstorm shim unexpected: $SKIP_OUT"
     FAILS=$((FAILS + 1))
 fi
 
-# Reset for next test
-cd "$V685_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
-cd - >/dev/null
-# Reset wipes spec-card.md — rewrite it
-cat > "$V685_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
-## Test
-**Acceptance criteria:**
-- R1: first
-- R2: second
-- R3: third
-- R4: fourth
-EOF
-
 # Live K: marker written + matching task name → spec advance prolazi
-printf '%s|%s\n' "Test task" "2026-05-22T14:00:00Z" > "$V685_SCRATCH/.apd/pipeline/.brainstorm-marker"
+printf '%s|%s\n' "Test task" "2026-06-10T14:00:00Z" > "$V685_SCRATCH/.apd/pipeline/.guide-marker"
 WITH_MARKER_OUT="$(advance_spec_v685 spec "Test task")"
 if echo "$WITH_MARKER_OUT" | grep -q "EXIT=0"; then
     pass "spec advance: matching marker → spec advance prolazi"
@@ -6353,9 +6345,7 @@ fi
 # Reset for next test
 cd "$V685_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
 cd - >/dev/null
-# Live L: trivial task (R-count <= 2) ALSO requires marker (v6.8.11 — gate is unconditional)
-# Pre-v6.8.11 carve-out (R≤2 auto-bypass) removed because orchestrator atomized
-# non-trivial tasks to 2 R-criteria to bypass — see BambiProject 2026-05-23.
+# Live L: trivial task (R-count <= 2) ALSO requires marker (gate is unconditional)
 cat > "$V685_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
 ## Test hotfix
 **Acceptance criteria:**
@@ -6363,22 +6353,23 @@ cat > "$V685_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
 - R2: second
 EOF
 TRIVIAL_OUT="$(advance_spec_v685 spec "Test hotfix")"
-if echo "$TRIVIAL_OUT" | grep -q "EXIT=1" && echo "$TRIVIAL_OUT" | grep -q "Brainstorm marker missing"; then
-    pass "spec advance: trivial task (R≤2) ALSO BLOCKs without marker (v6.8.11 unconditional)"
+if echo "$TRIVIAL_OUT" | grep -q "EXIT=1" && echo "$TRIVIAL_OUT" | grep -q "Guide marker missing"; then
+    pass "spec advance: trivial task (R≤2) ALSO BLOCKs without marker (unconditional)"
     PASSES=$((PASSES + 1))
 else
-    fail "trivial task should ALSO BLOCK without marker per v6.8.11: $TRIVIAL_OUT"
+    fail "trivial task should ALSO BLOCK without marker: $TRIVIAL_OUT"
     FAILS=$((FAILS + 1))
 fi
 
 # Live M: reset wipes marker
+printf '%s|%s\n' "Test hotfix" "2026-06-10T14:00:00Z" > "$V685_SCRATCH/.apd/pipeline/.guide-marker"
 cd "$V685_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
 cd - >/dev/null
-if [ ! -f "$V685_SCRATCH/.apd/pipeline/.brainstorm-marker" ]; then
-    pass "spec reset wipes .brainstorm-marker"
+if [ ! -f "$V685_SCRATCH/.apd/pipeline/.guide-marker" ]; then
+    pass "spec reset wipes .guide-marker"
     PASSES=$((PASSES + 1))
 else
-    fail "spec reset did not wipe .brainstorm-marker"
+    fail "spec reset did not wipe .guide-marker"
     FAILS=$((FAILS + 1))
 fi
 
@@ -6476,22 +6467,22 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static C: CC apd-brainstorm Downstream gates section has "NO RESERVED NAMES" rule
-if grep -qE 'NO RESERVED NAMES' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md"; then
-    pass "CC apd-brainstorm has 'NO RESERVED NAMES' rule for **Implements:**"
+# Static C: NO RESERVED NAMES rule lives in apd-pipeline-guide (v6.15 — moved from brainstorm)
+if grep -qE 'NO RESERVED NAMES' "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md"; then
+    pass "CC apd-pipeline-guide has 'NO RESERVED NAMES' rule for **Implements:**"
     PASSES=$((PASSES + 1))
 else
-    fail "CC apd-brainstorm missing 'NO RESERVED NAMES' explicit rule"
+    fail "CC apd-pipeline-guide missing 'NO RESERVED NAMES' explicit rule"
     FAILS=$((FAILS + 1))
 fi
 
-# Static D: CC apd-brainstorm Downstream gates section explicit lists Agents/Notes as needing Implements
-if grep -q 'Agents needs \*\*Implements:\*\* too' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md" || \
-   grep -q 'Notes needs \*\*Implements:\*\* too' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md"; then
-    pass "CC apd-brainstorm format example shows Agents/Notes need **Implements:**"
+# Static D: guide format example explicit lists Agents/Notes as needing Implements
+if grep -q 'Agents needs the header too' "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md" || \
+   grep -q 'Notes needs the header too' "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md"; then
+    pass "CC apd-pipeline-guide format example shows Agents/Notes need **Implements:**"
     PASSES=$((PASSES + 1))
 else
-    fail "CC apd-brainstorm format example missing Agents/Notes Implements hint"
+    fail "CC apd-pipeline-guide format example missing Agents/Notes Implements hint"
     FAILS=$((FAILS + 1))
 fi
 
@@ -6504,12 +6495,12 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static F: Codex mirror has NO RESERVED NAMES rule
-if grep -qE 'NO RESERVED NAMES' "$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"; then
-    pass "Codex apd-brainstorm mirror: NO RESERVED NAMES rule present"
+# Static F: Codex guide mirror has NO RESERVED NAMES rule (v6.15 — moved from brainstorm)
+if grep -qE 'NO RESERVED NAMES' "$APD_PLUGIN_ROOT/skills/apd-pipeline-guide/SKILL.md"; then
+    pass "Codex apd-pipeline-guide mirror: NO RESERVED NAMES rule present"
     PASSES=$((PASSES + 1))
 else
-    fail "Codex apd-brainstorm mirror missing NO RESERVED NAMES rule"
+    fail "Codex apd-pipeline-guide mirror missing NO RESERVED NAMES rule"
     FAILS=$((FAILS + 1))
 fi
 
@@ -6532,77 +6523,38 @@ else
 fi
 
 # -----------------------------------------------------------
-# 67. v6.8.8 — --skip-brainstorm requires reason + skill content polish
-#     Reakcija na Bambi Cycle E task (2026-05-22, 3h cascade vs Test
-#     20min clean isti dan). Orchestrator-ova self-reflection priznala
-#     da je informal brainstorm cover-ovao SCOPE alignment ali NE APD
-#     config guidance. v6.8.8 strukturalno zatvara escape valve
-#     (--skip-brainstorm requires concrete reason argument) + skill
-#     "When to skip" preformuluje kao two-part check (scope + config).
+# 67. v6.15 — --skip-brainstorm removal shim
+#     The v6.8.8 reason-gated skip valve is GONE: the guide gate has no
+#     opt-out. The legacy flag survives only as a hard-error shim (drop
+#     in v7.0) that points the orchestrator at /apd-pipeline-guide.
+#     A silent fallback would resurrect the no-education path.
 # -----------------------------------------------------------
-section "67. --skip-brainstorm requires reason (v6.8.8)"
+section "67. --skip-brainstorm removal shim (v6.15)"
 
-# Static A: pipeline-advance has SKIP_BRAINSTORM_REASON variable
-if grep -qE 'SKIP_BRAINSTORM_REASON' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance captures SKIP_BRAINSTORM_REASON argument"
+# Static A: no reason-capture path left in pipeline-advance
+if ! grep -qE 'SKIP_BRAINSTORM_REASON|skip-brainstorm-missing-reason' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance: v6.8.8 reason-capture path fully removed"
     PASSES=$((PASSES + 1))
 else
-    fail "pipeline-advance missing SKIP_BRAINSTORM_REASON variable"
+    fail "pipeline-advance still carries SKIP_BRAINSTORM_REASON path (split regression)"
     FAILS=$((FAILS + 1))
 fi
 
-# Static B: pipeline-advance has BLOCK for missing reason
-if grep -qE 'skip-brainstorm-missing-reason' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance BLOCK-uje --skip-brainstorm bez reason argumenta"
+# Static B: no brainstorm-skipped INFO emitter left (historical log entries stay parseable)
+if ! grep -qE 'brainstorm-skipped\|task' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance: brainstorm-skipped INFO emitter removed"
     PASSES=$((PASSES + 1))
 else
-    fail "pipeline-advance missing skip-brainstorm-missing-reason BLOCK"
+    fail "pipeline-advance still emits brainstorm-skipped INFO events"
     FAILS=$((FAILS + 1))
 fi
 
-# Static C: pipeline-advance logs brainstorm-skipped INFO event to guard-audit
-if grep -qE 'brainstorm-skipped\|task' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance logs brainstorm-skipped INFO event sa reason u guard-audit"
+# Static C: shim message points to the guide skill
+if grep -qE 'load /apd-pipeline-guide' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "shim BLOCK message points to /apd-pipeline-guide recovery"
     PASSES=$((PASSES + 1))
 else
-    fail "pipeline-advance missing brainstorm-skipped audit log entry"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static D: brainstorm-marker BLOCK message reorganized — RECOMMENDED na (a)
-if grep -qE 'RECOMMENDED.*Load .apd-brainstorm' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "brainstorm-marker BLOCK message (a) eksplicit oznacena kao RECOMMENDED"
-    PASSES=$((PASSES + 1))
-else
-    fail "brainstorm-marker BLOCK message missing RECOMMENDED on (a)"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static E: BLOCK message references empirical evidence (v6.8.5: Bambi Cycle E,
-# v6.8.11: BambiProject MS.4 + Photo Bill CTA)
-if grep -qE 'Bambi Cycle E|3h cascade|BambiProject MS\.4|Photo Bill CTA' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "brainstorm-marker BLOCK message references empirical evidence"
-    PASSES=$((PASSES + 1))
-else
-    fail "brainstorm-marker BLOCK message missing empirical evidence reference"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static F: CC apd-brainstorm "When to skip" has TWO-PART CHECK
-if grep -qE 'TWO-PART CHECK' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md"; then
-    pass "CC apd-brainstorm 'When to skip' is TWO-PART CHECK (scope + config)"
-    PASSES=$((PASSES + 1))
-else
-    fail "CC apd-brainstorm 'When to skip' missing TWO-PART CHECK reformulation"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static G: Codex mirror has TWO-PART CHECK
-if grep -qE 'TWO-PART CHECK' "$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"; then
-    pass "Codex apd-brainstorm mirror: TWO-PART CHECK reformulation"
-    PASSES=$((PASSES + 1))
-else
-    fail "Codex apd-brainstorm mirror missing TWO-PART CHECK"
+    fail "shim BLOCK message missing /apd-pipeline-guide recovery pointer"
     FAILS=$((FAILS + 1))
 fi
 
@@ -6612,7 +6564,7 @@ mkdir -p "$V688_SCRATCH/.apd/pipeline" "$V688_SCRATCH/.codex" "$V688_SCRATCH/.ap
 touch "$V688_SCRATCH/.apd/config"
 
 cat > "$V688_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
-## Test v6.8.8
+## Test v6.15
 **Acceptance criteria:**
 - R1: first
 - R2: second
@@ -6627,29 +6579,29 @@ advance_v688() {
     echo "EXIT=$_rc"
 }
 
-# Live H: --skip-brainstorm without reason → BLOCK + exit 1
-NO_REASON_OUT="$(advance_v688 spec "Test v6.8.8" --skip-brainstorm)"
-if echo "$NO_REASON_OUT" | grep -q "EXIT=1" && echo "$NO_REASON_OUT" | grep -q "requires explicit reason argument"; then
-    pass "spec advance: --skip-brainstorm bez reason → BLOCK + exit 1"
+# Live D: --skip-brainstorm without reason → BLOCK shim + exit 1
+NO_REASON_OUT="$(advance_v688 spec "Test v6.15" --skip-brainstorm)"
+if echo "$NO_REASON_OUT" | grep -q "EXIT=1" && echo "$NO_REASON_OUT" | grep -q "removed in v6.15"; then
+    pass "spec advance: --skip-brainstorm bez reason → shim BLOCK + exit 1"
     PASSES=$((PASSES + 1))
 else
-    fail "--skip-brainstorm no-reason unexpected: $NO_REASON_OUT"
+    fail "--skip-brainstorm no-reason shim unexpected: $NO_REASON_OUT"
     FAILS=$((FAILS + 1))
 fi
 
-# Live I: --skip-brainstorm sa reason → advance prolazi + audit log entry
-WITH_REASON_OUT="$(advance_v688 spec "Test v6.8.8" --skip-brainstorm "Pre-aligned scope + max_defects=unlimited + plan Implements format clear")"
-if echo "$WITH_REASON_OUT" | grep -q "EXIT=0"; then
-    if [ -f "$V688_SCRATCH/.apd/memory/guard-audit.log" ] && \
-       grep -qE 'INFO\|orchestrator\|brainstorm-skipped\|task=Test v6.8.8' "$V688_SCRATCH/.apd/memory/guard-audit.log"; then
-        pass "spec advance: --skip-brainstorm sa reason → exit 0 + audit log entry"
+# Live E: --skip-brainstorm WITH reason → BLOCK too (no path through the shim)
+WITH_REASON_OUT="$(advance_v688 spec "Test v6.15" --skip-brainstorm "Pre-aligned scope + plan Implements format clear")"
+if echo "$WITH_REASON_OUT" | grep -q "EXIT=1" && echo "$WITH_REASON_OUT" | grep -q "removed in v6.15"; then
+    if [ ! -f "$V688_SCRATCH/.apd/memory/guard-audit.log" ] || \
+       ! grep -qE 'brainstorm-skipped' "$V688_SCRATCH/.apd/memory/guard-audit.log"; then
+        pass "spec advance: --skip-brainstorm sa reason → BLOCK, no INFO skip event logged"
         PASSES=$((PASSES + 1))
     else
-        fail "--skip-brainstorm sa reason: advance prosao ali audit log entry nedostaje"
+        fail "--skip-brainstorm sa reason: shim blocked but still logged a skip event"
         FAILS=$((FAILS + 1))
     fi
 else
-    fail "--skip-brainstorm sa reason unexpected: $WITH_REASON_OUT"
+    fail "--skip-brainstorm sa reason should hard-error at the shim: $WITH_REASON_OUT"
     FAILS=$((FAILS + 1))
 fi
 
@@ -6781,83 +6733,72 @@ fi
 rm -rf "$V6810_SCRATCH"
 
 # -----------------------------------------------------------
-# 70. v6.8.11 — brainstorm-marker gate UNCONDITIONAL (drop R>2 carve-out)
-#     v6.8.5 introduced gate sa R-count > 2 trigger. BambiProject 2026-05-23
-#     evidence (MS.4 + Photo Bill CTA, both R=2, both 30-40 min sa adversarial
-#     N/A i plan-spec BLOCKs i rm -rf .apd/pipeline wipes) pokazala da je
-#     R-threshold gameable: orchestrator atomizuje task na 2 R-criteria da
-#     bypass-uje gate. v6.8.11 drop-uje carve-out — marker mandatory na svaki
-#     spec advance bez obzira na R-count. Opt-out i dalje preko --skip-brainstorm
-#     '<reason>' (v6.8.8 friction preserved).
+# 70. v6.15 — guide-marker gate UNCONDITIONAL + task-name match
+#     Inherits the v6.8.11 lesson (R-count thresholds are gameable —
+#     orchestrator atomizes work to duck under them), so the guide gate
+#     fires on EVERY spec advance regardless of R-count, and the marker
+#     must carry the exact task name.
 # -----------------------------------------------------------
-section "70. brainstorm-marker gate UNCONDITIONAL (v6.8.11)"
+section "70. guide-marker gate UNCONDITIONAL + name match (v6.15)"
 
-# Static A: pipeline-advance condition no longer gates on CRITERIA_COUNT > 2
-if grep -qE 'if \[ "\$SKIP_BRAINSTORM" = false \]; then' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
-   && ! grep -qE 'if \[ "\$CRITERIA_COUNT" -gt 2 \] && \[ "\$SKIP_BRAINSTORM" = false \]' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance brainstorm-marker gate dropped CRITERIA_COUNT > 2 carve-out"
+# Static A: gate has no CRITERIA_COUNT carve-out
+if grep -qE 'GUIDE_OK=false' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && ! grep -qE 'CRITERIA_COUNT" -gt 2 \].*GUIDE' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance guide-marker gate has no R-count carve-out"
     PASSES=$((PASSES + 1))
 else
-    fail "pipeline-advance still gates brainstorm-marker on CRITERIA_COUNT > 2"
+    fail "pipeline-advance guide-marker gate missing or R-count gated"
     FAILS=$((FAILS + 1))
 fi
 
-# Static B: v6.8.11 marker in source (proves intentional change, not regression)
-if grep -qE 'v6\.8\.11' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance carries v6.8.11 marker comment"
+# Static B: v6.15 marker in source (proves intentional change, not regression)
+if grep -qE 'v6\.15' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance carries v6.15 marker comment"
     PASSES=$((PASSES + 1))
 else
-    fail "pipeline-advance missing v6.8.11 marker comment"
+    fail "pipeline-advance missing v6.15 marker comment"
     FAILS=$((FAILS + 1))
 fi
 
-# Static C: --skip-brainstorm reason validation also unconditional
-if grep -qE 'if \[ "\$SKIP_BRAINSTORM" = true \]; then' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance --skip-brainstorm reason validation unconditional"
+# Static C: BLOCK message routes vague scope to brainstorm FIRST, guide after
+if grep -qE 'load /apd-brainstorm FIRST' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "guide-marker BLOCK message routes vague scope to /apd-brainstorm first"
     PASSES=$((PASSES + 1))
 else
-    fail "pipeline-advance --skip-brainstorm still gated on CRITERIA_COUNT > 2"
+    fail "guide-marker BLOCK message missing brainstorm routing for vague scope"
     FAILS=$((FAILS + 1))
 fi
 
-# Static D: workflow.md updated wording (unconditional + R-atomization evidence)
-if grep -qE 'unconditional|every new task' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
-    pass "workflow.md documents unconditional brainstorm load"
+# Static D: workflow.md documents unconditional guide load
+if grep -qE 'Unconditional, every new task, NO skip flag' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
+    pass "workflow.md documents unconditional guide load (no skip flag)"
     PASSES=$((PASSES + 1))
 else
-    fail "workflow.md missing unconditional brainstorm load wording"
+    fail "workflow.md missing unconditional guide load wording"
     FAILS=$((FAILS + 1))
 fi
 
-# Static E: CC SKILL.md updated wording
-if grep -qE 'unconditional|Default: load on every new task' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md"; then
-    pass "CC apd-brainstorm SKILL.md documents unconditional default"
+# Static E: brainstorm skills (CC + Codex) no longer reference marker or skip flag
+if ! grep -qE '\.brainstorm-marker|--skip-brainstorm|skip_brainstorm' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md" \
+   && ! grep -qE '\.brainstorm-marker|--skip-brainstorm|skip_brainstorm' "$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"; then
+    pass "apd-brainstorm (CC + Codex) carries no marker/skip-flag mechanics"
     PASSES=$((PASSES + 1))
 else
-    fail "CC apd-brainstorm SKILL.md missing unconditional default wording"
+    fail "apd-brainstorm still references marker or skip flag (split regression)"
     FAILS=$((FAILS + 1))
 fi
 
-# Static F: Codex SKILL.md mirror updated
-if grep -qE 'unconditional|Default: load on every new task' "$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"; then
-    pass "Codex apd-brainstorm SKILL.md documents unconditional default"
+# Static F: Codex AGENTS.md template no longer offers skip_brainstorm opt-out
+if ! grep -qE 'skip_brainstorm' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
+    pass "Codex AGENTS.md template dropped skip_brainstorm opt-out"
     PASSES=$((PASSES + 1))
 else
-    fail "Codex apd-brainstorm SKILL.md missing unconditional default wording"
+    fail "Codex AGENTS.md template still offers skip_brainstorm opt-out"
     FAILS=$((FAILS + 1))
 fi
 
-# Static G: Codex AGENTS.md template mirror updated
-if grep -qE 'unconditional|every new task' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
-    pass "Codex AGENTS.md template documents unconditional brainstorm load"
-    PASSES=$((PASSES + 1))
-else
-    fail "Codex AGENTS.md template missing unconditional brainstorm load wording"
-    FAILS=$((FAILS + 1))
-fi
-
-# Live setup for v6.8.11 behavioural tests
-V6811_SCRATCH="$(mktemp -d -t apd-v6811.XXXXXX)"
+# Live setup for v6.15 behavioural tests
+V6811_SCRATCH="$(mktemp -d -t apd-v615.XXXXXX)"
 mkdir -p "$V6811_SCRATCH/.apd/pipeline" "$V6811_SCRATCH/.codex" "$V6811_SCRATCH/.apd/memory"
 touch "$V6811_SCRATCH/.apd/config"
 
@@ -6868,18 +6809,18 @@ advance_spec_v6811() {
     echo "EXIT=$_rc"
 }
 
-# Live H: R=1 task without marker → BLOCK (NEW behavior — pre-v6.8.11 this was bypass)
+# Live G: R=1 task without marker → BLOCK (unconditional)
 cat > "$V6811_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
 ## Test single-R
 **Acceptance criteria:**
 - R1: only
 EOF
 R1_OUT="$(advance_spec_v6811 spec "Test single-R")"
-if echo "$R1_OUT" | grep -q "EXIT=1" && echo "$R1_OUT" | grep -q "Brainstorm marker missing"; then
-    pass "spec advance: R=1 task without marker → BLOCK (v6.8.11 unconditional)"
+if echo "$R1_OUT" | grep -q "EXIT=1" && echo "$R1_OUT" | grep -q "Guide marker missing"; then
+    pass "spec advance: R=1 task without marker → BLOCK (unconditional)"
     PASSES=$((PASSES + 1))
 else
-    fail "R=1 task should BLOCK without marker per v6.8.11: $R1_OUT"
+    fail "R=1 task should BLOCK without marker: $R1_OUT"
     FAILS=$((FAILS + 1))
 fi
 
@@ -6887,13 +6828,13 @@ fi
 cd "$V6811_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
 cd - >/dev/null
 
-# Live I: R=1 task WITH marker → spec advance prolazi
+# Live H: R=1 task WITH marker → spec advance prolazi
 cat > "$V6811_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
 ## Test single-R
 **Acceptance criteria:**
 - R1: only
 EOF
-printf '%s|%s\n' "Test single-R" "2026-05-23T12:00:00Z" > "$V6811_SCRATCH/.apd/pipeline/.brainstorm-marker"
+printf '%s|%s\n' "Test single-R" "2026-06-10T12:00:00Z" > "$V6811_SCRATCH/.apd/pipeline/.guide-marker"
 R1_OK_OUT="$(advance_spec_v6811 spec "Test single-R")"
 if echo "$R1_OK_OUT" | grep -q "EXIT=0"; then
     pass "spec advance: R=1 task WITH matching marker → prolazi"
@@ -6907,39 +6848,32 @@ fi
 cd "$V6811_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
 cd - >/dev/null
 
-# Live J: R=2 task with --skip-brainstorm + reason → prolazi (v6.8.8 opt-out preserved)
+# Live I: marker with WRONG task name → BLOCK (name-match enforcement)
 cat > "$V6811_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
-## Test trivial
+## Test mismatch
 **Acceptance criteria:**
 - R1: first
 - R2: second
 EOF
-SKIP_OK_OUT="$(advance_spec_v6811 spec "Test trivial" --skip-brainstorm "1:1 mirror of prior task — scope + APD config explicit")"
-if echo "$SKIP_OK_OUT" | grep -q "EXIT=0"; then
-    pass "spec advance: R=2 task + --skip-brainstorm + reason → prolazi (opt-out preserved)"
+printf '%s|%s\n' "Some other task" "2026-06-10T12:00:00Z" > "$V6811_SCRATCH/.apd/pipeline/.guide-marker"
+MISMATCH_OUT="$(advance_spec_v6811 spec "Test mismatch")"
+if echo "$MISMATCH_OUT" | grep -q "EXIT=1" && echo "$MISMATCH_OUT" | grep -q "Guide marker missing"; then
+    pass "spec advance: marker with wrong task name → BLOCK (name match enforced)"
     PASSES=$((PASSES + 1))
 else
-    fail "R=2 task with --skip-brainstorm + reason should prolaziti: $SKIP_OK_OUT"
+    fail "wrong-name marker should BLOCK: $MISMATCH_OUT"
     FAILS=$((FAILS + 1))
 fi
 
-# Reset for next test
-cd "$V6811_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
-cd - >/dev/null
-
-# Live K: R=2 task with --skip-brainstorm BUT no reason → BLOCK (v6.8.11 — was R>2 only)
-cat > "$V6811_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
-## Test trivial
-**Acceptance criteria:**
-- R1: first
-- R2: second
-EOF
-SKIP_NO_REASON_OUT="$(advance_spec_v6811 spec "Test trivial" --skip-brainstorm)"
-if echo "$SKIP_NO_REASON_OUT" | grep -q "EXIT=1" && echo "$SKIP_NO_REASON_OUT" | grep -q "requires explicit reason"; then
-    pass "spec advance: R=2 task + --skip-brainstorm WITHOUT reason → BLOCK (v6.8.11)"
+# Live J: legacy .brainstorm-marker alone does NOT satisfy the guide gate
+printf '%s|%s\n' "Test mismatch" "2026-06-10T12:00:00Z" > "$V6811_SCRATCH/.apd/pipeline/.brainstorm-marker"
+rm -f "$V6811_SCRATCH/.apd/pipeline/.guide-marker"
+LEGACY_OUT="$(advance_spec_v6811 spec "Test mismatch")"
+if echo "$LEGACY_OUT" | grep -q "EXIT=1" && echo "$LEGACY_OUT" | grep -q "Guide marker missing"; then
+    pass "spec advance: legacy .brainstorm-marker does not satisfy guide gate"
     PASSES=$((PASSES + 1))
 else
-    fail "R=2 task with --skip-brainstorm sans reason should BLOCK per v6.8.11: $SKIP_NO_REASON_OUT"
+    fail "legacy marker must not satisfy the guide gate: $LEGACY_OUT"
     FAILS=$((FAILS + 1))
 fi
 
@@ -6995,21 +6929,22 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static E: CC SKILL.md flags max_defects as DEPRECATED
-if grep -qE 'max_defects.*DEPRECATED|DEPRECATED.*v6\.9.*v7\.0' "$REPO_ROOT/skills/apd-brainstorm/SKILL.md"; then
-    pass "CC apd-brainstorm SKILL.md flags max_defects as DEPRECATED v6.9"
+# Static E: CC guide SKILL.md flags max_defects as DEPRECATED
+# (v6.15 — the deprecation education moved with the tutor content into the guide)
+if grep -qE 'max_defects.*DEPRECATED|DEPRECATED.*\(v6\.9\)' "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md"; then
+    pass "CC apd-pipeline-guide SKILL.md flags max_defects as DEPRECATED v6.9"
     PASSES=$((PASSES + 1))
 else
-    fail "CC apd-brainstorm SKILL.md missing max_defects DEPRECATED wording"
+    fail "CC apd-pipeline-guide SKILL.md missing max_defects DEPRECATED wording"
     FAILS=$((FAILS + 1))
 fi
 
-# Static F: Codex SKILL.md mirror flags DEPRECATED
-if grep -qE 'max_defects.*DEPRECATED|DEPRECATED.*v6\.9.*v7\.0' "$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"; then
-    pass "Codex apd-brainstorm SKILL.md flags max_defects as DEPRECATED v6.9"
+# Static F: Codex guide SKILL.md mirror flags DEPRECATED
+if grep -qE 'max_defects.*DEPRECATED|DEPRECATED.*\(v6\.9\)' "$APD_PLUGIN_ROOT/skills/apd-pipeline-guide/SKILL.md"; then
+    pass "Codex apd-pipeline-guide SKILL.md flags max_defects as DEPRECATED v6.9"
     PASSES=$((PASSES + 1))
 else
-    fail "Codex apd-brainstorm SKILL.md missing max_defects DEPRECATED wording"
+    fail "Codex apd-pipeline-guide SKILL.md missing max_defects DEPRECATED wording"
     FAILS=$((FAILS + 1))
 fi
 
@@ -7041,7 +6976,7 @@ cat > "$V69_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
 - R1: only
 adversarial: max_defects=5
 EOF
-_v6811_marker "$V69_SCRATCH" "Test deprecation"
+_guide_marker "$V69_SCRATCH" "Test deprecation"
 DEPR_OUT="$(advance_spec_v69 spec "Test deprecation")"
 if echo "$DEPR_OUT" | grep -q "EXIT=0" && echo "$DEPR_OUT" | grep -qE "DEPRECATED as of v6\.9"; then
     pass "spec advance: max_defects field → deprecation warn emitted"
@@ -7070,7 +7005,7 @@ cat > "$V69_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
 **Acceptance criteria:**
 - R1: only
 EOF
-_v6811_marker "$V69_SCRATCH" "Test clean"
+_guide_marker "$V69_SCRATCH" "Test clean"
 CLEAN_OUT="$(advance_spec_v69 spec "Test clean")"
 if echo "$CLEAN_OUT" | grep -q "EXIT=0" && ! echo "$CLEAN_OUT" | grep -qE "DEPRECATED"; then
     pass "spec advance: no max_defects field → no deprecation warn"
@@ -7092,7 +7027,7 @@ plan_consistency_gate: off
 - R1: only
 adversarial: max_defects=2
 EOF
-_v6811_marker "$V69_SCRATCH" "Test gate-still-active"
+_guide_marker "$V69_SCRATCH" "Test gate-still-active"
 advance_spec_v69 spec "Test gate-still-active" >/dev/null 2>&1
 # Verifier gate uses ADV_D from .adversarial-summary; if > max_defects → BLOCK.
 # This live test confirms graceful-transition: deprecation warn + gate active.
@@ -7113,21 +7048,21 @@ rm -rf "$V69_SCRATCH"
 
 VERIFY_APD="$APD_PLUGIN_ROOT/bin/core/verify-apd"
 
-# Static L: verify-apd pre-writes .brainstorm-marker for APD-VERIFY-TEST (issue #10 fix)
-if grep -qE '\.brainstorm-marker.*APD-VERIFY-TEST|APD-VERIFY-TEST.*brainstorm-marker' "$VERIFY_APD"; then
-    pass "verify-apd Section 8 pre-writes .brainstorm-marker for APD-VERIFY-TEST"
+# Static L: verify-apd pre-writes .guide-marker for APD-VERIFY-TEST (issue #10 fix, v6.15 marker swap)
+if grep -qE '\.guide-marker.*APD-VERIFY-TEST|APD-VERIFY-TEST.*guide-marker' "$VERIFY_APD"; then
+    pass "verify-apd Section 8 pre-writes .guide-marker for APD-VERIFY-TEST"
     PASSES=$((PASSES + 1))
 else
-    fail "verify-apd missing .brainstorm-marker pre-write for APD-VERIFY-TEST (regression of #10 fix)"
+    fail "verify-apd missing .guide-marker pre-write for APD-VERIFY-TEST (regression of #10 fix)"
     FAILS=$((FAILS + 1))
 fi
 
-# Static M: verify-apd pre-writes .brainstorm-marker for APD-VERIFY-OPT-OUT (issue #10 fix)
-if grep -qE 'APD-VERIFY-OPT-OUT.*brainstorm-marker|\.brainstorm-marker.*APD-VERIFY-OPT-OUT' "$VERIFY_APD"; then
-    pass "verify-apd Section 8 pre-writes .brainstorm-marker for APD-VERIFY-OPT-OUT"
+# Static M: verify-apd pre-writes .guide-marker for APD-VERIFY-OPT-OUT (issue #10 fix, v6.15 marker swap)
+if grep -qE 'APD-VERIFY-OPT-OUT.*guide-marker|\.guide-marker.*APD-VERIFY-OPT-OUT' "$VERIFY_APD"; then
+    pass "verify-apd Section 8 pre-writes .guide-marker for APD-VERIFY-OPT-OUT"
     PASSES=$((PASSES + 1))
 else
-    fail "verify-apd missing .brainstorm-marker pre-write for APD-VERIFY-OPT-OUT (regression of #10 fix)"
+    fail "verify-apd missing .guide-marker pre-write for APD-VERIFY-OPT-OUT (regression of #10 fix)"
     FAILS=$((FAILS + 1))
 fi
 
@@ -7264,7 +7199,7 @@ cat > "$V6_10_SCRATCH/.claude/settings.json" <<EOF
   }
 }
 EOF
-cat > "$V6_10_SCRATCH/.claude/.apd-config" <<EOF
+cat > "$V6_10_SCRATCH/.apd/config" <<EOF
 PROJECT_NAME=clean-test
 APD_VERSION=$(cat "$APD_PLUGIN_ROOT/VERSION")
 STACK=test
@@ -7275,7 +7210,8 @@ cat > "$V6_10_SCRATCH/.claude/rules/workflow.md" <<'EOF'
 **Implements:** R1 — plan-spec consistency demo
 **rationale gate** — v6.7 reference
 **DEPRECATED as of v6.9** — max_defects soft removal
-**unconditional** — brainstorm-marker v6.8.11
+**unconditional** — guide-marker v6.15
+**apd-pipeline-guide** — v6.15 mandatory operating manual
 EOF
 CLEAN_OUT="$(run_drift_v6_10)"
 if echo "$CLEAN_OUT" | grep -qE "EXIT=0" && echo "$CLEAN_OUT" | grep -qE "CLEAN|no drift detected"; then
@@ -7326,7 +7262,7 @@ cat > "$V6_10_SCRATCH/.claude/settings.json" <<EOF
   }
 }
 EOF
-cat > "$V6_10_SCRATCH/.claude/.apd-config" <<EOF
+cat > "$V6_10_SCRATCH/.apd/config" <<EOF
 PROJECT_NAME=stale-test
 APD_VERSION=6.5.0
 STACK=test
@@ -7342,7 +7278,7 @@ fi
 
 # Live L: missing workflow.md markers → IMPORTANT + exit 1
 # Restore canonical settings + APD_VERSION; write stale workflow
-cat > "$V6_10_SCRATCH/.claude/.apd-config" <<EOF
+cat > "$V6_10_SCRATCH/.apd/config" <<EOF
 PROJECT_NAME=stale-workflow-test
 APD_VERSION=$(cat "$APD_PLUGIN_ROOT/VERSION")
 STACK=test
@@ -7365,7 +7301,7 @@ fi
 # Set APD_VERSION to current minor with different patch (e.g. 6.9.0 → 6.9.99)
 CURRENT_VER=$(cat "$APD_PLUGIN_ROOT/VERSION")
 CURRENT_MAJOR_MINOR=$(echo "$CURRENT_VER" | cut -d'.' -f1-2)
-cat > "$V6_10_SCRATCH/.claude/.apd-config" <<EOF
+cat > "$V6_10_SCRATCH/.apd/config" <<EOF
 PROJECT_NAME=patch-drift-test
 APD_VERSION=${CURRENT_MAJOR_MINOR}.99
 STACK=test
@@ -7377,7 +7313,8 @@ cat > "$V6_10_SCRATCH/.claude/rules/workflow.md" <<'EOF'
 **Implements:** R1
 **rationale gate** — v6.7
 **DEPRECATED as of v6.9**
-**unconditional** — v6.8.11
+**unconditional** — v6.15
+**apd-pipeline-guide** — v6.15
 EOF
 PATCH_OUT="$(run_drift_v6_10)"
 if echo "$PATCH_OUT" | grep -qE "EXIT=0" \
@@ -8054,7 +7991,7 @@ mkdir -p "$V6_12_3_SCRATCH/.claude/rules" "$V6_12_3_SCRATCH/.apd"
 touch "$V6_12_3_SCRATCH/.apd/config"
 
 # Write canonical baseline (clean dims A/B/C) so we isolate dim D signals
-cat > "$V6_12_3_SCRATCH/.claude/.apd-config" <<EOF
+cat > "$V6_12_3_SCRATCH/.apd/config" <<EOF
 PROJECT_NAME=dim-d-test
 APD_VERSION=$(cat "$APD_PLUGIN_ROOT/VERSION")
 STACK=test
@@ -8070,6 +8007,7 @@ cat > "$V6_12_3_SCRATCH/.claude/rules/workflow.md" <<'EOF'
 rationale gate
 DEPRECATED
 unconditional
+apd-pipeline-guide
 
 ## Cross-layer verification
 apd verify-contracts automatically checks PHP DTO ↔ TypeScript types.
@@ -8094,6 +8032,7 @@ cat > "$V6_12_3_SCRATCH/.claude/rules/workflow.md" <<'EOF'
 rationale gate
 DEPRECATED
 unconditional
+apd-pipeline-guide
 
 ## Cross-layer verification
 When a task involves backend + frontend/mobile:
@@ -8173,13 +8112,15 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static E: pipeline-advance INFO writers route through _audit_type (>=2 sites)
+# Static E: pipeline-advance INFO writers route through _audit_type (>=1 site)
+# (was 2 — the brainstorm-skipped INFO emitter was removed in v6.15 with the
+# guide-marker split; max-defects-deprecated remains)
 ADV_AT=$(grep -c '$(_audit_type INFO)' "$ADVANCE_SCRIPT")
-if [ "$ADV_AT" -ge 2 ]; then
+if [ "$ADV_AT" -ge 1 ]; then
     pass "pipeline-advance INFO writers route through _audit_type ($ADV_AT sites)"
     PASSES=$((PASSES + 1))
 else
-    fail "pipeline-advance INFO writers not tagged ($ADV_AT/2 sites)"
+    fail "pipeline-advance INFO writers not tagged ($ADV_AT/1 sites)"
     FAILS=$((FAILS + 1))
 fi
 
@@ -8423,6 +8364,47 @@ fi
 
 rm -rf "$SHOW_PROJ"
 
+# v6.15 (#5) — guard-bash-scope pipeline-state BLOCK message is three-way.
+# #4 live-verify (Bambi 2026-06-10) showed docs instruction alone does not
+# change orchestrator behavior — the message at the moment of error does.
+GBS="$APD_PLUGIN_ROOT/bin/core/guard-bash-scope"
+
+# Static I: message names all three channels (show / Write-Edit / phase advance)
+if grep -qE 'pipeline show \[spec\|plan\|state\]' "$GBS" \
+   && grep -qE 'Write/Edit tool' "$GBS" \
+   && grep -qE 'pipeline <spec\|builder\|reviewer\|verifier\|reset>' "$GBS"; then
+    pass "guard-bash-scope BLOCK guidance names all three channels (v6.15 #5)"
+    PASSES=$((PASSES + 1))
+else
+    fail "guard-bash-scope BLOCK guidance missing a channel (read/write/advance)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static J: all three pipeline-state-write branches share the guidance helper
+GBS_GUIDANCE_CALLS=$(grep -c '_pipeline_block_guidance$' "$GBS")
+if [ "$GBS_GUIDANCE_CALLS" -ge 3 ]; then
+    pass "all 3 pipeline-state BLOCK branches emit the three-way guidance ($GBS_GUIDANCE_CALLS calls)"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-state BLOCK branches missing shared guidance ($GBS_GUIDANCE_CALLS/3 calls)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live K: blocked bash access to pipeline state surfaces `apd pipeline show` in stderr
+GBS_PROJ="$(mktemp -d -t apd-gbs5.XXXXXX)"
+mkdir -p "$GBS_PROJ/.apd/pipeline" "$GBS_PROJ/.codex"
+touch "$GBS_PROJ/.apd/config"
+GBS_OUT=$(cd "$GBS_PROJ" && bash "$GBS" --command 'echo x > .apd/pipeline/spec-card.md' 2>&1; echo "EXIT=$?")
+if echo "$GBS_OUT" | grep -q "EXIT=2" && echo "$GBS_OUT" | grep -q "pipeline show" \
+   && echo "$GBS_OUT" | grep -q "Write/Edit tool"; then
+    pass "live: pipeline-state BLOCK stderr carries show + Write/Edit channels"
+    PASSES=$((PASSES + 1))
+else
+    fail "live pipeline-state BLOCK guidance unexpected: $GBS_OUT"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$GBS_PROJ"
+
 # -----------------------------------------------------------
 section "81. reconstruct-agents — CC SubagentStop hook-failure recovery"
 # -----------------------------------------------------------
@@ -8524,11 +8506,13 @@ fi
 rm -rf "$RECON_PROJ" "$RECON_FC"
 
 # -----------------------------------------------------------
-section "82. apd-brainstorm skill is English + skip-reason has no deprecated max_defects"
+section "82. apd-brainstorm + apd-pipeline-guide skills are English"
 # -----------------------------------------------------------
 REPO_ROOT_82="$APD_PLUGIN_ROOT/../.."
 BS_CC="$REPO_ROOT_82/skills/apd-brainstorm/SKILL.md"
 BS_CDX="$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md"
+GUIDE_CC_82="$REPO_ROOT_82/skills/apd-pipeline-guide/SKILL.md"
+GUIDE_CDX_82="$APD_PLUGIN_ROOT/skills/apd-pipeline-guide/SKILL.md"
 # Unambiguously-Serbian tokens that never appear in English prose
 SR_MARKERS='naucio|zaborav|trajal|trajao|identicni|loguje|znas|uradis|necemo|generalizuje|vrati'
 
@@ -8550,12 +8534,13 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static C: the --skip-brainstorm example no longer models deprecated max_defects
-if ! grep -nE 'skip-brainstorm "[^"]*max_defects' "$BS_CC" >/dev/null 2>&1; then
-    pass "CC skip-brainstorm example does not reference deprecated max_defects"
+# Static C: apd-pipeline-guide (CC + Codex) has no Serbian prose (v6.15)
+if [ -f "$GUIDE_CC_82" ] && ! grep -qiE "$SR_MARKERS" "$GUIDE_CC_82" \
+   && [ -f "$GUIDE_CDX_82" ] && ! grep -qiE "$SR_MARKERS" "$GUIDE_CDX_82"; then
+    pass "apd-pipeline-guide (CC + Codex) is free of Serbian markers"
     PASSES=$((PASSES + 1))
 else
-    fail "CC skip-brainstorm example still references max_defects"
+    fail "apd-pipeline-guide has Serbian markers or missing file"
     FAILS=$((FAILS + 1))
 fi
 

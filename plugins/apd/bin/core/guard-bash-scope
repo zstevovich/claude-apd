@@ -87,6 +87,25 @@ for ppath in "${PROTECTED_PLUGIN[@]}"; do
   fi
 done
 
+# v6.15 (#5) — three-way channel guidance for pipeline-state BLOCKs.
+# The guard cannot tell a read from a write from a fabrication attempt, so it
+# blocks ALL bash access conservatively — but the old message ("use the apd
+# command instead") misdirected: for reads the channel is `apd pipeline show`,
+# for allowlisted files it is the Write/Edit tool, and only state transitions
+# go through `apd pipeline <phase>`. Cross-project evidence (Bambi/FFAI/
+# ig-commerce ~1 block/run): orchestrator mostly READS (cat .reviewed-files)
+# and burned a turn per block because no message pointed at the read path.
+_pipeline_block_guidance() {
+  echo "" >&2
+  echo "  Bash access to .apd/pipeline/ is blocked. Use the right channel:" >&2
+  echo "    READ state      → bash $APD_SHORTCUT_DISPLAY pipeline show [spec|plan|state]" >&2
+  echo "                      (never cat/ls/head files under .apd/pipeline/)" >&2
+  echo "    WRITE your file → Write/Edit tool for allowlisted files only:" >&2
+  echo "                      spec-card.md, implementation-plan.md," >&2
+  echo "                      .adversarial-summary, .adversarial-rationale.md, .guide-marker" >&2
+  echo "    ADVANCE phase   → bash $APD_SHORTCUT_DISPLAY pipeline <spec|builder|reviewer|verifier|reset>" >&2
+}
+
 # Block writes to .apd/pipeline/ (APD tools whitelisted)
 # Uses PLUGIN_WRITE_CHECK (no > and >>) to avoid false positives from 2>/dev/null redirects
 for ppath in "${PROTECTED_PIPELINE[@]}"; do
@@ -95,19 +114,19 @@ for ppath in "${PROTECTED_PIPELINE[@]}"; do
     if [[ "$COMMAND" == *"pipeline-advance"* ]] || [[ "$COMMAND" == *"apd pipeline"* ]] || [[ "$COMMAND" == *"verify-apd"* ]] || [[ "$COMMAND" == *"pipeline-post-commit"* ]] || [[ "$COMMAND" == *"pipeline-gate"* ]]; then
       break
     fi
-    # v6.8.5 — allow .brainstorm-marker writes (apd-brainstorm skill writes it as
+    # v6.15 — allow .guide-marker writes (apd-pipeline-guide skill writes it as
     # final exit action before pipeline-advance spec; without this exception the
-    # printf > .apd/pipeline/.brainstorm-marker would BLOCK at this guard).
-    if [[ "$COMMAND" == *".brainstorm-marker"* ]]; then
+    # printf > .apd/pipeline/.guide-marker would BLOCK at this guard).
+    # .brainstorm-marker kept as legacy allowlist entry until v7.0 (mid-flight
+    # tasks during the v6.15 upgrade window).
+    if [[ "$COMMAND" == *".guide-marker"* ]] || [[ "$COMMAND" == *".brainstorm-marker"* ]]; then
       break
     fi
     # Check non-redirect write operations
     for wp in "${PLUGIN_WRITE_CHECK[@]}"; do
       if [[ "$COMMAND" == *"$wp"*"$ppath"* ]] || [[ "$COMMAND" == *"$wp"*".apd/pipeline/"* ]]; then
         echo "BLOCKED: Bash write to protected pipeline state directory." >&2
-        echo "" >&2
-        echo "  Do not write directly to .apd/pipeline/ — use the apd command instead." >&2
-        echo "  Allowed: bash $APD_SHORTCUT_DISPLAY pipeline <command>" >&2
+        _pipeline_block_guidance
         log_block "pipeline-state-write" "${COMMAND:0:100}"
         exit 2
       fi
@@ -115,13 +134,13 @@ for ppath in "${PROTECTED_PIPELINE[@]}"; do
     # Check redirect operators only when they TARGET .apd/pipeline/ (not 2>/dev/null)
     if echo "$COMMAND" | grep -qE '>[^&].*\.apd/pipeline/|>>.*\.apd/pipeline/' 2>/dev/null; then
       echo "BLOCKED: Bash redirect to protected pipeline state directory." >&2
-      echo "  Do not write directly to .apd/pipeline/ — use the apd command instead." >&2
+      _pipeline_block_guidance
       log_block "pipeline-state-write" "${COMMAND:0:100}"
       exit 2
     fi
     if _runtime_write_detected "$COMMAND"; then
       echo "BLOCKED: Runtime write to protected pipeline state directory." >&2
-      echo "  Do not write directly to .apd/pipeline/ — use the apd command instead." >&2
+      _pipeline_block_guidance
       log_block "pipeline-state-write" "${COMMAND:0:100}"
       exit 2
     fi

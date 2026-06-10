@@ -55,7 +55,13 @@ cat > "$TEST_DIR/.apd/pipeline/spec-card.md" << 'EOF'
 - R3: Third requirement
 EOF
 
+# v6.15 — unconditional guide-marker gate; synthetic fixtures pre-write the marker
+_guide_marker() {
+    printf '%s|%s\n' "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TEST_DIR/.apd/pipeline/.guide-marker"
+}
+
 # 1.3 Spec with spec-card.md → PASS
+_guide_marker "Test task"
 EXIT=$(run_exit pipeline-advance spec "Test task")
 [ "$EXIT" -eq 0 ] && pass "spec with spec-card.md → OK" || fail "spec with spec-card.md should pass"
 
@@ -172,6 +178,7 @@ cat > "$TEST_DIR/.apd/pipeline/spec-card.md" << 'EOF'
 - R6: Six
 - R7: Seven
 EOF
+_guide_marker "OK task"
 EXIT=$(run_exit pipeline-advance spec "OK task")
 [ "$EXIT" -eq 0 ] && pass "7 criteria → OK" || fail "7 criteria should pass"
 
@@ -241,6 +248,7 @@ cat > "$TEST_DIR/.apd/pipeline/spec-card.md" << 'EOF'
 **Acceptance criteria:**
 - R1: Test
 EOF
+_guide_marker "Lock test"
 mkdir -p "$TEST_DIR/.apd/pipeline/.lock"
 # Touch to make it recent (not stale)
 touch "$TEST_DIR/.apd/pipeline/.lock"
@@ -267,10 +275,18 @@ cat > "$TEST_DIR/.apd/pipeline/spec-card.md" << 'EOF'
 **Acceptance criteria:**
 - R1: Test
 EOF
+_guide_marker "Rollback test"
 run pipeline-advance spec "Rollback test" >/dev/null 2>&1
 cat > "$TEST_DIR/.apd/pipeline/implementation-plan.md" << 'EOF'
 ## Plan
+### Work
+**Implements:** R1
+
+- do the thing
+
 ### Agents
+**Implements:** none
+
 - backend-api
 EOF
 _START_TS=$(date -v-10S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "-10 seconds" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)

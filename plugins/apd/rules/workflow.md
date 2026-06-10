@@ -4,18 +4,18 @@
 
 ```
 1. RECEIVE TASK from user
-   → **MANDATORY load `/apd-brainstorm` skill BEFORE writing spec-card.md.**
-     v6.8.11 made this unconditional — every new task, regardless of declared
-     R-count. The previous "≤2 R-criteria auto-skip" carve-out was removed
-     because orchestrator atomized non-trivial tasks to 2 R-criteria specifically
-     to bypass the gate (BambiProject MS.4 + Photo Bill CTA, 2026-05-23:
-     30-40 min pipelines with adversarial N/A, plan-spec BLOCKs, rm -rf wipes).
-   → Skill is the APD pipeline tutor: walks orchestrator through per-task
-     scope (Risks + Rollback), APD config (max_defects + plan Implements
-     format + rationale .md format), and downstream BLOCK shapes + recovery.
-   → Opt-out is `--skip-brainstorm '<concrete reason>'` and is for genuine
-     1:1 mirrors, single-line bug fixes, or hotfixes with pre-aligned scope
-     AND explicit APD config decisions. Reason is required and audit-logged.
+   → **MANDATORY load `/apd-pipeline-guide` skill BEFORE writing spec-card.md.**
+     Unconditional, every new task, NO skip flag (v6.15). The guide is the APD
+     operating manual: gate at each advance, plan **Implements:** header
+     contract, adversarial rationale .md contract, common BLOCKs + recovery,
+     `apd pipeline show` read path. It writes `.guide-marker`; the spec gate
+     hard-BLOCKS without it. "The task is already clear" is NOT a reason to
+     skip — the guide is not a brainstorm, it is the contract.
+   → **If the task scope is vague** (broad, "improve X", multiple reasonable
+     interpretations) → load `/apd-brainstorm` FIRST: interactive one-question-
+     at-a-time clarification that converges on a user-approved design. Optional
+     when scope is already aligned (1:1 mirror, fully specified task, approved
+     informal design) — skipping brainstorm never skips the guide.
    ↓
 2. ANALYZE & WRITE SPEC — create spec card with goal, scope, criteria, risks
    → bash .claude/bin/apd pipeline spec "Task name"
@@ -496,14 +496,16 @@ These skills are NOT optional. They MUST be used at the specified points in the 
 
 | Skill | When | Who | Trigger |
 |-------|------|-----|---------|
-| `/apd-brainstorm` | Before spec, when task is vague or complex | Orchestrator | User gives unclear/broad task |
+| `/apd-pipeline-guide` | Before EVERY spec — unconditional, no skip | Orchestrator | Every new task |
+| `/apd-brainstorm` | Before the guide, when task is vague or complex | Orchestrator | User gives unclear/broad task |
 | `/apd-tdd` | During implementation | Builder agents | Every builder dispatch |
 | `/apd-debug` | When verifier fails or reviewer finds bugs | Orchestrator → Builder | Test failure, build failure, critical review finding |
 | `/apd-finish` | After successful commit | Orchestrator | Pipeline completes and commit succeeds |
 
 ### Skill enforcement rules
 
-- **`/apd-brainstorm`** — If the user's task description is more than one sentence, involves multiple components, or has ambiguous scope → you MUST invoke `/apd-brainstorm` before writing the spec. Do NOT skip this to save time.
+- **`/apd-pipeline-guide`** — MANDATORY on every new task before writing spec-card.md, even when the task is perfectly clear. The spec gate hard-BLOCKS without the `.guide-marker` it writes; there is no skip flag.
+- **`/apd-brainstorm`** — If the user's task description is more than one sentence, involves multiple components, or has ambiguous scope → invoke `/apd-brainstorm` BEFORE the guide to converge on a design with the user. Do NOT skip this to save time when scope is unclear; skipping it is fine for fully specified tasks.
 - **`/apd-tdd`** — Every Builder agent MUST follow TDD: write failing test → implement → verify pass. The `/apd-tdd` skill defines the exact process. Builders that skip TDD produce untestable code.
 - **`/apd-debug`** — When the verifier fails or the reviewer reports a critical issue, do NOT re-dispatch the builder with "fix the bug". FIRST invoke `/apd-debug` to systematically identify the root cause, THEN dispatch the builder with specific fix instructions.
 - **`/apd-finish`** — After a successful commit, ALWAYS invoke `/apd-finish` to present the user with options: push, PR, keep local, or discard. Do NOT push without this step.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "APD Pipeline Guide"
+  short_description: "Mandatory APD operating manual — load before every pipeline task"
+  default_prompt: "Use $apd-pipeline-guide. Before writing .apd/pipeline/spec-card.md for this task, read the pipeline operating manual: the gate at each advance, the implementation-plan **Implements:** header contract (every ### Section, NO RESERVED NAMES), the adversarial rationale .md file contract, common BLOCKs + recovery, and the apd pipeline show read path. This is NOT a brainstorm — load it even when the task is perfectly clear. Finish by writing .apd/pipeline/.guide-marker with the exact task name, then call apd:apd_advance_pipeline('spec', '<name>')."

@@ -61,7 +61,8 @@ these tools:
 
 | Situation | Read/use |
 |-----------|----------|
-| Vague, broad, or multi-option task | `apd-brainstorm` and `.apd/rules/brainstorm.md` |
+| EVERY new task, before spec-card.md — unconditional, no skip | `apd-pipeline-guide` |
+| Vague, broad, or multi-option task — before the guide | `apd-brainstorm` and `.apd/rules/brainstorm.md` |
 | Implementing or fixing code | `apd-tdd` and `.apd/rules/tdd.md` |
 | Test failure, build failure, verifier block, or critical review finding | `apd-debug` and `.apd/rules/debug.md` |
 | Pipeline complete and commit made | `apd-finish` and `.apd/rules/finish.md` |
@@ -128,20 +129,20 @@ substantial enough that the adversarial gate stays on regardless — the
 
 ## Order of operations for a task
 
-0. **MANDATORY load `apd-brainstorm` skill BEFORE writing spec-card.md.**
-   v6.8.11 made this unconditional — every new task, regardless of declared
-   R-count. The previous "≤2 R-criteria auto-skip" carve-out was removed
-   because orchestrator atomized non-trivial tasks to 2 R-criteria specifically
-   to bypass the gate (BambiProject MS.4 + Photo Bill CTA, 2026-05-23:
-   30-40 min pipelines with adversarial N/A, plan-spec BLOCKs, rm -rf wipes).
+0. **MANDATORY load `apd-pipeline-guide` skill BEFORE writing spec-card.md.**
+   Unconditional, every new task, NO skip argument (v6.15). The guide is the
+   APD operating manual: gate at each advance, plan **Implements:** header
+   contract, adversarial rationale .md contract, common BLOCKs + recovery,
+   `apd pipeline show` read path. It writes `.apd/pipeline/.guide-marker`;
+   `apd_advance_pipeline('spec', ...)` hard-BLOCKS without it. "The task is
+   already clear" is NOT a reason to skip — the guide is not a brainstorm,
+   it is the contract.
 
-   Skill is the APD pipeline tutor: walks orchestrator through per-task scope
-   (Risks + Rollback), APD config (max_defects + plan Implements format +
-   rationale .md format), and downstream BLOCK shapes + recovery.
-
-   Opt-out is `skip_brainstorm='<concrete reason>'` and is for genuine 1:1
-   mirrors, single-line bug fixes, or hotfixes with pre-aligned scope AND
-   explicit APD config decisions. Reason is required and audit-logged.
+   **If the task scope is vague** (broad, "improve X", multiple reasonable
+   interpretations) → load `apd-brainstorm` FIRST: interactive one-question-
+   at-a-time clarification converging on a user-approved design. Optional when
+   scope is already aligned (1:1 mirror, fully specified task, approved
+   informal design) — skipping brainstorm never skips the guide.
 
 1. **Write the spec card** at `.apd/pipeline/spec-card.md`. Each requirement
    must be on its own line in the `Acceptance criteria` section as

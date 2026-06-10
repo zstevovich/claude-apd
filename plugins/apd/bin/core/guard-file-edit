@@ -44,7 +44,8 @@ AUTHORING_ALLOWLIST = {
     ".apd/pipeline/spec-card.md",
     ".apd/pipeline/implementation-plan.md",
     ".apd/pipeline/.adversarial-rationale.md",
-    ".apd/pipeline/.brainstorm-marker",
+    ".apd/pipeline/.guide-marker",
+    ".apd/pipeline/.brainstorm-marker",  # legacy until v7.0
 }
 GUARD_CACHE_MAX_AGE_SECONDS = 600
 

@@ -47,20 +47,22 @@ if [ -f "$PIPELINE_DIR/.reset-in-progress" ]; then
     echo "  If the contents look fine, clear: rm $PIPELINE_DIR/.reset-in-progress" >&2
 fi
 
-# v6.8.8 — parse --skip-brainstorm flag WITH MANDATORY reason argument.
-# Strip flag + reason from positional args; STEP/ARG derived from remainder.
-SKIP_BRAINSTORM=false
-SKIP_BRAINSTORM_REASON=""
+# v6.15 — --skip-brainstorm REMOVED (deprecation shim, drop in v7.0).
+# The brainstorm-marker gate + skip valve (v6.8.5/v6.8.8/v6.8.11) were replaced
+# by the unconditional guide-marker gate (apd-pipeline-guide skill). The guide
+# is non-interactive and cheap; there is nothing to skip, so no skip path exists.
+# Strip the legacy flag + its reason from positional args, then hard-error —
+# a silent fallback would resurrect the no-education path.
+_legacy_skip_flag=false
 _positional_args=()
 _capture_reason=false
 for _arg in "$@"; do
     if [ "$_capture_reason" = true ]; then
-        SKIP_BRAINSTORM_REASON="$_arg"
         _capture_reason=false
         continue
     fi
     if [ "$_arg" = "--skip-brainstorm" ]; then
-        SKIP_BRAINSTORM=true
+        _legacy_skip_flag=true
         _capture_reason=true
         continue
     fi
@@ -68,6 +70,17 @@ for _arg in "$@"; do
 done
 STEP="${_positional_args[0]:-}"
 ARG="${_positional_args[1]:-}"
+if [ "$_legacy_skip_flag" = true ]; then
+    echo "BLOCKED: --skip-brainstorm was removed in v6.15." >&2
+    echo "" >&2
+    echo "  The brainstorm skill no longer gates the pipeline. The spec gate now" >&2
+    echo "  requires /apd-pipeline-guide (the pipeline operating manual) instead —" >&2
+    echo "  it is non-interactive, ~2 minutes, and has NO skip path by design." >&2
+    echo "" >&2
+    echo "  Recovery: load /apd-pipeline-guide, let it write .guide-marker, then" >&2
+    echo "  re-run:  bash $APD_SHORTCUT_DISPLAY pipeline spec \"$ARG\"" >&2
+    exit 1
+fi
 NOW=$(date +%s)
 NOW_HUMAN=$(date +"%Y-%m-%d %H:%M:%S")
 
@@ -302,85 +315,49 @@ case "$STEP" in
             exit 1
         fi
 
-        # v6.8.11 — brainstorm-marker hard gate, UNCONDITIONAL.
-        # Every spec advance MUST be preceded by /apd-brainstorm skill load.
-        # Skill writes .brainstorm-marker on exit. Reset wipes it.
-        # --skip-brainstorm '<reason>' is the only opt-out (v6.8.8 friction).
+        # v6.15 — guide-marker hard gate, UNCONDITIONAL, NO skip path.
+        # Every spec advance MUST be preceded by /apd-pipeline-guide skill load.
+        # Skill writes .guide-marker on exit. Reset wipes it.
         #
-        # Rationale: v6.8.5 carve-out for ≤2 R-criteria proved gameable. Empirical
-        # evidence (BambiProject 2026-05-23): orchestrator atomized non-trivial
-        # tasks to 2 R-criteria specifically to bypass the gate — 32-40 min
-        # pipelines with adversarial N/A, plan-spec BLOCKs, max_defects raises,
-        # rm -rf .apd/pipeline wipes. R-count threshold cannot reliably reflect
-        # task complexity; orchestrator's compliance surface is "write fewer R".
-        # Per-task brainstorm load is structurally cheaper than the BLOCK loop
-        # that an undisciplined entry triggers downstream.
-        BRAINSTORM_MARKER="$PIPELINE_DIR/.brainstorm-marker"
-        if [ "$SKIP_BRAINSTORM" = false ]; then
-            BRAINSTORM_OK=false
-            if [ -f "$BRAINSTORM_MARKER" ]; then
-                MARKER_TASK=$(cut -d'|' -f1 "$BRAINSTORM_MARKER" 2>/dev/null)
-                if [ "$MARKER_TASK" = "$ARG" ]; then
-                    BRAINSTORM_OK=true
-                fi
-            fi
-            if [ "$BRAINSTORM_OK" = false ]; then
-                echo "BLOCKED: Brainstorm marker missing for spec advance ($CRITERIA_COUNT R-criteria declared)." >&2
-                echo "" >&2
-                echo "  /apd-brainstorm skill teaches per-task:" >&2
-                echo "    - SCOPE alignment (Risks + Rollback per current task)" >&2
-                echo "    - APD configuration (max_defects + plan **Implements:** format" >&2
-                echo "      per section + adversarial rationale .md file format)" >&2
-                echo "    - Downstream BLOCK shapes and how to avoid each one" >&2
-                echo "" >&2
-                echo "  Two ways forward:" >&2
-                echo "    (a) RECOMMENDED — Load /apd-brainstorm skill, walk through it, then" >&2
-                echo "        re-run. Skill writes .brainstorm-marker which unblocks this gate." >&2
-                echo "    (b) Opt-out — ONLY for genuine 1:1 mirror of a just-completed task," >&2
-                echo "        single-line bug fix, or pre-aligned scope WITH explicit APD config" >&2
-                echo "        decisions. Requires concrete reason argument:" >&2
-                echo "          bash .claude/bin/apd pipeline spec \"$ARG\" --skip-brainstorm \"<reason>\"" >&2
-                echo "        Reason MUST acknowledge BOTH scope alignment AND APD config clarity." >&2
-                echo "" >&2
-                echo "  Empirical evidence (2026-05-23, BambiProject MS.4 + Photo Bill CTA):" >&2
-                echo "  R-atomization to ≤2 to bypass this gate correlated with 30-40 min" >&2
-                echo "  pipelines vs 10-15 min for brainstorm-loaded equivalents." >&2
-                log_block "brainstorm-marker-missing" "task=$ARG criteria=$CRITERIA_COUNT"
-                exit 1
+        # Replaces the v6.8.5/v6.8.11 brainstorm-marker gate. Rationale for the
+        # split (2026-06-10): apd-brainstorm carried two roles — clarification
+        # dialogue (legitimately skippable when scope is pre-aligned) and the
+        # pipeline tutor (never legitimately skippable). The skip valve discarded
+        # education along with ceremony: orchestrators rationally skipped a skill
+        # NAMED "brainstorm" when the task was clear, unaware it carried the gate
+        # contract — the residual skip→BLOCK rate was exactly education-shaped
+        # (forgotten Implements headers). The guide is non-interactive and ~10×
+        # cheaper than one BLOCK loop, so the gate has no opt-out by design:
+        # there is nothing interactive to skip, and reading the contract is
+        # cheaper than negotiating about it. Brainstorm remains advisory for
+        # genuinely unclear scope; it no longer gates anything.
+        GUIDE_MARKER="$PIPELINE_DIR/.guide-marker"
+        GUIDE_OK=false
+        if [ -f "$GUIDE_MARKER" ]; then
+            MARKER_TASK=$(cut -d'|' -f1 "$GUIDE_MARKER" 2>/dev/null)
+            if [ "$MARKER_TASK" = "$ARG" ]; then
+                GUIDE_OK=true
             fi
         fi
-
-        # v6.8.11 — --skip-brainstorm reason validation is UNCONDITIONAL too.
-        # Previously gated on CRITERIA_COUNT > 2 alongside the marker check;
-        # now both checks fire on every spec advance.
-        if [ "$SKIP_BRAINSTORM" = true ]; then
-            if [ -z "$SKIP_BRAINSTORM_REASON" ]; then
-                echo "BLOCKED: --skip-brainstorm requires explicit reason argument." >&2
-                echo "" >&2
-                echo "  Usage:" >&2
-                echo "    bash .claude/bin/apd pipeline spec \"$ARG\" --skip-brainstorm \"<concrete reason>\"" >&2
-                echo "" >&2
-                echo "  Reason MUST acknowledge BOTH:" >&2
-                echo "    1. Scope is pre-aligned (user approved design informally)" >&2
-                echo "    2. APD config decisions are explicit (max_defects, plan **Implements:**" >&2
-                echo "       on EVERY section, rationale .md format for adversarial findings)" >&2
-                echo "" >&2
-                echo "  Example reason:" >&2
-                echo "    \"Pre-aligned scope from informal brainstorm + max_defects=unlimited" >&2
-                echo "     + plan Implements format clear + rationale file ready for adversarial\"" >&2
-                echo "" >&2
-                echo "  Empty / shallow reason → load /apd-brainstorm skill instead (RECOMMENDED)." >&2
-                log_block "skip-brainstorm-missing-reason" "task=$ARG"
-                exit 1
-            fi
-            # Log skip event sa reason u audit trail (INFO level, ne BLOCK)
-            if [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ]; then
-                ts=$(date +"%Y-%m-%d %H:%M:%S")
-                # Sanitize reason (collapse newlines, truncate to ~200 chars)
-                _reason_sanitized="${SKIP_BRAINSTORM_REASON//$'\n'/ }"
-                _reason_sanitized="${_reason_sanitized:0:200}"
-                echo "${ts}|$(_audit_type INFO)|orchestrator|brainstorm-skipped|task=$ARG reason=${_reason_sanitized}" >> "$MEMORY_DIR/guard-audit.log"
-            fi
+        if [ "$GUIDE_OK" = false ]; then
+            echo "BLOCKED: Guide marker missing for spec advance ($CRITERIA_COUNT R-criteria declared)." >&2
+            echo "" >&2
+            echo "  /apd-pipeline-guide is the pipeline operating manual — MANDATORY on" >&2
+            echo "  every task, even when the scope is perfectly clear. It carries:" >&2
+            echo "    - the gate fired at each pipeline advance" >&2
+            echo "    - implementation plan **Implements:** header contract (EVERY section)" >&2
+            echo "    - adversarial rationale .md file contract" >&2
+            echo "    - common BLOCK shapes + recovery, and the state read path" >&2
+            echo "" >&2
+            echo "  Way forward (there is no skip flag):" >&2
+            echo "    Load /apd-pipeline-guide, walk through it, let it write" >&2
+            echo "    .guide-marker with task name \"$ARG\", then re-run:" >&2
+            echo "      bash $APD_SHORTCUT_DISPLAY pipeline spec \"$ARG\"" >&2
+            echo "" >&2
+            echo "  If the task scope is vague, load /apd-brainstorm FIRST (interactive" >&2
+            echo "  clarification), converge with the user, then load the guide." >&2
+            log_block "guide-marker-missing" "task=$ARG criteria=$CRITERIA_COUNT"
+            exit 1
         fi
 
         # v6.3 D — max_defects immutability across rollback+re-advance for same task.
@@ -456,7 +433,7 @@ case "$STEP" in
         # v6.3 audit fix: also wipe .builder-count / .reviewer-count so a new
         # task doesn't inherit cycle counts from a prior task (would block first
         # dispatch with a misleading "task X has hit its budget" message).
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.brainstorm-marker"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker"
         create_done "spec" "$ARG"
         # Freeze spec-card.md — hash for tamper detection
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
@@ -517,7 +494,7 @@ case "$STEP" in
             echo "" >&2
             echo "  Every R-criterion from spec-card.md must appear in at least one" >&2
             echo "  section's **Implements:** line. Apply fix, then re-run:" >&2
-            echo "    bash .claude/bin/apd pipeline builder" >&2
+            echo "    bash $APD_SHORTCUT_DISPLAY pipeline builder" >&2
             echo "" >&2
             echo "  Migration escape hatch (soft mode): add to spec-card.md:" >&2
             echo "    plan_consistency_gate: warn" >&2
@@ -1412,7 +1389,7 @@ EOF
         # .agents was already archived above (before metrics write).
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes" "$PIPELINE_DIR/.brainstorm-marker"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker"
         # Reset completed cleanly — drop the in-progress marker.
         rm -f "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
         echo "Pipeline reset. Ready for new task."
