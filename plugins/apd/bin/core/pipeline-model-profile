@@ -21,8 +21,8 @@
 # pretending. Refuses to run mid-pipeline (spec-card.md present) so run
 # attribution in telemetry stays clean. Records MODEL_PROFILE=<name> in the
 # project APD config and writes an INFO entry to guard-audit.log.
-# A CC session RESTART is required after switching — agent definitions load
-# at session start.
+# After switching, run /reload-plugins (or restart the CC session) — the
+# running session keeps the old models until agent definitions are reloaded.
 #
 # Exit codes: 0 ok, 1 usage/unknown profile, 2 refused (active pipeline / no CC agents)
 
@@ -287,6 +287,6 @@ fi
 
 ok "Profile '$PROFILE' applied: $CHANGED changed, $SKIPPED skipped, ${#AGENT_FILES[@]} total."
 echo ""
-echo "  ${Y}RESTART the CC session now${R} — agent definitions load at session start;"
-echo "  the running session keeps the OLD models until you restart."
+echo "  ${Y}Run /reload-plugins now${R} (or restart the CC session) — the running"
+echo "  session keeps the OLD models until agent definitions are reloaded."
 exit 0

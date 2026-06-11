@@ -108,6 +108,34 @@ See [Getting Started](GETTING-STARTED.md) for both walkthroughs.
 | **Adversarial Reviewer** | sonnet | max | Context-free review — no spec knowledge, fresh perspective |
 | **Verifier** | — | — | Script: build + test + spec traceability check |
 
+Model and effort per agent are per-project settings — and since v6.16 they are switchable as named profiles.
+
+## Model profiles — economy vs quality
+
+The model raises the average. APD guarantees the floor. The profile chooses what the average costs.
+
+One command switches every pipeline agent's model/effort between named profiles:
+
+| Profile | Builders / Reviewer | Adversarial | When |
+|---------|--------------------|-------------|------|
+| `burn` | claude-fable-5 / high | opus / max | Launch-critical features — maximum quality, cost ignored |
+| `cruise` | opus / xhigh | sonnet / max | Daily default — strong builders, balanced cost |
+| `eco` | sonnet / xhigh | sonnet / max | Small, well-scoped tasks, copy fixes, Lean runs |
+
+```bash
+apd profile list              # profiles + role mappings
+apd profile status            # current agents vs declared profile (flags drift)
+apd profile cruise            # apply, then /reload-plugins
+```
+
+Or just run `/apd-profile` and pick.
+
+Design notes baked into the defaults:
+
+- **Builders carry the tier** — they hold the context, so they get the strongest model the profile pays for. The **adversarial reviewer may sit one tier below**: its value is positional (fresh, context-free perspective), not model-tier.
+- **Every switch is recorded** (`MODEL_PROFILE` in the APD config + an audit-log entry), so each pipeline run carries model attribution — economy vs quality becomes a measurable trade-off, not a feeling.
+- **Profiles are data, never enforcement.** The mapping lives in `model-profiles.conf` (per-project override supported); new model generations are a one-line table edit. No profile can loosen a gate or guard — the quality floor is not for sale, only the average is.
+
 ## Pipeline flow
 
 <p align="center">

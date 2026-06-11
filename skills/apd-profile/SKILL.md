@@ -1,8 +1,8 @@
 ---
 name: apd-profile
-description: Switch the model/effort profile of the project's APD pipeline agents — the economy vs quality dial. Use when the user asks to change agent models, switch to a cheaper or stronger profile, mentions "burn", "cruise", "eco", "model profile", "prebaci profil", "jaci/jeftiniji modeli", or before a launch-critical task (burn) / batch of small fixes (eco). Presents available profiles, applies the chosen one to .claude/agents frontmatter, and reminds the user that a session restart is required.
+description: Switch the model/effort profile of the project's APD pipeline agents — the economy vs quality dial. Use when the user asks to change agent models, switch to a cheaper or stronger profile, mentions "burn", "cruise", "eco", "model profile", "prebaci profil", "jaci/jeftiniji modeli", or before a launch-critical task (burn) / batch of small fixes (eco). Presents available profiles, applies the chosen one to .claude/agents frontmatter, then runs /reload-plugins so the new models take effect in the current session.
 effort: low
-allowed-tools: Bash AskUserQuestion
+allowed-tools: Bash AskUserQuestion SlashCommand
 ---
 
 # APD Model Profile
@@ -60,14 +60,15 @@ Profiles are data, not code: defaults ship in the plugin
    names are never touched), records `MODEL_PROFILE=<name>` in the APD config,
    and writes an INFO entry to guard-audit.log.
 
-5. **Tell the user to restart the CC session.** Agent definitions load at
-   session start — the running session keeps the old models. Do not claim the
-   change is live before restart.
+5. **Run `/reload-plugins`.** The running session keeps the old models until
+   agent definitions are reloaded — `/reload-plugins` is sufficient (verified
+   live), a full session restart also works. Do not claim the change is live
+   before one of the two happened.
 
 ## Exit criteria
 
-- Profile applied (script reported "applied: N changed") and the user was
-  explicitly told a session restart is required.
+- Profile applied (script reported "applied: N changed") and `/reload-plugins`
+  was run (or the user was told to restart the session).
 - Or: script refused (active pipeline / unknown profile) and you relayed the
   reason verbatim instead of working around it.
 
@@ -77,5 +78,5 @@ Profiles are data, not code: defaults ship in the plugin
 |---|---|
 | Hand-edit `model:` across agents to "switch profile" | Run `apd profile <name>` — config + audit trail stay consistent |
 | Switch profiles while a pipeline task is active | Finish (commit) or reset first — mid-run swap pollutes the run's model attribution |
-| Claim the new models are active immediately | Session restart is mandatory; say so every time |
+| Claim the new models are active immediately after apply | Run `/reload-plugins` first (or session restart) — only then are the new models live |
 | Invent profile names or model IDs | Only offer what `apd profile list` prints; new mappings belong in model-profiles.conf |
