@@ -1,5 +1,27 @@
 # Changelog
 
+## v6.16.0 — 2026-06-11
+
+Agent model profiles — an economy vs quality dial for the pipeline. One command switches every agent's `model:`/`effort:` between named profiles, and every switch is recorded so pipeline runs finally carry model attribution. New subcommand + skill = minor. Enforcement floor untouched (pure config/telemetry layer).
+
+### `apd profile` — model profiles for pipeline agents
+
+**Why:** model per agent was hand-edited frontmatter scattered across N files, and the empirical corpus (Opus 4.8 era) had a known gap — "model version is not logged per run", which kept the speed/quality delta evidence at n=1. Profiles make the switch mechanical and the attribution automatic.
+
+- **feat(templates/model-profiles.conf):** profiles are DATA, not code. Ships `burn` (launch-critical: `claude-fable-5`/high, adversarial `opus`/max), `cruise` (daily default: `opus`/xhigh, adversarial `sonnet`/max), `eco` (small pre-scoped work: `sonnet`/xhigh, adversarial `sonnet`/max). A project may override the whole table via `.apd/model-profiles.conf`. Design rule encoded in the defaults: builders carry the tier (context-heavy), the adversarial reviewer may sit one tier BELOW — its value is positional (fresh context), not model-tier.
+- **feat(pipeline-model-profile):** new `apd profile` / `apd pf` — `list`, `status`, `<name> [--dry-run]`. Role resolution by agent file name: `adversarial-reviewer` → adversarial row, `code-reviewer` → reviewer row (falls back to default), `apd-verify-*` reserved namespace never touched, everything else → default (builder class). Rewrites `model:` + `effort:` in the first frontmatter block only (inserts `effort:` when absent; body untouched).
+- **Telemetry:** apply records `MODEL_PROFILE=<name>` in the APD config and writes a `model-profile-switch` INFO entry to guard-audit.log (routed through `_audit_type`, so `apd verify` self-tests tag SYNTHETIC). Runs between two switches are attributable to a profile.
+- **Refuses mid-pipeline:** active `spec-card.md` → exit 2. A mid-task model swap would pollute the run's model attribution and change agents under a running cycle.
+- **Drift detection:** `apd profile status` compares actual frontmatter against the declared profile and flags hand-edited agents as DRIFTED.
+- **feat(skills/apd-profile):** new CC-only skill — shows status + profiles, asks the user to pick, applies, and mandates the session-restart reminder (agent definitions load at session start; no hot-reload claim).
+- **CC-only v1:** Codex `.codex/agents/*.toml` (gpt-* model namespace) are explicitly unsupported with a clear message — no silent pretending (v6.12.2 lesson). Deferred to v2: Codex support, per-profile maxTurns (waits for the Phase 2 maxTurns calibration), pipeline-metrics column.
+
+### Tests
+
+- **test(test-codex-adapter §83) +14 assertions:** 5 static (script, conf rows, dispatcher wire, skill, SPEC) + 9 live (role split on apply, effort insert + body preservation, reserved-namespace skip, config + audit entry, status IN SYNC, hand-edit DRIFTED, mid-pipeline refuse exit 2, unknown-profile exit 1 + dry-run writes nothing, project override wins). **665 → 679 PASS / 0 FAIL.**
+
+**Migration:** zero impact — nothing changes until you run `apd profile <name>`. After a switch, restart the CC session.
+
 ## v6.15.0 — 2026-06-10
 
 The brainstorm/tutor split: a new mandatory `apd-pipeline-guide` skill takes over the pipeline-contract education that v6.8.4 had bolted onto `apd-brainstorm`, and the spec gate moves to its marker — unconditionally, with no skip flag. Plus a three-way guard message for pipeline-state blocks and a batch of pre-release audit fixes. New skill + gate swap = minor.

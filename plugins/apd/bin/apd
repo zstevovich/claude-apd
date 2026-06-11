@@ -62,6 +62,9 @@ case "$CMD" in
     audit-drift|drift)
         exec bash "$CORE_DIR/pipeline-audit-drift" "$@"
         ;;
+    profile|pf)
+        exec bash "$CORE_DIR/pipeline-model-profile" "$@"
+        ;;
     test)
         exec bash "$CORE_DIR/test-hooks" "$@"
         ;;
@@ -185,6 +188,7 @@ case "$CMD" in
         echo "    stack             Detect supported stacks in repo (--json for machine output)"
         echo "    scaffold <stack>  Generate stack-specific agents + skills (--list-stacks, --dry-run, --force)"
         echo "    audit-drift       Detect drift vs framework baseline (settings/version/workflow)"
+        echo "    profile [name]    Switch agent model profile — economy vs quality (list|status|<name> [--dry-run])"
         echo "    test              Quick static hook test"
         echo "    toggle [on|off]   Toggle claude-apd in CC settings (smart-detection)"
         echo "    cdx <sub>         Codex runtime adapter (init|test) — see 'apd cdx help'"

@@ -8545,6 +8545,178 @@ else
 fi
 
 # -----------------------------------------------------------
+section "83. model profiles (apd profile) — economy vs quality dial"
+# -----------------------------------------------------------
+MP_SCRIPT="$APD_PLUGIN_ROOT/bin/core/pipeline-model-profile"
+MP_CONF="$APD_PLUGIN_ROOT/templates/model-profiles.conf"
+MP_DISPATCHER="$APD_PLUGIN_ROOT/bin/apd"
+MP_SKILL="$APD_PLUGIN_ROOT/../../skills/apd-profile/SKILL.md"
+MP_SPEC="$APD_PLUGIN_ROOT/../../docs/SPEC.md"
+
+# Static A: script exists and is executable
+if [ -x "$MP_SCRIPT" ]; then
+    pass "pipeline-model-profile exists and is executable"
+    PASSES=$((PASSES + 1))
+else
+    fail "pipeline-model-profile missing or not executable"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: conf ships 3 profiles, each with default + adversarial rows
+MP_OK=true
+for p in burn cruise eco; do
+    grep -qE "^$p\|default\|" "$MP_CONF" 2>/dev/null || MP_OK=false
+    grep -qE "^$p\|adversarial\|" "$MP_CONF" 2>/dev/null || MP_OK=false
+done
+if [ "$MP_OK" = true ]; then
+    pass "model-profiles.conf ships burn/cruise/eco with default+adversarial rows"
+    PASSES=$((PASSES + 1))
+else
+    fail "model-profiles.conf missing a profile or role row"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: dispatcher wired (profile|pf)
+if grep -qE '^[[:space:]]*profile\|pf\)' "$MP_DISPATCHER"; then
+    pass "apd dispatcher routes profile|pf to pipeline-model-profile"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd dispatcher missing profile|pf case"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: CC skill exists with correct frontmatter name + restart mandate
+if [ -f "$MP_SKILL" ] && grep -q '^name: apd-profile' "$MP_SKILL" \
+   && grep -qi 'restart' "$MP_SKILL"; then
+    pass "apd-profile skill present (name + session-restart mandate)"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-profile skill missing, misnamed, or lacks restart mandate"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: SPEC.md documents the subcommand
+if grep -q 'pipeline-model-profile' "$MP_SPEC"; then
+    pass "SPEC.md documents apd profile"
+    PASSES=$((PASSES + 1))
+else
+    fail "SPEC.md missing apd profile entry"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup — synthetic CC project with builder + adversarial + reserved stub
+MP_PROJ="$(mktemp -d -t apd-mprof.XXXXXX)"
+mkdir -p "$MP_PROJ/.claude/agents" "$MP_PROJ/.claude/memory" "$MP_PROJ/.apd/pipeline"
+touch "$MP_PROJ/.apd/config"
+printf -- '---\nname: backend-x\nmodel: sonnet\neffort: xhigh\nmaxTurns: 60\n---\nbody model: untouched\n' > "$MP_PROJ/.claude/agents/backend-x.md"
+printf -- '---\nname: adversarial-reviewer\nmodel: sonnet\nmaxTurns: 80\n---\nbody\n' > "$MP_PROJ/.claude/agents/adversarial-reviewer.md"
+printf -- '---\nname: apd-verify-stub\nmodel: sonnet\n---\n' > "$MP_PROJ/.claude/agents/apd-verify-stub.md"
+
+# Live F: apply burn — builder gets default row, adversarial gets adversarial row
+APD_PROJECT_DIR="$MP_PROJ" bash "$MP_SCRIPT" burn >/dev/null 2>&1
+MP_B_MODEL=$(awk '/^model:/ {print $2; exit}' "$MP_PROJ/.claude/agents/backend-x.md")
+MP_A_MODEL=$(awk '/^model:/ {print $2; exit}' "$MP_PROJ/.claude/agents/adversarial-reviewer.md")
+if [ "$MP_B_MODEL" = "claude-fable-5" ] && [ "$MP_A_MODEL" = "opus" ]; then
+    pass "apply burn: builder→claude-fable-5, adversarial→opus (role split)"
+    PASSES=$((PASSES + 1))
+else
+    fail "apply burn wrong models: builder=$MP_B_MODEL adversarial=$MP_A_MODEL"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live G: effort inserted when absent + body line untouched
+if grep -q '^effort: max' "$MP_PROJ/.claude/agents/adversarial-reviewer.md" \
+   && grep -q '^body model: untouched' "$MP_PROJ/.claude/agents/backend-x.md"; then
+    pass "effort inserted when missing; body content untouched"
+    PASSES=$((PASSES + 1))
+else
+    fail "effort insert or body preservation broken"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live H: reserved apd-verify-* namespace never touched
+if grep -q '^model: sonnet' "$MP_PROJ/.claude/agents/apd-verify-stub.md"; then
+    pass "apd-verify-* reserved namespace skipped"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-verify-* agent was modified by profile apply"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live I: MODEL_PROFILE declared in config + INFO audit entry written
+if grep -q '^MODEL_PROFILE=burn' "$MP_PROJ/.apd/config" \
+   && grep -q '|INFO|orchestrator|model-profile-switch|profile=burn' "$MP_PROJ/.claude/memory/guard-audit.log"; then
+    pass "config declares MODEL_PROFILE + guard-audit INFO entry written"
+    PASSES=$((PASSES + 1))
+else
+    fail "missing MODEL_PROFILE declaration or audit INFO entry"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live J: status reports IN SYNC for declared profile
+MP_STATUS=$(APD_PROJECT_DIR="$MP_PROJ" bash "$MP_SCRIPT" status 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+if echo "$MP_STATUS" | grep -q "IN SYNC with profile 'burn'"; then
+    pass "status: agents IN SYNC with declared profile"
+    PASSES=$((PASSES + 1))
+else
+    fail "status did not report IN SYNC: $MP_STATUS"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live K: status flags hand-edited drift
+sed 's/^model: claude-fable-5/model: haiku/' "$MP_PROJ/.claude/agents/backend-x.md" > "$MP_PROJ/.claude/agents/backend-x.md.tmp" \
+    && mv "$MP_PROJ/.claude/agents/backend-x.md.tmp" "$MP_PROJ/.claude/agents/backend-x.md"
+MP_STATUS2=$(APD_PROJECT_DIR="$MP_PROJ" bash "$MP_SCRIPT" status 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+if echo "$MP_STATUS2" | grep -q "DRIFTED from declared profile 'burn'"; then
+    pass "status: hand-edited agent flagged as DRIFTED"
+    PASSES=$((PASSES + 1))
+else
+    fail "status missed drifted agent: $MP_STATUS2"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live L: mid-pipeline switch refused (exit 2), agents unchanged
+touch "$MP_PROJ/.apd/pipeline/spec-card.md"
+APD_PROJECT_DIR="$MP_PROJ" bash "$MP_SCRIPT" cruise >/dev/null 2>&1
+MP_RC=$?
+MP_B_MODEL2=$(awk '/^model:/ {print $2; exit}' "$MP_PROJ/.claude/agents/backend-x.md")
+if [ "$MP_RC" -eq 2 ] && [ "$MP_B_MODEL2" = "haiku" ]; then
+    pass "mid-pipeline switch refused (exit 2, agents untouched)"
+    PASSES=$((PASSES + 1))
+else
+    fail "mid-pipeline refuse broken: rc=$MP_RC model=$MP_B_MODEL2"
+    FAILS=$((FAILS + 1))
+fi
+rm -f "$MP_PROJ/.apd/pipeline/spec-card.md"
+
+# Live M: unknown profile exits 1; dry-run writes nothing
+APD_PROJECT_DIR="$MP_PROJ" bash "$MP_SCRIPT" turbo >/dev/null 2>&1
+MP_RC_U=$?
+APD_PROJECT_DIR="$MP_PROJ" bash "$MP_SCRIPT" eco --dry-run >/dev/null 2>&1
+MP_B_MODEL3=$(awk '/^model:/ {print $2; exit}' "$MP_PROJ/.claude/agents/backend-x.md")
+if [ "$MP_RC_U" -eq 1 ] && [ "$MP_B_MODEL3" = "haiku" ]; then
+    pass "unknown profile exit 1; --dry-run writes nothing"
+    PASSES=$((PASSES + 1))
+else
+    fail "unknown-profile/dry-run contract broken: rc=$MP_RC_U model=$MP_B_MODEL3"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live N: project override conf wins over plugin default
+printf 'custom|default|haiku|low\ncustom|adversarial|haiku|low\n' > "$MP_PROJ/.apd/model-profiles.conf"
+MP_LIST=$(APD_PROJECT_DIR="$MP_PROJ" bash "$MP_SCRIPT" list 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+if echo "$MP_LIST" | grep -q 'custom' && echo "$MP_LIST" | grep -q 'project override' \
+   && ! echo "$MP_LIST" | grep -q 'burn'; then
+    pass "project .apd/model-profiles.conf overrides plugin defaults wholesale"
+    PASSES=$((PASSES + 1))
+else
+    fail "project override conf not honored: $MP_LIST"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$MP_PROJ"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

@@ -45,6 +45,7 @@ Top-level dispatcher routes by 1st arg. Resolves project root via `bin/lib/resol
 | `audit-drift` (v6.10) | `bin/core/pipeline-audit-drift` | Drift detection across 3 dimensions (settings.json deny patterns, .apd-config APD_VERSION, workflow.md content markers). Invoked from `/apd-audit` skill Section 8. Exit 1 on IMPORTANT/CRITICAL findings, 0 on INFO-only/CLEAN. |
 | `stack` / `st` (v6.11) | `bin/core/pipeline-stack-detect` | Read-only stack detection across 7+ categories (.NET, PHP/Symfony, Node Next/Vite/React, KMP/Compose, Android, Python Django/FastAPI). Multi-stack monorepos supported. Flags: `--json` (machine output), `--strict` (exit 1 if zero stacks). Foundation for v6.12 stack-aware template scaffolding. |
 | `scaffold` / `sc` (v6.12) | `bin/core/pipeline-stack-scaffold` | Stack-aware template scaffolding — copies `templates/stack/<stack>/{agents,skills}/` into project `.claude/{agents,skills}/` with placeholder substitution. Additive default (skip existing); `--force` overwrites with `.bak.preaudit` backup. Flags: `--list-stacks`, `--dry-run`, `--force`. Supported stacks v6.12: `dotnet`. Roadmap: `node-react`, `php-symfony`, `kmp-compose`, `python-django` (v6.13+). |
+| `profile` / `pf` (v6.16) | `bin/core/pipeline-model-profile` | Agent model/effort profile switch — economy vs quality dial. Profiles are data: `templates/model-profiles.conf` ships `burn`/`cruise`/`eco`; project override via `.apd/model-profiles.conf` (wins wholesale). Role classes by agent name: `adversarial-reviewer` → `adversarial`, `code-reviewer` → `reviewer` (falls back to `default`), `apd-verify-*` skipped (reserved), rest → `default`. Sub-commands: `list`, `status` (declared `MODEL_PROFILE` vs actual frontmatter, flags drift), `<name> [--dry-run]` (rewrites `model:`+`effort:` in first frontmatter block of `.claude/agents/*.md`, inserts `effort:` when absent). Records `MODEL_PROFILE=<name>` in APD config + `model-profile-switch` INFO entry in guard-audit.log (routed through `_audit_type`). REFUSES mid-pipeline (spec-card.md present, exit 2) to keep per-run model attribution clean. CC-only v1 — Codex `.toml` (gpt-* namespace) explicitly unsupported with a clear message. Session restart required after switch (agents load at session start). Exit: 0 ok, 1 usage/unknown profile, 2 refused. |
 | `gh` / `github` | `bin/core/gh-sync` | GitHub Issues sync (best-effort, never blocks) |
 | `test` | `bin/core/test-hooks` | Static hook check |
 | `test-system` | `bin/core/test-system` | E2E synthetic pipeline smoke |
@@ -196,7 +197,7 @@ Server-side reads `scope: [...]` from agent's frontmatter. Caller-supplied `allo
 
 ## 7. Skills
 
-### 7.1 CC skills (`skills/`, 10 total)
+### 7.1 CC skills (`skills/`, 11 total)
 
 | Skill | Trigger | Phase |
 |---|---|---|
@@ -210,10 +211,11 @@ Server-side reads `scope: [...]` from agent's frontmatter. Caller-supplied `allo
 | `apd-github` | GitHub Projects integration | Anytime |
 | `apd-miro` | Miro dashboard sync | Anytime |
 | `apd-toggle` | **v6.7.5:** Toggle `claude-apd@zstevovich-plugins` in CC settings; wraps `apd toggle` + invokes `/reload-plugins` for in-session pickup | Anytime |
+| `apd-profile` | **v6.16:** Model profile switch (economy vs quality) — wraps `apd profile list/status/<name>`, AskUserQuestion pick, mandates session restart reminder | Anytime (not mid-pipeline) |
 
 ### 7.2 Codex skills (`plugins/apd/skills/`, 8 total)
 
-`apd-pipeline-guide` (v6.15), `apd-brainstorm`, `apd-tdd`, `apd-debug`, `apd-finish`, `apd-audit`, `apd-github`, `apd-miro`. Each: `SKILL.md` (markdown body) + `agents/openai.yaml` (Codex skill manifest). `apd-setup` remains CC-only — Codex uses the `apd cdx init` CLI.
+`apd-pipeline-guide` (v6.15), `apd-brainstorm`, `apd-tdd`, `apd-debug`, `apd-finish`, `apd-audit`, `apd-github`, `apd-miro`. Each: `SKILL.md` (markdown body) + `agents/openai.yaml` (Codex skill manifest). `apd-setup`, `apd-toggle` and `apd-profile` (v6.16) remain CC-only — Codex uses the `apd cdx init` CLI; model profiles target CC agent frontmatter only.
 
 ### 7.3 Skill evals (`plugins/apd/evals/`, 27 scenarios)
 

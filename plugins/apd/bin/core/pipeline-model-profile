@@ -1,0 +1,292 @@
+#!/bin/bash
+# APD Model Profile — switch model/effort across the project's CC pipeline agents.
+#
+# Profiles are DATA, not code: plugins/apd/templates/model-profiles.conf ships
+# the defaults (burn / cruise / eco); a project may override the whole table
+# via <project>/.apd/model-profiles.conf. Each profile maps role classes to a
+# (model, effort) pair. Role resolution by agent file name:
+#   adversarial-reviewer  -> adversarial
+#   code-reviewer         -> reviewer (falls back to default when no row)
+#   apd-verify-*          -> skipped (reserved namespace, never touched)
+#   everything else       -> default (builder class)
+#
+# Usage:
+#   pipeline-model-profile list              show profiles + role mappings
+#   pipeline-model-profile status            current agent models vs declared profile
+#   pipeline-model-profile <name>            apply profile to .claude/agents/*.md
+#   pipeline-model-profile <name> --dry-run  show what would change, write nothing
+#
+# CC-only in v1 — Codex .codex/agents/*.toml use a different model namespace
+# (gpt-*) and are NOT touched; the script says so explicitly instead of
+# pretending. Refuses to run mid-pipeline (spec-card.md present) so run
+# attribution in telemetry stays clean. Records MODEL_PROFILE=<name> in the
+# project APD config and writes an INFO entry to guard-audit.log.
+# A CC session RESTART is required after switching — agent definitions load
+# at session start.
+#
+# Exit codes: 0 ok, 1 usage/unknown profile, 2 refused (active pipeline / no CC agents)
+
+set -u
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+
+PROFILES_FILE="$APD_PLUGIN_ROOT/templates/model-profiles.conf"
+PROJECT_PROFILES="$PROJECT_DIR/.apd/model-profiles.conf"
+[ -f "$PROJECT_PROFILES" ] && PROFILES_FILE="$PROJECT_PROFILES"
+
+# --- Arg parsing ---
+ACTION=""
+PROFILE=""
+DRY_RUN=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=true ;;
+        --help|-h)
+            sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        list|--list) ACTION="list" ;;
+        status|--status) ACTION="status" ;;
+        *)
+            if [ -z "$PROFILE" ]; then
+                PROFILE="$arg"
+            else
+                echo "Unknown argument: $arg" >&2
+                exit 1
+            fi
+            ;;
+    esac
+done
+
+[ -z "$ACTION" ] && [ -n "$PROFILE" ] && ACTION="apply"
+if [ -z "$ACTION" ]; then
+    sed -n '13,17p' "$0" | sed 's/^# \{0,1\}//' >&2
+    exit 1
+fi
+
+# --- Conf helpers ---
+
+_rows() {
+    grep -vE '^[[:space:]]*(#|$)' "$PROFILES_FILE" 2>/dev/null
+}
+
+_known_profiles() {
+    _rows | cut -d'|' -f1 | sort -u
+}
+
+# _lookup <profile> <role> -> "model|effort" (empty when no row)
+_lookup() {
+    _rows | awk -F'|' -v p="$1" -v r="$2" '$1==p && $2==r { print $3 "|" $4; exit }'
+}
+
+# _role_for <agent-basename> -> role class
+_role_for() {
+    case "$1" in
+        adversarial-reviewer) echo "adversarial" ;;
+        code-reviewer)        echo "reviewer" ;;
+        *)                    echo "default" ;;
+    esac
+}
+
+# _target_for <profile> <agent-basename> -> "model|effort" with role fallback
+_target_for() {
+    local row role
+    role=$(_role_for "$2")
+    row=$(_lookup "$1" "$role")
+    [ -z "$row" ] && row=$(_lookup "$1" "default")
+    echo "$row"
+}
+
+_declared_profile() {
+    [ -n "${APD_CONFIG_FILE:-}" ] && [ -f "$APD_CONFIG_FILE" ] \
+        && grep '^MODEL_PROFILE=' "$APD_CONFIG_FILE" 2>/dev/null | head -1 | cut -d'=' -f2
+}
+
+# Frontmatter readers — first YAML block only
+_fm_field() { # <file> <field>
+    awk -v f="$2" '
+        /^---[[:space:]]*$/ { fm++; if (fm==2) exit; next }
+        fm==1 && $0 ~ "^" f ":" { sub("^" f ":[[:space:]]*", ""); print; exit }
+    ' "$1"
+}
+
+# --- list ---
+
+if [ "$ACTION" = "list" ]; then
+    apd_header "Model profiles"
+    echo ""
+    SRC_LABEL="plugin default"
+    [ "$PROFILES_FILE" = "$PROJECT_PROFILES" ] && SRC_LABEL="project override"
+    echo "  Source: ${PROFILES_FILE} (${SRC_LABEL})"
+    echo ""
+    for p in $(_known_profiles); do
+        echo "  ${V}${p}${R}"
+        _rows | awk -F'|' -v p="$p" '$1==p { printf "    %-12s %-18s effort=%s\n", $2, $3, $4 }'
+        echo ""
+    done
+    echo "  Apply: apd profile <name>    Inspect: apd profile status"
+    exit 0
+fi
+
+# --- Common preconditions for status/apply ---
+
+AGENTS_DIR="$APD_AGENTS_DIR"
+case "$AGENTS_DIR" in
+    */.claude/agents) : ;;
+    *)
+        err "No CC agents directory (resolved: $AGENTS_DIR)."
+        if ls "$PROJECT_DIR/.codex/agents/"*.toml >/dev/null 2>&1; then
+            echo "  Codex agents (.codex/agents/*.toml, gpt-* model namespace) are NOT" >&2
+            echo "  supported by model profiles in this version." >&2
+        fi
+        exit 2
+        ;;
+esac
+
+AGENT_FILES=()
+for f in "$AGENTS_DIR"/*.md; do
+    [ -f "$f" ] || continue
+    case "$(basename "$f" .md)" in
+        apd-verify-*) continue ;;  # reserved namespace (verify-apd Section 8)
+    esac
+    AGENT_FILES+=("$f")
+done
+
+if [ "${#AGENT_FILES[@]}" -eq 0 ]; then
+    err "No agent files in $AGENTS_DIR — nothing to profile."
+    exit 2
+fi
+
+# --- status ---
+
+if [ "$ACTION" = "status" ]; then
+    DECLARED=$(_declared_profile)
+    apd_header "Model profile status"
+    echo ""
+    if [ -n "$DECLARED" ]; then
+        echo "  Declared profile: ${V}${DECLARED}${R} (MODEL_PROFILE in APD config)"
+    else
+        echo "  Declared profile: ${D}none${R} (no MODEL_PROFILE in APD config)"
+    fi
+    echo ""
+    MISMATCH=0
+    for f in "${AGENT_FILES[@]}"; do
+        name=$(basename "$f" .md)
+        cur_m=$(_fm_field "$f" model)
+        cur_e=$(_fm_field "$f" effort)
+        line=$(printf "  %-24s model=%-18s effort=%s" "$name" "${cur_m:-<missing>}" "${cur_e:-<missing>}")
+        if [ -n "$DECLARED" ]; then
+            target=$(_target_for "$DECLARED" "$name")
+            want_m="${target%%|*}"; want_e="${target##*|}"
+            if [ -n "$target" ] && { [ "$cur_m" != "$want_m" ] || [ "$cur_e" != "$want_e" ]; }; then
+                line="$line  ${Y}≠ ${DECLARED} (${want_m}/${want_e})${R}"
+                MISMATCH=$((MISMATCH + 1))
+            fi
+        fi
+        echo "$line"
+    done
+    echo ""
+    if [ -n "$DECLARED" ]; then
+        if [ "$MISMATCH" -eq 0 ]; then
+            ok "All ${#AGENT_FILES[@]} agent(s) IN SYNC with profile '$DECLARED'"
+        else
+            warn "$MISMATCH agent(s) DRIFTED from declared profile '$DECLARED' — re-apply: apd profile $DECLARED"
+        fi
+    fi
+    exit 0
+fi
+
+# --- apply ---
+
+if ! _known_profiles | grep -qx "$PROFILE"; then
+    err "Unknown profile: '$PROFILE'"
+    echo "  Known profiles: $(_known_profiles | tr '\n' ' ')" >&2
+    echo "  Inspect: apd profile list" >&2
+    exit 1
+fi
+
+# Refuse mid-pipeline — a model swap during an active task would pollute the
+# run's model attribution (telemetry) and change agents under a running cycle.
+if [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+    apd_blocked "Active pipeline detected ($PIPELINE_DIR/spec-card.md exists)."
+    echo "  Finish the task (commit) or reset first, then switch profiles:" >&2
+    echo "    apd pipeline status" >&2
+    exit 2
+fi
+
+# _apply_agent <file> <model> <effort> — rewrite first frontmatter block
+_apply_agent() {
+    local file="$1" model="$2" effort="$3" tmp="$1.apdtmp"
+    local add_e=0
+    [ -z "$(_fm_field "$file" effort)" ] && add_e=1
+    awk -v m="$model" -v e="$effort" -v add_e="$add_e" '
+        /^---[[:space:]]*$/ { fm++; print; next }
+        fm==1 && /^model:/ {
+            print "model: " m
+            if (add_e == 1) print "effort: " e
+            next
+        }
+        fm==1 && /^effort:/ { print "effort: " e; next }
+        { print }
+    ' "$file" > "$tmp" && mv "$tmp" "$file"
+}
+
+apd_header "Model profile: $PROFILE"
+echo ""
+CHANGED=0
+SKIPPED=0
+for f in "${AGENT_FILES[@]}"; do
+    name=$(basename "$f" .md)
+    target=$(_target_for "$PROFILE" "$name")
+    want_m="${target%%|*}"; want_e="${target##*|}"
+    cur_m=$(_fm_field "$f" model)
+    cur_e=$(_fm_field "$f" effort)
+    if [ -z "$cur_m" ]; then
+        warn "$name: no 'model:' in frontmatter — skipped (fix the agent file first)"
+        SKIPPED=$((SKIPPED + 1))
+        continue
+    fi
+    if [ "$cur_m" = "$want_m" ] && [ "$cur_e" = "$want_e" ]; then
+        echo "  ${D}=${R} $name already ${want_m}/${want_e}"
+        continue
+    fi
+    if [ "$DRY_RUN" = true ]; then
+        echo "  ${Y}~${R} $name: ${cur_m:-?}/${cur_e:-?} -> ${want_m}/${want_e} (dry-run)"
+        CHANGED=$((CHANGED + 1))
+        continue
+    fi
+    _apply_agent "$f" "$want_m" "$want_e"
+    echo "  ${G}✓${R} $name: ${cur_m:-?}/${cur_e:-?} -> ${want_m}/${want_e}"
+    CHANGED=$((CHANGED + 1))
+done
+
+echo ""
+if [ "$DRY_RUN" = true ]; then
+    ok "Dry-run: $CHANGED agent(s) would change, nothing written."
+    exit 0
+fi
+
+# Record declared profile in the project APD config
+if [ -n "${APD_CONFIG_FILE:-}" ] && [ -f "$APD_CONFIG_FILE" ]; then
+    if grep -q '^MODEL_PROFILE=' "$APD_CONFIG_FILE"; then
+        awk -v p="$PROFILE" '/^MODEL_PROFILE=/ { print "MODEL_PROFILE=" p; next } { print }' \
+            "$APD_CONFIG_FILE" > "$APD_CONFIG_FILE.apdtmp" && mv "$APD_CONFIG_FILE.apdtmp" "$APD_CONFIG_FILE"
+    else
+        echo "MODEL_PROFILE=$PROFILE" >> "$APD_CONFIG_FILE"
+    fi
+else
+    warn "No APD config file found — profile applied but not declared (status can't detect drift)."
+fi
+
+# Audit trail — INFO event, same channel as brainstorm-skipped (v6.8.8 pattern)
+if [ -d "${MEMORY_DIR:-}" ]; then
+    echo "$(date +"%Y-%m-%d %H:%M:%S")|$(_audit_type INFO)|orchestrator|model-profile-switch|profile=$PROFILE changed=$CHANGED skipped=$SKIPPED" >> "$MEMORY_DIR/guard-audit.log"
+fi
+
+ok "Profile '$PROFILE' applied: $CHANGED changed, $SKIPPED skipped, ${#AGENT_FILES[@]} total."
+echo ""
+echo "  ${Y}RESTART the CC session now${R} — agent definitions load at session start;"
+echo "  the running session keeps the OLD models until you restart."
+exit 0
