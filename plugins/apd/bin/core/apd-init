@@ -291,10 +291,33 @@ if [ "$MODE" = "update" ]; then
     echo "  Stack:   $STACK"
     echo ""
 
+    # --- .apd-config APD_VERSION sync (v6.16.1) ---
+    # The repair path historically wrote APD_VERSION only at scaffold time, so
+    # upgraded projects carried stale versions forever and audit-drift dimension
+    # B pointed at a recovery (re-run init/setup) that did not actually fix it.
+    CFG_VER=$(grep '^APD_VERSION=' "$APD_CONFIG_FILE" 2>/dev/null | cut -d= -f2-)
+    if [ -n "$APD_VER" ] && [ "$APD_VER" != "0.0.0" ] && [ "$CFG_VER" != "$APD_VER" ]; then
+        if grep -q '^APD_VERSION=' "$APD_CONFIG_FILE" 2>/dev/null; then
+            awk -v v="$APD_VER" '/^APD_VERSION=/ { print "APD_VERSION=" v; next } { print }' \
+                "$APD_CONFIG_FILE" > "$APD_CONFIG_FILE.apdtmp" && mv "$APD_CONFIG_FILE.apdtmp" "$APD_CONFIG_FILE"
+        else
+            echo "APD_VERSION=$APD_VER" >> "$APD_CONFIG_FILE"
+        fi
+        fix ".apd-config: APD_VERSION ${CFG_VER:-none} → $APD_VER"
+        FIXES=$((FIXES + 1))
+    fi
+
+    # Model profile (v6.16) owns agent model/effort when declared — the
+    # hardcoded model repairs below must not fight `apd profile` (session-start
+    # runs this script every session and would silently revert burn/eco).
+    DECLARED_PROFILE=$(grep '^MODEL_PROFILE=' "$APD_CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
+
     # --- code-reviewer agent ---
     if [ -f "$CLAUDE_DIR/agents/code-reviewer.md" ]; then
-        # Check model
-        if grep -q 'model: opus' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null; then
+        # Check model (skipped when a model profile is declared — profile owns it)
+        if [ -n "$DECLARED_PROFILE" ]; then
+            ok "code-reviewer (model managed by profile '$DECLARED_PROFILE')"
+        elif grep -q 'model: opus' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null; then
             ok "code-reviewer (opus/max)"
         else
             sed -i.bak 's/model:.*/model: opus/' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null && rm -f "$CLAUDE_DIR/agents/code-reviewer.md.bak"
@@ -319,7 +342,15 @@ if [ "$MODE" = "update" ]; then
 
     # --- adversarial-reviewer agent (optional but recommended) ---
     if [ -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ]; then
-        if grep -q 'model: sonnet' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null && grep -q 'memory: none' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null; then
+        if [ -n "$DECLARED_PROFILE" ]; then
+            # Profile owns the model; still surface a missing memory:none (positional
+            # independence contract) without touching the model line.
+            if grep -q 'memory: none' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null; then
+                ok "adversarial-reviewer (model managed by profile '$DECLARED_PROFILE', memory: none)"
+            else
+                warn "adversarial-reviewer: missing 'memory: none' (decontextualization contract)"
+            fi
+        elif grep -q 'model: sonnet' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null && grep -q 'memory: none' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null; then
             ok "adversarial-reviewer (sonnet/max, memory: none)"
         else
             sed -i.bak 's/model:.*/model: sonnet/' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null && rm -f "$CLAUDE_DIR/agents/adversarial-reviewer.md.bak"
@@ -412,10 +443,27 @@ maxTurns: $TARGET" "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
 
     # --- workflow.md ---
     if [ -f "$CLAUDE_DIR/rules/workflow.md" ]; then
-        # Check for outdated references
+        # Check for outdated references (paths) AND stale content markers.
+        # v6.16.1: path check alone left content-stale copies in place forever —
+        # audit-drift dimension C flagged them but the documented recovery
+        # (re-run init/setup) never refreshed. Marker list kept in sync with
+        # pipeline-audit-drift MARKERS.
+        WF_STALE_REASON=""
         if grep -q 'CLAUDE_PLUGIN_ROOT' "$CLAUDE_DIR/rules/workflow.md" 2>/dev/null || grep -qF '.claude/.pipeline' "$CLAUDE_DIR/rules/workflow.md" 2>/dev/null; then
+            WF_STALE_REASON="stale paths"
+        else
+            for wf_marker in "Implements:" "rationale gate" "DEPRECATED" "unconditional" "apd-pipeline-guide"; do
+                if grep -q "$wf_marker" "$APD_PLUGIN_ROOT/rules/workflow.md" 2>/dev/null \
+                   && ! grep -q "$wf_marker" "$CLAUDE_DIR/rules/workflow.md" 2>/dev/null; then
+                    WF_STALE_REASON="missing '$wf_marker' guidance"
+                    break
+                fi
+            done
+        fi
+        if [ -n "$WF_STALE_REASON" ]; then
+            [ -f "$CLAUDE_DIR/rules/workflow.md.bak.preaudit" ] || cp "$CLAUDE_DIR/rules/workflow.md" "$CLAUDE_DIR/rules/workflow.md.bak.preaudit"
             cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$CLAUDE_DIR/rules/workflow.md"
-            fix "workflow.md: updated (stale paths)"
+            fix "workflow.md: refreshed ($WF_STALE_REASON; backup: workflow.md.bak.preaudit)"
             FIXES=$((FIXES + 1))
         else
             ok "workflow.md"
@@ -508,9 +556,13 @@ sys.exit(1)
             FIXES=$((FIXES + 1))
         fi
 
-        # Permissions — auto-allow memory + pipeline writes + apd commands
+        # Permissions — auto-allow memory + pipeline writes + apd commands.
+        # v6.16.1: the probe must also include a DENY sentinel — pre-v6.16.1 it
+        # checked allow-side only, so projects that already had the allow entries
+        # (any pre-v6.10 install) never re-entered the merge and stayed at 4/8
+        # deny patterns forever ("re-run setup" recovery was a no-op for them).
         PERMS_MISSING=false
-        for perm in "Write(.apd/pipeline/spec-card.md)" "Bash(bash .claude/bin/apd *)" "Write(**/.apd/pipeline/spec-card.md)"; do
+        for perm in "Write(.apd/pipeline/spec-card.md)" "Bash(bash .claude/bin/apd *)" "Write(**/.apd/pipeline/spec-card.md)" "Bash(mkdir .apd/pipeline)"; do
             if ! grep -qF "$perm" "$CLAUDE_DIR/settings.json" 2>/dev/null; then
                 PERMS_MISSING=true
                 break

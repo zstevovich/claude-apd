@@ -1,5 +1,24 @@
 # Changelog
 
+## v6.16.1 — 2026-06-12
+
+Hot-fix: `apd init` update mode now actually repairs what `apd audit-drift` detects. Live trigger (FiscalFusionAI, 2026-06-12): after `init --quick` AND a `/apd-setup` re-run, all three drift findings persisted unchanged (APD_VERSION=4.7.8, 4/8 deny patterns, workflow.md with 0/5 guidance markers) — the documented recovery was structurally a no-op for existing projects.
+
+### `apd-init` update mode reconciles drift dimensions
+
+- **fix(permissions, dim A):** the merge probe checked three ALLOW patterns only — any pre-v6.10 install already had them, so the probe never re-entered the merge and projects stayed at 4/8 deny patterns forever (this retroactively explains the Bambi/Festico "4/8 after multiple re-inits" mystery: v6.10 fixed the LIST, not the CONDITION). The probe now includes a deny sentinel (`Bash(mkdir .apd/pipeline)`).
+- **fix(.apd-config, dim B):** `APD_VERSION` was written only at scaffold time. Update mode now syncs a stale value to the live plugin version (replace or append).
+- **fix(workflow.md, dim C):** refresh used to trigger only on stale PATHS (`CLAUDE_PLUGIN_ROOT`, `.claude/.pipeline`); content-stale copies (still instructing the removed `--skip-brainstorm`) were kept forever. Update mode now also refreshes when any of the five guidance markers is missing (same list as audit-drift dimension C, kept in sync), with a first-wins `workflow.md.bak.preaudit` backup.
+- **fix(model repairs × v6.16 profiles):** update mode force-reset code-reviewer→opus and adversarial→sonnet — and session-start runs init every session, so a `burn`/`eco` model profile would have been silently reverted on the next session start. When `MODEL_PROFILE` is declared, the model repairs are skipped (`apd profile` owns models); the adversarial `memory: none` contract still gets a warn.
+
+Net effect: the next session-start auto-heals all three drift dimensions on every stale project, and the drift Recovery text ("re-run init/setup") is now true. Idempotent — second run applies zero fixes.
+
+### Tests
+
+- **test(test-codex-adapter §84) +10 assertions:** 4 static + 6 live (version bump, 4→8 deny merge despite present allow entries, marker-driven workflow refresh + backup, legacy model repair without profile, no-revert with profile declared, idempotency). **679 → 689 PASS / 0 FAIL.**
+
+**Migration:** zero action — the repair runs automatically at next session start. Projects with a customized workflow.md get it refreshed; the original is preserved at `workflow.md.bak.preaudit`.
+
 ## v6.16.0 — 2026-06-11
 
 Agent model profiles — an economy vs quality dial for the pipeline. One command switches every agent's `model:`/`effort:` between named profiles, and every switch is recorded so pipeline runs finally carry model attribution. New subcommand + skill = minor. Enforcement floor untouched (pure config/telemetry layer).

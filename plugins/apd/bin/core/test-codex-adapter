@@ -8717,6 +8717,128 @@ fi
 rm -rf "$MP_PROJ"
 
 # -----------------------------------------------------------
+section "84. apd-init update mode reconciles drift dimensions (v6.16.1)"
+# -----------------------------------------------------------
+INIT_SCRIPT="$APD_PLUGIN_ROOT/bin/core/apd-init"
+
+# Static A: permissions probe includes the deny sentinel (FFAI bug — allow-only
+# probe never re-entered the merge on pre-v6.10 installs)
+if grep -q '"Bash(mkdir .apd/pipeline)"' "$INIT_SCRIPT"; then
+    pass "apd-init permissions probe includes deny sentinel"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-init permissions probe missing deny sentinel"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static B: APD_VERSION sync block in update mode
+if grep -q 'APD_VERSION ${CFG_VER:-none}' "$INIT_SCRIPT"; then
+    pass "apd-init update mode syncs stale APD_VERSION"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-init update mode missing APD_VERSION sync"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: workflow.md content-marker staleness check + backup
+if grep -q 'WF_STALE_REASON' "$INIT_SCRIPT" && grep -q 'workflow.md.bak.preaudit' "$INIT_SCRIPT" \
+   && grep -q '"apd-pipeline-guide"' "$INIT_SCRIPT"; then
+    pass "apd-init refreshes workflow.md on missing content markers (with backup)"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-init workflow.md marker refresh missing"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: model repairs respect a declared MODEL_PROFILE (v6.16 interplay)
+if grep -q 'DECLARED_PROFILE' "$INIT_SCRIPT" && grep -q "managed by profile" "$INIT_SCRIPT"; then
+    pass "apd-init model repairs skip when MODEL_PROFILE declared"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-init model repairs would fight apd profile"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup — synthetic stale project (FFAI shape: old config version, 4/8 deny
+# via allow-present probe bypass, marker-less workflow, off-model reviewer)
+IN_PROJ="$(mktemp -d -t apd-initfix.XXXXXX)"
+mkdir -p "$IN_PROJ/.claude/agents" "$IN_PROJ/.claude/rules" "$IN_PROJ/.claude/memory" "$IN_PROJ/.apd/pipeline"
+printf 'PROJECT_NAME=T\nAPD_VERSION=4.7.8\nSTACK=.NET\n' > "$IN_PROJ/.claude/.apd-config"
+python3 -c "
+import json
+s={'permissions':{'allow':['Write(.apd/pipeline/spec-card.md)','Bash(bash .claude/bin/apd *)','Write(**/.apd/pipeline/spec-card.md)'],'deny':['Bash(mkdir */.apd/pipeline/*)','Bash(mkdir -p */.apd/pipeline/*)','Bash(mkdir */.apd/pipeline)','Bash(mkdir -p */.apd/pipeline)']}}
+json.dump(s,open('$IN_PROJ/.claude/settings.json','w'),indent=2)"
+printf '# Workflow\nold content, no markers\n' > "$IN_PROJ/.claude/rules/workflow.md"
+printf -- '---\nname: code-reviewer\nmodel: haiku\neffort: low\n---\nreviewed-files\n' > "$IN_PROJ/.claude/agents/code-reviewer.md"
+APD_PROJECT_DIR="$IN_PROJ" bash "$INIT_SCRIPT" --quick >/dev/null 2>&1
+
+# Live E: config version bumped to live plugin version
+LIVE_VER=$(cat "$APD_PLUGIN_ROOT/VERSION" 2>/dev/null | tr -d '[:space:]')
+if grep -q "^APD_VERSION=$LIVE_VER" "$IN_PROJ/.claude/.apd-config"; then
+    pass "update mode bumped stale APD_VERSION to $LIVE_VER"
+    PASSES=$((PASSES + 1))
+else
+    fail "APD_VERSION not bumped: $(grep APD_VERSION "$IN_PROJ/.claude/.apd-config")"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live F: deny patterns merged to 8 despite allow entries already present
+IN_DENY=$(python3 -c "
+import json; d=json.load(open('$IN_PROJ/.claude/settings.json'))
+print(len([p for p in d['permissions']['deny'] if 'mkdir' in p]))")
+if [ "$IN_DENY" = "8" ]; then
+    pass "deny patterns merged 4 -> 8 (probe re-entered via sentinel)"
+    PASSES=$((PASSES + 1))
+else
+    fail "deny patterns not merged: $IN_DENY/8"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live G: workflow.md refreshed (markers present) + backup preserved
+if grep -q 'apd-pipeline-guide' "$IN_PROJ/.claude/rules/workflow.md" \
+   && [ -f "$IN_PROJ/.claude/rules/workflow.md.bak.preaudit" ] \
+   && grep -q 'old content' "$IN_PROJ/.claude/rules/workflow.md.bak.preaudit"; then
+    pass "workflow.md refreshed on marker drift, original backed up"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md marker refresh or backup failed"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live H: no profile declared -> legacy model repair still applies
+if grep -q '^model: opus' "$IN_PROJ/.claude/agents/code-reviewer.md"; then
+    pass "no profile: code-reviewer model repair still applies (opus)"
+    PASSES=$((PASSES + 1))
+else
+    fail "legacy model repair regressed: $(grep '^model:' "$IN_PROJ/.claude/agents/code-reviewer.md")"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live I: MODEL_PROFILE declared -> init must NOT revert the profile's model
+echo "MODEL_PROFILE=eco" >> "$IN_PROJ/.claude/.apd-config"
+printf -- '---\nname: code-reviewer\nmodel: sonnet\neffort: xhigh\n---\nreviewed-files\n' > "$IN_PROJ/.claude/agents/code-reviewer.md"
+APD_PROJECT_DIR="$IN_PROJ" bash "$INIT_SCRIPT" --quick >/dev/null 2>&1
+if grep -q '^model: sonnet' "$IN_PROJ/.claude/agents/code-reviewer.md"; then
+    pass "profile declared: init does not revert code-reviewer model"
+    PASSES=$((PASSES + 1))
+else
+    fail "init reverted profile-managed model: $(grep '^model:' "$IN_PROJ/.claude/agents/code-reviewer.md")"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live J: idempotent — second run applies no further fixes
+IN_RUN2=$(APD_PROJECT_DIR="$IN_PROJ" bash "$INIT_SCRIPT" --quick 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -c '^  + ' || true)
+if [ "$IN_RUN2" = "0" ]; then
+    pass "update mode idempotent (second run: 0 fixes)"
+    PASSES=$((PASSES + 1))
+else
+    fail "update mode churns on re-run ($IN_RUN2 repeated fixes)"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$IN_PROJ"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

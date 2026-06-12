@@ -37,7 +37,7 @@ Top-level dispatcher routes by 1st arg. Resolves project root via `bin/lib/resol
 
 | Subcommand | Target | Purpose |
 |---|---|---|
-| `init` / `setup` | `bin/core/apd-init` | Initialize APD inside a project |
+| `init` / `setup` | `bin/core/apd-init` | Initialize APD inside a project. **v6.16.1 — update mode reconciles what audit-drift detects:** (A) permissions probe includes a deny sentinel (`Bash(mkdir .apd/pipeline)`) so pre-v6.10 installs re-enter the 8-pattern merge (allow-only probe used to skip it forever); (B) stale `APD_VERSION` in `.apd-config` is bumped to the live plugin version; (C) workflow.md is refreshed not only on stale paths but on missing content markers (same list as audit-drift dim C), with first-wins `workflow.md.bak.preaudit` backup. Hardcoded model repairs (code-reviewer→opus, adversarial→sonnet) are SKIPPED when `MODEL_PROFILE` is declared — `apd profile` owns models and session-start init must not revert burn/eco. |
 | `update` / `up` | `bin/core/apd-update` | `git pull --ff-only` on framework repo + re-run `install-codex-config` / `apd-init --quick` on target project. Aborts on dirty tree or non-FF. Flags: `--check-only`, `--skip-pull`. |
 | `pipeline` / `pl` | `bin/core/pipeline-advance` | Pipeline gate operations (steps + reset/rollback/status/stats/metrics) |
 | `doctor` / `dr` | `bin/core/pipeline-doctor` | 11-section audit of pipeline + project |
