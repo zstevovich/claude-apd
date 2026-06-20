@@ -1,0 +1,184 @@
+#!/bin/bash
+# APD Regression Surface Verifier — v6.17.0
+#
+# Closes the collateral-regression gap: when a task touches a module to do its
+# own job, the surrounding behaviour of that module must stay provably intact.
+# The adversarial reviewer is the only existing defence and it is not exhaustive
+# on the first pass (corpus evidence: a "clean" run shipped a latent
+# OperationCanceledException-swallow caught only by a later sibling task).
+#
+# This verifier makes the concern a DECLARED, mechanically-checked anchor —
+# regression is empirical, so a declaration alone is not proof; the declaration
+# pulls an obligation (coverage, and on sensitive paths, execution evidence).
+#
+# Three graduated levels (strictness derived from risk, NOT chosen by the
+# orchestrator):
+#   1. Declaration — spec-card.md `**Regression surface:**` block names what the
+#      task touches indirectly. Empty is allowed only as an explicit, justified
+#      `none — <reason>` (forces awareness, not silence).
+#   2. Coverage anchor (default) — every `- RS<N>:` item must carry a non-empty
+#      `**Cover:**` value (existing test ref / `new <name>` / `none: <reason>`).
+#   3. Execution evidence (escalation) — when the spec raises the existing
+#      `**Human gate:**` signal (= yes/required), every RS item must ALSO carry an
+#      `**Evidence:**` attestation (≥40 chars: surrounding module's tests green
+#      before+after). The gate checks PRESENCE of the attestation, exactly like
+#      the verifier checks `.adversarial-rationale.md` exists — it never maps
+#      module→suite nor runs tests (cross-stack confabulation trap).
+#
+# Mode is read from spec-card.md `regression_gate: strict|warn|off`. The DEFAULT
+# is derived (see below), never a free orchestrator dial for the escalation path.
+# Rollout default = warn (grace window for projects without a surface block yet);
+# flip to strict on live evidence, mirroring verify-plan-spec v6.8.0→v6.8.1.
+#
+# Usage:
+#   verify-regression-surface
+#
+# Exit codes:
+#   0 — no issues, warn-mode regardless of issue count, or genuine opt-out
+#   1 — strict mode with one or more issues
+
+set -u
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
+source "$(dirname "$0")/../lib/style.sh"
+
+SPEC_CARD="$PIPELINE_DIR/spec-card.md"
+
+# Rollout default — warn. Flip to "strict" on live evidence (one-line change),
+# same staged approach as verify-plan-spec. Escalation (Human gate) overrides a
+# project `regression_gate: off` to this default rather than honouring the
+# opt-out, so flipping the default also tightens the sensitive path.
+DEFAULT_MODE="warn"
+
+# --- Early exit: no spec-card → nothing to check ---
+[ -f "$SPEC_CARD" ] || exit 0
+
+# --- Detect the escalation signal: **Human gate:** = yes/required/true ---
+# Reuse the existing spec-card field (it already enumerates API/migration/auth/
+# deploy). First word of the value decides — avoids matching the template
+# placeholder prose ("Whether approval is required ...").
+ESCALATE=0
+HG_VAL=$(grep -iE '^[[:space:]]*[-*_ ]*\**[[:space:]]*human[[:space:]]+gate[[:space:]]*\**[[:space:]]*:' "$SPEC_CARD" 2>/dev/null \
+    | head -1 \
+    | sed -E 's/^[^:]*:[[:space:]]*//' \
+    | sed -E 's/^[*[:space:]]+//' \
+    | tr '[:upper:]' '[:lower:]')
+HG_FIRST=$(printf '%s' "$HG_VAL" | awk '{print $1}' | tr -cd 'a-z')
+case "$HG_FIRST" in
+    yes|required|true|da|approval|mandatory) ESCALATE=1 ;;
+esac
+
+# --- Parse mode from spec-card.md ---
+MODE=$(grep -iE '^[[:space:]]*[-*_ ]*regression_gate[[:space:]]*[:=][[:space:]]*(strict|warn|off)' "$SPEC_CARD" 2>/dev/null \
+    | head -1 \
+    | sed -nE 's/.*[:=][[:space:]]*([Ss][Tt][Rr][Ii][Cc][Tt]|[Ww][Aa][Rr][Nn]|[Oo][Ff][Ff]).*/\1/p' \
+    | tr '[:upper:]' '[:lower:]')
+MODE="${MODE:-$DEFAULT_MODE}"
+
+if [ "$MODE" = "off" ]; then
+    if [ "$ESCALATE" = "1" ]; then
+        # Opt-out is NOT honoured on a sensitive (Human gate) path — escalation
+        # is non-negotiable. Fall back to the derived default and warn loudly.
+        echo "  ${MARK_WARN} regression_gate: off IGNORED — Human gate is set; the sensitive path cannot opt out. Using '$DEFAULT_MODE'." >&2
+        MODE="$DEFAULT_MODE"
+    else
+        echo "verify-regression-surface: opt-out via spec-card.md (regression_gate: off)" >&2
+        exit 0
+    fi
+fi
+
+# --- Locate the Regression surface block ---
+# Heading line may carry an inline value: `**Regression surface:** none — reason`
+SURFACE_HEADING=$(grep -inE '^[[:space:]]*[-*_ ]*\**[[:space:]]*regression[[:space:]]+surface[[:space:]]*\**[[:space:]]*:' "$SPEC_CARD" 2>/dev/null | head -1)
+
+# RS items: `- RS<N>: ...` lines (the whole line carries Cover/Evidence inline)
+RS_LINES=$(grep -nE '^[[:space:]]*[-*][[:space:]]*RS[0-9]+[[:space:]]*:' "$SPEC_CARD" 2>/dev/null)
+
+# Inline heading value (everything after the colon on the heading line)
+SURFACE_INLINE=""
+if [ -n "$SURFACE_HEADING" ]; then
+    # Strip the `N:` line-number prefix and the `**Regression surface:**` heading
+    # (incl. the trailing bold `**`), then collapse to alphanumerics so a value
+    # like `** none — reason` becomes `nonereason` for the `none*` case match.
+    SURFACE_INLINE=$(printf '%s' "$SURFACE_HEADING" | sed -E 's/^[0-9]+:[^:]*:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]//g')
+fi
+
+# --- Issue accumulator ---
+ISSUES=0
+emit_issue() {
+    if [ "$MODE" = "strict" ]; then
+        printf "  %s BLOCKED: %s\n" "$MARK_FAIL" "$1" >&2
+    else
+        printf "  %s WARN: %s\n" "$MARK_WARN" "$1" >&2
+    fi
+    ISSUES=$((ISSUES + 1))
+}
+
+# --- Empty / absent surface handling (anti-gaming) ---
+# - Heading absent entirely + no risk signal → genuine no-op (backward compat).
+# - Heading absent + escalation → must declare (or justify empty).
+# - Heading present with inline "none" + reason text → justified, accepted.
+# - Heading present with bare "none" (no reason) → must justify.
+if [ -z "$RS_LINES" ]; then
+    if [ -z "$SURFACE_HEADING" ]; then
+        if [ "$ESCALATE" = "1" ]; then
+            emit_issue "spec raises Human gate but declares no **Regression surface:** — name what the task touches indirectly, or state '**Regression surface:** none — <reason>'"
+        fi
+        # else: no surface, no risk → nothing to verify
+    else
+        # Heading present but no RS items — must be an explicit justified 'none'
+        case "$SURFACE_INLINE" in
+            none*)
+                # Accept only if there is justification text beyond bare "none".
+                if [ "$SURFACE_INLINE" = "none" ]; then
+                    emit_issue "**Regression surface:** none has no justification — add a reason ('none — task touches no shared state')"
+                fi
+                ;;
+            "")
+                emit_issue "**Regression surface:** heading is empty — add RS items or 'none — <reason>'"
+                ;;
+            *)
+                emit_issue "**Regression surface:** has no '- RS<N>:' items and is not an explicit 'none — <reason>'"
+                ;;
+        esac
+    fi
+fi
+
+# --- Per-RS coverage + evidence checks ---
+if [ -n "$RS_LINES" ]; then
+    while IFS= read -r numbered; do
+        [ -n "$numbered" ] || continue
+        line=$(printf '%s' "$numbered" | sed -E 's/^[0-9]+://')
+        rs_id=$(printf '%s' "$line" | sed -nE 's/^[[:space:]]*[-*][[:space:]]*(RS[0-9]+).*/\1/p')
+        [ -n "$rs_id" ] || continue
+
+        # Coverage anchor: **Cover:** <non-empty>
+        cover_val=$(printf '%s' "$line" | sed -nE 's/.*\*\*[Cc]over:\*\*[[:space:]]*([^*]*).*/\1/p' | sed -E 's/[[:space:]]+$//')
+        if [ -z "$cover_val" ]; then
+            emit_issue "$rs_id has no **Cover:** — name an existing test, 'new <name>', or 'none: <reason>'"
+        fi
+
+        # Escalation: **Evidence:** ≥40 chars when Human gate is set
+        if [ "$ESCALATE" = "1" ]; then
+            ev_val=$(printf '%s' "$line" | sed -nE 's/.*\*\*[Ee]vidence:\*\*[[:space:]]*(.*)/\1/p' | sed -E 's/[[:space:]]+$//')
+            if [ -z "$ev_val" ]; then
+                emit_issue "$rs_id is on a Human-gate path but has no **Evidence:** — attest the module's tests green before+after"
+            elif [ "${#ev_val}" -lt 40 ]; then
+                emit_issue "$rs_id **Evidence:** is too thin (${#ev_val} chars, need ≥40) — name the suite and the before+after result"
+            fi
+        fi
+    done <<EOF
+$RS_LINES
+EOF
+fi
+
+# --- Exit ---
+if [ "$MODE" = "strict" ] && [ "$ISSUES" -gt 0 ]; then
+    printf "\n  verify-regression-surface: %d issue(s) in strict mode — fix .apd/pipeline/spec-card.md and re-run.\n" "$ISSUES" >&2
+    printf "  Set 'regression_gate: warn' in spec-card.md to demote BLOCK to WARN (ignored on Human-gate paths).\n" >&2
+    log_block "regression-surface" "issues=$ISSUES mode=strict escalate=$ESCALATE"
+    exit 1
+fi
+
+exit 0

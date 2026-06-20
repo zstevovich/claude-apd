@@ -8839,6 +8839,225 @@ fi
 rm -rf "$IN_PROJ"
 
 # -----------------------------------------------------------
+# 85. v6.17.0 — regression surface gate (verify-regression-surface)
+#     New parser at plugins/apd/bin/core/verify-regression-surface checks the
+#     spec-card.md `**Regression surface:**` block: every `- RS<N>:` item needs
+#     a `**Cover:**` value (coverage anchor); on a Human-gate path each item
+#     also needs `**Evidence:**` (escalation derived from the existing
+#     `**Human gate:**` field, NOT an orchestrator dial). Anti-gaming: Human
+#     gate set + no surface declared → issue. Mode `regression_gate:`; rollout
+#     default warn; `off` ignored on a Human-gate path.
+# -----------------------------------------------------------
+section "85. regression surface gate (v6.17.0)"
+
+VRS="$APD_PLUGIN_ROOT/bin/core/verify-regression-surface"
+
+# Static A: binary exists and is executable
+_check "verify-regression-surface exists and is executable" test -x "$VRS"
+
+# Static B: coverage-anchor check string present
+if grep -q 'has no \*\*Cover' "$VRS"; then
+    pass "verify-regression-surface contains coverage-anchor (Cover) check"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-regression-surface missing Cover check"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: escalation (Evidence) check string present
+if grep -q 'Human-gate path but has no' "$VRS"; then
+    pass "verify-regression-surface contains Human-gate Evidence escalation"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-regression-surface missing Evidence escalation"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: regression_gate mode parser present
+if grep -qE 'regression_gate.*(strict|warn|off)' "$VRS"; then
+    pass "verify-regression-surface contains regression_gate mode parser"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-regression-surface missing regression_gate parser"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: rollout DEFAULT_MODE="warn" baseline (grace window, like v6.8.0)
+if grep -q 'DEFAULT_MODE="warn"' "$VRS"; then
+    pass "verify-regression-surface rollout baseline DEFAULT_MODE=\"warn\""
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-regression-surface DEFAULT_MODE is not \"warn\" — rollout baseline drift"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup: isolated synthetic project
+VRS_SCRATCH="$(mktemp -d -t apd-v617.XXXXXX)"
+mkdir -p "$VRS_SCRATCH/.apd/pipeline" "$VRS_SCRATCH/.codex"
+touch "$VRS_SCRATCH/.apd/config"
+
+vrs_spec() { cat > "$VRS_SCRATCH/.apd/pipeline/spec-card.md"; }
+run_vrs() { ( cd "$VRS_SCRATCH" && bash "$VRS" 2>&1; echo "EXIT=$?" ); }
+
+# Live F: covered surface, no escalation, strict → exit 0 clean
+vrs_spec <<'EOF'
+## T
+**Human gate:** No
+**Regression surface:**
+- RS1: profile path — **Cover:** existing ProfileTests
+regression_gate: strict
+EOF
+VRS_F="$(run_vrs)"
+if echo "$VRS_F" | grep -q "EXIT=0" && ! echo "$VRS_F" | grep -qE "BLOCKED|WARN"; then
+    pass "covered surface + Human gate No (strict) → exit 0, zero output"
+    PASSES=$((PASSES + 1))
+else
+    fail "covered surface unexpected: $VRS_F"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live G: RS without Cover, strict → BLOCK + exit 1
+vrs_spec <<'EOF'
+**Human gate:** No
+**Regression surface:**
+- RS1: profile path touched but uncovered
+regression_gate: strict
+EOF
+VRS_G="$(run_vrs)"
+if echo "$VRS_G" | grep -q "EXIT=1" && echo "$VRS_G" | grep -q 'RS1 has no \*\*Cover'; then
+    pass "RS without **Cover:** (strict) → BLOCKED + exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "no-Cover unexpected: $VRS_G"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live H: Human gate Yes, RS without Evidence, strict → BLOCK + exit 1
+vrs_spec <<'EOF'
+**Human gate:** Yes — new endpoint
+**Regression surface:**
+- RS1: profile path — **Cover:** existing ProfileTests
+regression_gate: strict
+EOF
+VRS_H="$(run_vrs)"
+if echo "$VRS_H" | grep -q "EXIT=1" && echo "$VRS_H" | grep -q 'Human-gate path but has no \*\*Evidence'; then
+    pass "Human gate + RS without **Evidence:** (strict) → BLOCKED + exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "escalation-no-Evidence unexpected: $VRS_H"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live I: Human gate Yes, RS with Evidence >= 40 chars, strict → exit 0 clean
+vrs_spec <<'EOF'
+**Human gate:** Yes — new endpoint
+**Regression surface:**
+- RS1: profile path — **Cover:** existing ProfileTests **Evidence:** ProfileSuite green before and after, 14 tests unchanged
+regression_gate: strict
+EOF
+VRS_I="$(run_vrs)"
+if echo "$VRS_I" | grep -q "EXIT=0" && ! echo "$VRS_I" | grep -qE "BLOCKED|WARN"; then
+    pass "Human gate + RS with **Evidence:** (>=40) (strict) → exit 0"
+    PASSES=$((PASSES + 1))
+else
+    fail "escalation-with-Evidence unexpected: $VRS_I"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live J: Human gate Yes, no surface declared at all, strict → anti-gaming BLOCK
+vrs_spec <<'EOF'
+**Human gate:** Yes — migration
+regression_gate: strict
+EOF
+VRS_J="$(run_vrs)"
+if echo "$VRS_J" | grep -q "EXIT=1" && echo "$VRS_J" | grep -q 'declares no \*\*Regression surface'; then
+    pass "Human gate + no surface declared (strict) → anti-gaming BLOCK + exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "anti-gaming unexpected: $VRS_J"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live K: explicit self-contained none + reason, no risk, strict → exit 0
+vrs_spec <<'EOF'
+**Human gate:** No
+**Regression surface:** none — task touches no shared state
+regression_gate: strict
+EOF
+VRS_K="$(run_vrs)"
+if echo "$VRS_K" | grep -q "EXIT=0" && ! echo "$VRS_K" | grep -qE "BLOCKED|WARN"; then
+    pass "self-contained 'none — reason' (strict) → exit 0"
+    PASSES=$((PASSES + 1))
+else
+    fail "self-contained-none unexpected: $VRS_K"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live L: regression_gate off, no risk → opt-out exit 0
+vrs_spec <<'EOF'
+**Human gate:** No
+**Regression surface:**
+- RS1: whatever no cover
+regression_gate: off
+EOF
+VRS_L="$(run_vrs)"
+if echo "$VRS_L" | grep -q "EXIT=0" && echo "$VRS_L" | grep -q "opt-out via spec-card.md"; then
+    pass "regression_gate: off + no risk → opt-out exit 0"
+    PASSES=$((PASSES + 1))
+else
+    fail "off-opt-out unexpected: $VRS_L"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live M: off IGNORED on a Human-gate path (escalation non-negotiable) → exit 0 warn
+vrs_spec <<'EOF'
+**Human gate:** Yes — auth
+**Regression surface:**
+- RS1: path — no cover
+regression_gate: off
+EOF
+VRS_M="$(run_vrs)"
+if echo "$VRS_M" | grep -q "EXIT=0" && echo "$VRS_M" | grep -q "off IGNORED"; then
+    pass "regression_gate: off IGNORED on Human-gate path (warn fallback) → exit 0"
+    PASSES=$((PASSES + 1))
+else
+    fail "off-ignored-on-human-gate unexpected: $VRS_M"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live N: default warn (no mode field) + RS without Cover → WARN + exit 0 (rollout safety)
+vrs_spec <<'EOF'
+**Human gate:** No
+**Regression surface:**
+- RS1: path with no cover
+EOF
+VRS_N="$(run_vrs)"
+if echo "$VRS_N" | grep -q "EXIT=0" && echo "$VRS_N" | grep -q "WARN: RS1 has no"; then
+    pass "default warn (no mode) + missing Cover → WARN + exit 0 (rollout safety)"
+    PASSES=$((PASSES + 1))
+else
+    fail "default-warn unexpected: $VRS_N"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live O: bare 'none' (no reason), strict → BLOCK justify
+vrs_spec <<'EOF'
+**Human gate:** No
+**Regression surface:** none
+regression_gate: strict
+EOF
+VRS_O="$(run_vrs)"
+if echo "$VRS_O" | grep -q "EXIT=1" && echo "$VRS_O" | grep -q "none has no justification"; then
+    pass "bare 'none' without reason (strict) → BLOCK justify + exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "bare-none unexpected: $VRS_O"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$VRS_SCRATCH"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

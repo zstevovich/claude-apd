@@ -501,6 +501,38 @@ case "$STEP" in
             exit 1
         fi
 
+        # v6.17.0 — regression surface gate. Verifies that the spec-card.md
+        # `**Regression surface:**` block names the surrounding behaviour the
+        # task touches indirectly, and that each `- RS<N>:` item carries a
+        # `**Cover:**` value (coverage anchor). On a Human-gate path each item
+        # must also carry an `**Evidence:**` attestation. Mode (strict|warn|off)
+        # is read from spec-card.md `regression_gate:`; rollout default is
+        # `warn`. `off` is ignored on a Human-gate path. The script logs its own
+        # BLOCK; here we only translate exit 1 into an actionable message.
+        if ! bash "$SCRIPT_DIR/verify-regression-surface"; then
+            echo "" >&2
+            echo "BLOCKED: regression surface check failed (strict mode)." >&2
+            echo "" >&2
+            echo "  Declare what the task touches indirectly, with coverage, in spec-card.md:" >&2
+            echo "" >&2
+            echo "    **Regression surface:**" >&2
+            echo "    - RS1: <neighbouring behaviour> — **Cover:** existing <Suite>" >&2
+            echo "    - RS2: <another> — **Cover:** new <TestName>" >&2
+            echo "" >&2
+            echo "  If the task touches no shared state, state it explicitly:" >&2
+            echo "    **Regression surface:** none — <reason>" >&2
+            echo "" >&2
+            echo "  On a Human-gate path each RS item also needs **Evidence:** (≥40 chars):" >&2
+            echo "    - RS1: ... — **Cover:** existing <Suite> **Evidence:** <Suite> green before+after, N tests unchanged" >&2
+            echo "" >&2
+            echo "  Apply fix, then re-run:" >&2
+            echo "    bash $APD_SHORTCUT_DISPLAY pipeline builder" >&2
+            echo "" >&2
+            echo "  Migration escape hatch (soft mode, ignored on Human-gate paths):" >&2
+            echo "    regression_gate: warn" >&2
+            exit 1
+        fi
+
         # Verify that a PROJECT-DEFINED builder agent ran
         # Superpowers agents that conflict with APD pipeline are rejected.
         # Other plugin agents (figma, context7, etc.) are allowed alongside project agents.

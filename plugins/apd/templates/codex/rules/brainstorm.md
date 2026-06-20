@@ -69,6 +69,7 @@ Scope: <what's in>
 Out of scope: <what's out>
 Approach: <one-paragraph technical direction>
 Affected files: <list>
+Regression surface: <what this touches INDIRECTLY that must not break — shared modules reached into; 'none — reason' if self-contained>
 Pipeline mode: Full | Lean  (see AGENTS.md)
 ```
 

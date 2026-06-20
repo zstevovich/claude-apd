@@ -152,6 +152,11 @@ substantial enough that the adversarial gate stays on regardless — the
    of v6.9, will be removed in v7.0. Continues to function in v6.9 (verifier
    gate + immutability check) but emits a deprecation warn on every spec
    advance. Rationale gate (v6.7) structurally covers the misuse pattern.
+   **Declare a `**Regression surface:**`** — what the task touches INDIRECTLY
+   (shared modules) that must not regress, each `- RS<N>:` with a `**Cover:**`
+   value, or `none — <reason>` if self-contained. On a Human-gate path each RS
+   item also needs `**Evidence:**` (≥40 chars). `verify-regression-surface`
+   checks this in the builder advance (mode `regression_gate:`, default warn).
 2. **Advance the spec gate:** `apd_advance_pipeline("spec", "<task-name>")`.
 3. **Write the implementation plan** at
    `.apd/pipeline/implementation-plan.md` — a bulleted list of files you

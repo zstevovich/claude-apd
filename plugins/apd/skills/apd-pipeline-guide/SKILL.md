@@ -22,7 +22,7 @@ spec → builder → reviewer → adversarial → verifier → commit
 | Advance | Gate checks at that point |
 |---|---|
 | `apd:apd_advance_pipeline('spec', '<task>')` | spec-card.md exists, ≤7 R-criteria, **`.guide-marker` present (this skill)** |
-| `apd:apd_advance_pipeline('builder')` | implementation-plan.md exists, plan-spec consistency (strict), no stale pre-spec dispatch |
+| `apd:apd_advance_pipeline('builder')` | implementation-plan.md exists, plan-spec consistency (strict), regression surface (Cover/Evidence), no stale pre-spec dispatch |
 | `apd:apd_advance_pipeline('reviewer')` | builder ran post-spec, builder cycle cap (default 2) |
 | `apd:apd_adversarial_pass(...)` | only AFTER reviewer.done — out-of-order verdict is refused |
 | `apd:apd_advance_pipeline('verifier')` | `.adversarial-summary` + `.adversarial-rationale.md` present, rationale gate, spec-hash immutability |
@@ -45,6 +45,26 @@ forward (every declared R-id exists in spec), reverse (every spec R-id appears i
 
 Known failure shape: headers written for Files-to-modify/create but forgotten on
 Agents/Notes (asymmetric learning). Write ALL headers FROM THE START.
+
+## Regression surface contract
+
+A task that reaches into a shared module to do its own job must not regress that
+module's surrounding behaviour. The adversarial reviewer is not exhaustive on the
+first pass — so declare the must-not-break set in spec-card.md and let the gate
+check it (`verify-regression-surface`, in the builder advance).
+
+```
+**Regression surface:**
+- RS1: <neighbouring behaviour touched> — **Cover:** existing <Suite>
+- RS2: <another> — **Cover:** new <TestName>
+```
+
+- Every `- RS<N>:` needs a `**Cover:**` value (existing test / `new <name>` / `none: <reason>`).
+- No shared state touched? Say so explicitly: `**Regression surface:** none — <reason>`.
+  Leaving it blank when the spec has a Human gate is a BLOCK; an unjustified bare `none` is a BLOCK.
+- Human gate = Yes escalates: each RS item also needs `**Evidence:**` (≥40 chars)
+  attesting the module's tests green before+after. The gate checks presence; you run the tests.
+- Mode `regression_gate: strict|warn|off` (default `warn`; `off` ignored on a Human-gate path).
 
 ## Adversarial rationale contract
 
@@ -88,6 +108,7 @@ Edit/apply_patch channel cleared by `apd:apd_guard_write` — shell redirects to
 |---|---|
 | `guide-marker-missing` | Load this skill, write the marker (below), re-run spec advance |
 | `plan-spec-consistency issues=N` | Add `**Implements:**` headers / missing R-ids per the inline template; re-run builder (~10s) |
+| `regression-surface issues=N` | Add `**Regression surface:**` with `- RS<N>: ... **Cover:** ...` (and `**Evidence:**` on Human-gate paths), or `none — <reason>`; re-run builder |
 | `rationale-missing` | Write `.adversarial-rationale.md` with T entries; re-run verifier |
 | `rationale-100pct-orch-dismiss` | Accept ≥1 finding OR reclassify dismissed → reviewer-self-dismissed |
 | `max_builder_cycles-exceeded` | Decompose into 2+ tasks OR raise cap via spec-card `builder: max_cycles=N` |

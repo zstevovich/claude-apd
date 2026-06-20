@@ -1,5 +1,32 @@
 # Changelog
 
+## v6.17.0 — 2026-06-20
+
+Regression surface gate — make collateral regression a declared, mechanically-checked concern. When a task reaches into a shared module to do its own job, the surrounding behaviour of that module must stay provably intact. The adversarial reviewer is the only existing defence and it is not exhaustive on the first pass (corpus evidence: a "clean" 5:3:2 run shipped a latent `OperationCanceledException`-swallow caught only by a later sibling task). New verifier + spec-card block = minor. Additive enforcement — no existing gate touched.
+
+### What the gate does
+
+Three graduated levels; strictness is **derived from risk**, not chosen by the orchestrator:
+
+- **Declaration (always)** — spec-card.md gains a `**Regression surface:**` block naming what the task touches indirectly. Empty is allowed only as an explicit, justified `none — <reason>` (forces awareness, not silence).
+- **Coverage anchor (default)** — every `- RS<N>:` item must carry a `**Cover:**` value (existing test / `new <name>` / `none: <reason>`), modelled on the plan-spec `**Implements:**` check.
+- **Execution evidence (escalation)** — derived from the existing `**Human gate:**` field (yes/required → API/migration/auth/deploy). Each RS item then also needs an `**Evidence:**` attestation (≥40 chars). The gate checks the attestation is **present**, exactly like the verifier checks `.adversarial-rationale.md` exists — it never maps module→suite nor runs tests (cross-stack confabulation trap). The builder runs and attests.
+
+Anti-gaming: Human gate set + no surface declared → issue. A `regression_gate: off` opt-out is **ignored on a Human-gate path** — the sensitive path cannot opt out.
+
+### Implementation
+
+- **feat(verify-regression-surface):** new `plugins/apd/bin/core/verify-regression-surface`. Reads spec-card.md; parses the surface block + risk signal; coverage + escalation + anti-gaming checks; mode from `regression_gate: strict|warn|off`; logs `regression-surface` to guard-audit on strict BLOCK.
+- **feat(pipeline-advance):** called in the builder phase after `verify-plan-spec`, with a copy-paste actionable BLOCK message.
+- **Rollout default = `warn`** (grace window — existing E2E fixtures are unaffected without edits, same staged approach as verify-plan-spec v6.8.0). Flip to `strict` on live evidence.
+- **docs:** `apd-pipeline-guide` (CC + Codex + openai.yaml) new Regression surface contract section + phase-map + Common BLOCKs row; `workflow.md` spec-card skeleton + section; `AGENTS.md` step 1; `apd-brainstorm` (CC + Codex) Converge template nudge; `SPEC.md` verifier row + §24 callsite note.
+
+### Tests
+
+- **test(test-codex-adapter §85) +15 assertions:** 5 static (binary, Cover check, Evidence escalation, mode parser, warn default) + 10 live (covered pass, missing-Cover BLOCK, escalated-missing-Evidence BLOCK, escalated-with-Evidence pass, anti-gaming BLOCK, self-contained `none` pass, off opt-out, off-ignored-on-Human-gate, default-warn safety, bare-`none` BLOCK). **689 → 704 PASS / 0 FAIL.**
+
+**Migration:** zero action. The gate ships `warn` by default and is a no-op on specs without a `**Regression surface:**` block. Adopt incrementally; set `regression_gate: strict` per spec to opt a project in early.
+
 ## v6.16.1 — 2026-06-12
 
 Hot-fix: `apd init` update mode now actually repairs what `apd audit-drift` detects. Live trigger (FiscalFusionAI, 2026-06-12): after `init --quick` AND a `/apd-setup` re-run, all three drift findings persisted unchanged (APD_VERSION=4.7.8, 4/8 deny patterns, workflow.md with 0/5 guidance markers) — the documented recovery was structurally a no-op for existing projects.

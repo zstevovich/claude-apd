@@ -254,6 +254,7 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 | `bin/core/verify-contracts` | Cross-layer type contract check (TypeScript ↔ C#); regex-based, ~80% coverage |
 | `bin/core/verify-trace` | `@trace R*` markers in tests; emits `TRACE:<covered>/<total>:<uncovered_ids>` to stdout |
 | `bin/core/verify-plan-spec` | v6.8.0 — plan ↔ spec consistency check. Parses `**Implements:** R<N>, R<M>` headers per `### Section` in `.apd/pipeline/implementation-plan.md`; bidirectional verify against `.apd/pipeline/spec-card.md` R-ids. Mode read from spec-card `plan_consistency_gate: strict\|warn\|off` (default v6.8.0 = `warn`, v6.8.1+ = `strict`). Strict mode exits 1 on missing/unknown R-id or section missing `**Implements:**`. Called by `pipeline-advance builder`. |
+| `bin/core/verify-regression-surface` | v6.17.0 — collateral-regression gate. Parses `**Regression surface:**` block in `.apd/pipeline/spec-card.md`: every `- RS<N>:` item must carry a `**Cover:**` value (coverage anchor); empty surface must be an explicit `none — <reason>`. Escalation derived from the existing `**Human gate:**` field (yes/required) — each RS item then also needs `**Evidence:**` (≥40 chars presence-checked, never executed). Anti-gaming: Human gate set + no surface declared → issue. Mode read from spec-card `regression_gate: strict\|warn\|off` (default `warn`; `off` ignored on a Human-gate path). Strict mode exits 1; logs `regression-surface` to guard-audit. Called by `pipeline-advance builder` (after verify-plan-spec). |
 | `bin/core/verify-all` | Project-side build+test runner; project ships `.codex/bin/verify-all.sh` to override |
 
 ## 10. Helpers (`bin/lib/`)
@@ -829,6 +830,8 @@ bash plugins/apd/bin/core/test-codex-adapter | tail -5
 ```
 
 If new guard added to `pipeline-advance`, every callsite above MUST be reviewed for fixture compatibility — not just `test-codex-adapter` family. `verify-apd` Section 8 is a distinct E2E surface with its own synthetic fixtures (`.guide-marker`, `implementation-plan.md`, `.adversarial-rationale.md`).
+
+`verify-regression-surface` (v6.17.0) is a `pipeline-advance builder` callsite. It ships **default `warn`**, so it never blocks an advance unless a spec-card sets `regression_gate: strict` — existing E2E fixtures (test-codex-adapter, verify-apd Section 8) are unaffected without edits, the same grace-window pattern verify-plan-spec used at v6.8.0. When/if the default flips to `strict`, every synthetic spec-card that reaches the builder advance must declare a `**Regression surface:**` (or `regression_gate: off`/`warn`), and this checklist must re-audit those fixtures first.
 
 ### 24.2 Test lock-in expectations
 

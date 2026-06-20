@@ -275,12 +275,36 @@ Before EVERY task, create a mini-spec:
 - R2: [second condition]
 - RN: [last condition]
 **Affected modules:** Files/layers being changed.
+**Regression surface:** What this task touches INDIRECTLY that must not regress (see below). 'none — <reason>' if self-contained.
 **Risks:** What can go wrong.
 **Rollback:** How to revert if it breaks.
 **Human gate:** Whether approval is required (API changes, migrations, auth, deploy).
 ```
 
 The spec is shared with the user BEFORE implementation.
+
+### Regression surface (v6.17+)
+
+`**Affected modules:**` is what you change on purpose. `**Regression surface:**` is the
+*negative space* — the surrounding behaviour you touch only because the task reaches into a
+shared module, which must stay intact. A clean adversarial pass means "this pass found
+nothing", not "nothing broke"; the surface makes the must-not-break set explicit and
+mechanically checkable (gate: `verify-regression-surface`).
+
+```
+**Regression surface:**
+- RS1: profile address edit path — **Cover:** existing ProfileAddressTests
+- RS2: GDPR consent read on order import — **Cover:** new ConsentUnaffectedTest
+```
+
+- Every `- RS<N>:` item needs a `**Cover:**` value: an existing test, `new <name>`, or `none: <reason>`.
+- Touches no shared state? State it: `**Regression surface:** none — <reason>`. Declare it; do not leave it blank.
+- **Human gate = Yes** (API / migration / auth / deploy) escalates: each RS item also needs
+  `**Evidence:**` (≥40 chars) attesting the surrounding module's tests are green before AND
+  after — e.g. `**Evidence:** ProfileSuite green before+after, 14 tests unchanged`. The gate
+  checks the attestation is present; the builder runs the tests.
+- Mode: `regression_gate: strict|warn|off` in spec-card.md (default `warn`; `off` is ignored
+  on a Human-gate path — the sensitive path cannot opt out).
 
 ### Spec persistence
 
