@@ -46,8 +46,10 @@ spec-card.md. A vague spec produces vague code.
 3. **Present trade-offs, do not decide.** When real choices exist, offer
    2–3 concise options and let the user pick.
 4. **Converge on a design.** Hand the user a short summary covering Goal /
-   Scope / Out of scope / Approach / Affected files / **Risks** / **Rollback**
-   / Mode / R-criteria / Human gate. Wait for explicit approval.
+   Scope / Out of scope / Approach / Affected files / **Regression surface**
+   (what this touches INDIRECTLY that must not break; 'none — reason' if
+   self-contained) / **Risks** / **Rollback** / Mode / R-criteria / Human gate.
+   Wait for explicit approval.
 
    **Risks + Rollback are NOT optional** for tasks with DB migration / new
    public endpoint / auth changes / external API. For trivial polish/hotfix,
