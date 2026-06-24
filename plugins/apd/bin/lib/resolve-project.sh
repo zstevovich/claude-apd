@@ -66,10 +66,23 @@ _apd_has_marker() {
     [ -f "$1/CLAUDE.md" ] || [ -d "$1/.claude" ] || [ -d "$1/.codex" ] || [ -f "$1/AGENTS.md" ]
 }
 
+# A linked git worktree (git-dir != git-common-dir) is a real working root even
+# before APD config is copied into it. Accept it as PROJECT_DIR without a marker
+# so a fresh gitignored worktree resolves to ITSELF, not walking up to the main
+# checkout — that is what lets worktree-bootstrap populate it. APD_ACTIVE still
+# gates activation below, so non-APD worktrees stay inert. (v6.18)
+_apd_is_linked_worktree() {
+    local gd gcd
+    gd=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || return 1
+    gcd=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+    [ -n "$gcd" ] && [ "$gd" != "$gcd" ]
+}
+
 if [ -n "${APD_PROJECT_DIR:-}" ]; then
     PROJECT_DIR="$APD_PROJECT_DIR"
-elif _git_root=$(git rev-parse --show-toplevel 2>/dev/null) && _apd_has_marker "$_git_root"; then
-    # Git toplevel is authoritative — works from any subdirectory or worktree
+elif _git_root=$(git rev-parse --show-toplevel 2>/dev/null) && { _apd_has_marker "$_git_root" || _apd_is_linked_worktree; }; then
+    # Git toplevel is authoritative — works from any subdirectory or worktree.
+    # Linked worktrees are accepted even without an APD marker yet (see fn above).
     PROJECT_DIR="$_git_root"
 elif _apd_has_marker "$(pwd)" && [ "$(pwd)" != "$HOME" ]; then
     PROJECT_DIR="$(pwd)"
@@ -94,7 +107,7 @@ else
     fi
     unset _apd_dir
 fi
-unset -f _apd_has_marker 2>/dev/null || true
+unset -f _apd_has_marker _apd_is_linked_worktree 2>/dev/null || true
 
 # --- Derived paths ---
 CLAUDE_DIR="$PROJECT_DIR/.claude"

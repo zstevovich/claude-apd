@@ -451,12 +451,21 @@ All log via shared `log_block` to `<memory>/guard-audit.log` (sanitised newlines
 
 ### 16.5 Bootstrap (`session-start`)
 
+- **Worktree config bootstrap (v6.18):** before the `APD_ACTIVE` gate, if `APD_ACTIVE=false`, calls `worktree-bootstrap` then re-sources the resolver. A fresh linked git worktree has no `.claude/.apd` config (checkout copies only tracked files; `.worktreeinclude` can't reach dir-collapsed gitignore entries like `.claude/`), so APD would otherwise exit here. See §16.6. Pairs with the resolver change: a linked worktree (`git-dir != git-common-dir`) is accepted as its own `PROJECT_DIR` even without a marker — else walk-up would pick the main checkout and APD would silently operate on main state.
 - Early action: creates `.claude/bin/apd` shortcut (idempotent) before anything that might timeout
 - Gap analysis: runs `apd-init --quick` once per hour (cached via `.last-init-check`)
 - Self-healing: validates jq, chmod +x core scripts, detects settings.json conflicts, flags stale pipeline (>24h) with auto-offer-to-reset
 - Version checks: reads `MIN_CC_VERSION` and `FUNC_CC_VERSION` from plugin; warns if CC too old (numeric comparison: major*10000 + minor*100 + patch)
 - Always exit 0
 - CC only
+
+### 16.6 Worktree bootstrap (`worktree-bootstrap`)
+
+- Invoked from `session-start` before the `APD_ACTIVE` gate. Copies APD config into a fresh linked git worktree so APD activates there too (enables parallel sessions, v6.18).
+- Does NOT source `resolve-project.sh` (its `PROJECT_DIR` can walk up to the main checkout when the worktree has no marker yet). Derives worktree root from `git rev-parse --show-toplevel`; `MAIN_ROOT = dirname(git-common-dir)`.
+- Safety (state-changing path, global rule 1): acts ONLY in a linked worktree (`git-dir != git-common-dir`); ONLY when the worktree has no config yet (idempotent — a later session won't clobber in-progress state); never the main checkout (`MAIN_ROOT == WT_ROOT` guard); **NEVER copies `.apd/pipeline/`** (per-worktree isolated state), `.claude/worktrees/` (recursion), or `.claude/memory/` (telemetry).
+- Copies (CC layout) `.claude/{.apd-config,.apd-version,settings.json,settings.local.json,agents,rules,skills}`; (neutral layout) `.apd/{config,.apd-version,agents,rules,skills}`. Per-item skip when already present in the worktree.
+- CC only. Codex worktree story deferred (no `--worktree`/`.worktreeinclude`).
 
 ## 17. MCP server internals — `plugins/apd/mcp/apd_mcp_server.py`
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## v6.18.0 — 2026-06-24
+
+Parallel sessions via git worktree — make APD activate inside a fresh worktree so two independent pipelines can run on one repo without colliding. CC has native worktree support (`claude --worktree`), and the git-toplevel resolver already isolates pipeline state per-worktree (proven empirically: two concurrent pipelines, distinct commits, main untouched). The gap was config bootstrap: a real project gitignores the whole `.claude/` tree, so a fresh worktree starts without APD config/agents and session-start exits early. This closes that gap. Additive, CC-side — no existing gate touched.
+
+### What it does
+
+- A linked worktree (`claude --worktree X` → `.claude/worktrees/X/`) gets APD config/agents copied from the main checkout on first session-start, so APD is fully live there (agents, guards, pipeline). The pipeline **state** is never copied — each worktree keeps its own isolated pipeline.
+
+### Implementation
+
+- **feat(worktree-bootstrap):** new `plugins/apd/bin/core/worktree-bootstrap`. Copies `.claude`/`.apd` config + agents + rules + skills from the main checkout (`dirname(git-common-dir)`) into the worktree. Three safety guards: acts only in a linked worktree (`git-dir != git-common-dir`), only when config is absent (idempotent), never the main checkout; **never copies `.apd/pipeline/`**. Does not source the resolver (which would walk up to main).
+- **fix(resolve-project.sh):** new `_apd_is_linked_worktree()` — a linked worktree resolves to itself even without an APD marker, instead of walking up to the main checkout (which would make APD silently operate on main state). `.worktreeinclude` alone is insufficient here: a dir-level `.claude/` gitignore collapses the tree, so CC copies nothing inside it.
+- **feat(session-start):** calls `worktree-bootstrap` before the `APD_ACTIVE` gate, then re-sources the resolver.
+- **docs:** SPEC.md §16.5 + new §16.6.
+
+### Tests
+
+- **test(test-codex-adapter §86) +8:** 3 static (helper executable, resolver detection, pipeline never in copy list) + 5 live (clean worktree resolves to itself, APD_ACTIVE=false; bootstrap copies config+agents, pipeline NOT leaked; APD_ACTIVE=true after; main no-op; idempotent).
+- **fix(test):** maxturns fixture used a hardcoded date inside a rolling 30-day window (time-bomb — silently expired once the date fell outside 30 days). Now relative to today. **704 → 712 PASS / 0 FAIL.**
+
+**Migration:** zero action. Bootstrap is a no-op outside a linked worktree and on projects without APD. CC only (Codex has no `--worktree`/`.worktreeinclude`).
+
 ## v6.17.0 — 2026-06-20
 
 Regression surface gate — make collateral regression a declared, mechanically-checked concern. When a task reaches into a shared module to do its own job, the surrounding behaviour of that module must stay provably intact. The adversarial reviewer is the only existing defence and it is not exhaustive on the first pass (corpus evidence: a "clean" 5:3:2 run shipped a latent `OperationCanceledException`-swallow caught only by a later sibling task). New verifier + spec-card block = minor. Additive enforcement — no existing gate touched.

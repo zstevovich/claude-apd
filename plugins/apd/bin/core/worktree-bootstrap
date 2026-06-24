@@ -1,0 +1,78 @@
+#!/bin/bash
+# APD — worktree config bootstrap
+#
+# A fresh linked git worktree does NOT inherit gitignored .claude/.apd config:
+# `git worktree add` checks out only tracked files, and real projects gitignore
+# the whole .claude/ (and .apd/) tree. Without config, resolve-project.sh sets
+# APD_ACTIVE=false and session-start exits early — leaving the worktree with no
+# agents, no guards, no shortcut. (.worktreeinclude cannot fix this: a dir-level
+# gitignore collapses .claude/ into one entry, so CC copies nothing inside it.)
+#
+# This script, invoked from session-start BEFORE the APD_ACTIVE gate, copies the
+# config/agents/rules/skills/settings from the MAIN checkout into the worktree so
+# APD activates here too. Pipeline state is NEVER copied — each worktree keeps
+# its own isolated pipeline.
+#
+# Safety (state-changing path — see global rule 1):
+#   1. Acts ONLY inside a linked worktree (git-dir != git-common-dir).
+#   2. Acts ONLY when the worktree has no APD config yet — idempotent; a later
+#      session won't clobber a worktree's own in-progress state.
+#   3. NEVER touches the main checkout, NEVER copies .apd/pipeline/.
+#
+# Note: deliberately does NOT source resolve-project.sh — its PROJECT_DIR can
+# walk up to the main checkout when the worktree has no marker yet. We derive the
+# worktree root straight from git instead.
+
+# Worktree root straight from git (cwd is the worktree when session-start calls us).
+WT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+[ -z "$WT_ROOT" ] && exit 0                       # not a git repo
+
+# (1) Must be a LINKED worktree: git-dir differs from the shared common dir.
+_gd=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null)
+_gcd=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+[ -z "$_gcd" ] && exit 0
+[ "$_gd" = "$_gcd" ] && exit 0                     # main checkout, not a worktree
+
+# Main checkout = parent of the shared (common) git dir.
+MAIN_ROOT=$(dirname "$_gcd")
+[ "$MAIN_ROOT" = "$WT_ROOT" ] && exit 0            # (3) safety: never self
+[ -d "$MAIN_ROOT" ] || exit 0
+
+# (2) Idempotent: worktree already has APD config → nothing to do.
+if [ -f "$WT_ROOT/.claude/.apd-config" ] || [ -f "$WT_ROOT/.apd/config" ]; then
+    exit 0
+fi
+
+# Main must actually have APD installed (config present in either layout).
+if [ ! -f "$MAIN_ROOT/.claude/.apd-config" ] && [ ! -f "$MAIN_ROOT/.apd/config" ]; then
+    exit 0
+fi
+
+echo "worktree bootstrap: $WT_ROOT <- $MAIN_ROOT"
+
+# CC-native layout: copy .claude/ essentials.
+# NEVER: pipeline (lives under .apd/), worktrees/ (recursion), memory/ (telemetry).
+if [ -d "$MAIN_ROOT/.claude" ]; then
+    mkdir -p "$WT_ROOT/.claude"
+    for item in .apd-config .apd-version settings.json settings.local.json agents rules skills; do
+        if [ -e "$MAIN_ROOT/.claude/$item" ] && [ ! -e "$WT_ROOT/.claude/$item" ]; then
+            cp -R "$MAIN_ROOT/.claude/$item" "$WT_ROOT/.claude/$item" 2>/dev/null \
+                && echo "  copied .claude/$item"
+        fi
+    done
+fi
+
+# Neutral (runtime-neutral / pure-Codex) layout: copy .apd/ essentials.
+# NEVER copy .apd/pipeline/ — that is the per-worktree isolated state.
+if [ -f "$MAIN_ROOT/.apd/config" ]; then
+    mkdir -p "$WT_ROOT/.apd"
+    for item in config .apd-version agents rules skills; do
+        if [ -e "$MAIN_ROOT/.apd/$item" ] && [ ! -e "$WT_ROOT/.apd/$item" ]; then
+            cp -R "$MAIN_ROOT/.apd/$item" "$WT_ROOT/.apd/$item" 2>/dev/null \
+                && echo "  copied .apd/$item"
+        fi
+    done
+fi
+
+echo "worktree bootstrap: done"
+exit 0

@@ -6705,16 +6705,20 @@ fi
 V6810_SCRATCH="$(mktemp -d -t apd-v6810.XXXXXX)"
 mkdir -p "$V6810_SCRATCH/.apd/memory" "$V6810_SCRATCH/.codex" "$V6810_SCRATCH/.claude/agents"
 touch "$V6810_SCRATCH/.apd/config"
-# Generate synthetic history with 3 rapid re-dispatches
-cat > "$V6810_SCRATCH/.apd/memory/agent-history.log" <<'EOF'
-2026-05-22 10:00:00|start|mobile|aaa111
-2026-05-22 10:05:00|stop|mobile|aaa111
-2026-05-22 10:05:30|start|mobile|bbb222
-2026-05-22 10:10:00|stop|mobile|bbb222
-2026-05-22 10:10:45|start|mobile|ccc333
-2026-05-22 10:15:00|stop|mobile|ccc333
-2026-05-22 10:15:30|start|mobile|ddd444
-2026-05-22 10:20:00|stop|mobile|ddd444
+# Generate synthetic history with 3 rapid re-dispatches.
+# Use TODAY's date (not a hardcoded one) so the fixture stays inside the
+# script's rolling 30-day window — a hardcoded date is a time-bomb: this test
+# silently expired once 2026-05-22 fell outside 30 days of "today".
+MT_DAY=$(date +"%Y-%m-%d")
+cat > "$V6810_SCRATCH/.apd/memory/agent-history.log" <<EOF
+$MT_DAY 10:00:00|start|mobile|aaa111
+$MT_DAY 10:05:00|stop|mobile|aaa111
+$MT_DAY 10:05:30|start|mobile|bbb222
+$MT_DAY 10:10:00|stop|mobile|bbb222
+$MT_DAY 10:10:45|start|mobile|ccc333
+$MT_DAY 10:15:00|stop|mobile|ccc333
+$MT_DAY 10:15:30|start|mobile|ddd444
+$MT_DAY 10:20:00|stop|mobile|ddd444
 EOF
 cat > "$V6810_SCRATCH/.claude/agents/mobile.md" <<'EOF'
 ---
@@ -9056,6 +9060,113 @@ else
 fi
 
 rm -rf "$VRS_SCRATCH"
+
+# -----------------------------------------------------------
+# 86. v6.18 — worktree config bootstrap (parallel sessions)
+#     A fresh linked git worktree doesn't inherit gitignored .claude/.apd
+#     config (checkout copies only tracked files; .worktreeinclude can't reach
+#     dir-collapsed gitignore entries). worktree-bootstrap copies config/agents
+#     from the main checkout so APD activates; resolve-project.sh resolves a
+#     linked worktree to itself even without a marker. Pipeline state is NEVER
+#     copied — each worktree keeps its own isolated pipeline.
+# -----------------------------------------------------------
+section "86. worktree config bootstrap (v6.18)"
+
+WTB="$APD_PLUGIN_ROOT/bin/core/worktree-bootstrap"
+WTB_RESOLVER="$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh"
+
+# Static A: helper exists + executable
+_check "worktree-bootstrap exists and is executable" test -x "$WTB"
+
+# Static B: resolver has linked-worktree detection
+if grep -q '_apd_is_linked_worktree' "$WTB_RESOLVER"; then
+    pass "resolve-project.sh has _apd_is_linked_worktree detection"
+    PASSES=$((PASSES + 1))
+else
+    fail "resolve-project.sh missing _apd_is_linked_worktree"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: helper never copies pipeline (no copy-item list mentions pipeline)
+if grep 'for item in' "$WTB" | grep -q 'pipeline'; then
+    fail "worktree-bootstrap copy list includes pipeline — isolation broken"
+    FAILS=$((FAILS + 1))
+else
+    pass "worktree-bootstrap copy lists never include pipeline"
+    PASSES=$((PASSES + 1))
+fi
+
+# Live setup: main checkout with gitignored .claude/, stale pipeline state, + worktree
+WTB_MAIN="$(mktemp -d -t apd-v618.XXXXXX)"
+(
+  cd "$WTB_MAIN"
+  git init -q; git config user.email t@t.t; git config user.name t
+  mkdir -p .claude/agents .claude/rules .apd/pipeline
+  printf 'PROJECT_NAME=WTB\nAPD_VERSION=6.18.0\n' > .claude/.apd-config
+  echo "6.18.0" > .claude/.apd-version
+  echo r > .claude/agents/code-reviewer.md
+  echo a > .claude/agents/adversarial-reviewer.md
+  echo w > .claude/rules/workflow.md
+  echo "MAIN STALE SPEC must not leak" > .apd/pipeline/spec-card.md
+  printf '.claude/\n.apd/pipeline/\n' > .gitignore
+  echo "# WTB" > README.md
+  git add README.md .gitignore; git commit -qm init
+  git worktree add --detach .wt >/dev/null 2>&1
+)
+WTB_WT="$WTB_MAIN/.wt"
+
+# Live A: resolver in a CLEAN worktree resolves to itself (not walk-up to main)
+WTB_RESOLVED="$( cd "$WTB_WT" && unset CLAUDE_PLUGIN_ROOT APD_PROJECT_DIR; source "$WTB_RESOLVER" >/dev/null 2>&1; echo "$(basename "$PROJECT_DIR")|$APD_ACTIVE" )"
+if [ "$WTB_RESOLVED" = ".wt|false" ]; then
+    pass "clean worktree resolves to itself, APD_ACTIVE=false (no walk-up to main)"
+    PASSES=$((PASSES + 1))
+else
+    fail "clean worktree resolution wrong: $WTB_RESOLVED (want .wt|false)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live B: bootstrap copies config+agents, NEVER pipeline state
+( cd "$WTB_WT" && bash "$WTB" >/dev/null 2>&1 )
+if [ -f "$WTB_WT/.claude/.apd-config" ] && [ -d "$WTB_WT/.claude/agents" ] && [ ! -f "$WTB_WT/.apd/pipeline/spec-card.md" ]; then
+    pass "bootstrap copied config+agents; pipeline state NOT leaked into worktree"
+    PASSES=$((PASSES + 1))
+else
+    fail "bootstrap wrong: config=$([ -f "$WTB_WT/.claude/.apd-config" ] && echo y || echo n) pipeline-leak=$([ -f "$WTB_WT/.apd/pipeline/spec-card.md" ] && echo YES || echo no)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live C: APD_ACTIVE=true after bootstrap
+WTB_AFTER="$( cd "$WTB_WT" && unset CLAUDE_PLUGIN_ROOT APD_PROJECT_DIR; source "$WTB_RESOLVER" >/dev/null 2>&1; echo "$APD_ACTIVE" )"
+if [ "$WTB_AFTER" = "true" ]; then
+    pass "APD_ACTIVE=true after bootstrap"
+    PASSES=$((PASSES + 1))
+else
+    fail "APD not active after bootstrap: $WTB_AFTER"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live D: safety — bootstrap in the MAIN checkout is a no-op, main pipeline untouched
+WTB_MAIN_OUT="$( cd "$WTB_MAIN" && bash "$WTB" 2>&1 )"
+if [ -z "$WTB_MAIN_OUT" ] && [ -f "$WTB_MAIN/.apd/pipeline/spec-card.md" ]; then
+    pass "bootstrap in main checkout = no-op, main pipeline untouched"
+    PASSES=$((PASSES + 1))
+else
+    fail "bootstrap touched main: out='$WTB_MAIN_OUT'"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live E: idempotent — second run in worktree is a no-op
+WTB_RUN2="$( cd "$WTB_WT" && bash "$WTB" 2>&1 )"
+if [ -z "$WTB_RUN2" ]; then
+    pass "bootstrap idempotent (second run: no-op)"
+    PASSES=$((PASSES + 1))
+else
+    fail "bootstrap not idempotent: $WTB_RUN2"
+    FAILS=$((FAILS + 1))
+fi
+
+( cd "$WTB_MAIN" && git worktree remove --force .wt >/dev/null 2>&1 )
+rm -rf "$WTB_MAIN"
 
 # -----------------------------------------------------------
 # Summary

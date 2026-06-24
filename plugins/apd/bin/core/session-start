@@ -29,6 +29,17 @@ if [ "$APD_FRAMEWORK_SELF" = "true" ] && [ "${APD_FRAMEWORK_DEV_MODE:-}" != "for
     exit 0
 fi
 
+# --- Worktree config bootstrap (v6.18) ---
+# A fresh linked git worktree doesn't inherit gitignored .claude/.apd config, so
+# APD_ACTIVE would be false and we'd exit below before installing anything. Copy
+# config/agents from the main checkout (worktree-only, never pipeline state),
+# then re-resolve so the rest of session-start runs normally in the worktree.
+if [ "$APD_ACTIVE" = false ] && [ -x "$SCRIPT_DIR/worktree-bootstrap" ]; then
+    bash "$SCRIPT_DIR/worktree-bootstrap" 2>&1 | while IFS= read -r _wl; do _ss_log "wt-bootstrap: $_wl"; done
+    source "$(dirname "$0")/../lib/resolve-project.sh"
+    _ss_log "post-bootstrap: APD_ACTIVE=$APD_ACTIVE"
+fi
+
 [ "$APD_ACTIVE" = false ] && { _ss_log "EXIT: APD_ACTIVE=false"; exit 0; }
 
 # --- CRITICAL: Create shortcut FIRST (before anything that might timeout) ---
