@@ -1,5 +1,5 @@
 #!/bin/bash
-# APD Roles — generic developer-role registry (read-only in this milestone).
+# APD Roles — generic developer-role registry (read-only inspection + workflow guide).
 #
 # Roles are DATA, not code: plugins/apd/templates/roles.conf ships the generic
 # defaults (backend / frontend / mobile / backoffice / reporting / devops /
@@ -22,8 +22,9 @@
 #   roles <role>            shorthand for: roles status <role>
 #   roles guide             step-by-step worktree workflow (run-role → merge-role)
 #
-# Read-only: this milestone inspects the registry only. Creating worktrees
-# (run-role) and applying role scope to agents are later milestones.
+# Read-only: this command only inspects the registry and prints the workflow
+# guide. Acting on roles lives in sibling commands — `run-role` (create the
+# worktree + charter-launch) and `merge-role` (read-only merge gate).
 #
 # Exit codes: 0 ok, 1 usage / unknown role
 
@@ -102,10 +103,10 @@ if [ "$ACTION" = "guide" ]; then
     echo "  integrate, and merge. Two axes: ${V}profile${R} (model) x ${V}role${R} (domain + workspace)."
     echo ""
     echo "  ${V}1.${R} apd roles list                  see the 8 roles (producer vs operator)"
-    echo "  ${V}2.${R} apd run-role <role>             open the role's worktree (--launch to enter CC)"
-    echo "       ${D}producers: backend/frontend/mobile/backoffice/reporting;${R}"
-    echo "       ${D}operators (devops/debug/master) run in the main checkout.${R}"
-    echo "  ${V}3.${R} cd .claude/worktrees/<role>-work && claude   ${D}work there (isolated pipeline)${R}"
+    echo "  ${V}2.${R} apd run-role <role> --launch    enter CC AS the role — charter injected automatically"
+    echo "       ${D}producers (backend/frontend/mobile/backoffice/reporting): in their own worktree;${R}"
+    echo "       ${D}operators (devops/debug/master): in the main checkout, no worktree.${R}"
+    echo "  ${V}3.${R} ${D}the session knows its scope/boundary from roles.conf — no manual prompt${R}"
     echo "  ${V}4.${R} ${D}...commit on the <role>-work branch through the pipeline...${R}"
     echo "  ${V}5.${R} cd <worktree> && git merge develop   ${D}(optional) keep the branch fresh${R}"
     echo "  ${V}6.${R} apd merge-role <role>            read-only gate (from MAIN): ready to merge?"

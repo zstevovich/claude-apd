@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>v6.23.0</b> &middot; MIT &middot; macOS + Linux
+  <b>v6.24.0</b> &middot; MIT &middot; macOS + Linux
 </p>
 
 ![APD Demo](docs/demo/apd-demo.gif)
@@ -84,7 +84,7 @@ codex plugin marketplace upgrade codex-apd                    # pulls latest mai
 To pin the upgrade to a specific tag or branch (e.g. for pre-release testing):
 ```bash
 codex plugin marketplace remove codex-apd
-codex plugin marketplace add zstevovich/claude-apd@v6.23.0     # or @<branch> for a feature branch
+codex plugin marketplace add zstevovich/claude-apd@v6.24.0     # or @<branch> for a feature branch
 ```
 
 **Codex — direct-drop install:**
@@ -148,10 +148,12 @@ Eight roles ship as data (`roles.conf`), in two classes:
 
 Governing principle: **a worktree belongs to producers of an artifact, not to integrators or operators.** A producer role works in its own worktree — a feature branch + folder + *isolated APD pipeline* — so several run in parallel without colliding. Operators (devops/debug/master) run in the main checkout; a worktree would only cut them off from the shared state they manage.
 
+`run-role --launch` enters a Claude Code session **as** the role: it injects the role's *charter* — scope + boundary + profile, built automatically from `roles.conf` — so the session knows what it is and what it may touch, without you typing a prompt. Producers launch in their worktree; operators charter-launch in the main checkout (no worktree, same charter).
+
 ```bash
 apd roles list                 # the 8 roles + scope / boundary
-apd run-role backend           # create/reuse backend's worktree + dev-env, print launch cmd
-apd run-role backend --launch  # ...and enter a Claude Code session inside it
+apd run-role backend --launch  # producer: own worktree + dev-env, enter CC with backend's charter
+apd run-role devops  --launch  # operator: enter CC in the main checkout with devops's charter (no worktree)
 apd merge-role backend         # read-only gate: is backend-work ready to merge into develop?
 ```
 

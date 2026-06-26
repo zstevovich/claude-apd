@@ -9372,13 +9372,18 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Live E: operator role (debug, worktree=no) → BLOCK exit 1 (E2)
+# Live E: operator role (debug, worktree=no) — charter-launch path, NOT a block.
+# Without --launch → exit 0 + main-checkout guidance, and it must NOT create a
+# worktree (the worktree is producer-only; E2 is now the operator branch).
 RR_DBG="$(run_rr debug)"; run_rr debug >/dev/null 2>&1; RR_RC=$?
-if [ "$RR_RC" = "1" ] && echo "$RR_DBG" | grep -q "operator role"; then
-    pass "E2 operator role (debug) → BLOCK exit 1"
+if [ "$RR_RC" = "0" ] \
+   && echo "$RR_DBG" | grep -qi "operator" \
+   && echo "$RR_DBG" | grep -q "main checkout" \
+   && ! git -C "$RR_MAIN" worktree list 2>/dev/null | grep -q "debug-work"; then
+    pass "operator role (debug) → no worktree, charter-launch guidance, exit 0"
     PASSES=$((PASSES + 1))
 else
-    fail "E2 operator role wrong: rc=$RR_RC out=$RR_DBG"
+    fail "operator role wrong: rc=$RR_RC wt=$(git -C "$RR_MAIN" worktree list 2>/dev/null | grep -c debug-work) out=$RR_DBG"
     FAILS=$((FAILS + 1))
 fi
 
@@ -9466,12 +9471,15 @@ rm -rf "$RR_NOGIT"
 rm -rf "$RR_MAIN"
 
 # -----------------------------------------------------------
-# 89. v6.21 — run-role --launch (opt-in spawn), Milestone C2
-#     After prepare, --launch scrubs APD_PROJECT_DIR + CLAUDE_PLUGIN_ROOT and
-#     exec's `claude` in the worktree so the new session resolves the worktree
-#     as its own root (R6). Degrades to prepare-only if no `claude` on PATH (E11).
+# 89. v6.21 — run-role --launch (opt-in spawn), Milestone C2 + charter-launch
+#     After prepare, --launch injects the role's charter (built automatically
+#     from roles.conf — workspace + scope + boundary + profile) via
+#     `claude --append-system-prompt`, so the session knows its identity. For
+#     producers it scrubs APD_PROJECT_DIR + CLAUDE_PLUGIN_ROOT and exec's claude
+#     in the worktree (R6); operators charter-launch in the main checkout (no
+#     worktree). Degrades to prepare-only if no `claude` on PATH (E11).
 # -----------------------------------------------------------
-section "89. run-role --launch (v6.21)"
+section "89. run-role --launch + charter (v6.21)"
 
 RR="$APD_PLUGIN_ROOT/bin/core/run-role"
 
@@ -9480,6 +9488,10 @@ _check_file_contains "run-role parses --launch" "$RR" '\-\-launch\) LAUNCH=true'
 
 # Static B: spawns via exec claude
 _check_file_contains "run-role exec's claude on launch" "$RR" 'exec claude'
+
+# Static B2: charter built automatically from roles.conf + injected as system prompt
+_check_file_contains "run-role builds the charter from roles.conf fields" "$RR" '_role_charter'
+_check_file_contains "run-role injects charter via --append-system-prompt" "$RR" 'append-system-prompt'
 
 # Static C: scrubs leaked env before spawn (R6)
 _check_file_contains "run-role scrubs APD_PROJECT_DIR + CLAUDE_PLUGIN_ROOT" "$RR" 'unset APD_PROJECT_DIR CLAUDE_PLUGIN_ROOT'
@@ -9493,9 +9505,16 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Live setup: main checkout + a mock `claude` that reports cwd + leaked env
+# Live setup: main checkout + a mock `claude` that reports cwd, leaked env, and
+# the first line of any --append-system-prompt charter it was handed.
 RR_MB="$(mktemp -d -t apd-rrmock.XXXXXX)"
-printf '#!/bin/bash\necho "CLAUDE_LAUNCHED cwd=$(basename "$PWD") apd_proj=${APD_PROJECT_DIR:-EMPTY}"\n' > "$RR_MB/claude"
+cat > "$RR_MB/claude" <<'MOCK'
+#!/bin/bash
+asp=""; prev=""
+for a in "$@"; do [ "$prev" = "--append-system-prompt" ] && asp="$a"; prev="$a"; done
+echo "CLAUDE_LAUNCHED cwd=$(basename "$PWD") apd_proj=${APD_PROJECT_DIR:-EMPTY}"
+echo "ASP_HEAD=$(printf '%s' "$asp" | head -1)"
+MOCK
 chmod +x "$RR_MB/claude"
 RR_LMAIN="$(mktemp -d -t apd-c2.XXXXXX)"
 (
@@ -9510,13 +9529,32 @@ RR_LMAIN="$(mktemp -d -t apd-c2.XXXXXX)"
 ) >/dev/null 2>&1
 run_launch() { ( cd "$RR_LMAIN" && unset CLAUDE_PLUGIN_ROOT; APD_PROJECT_DIR="$RR_LMAIN" PATH="$RR_MB:$PATH" bash "$RR" "$@" 2>&1 ); }
 
-# Live E: --launch with a (mock) claude → spawns in the worktree, env scrubbed
+# Live E: producer --launch → spawns in the worktree, env scrubbed, charter
+# injected (the appended system prompt names the backend role — built from
+# roles.conf, not typed by the user).
 RR_L="$(run_launch backend --launch)"
-if echo "$RR_L" | grep -q "CLAUDE_LAUNCHED cwd=backend-work" && echo "$RR_L" | grep -q "apd_proj=EMPTY"; then
-    pass "--launch spawns claude in worktree with scrubbed env (R6)"
+if echo "$RR_L" | grep -q "CLAUDE_LAUNCHED cwd=backend-work" \
+   && echo "$RR_L" | grep -q "apd_proj=EMPTY" \
+   && echo "$RR_L" | grep -q 'ASP_HEAD=.*"backend" role'; then
+    pass "producer --launch spawns in worktree, scrubbed env (R6), charter injected"
     PASSES=$((PASSES + 1))
 else
-    fail "--launch spawn wrong: $RR_L"
+    fail "producer --launch spawn wrong: $RR_L"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live E2: operator --launch (debug) → spawns in the MAIN checkout (NOT a
+# worktree), charter injected naming the debug role, and no debug-work worktree
+# was created.
+RR_OL="$(run_launch debug --launch)"
+if echo "$RR_OL" | grep -q "CLAUDE_LAUNCHED" \
+   && ! echo "$RR_OL" | grep -q "cwd=debug-work" \
+   && echo "$RR_OL" | grep -q 'ASP_HEAD=.*"debug" role' \
+   && ! git -C "$RR_LMAIN" worktree list 2>/dev/null | grep -q "debug-work"; then
+    pass "operator --launch spawns in main checkout with charter, no worktree"
+    PASSES=$((PASSES + 1))
+else
+    fail "operator --launch wrong: wt=$(git -C "$RR_LMAIN" worktree list 2>/dev/null | grep -c debug-work) out=$RR_OL"
     FAILS=$((FAILS + 1))
 fi
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## v6.24.0 — 2026-06-27
+
+`apd run-role` becomes a **role launcher with charter injection**. `run-role <role> --launch` now enters a Claude Code session *as* the role: it builds the role's charter — workspace + scope + boundary + profile — automatically from `roles.conf` and passes it to `claude --append-system-prompt`, so the session knows what it is and what it may touch without you typing a prompt. The role carries its own identity.
+
+This also unifies producers and operators behind one launcher. Previously `run-role` hard-blocked operator roles (`worktree=no`). Now an operator (devops/debug/master) gets no worktree but **charter-launches in the main checkout** — the worktree is producer-only, but the charter is for every role. `run-role devops --launch` finally does what the name implies.
+
+### Implementation
+
+- **feat(run-role):** new `_role_charter()` builds the charter from the role's own `roles.conf` fields; `--launch` injects it via `claude --append-system-prompt` (producers also scrub `APD_PROJECT_DIR` + `CLAUDE_PLUGIN_ROOT` and `exec` in the worktree, R6).
+- **feat(run-role):** operator roles are no longer blocked — the old E2 hard-block is now the operator branch (no worktree, charter-launch in the main checkout, exit 0). Without `--launch` it prints how to charter-launch.
+- **docs:** SPEC.md `run-role` row + §6.5 charter-launch note; README "Parallel work" section; GETTING-STARTED command table + parallel-work note; `apd help`, `run-role --help`, `roles guide`, and the `apd roles` header refreshed (dropped the stale "read-only in this milestone — run-role is a later milestone" line).
+
+### Tests
+
+- **test(test-codex-adapter §88/§89) +3:** operator role → no worktree + charter-launch guidance (exit 0, was a hard block); 2 static (charter built from `roles.conf`, injected via `--append-system-prompt`); producer `--launch` now also asserts the injected charter names the role; new operator `--launch` live test (spawns in the main checkout, charter injected, no worktree created). **752 → 755 PASS / 0 FAIL.**
+
+**Migration:** zero action. Additive — producer behaviour is unchanged (just carries its charter now), and operator `run-role` goes from a block to a working charter-launch. CC only (worktrees + `--launch` are git/CC; Codex unchanged).
+
 ## v6.23.0 — 2026-06-26
 
 `apd roles guide` — an in-CLI, step-by-step walkthrough of the role workflow, so the team-of-orchestrators recipe is at your fingertips, not only in the README. It prints the lifecycle as numbered steps (roles list → run-role → work in the isolated worktree → optional sync → merge-role gate → you merge → cleanup), with the producer/operator split and the shared-resource caveat.

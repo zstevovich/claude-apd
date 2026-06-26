@@ -290,7 +290,7 @@ Shows: pipeline state, spec card validation, spec freeze hash, implementation pl
 | `apd init` | Initialize or update APD in a project |
 | `apd profile <name>` | Switch the agent model profile (burn / cruise / eco) |
 | `apd roles list` | Show the 8 generic developer roles |
-| `apd run-role <role>` | Prepare a producer role's git worktree (`--launch` to enter CC) |
+| `apd run-role <role> --launch` | Enter CC **as** the role — charter (scope/boundary) injected automatically (producer = own worktree, operator = main checkout) |
 | `apd merge-role <role>` | Read-only gate: is the role's branch ready to merge? |
 
 All commands: `bash .claude/bin/apd <command>`
@@ -306,7 +306,7 @@ bash .claude/bin/apd run-role frontend    # a second, parallel worktree — no c
 bash .claude/bin/apd merge-role backend   # gate prints the git merge when backend-work is ready
 ```
 
-Producer roles (backend/frontend/mobile/backoffice/reporting) get a worktree; operator roles (devops/debug/master) run in the main checkout. The gate never runs the merge — it advises, you merge. See the README "Parallel work" section for the full model.
+Producer roles (backend/frontend/mobile/backoffice/reporting) get a worktree; operator roles (devops/debug/master) run in the main checkout — but both `run-role --launch` enter a CC session with the role's charter (scope + boundary) injected automatically, no manual prompt. The gate never runs the merge — it advises, you merge. See the README "Parallel work" section for the full model.
 
 ---
 

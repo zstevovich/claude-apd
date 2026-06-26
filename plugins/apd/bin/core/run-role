@@ -1,12 +1,23 @@
 #!/bin/bash
-# APD Run Role — prepare a git worktree for a producer role (prepare-only, C1).
+# APD Run Role — start a role's Claude Code session with its charter injected.
 #
-# A producer role (worktree=yes in roles.conf) owns its domain and works in its
-# OWN git worktree: a feature branch + folder + isolated APD pipeline. This
-# command creates (or reuses) that worktree, bootstraps APD config into it, runs
-# the project's dev-env setup, and prints the launch command. It does NOT spawn
-# Claude Code (that is opt-in `--launch`, a later milestone) — preparing the
-# worktree and starting a session are different reversibility classes.
+# A role carries its own identity in roles.conf (scope + boundary + profile);
+# run-role turns that identity into a running session. The charter is built
+# AUTOMATICALLY from the role's own fields and injected on --launch via
+# `claude --append-system-prompt` — the user never writes it; the role defines
+# what the session is and what it may touch.
+#
+# Two workspace classes, one launcher:
+#   producer (worktree=yes) — owns its domain in its OWN git worktree (feature
+#     branch + folder + isolated APD pipeline). run-role creates/reuses that
+#     worktree, bootstraps config, runs the project's dev-env setup, then (with
+#     --launch) enters CC in it.
+#   operator (worktree=no)  — devops/debug/master manage shared state or
+#     integrate, so they get NO worktree and charter-launch in the MAIN checkout.
+#
+# Without --launch, run-role only prepares (producer: the worktree; operator:
+# nothing) and prints how to enter — preparing and spawning are different
+# reversibility classes, so spawning stays opt-in.
 #
 # APD owns the worktree lifecycle here: CC's native `claude --worktree` is
 # create-only (fatals on an existing worktree) and leaves stray directories on
@@ -20,13 +31,15 @@
 # run-role executes it. APD does not know the stack; the project does.
 #
 # Usage:
-#   run-role <role>          create/reuse the role's worktree + dev-env, print launch cmd
-#   run-role <role> --launch create/reuse + dev-env, then spawn Claude Code in the worktree
-#   run-role --list          list producer roles eligible for a worktree
+#   run-role <role>            producer: create/reuse worktree + dev-env, print enter cmd
+#                              operator: print how to charter-launch in the main checkout
+#   run-role <role> --launch   charter-launch CC as the role (producer: in its worktree;
+#                              operator: in the main checkout) — charter injected automatically
+#   run-role --list            list producer roles eligible for a worktree
 #
 # Guards (state-changing path — global rule 1):
 #   E1 invoked inside a worktree     → BLOCK (run from the main checkout)
-#   E2 operator role (worktree=no)   → BLOCK (runs in main checkout, no worktree)
+#   E2 operator role (worktree=no)   → no worktree; charter-launch in the main checkout (exit 0)
 #   E7 non-git project               → BLOCK (worktrees need git)
 #   E9 unknown role                  → BLOCK (not in roles.conf)
 #   E4 worktree/branch collision     → reuse / attach / BLOCK (stray dir → manual cleanup)
@@ -35,11 +48,14 @@
 #   E6 dirty main checkout           → warn (uncommitted main work is NOT in the worktree)
 #   E11 --launch but no `claude` CLI → degrade to prepare-only + print the command
 #
-# --launch (C2) spawns CC in the worktree after prepare. It scrubs APD_PROJECT_DIR
-# and CLAUDE_PLUGIN_ROOT from the environment first, so the new session resolves
-# the worktree as its own project root (not a leaked main-checkout root, R6).
+# Charter (--launch): built automatically from the role's roles.conf fields
+# (scope + boundary + profile + workspace) and passed to `claude
+# --append-system-prompt`, so the session knows its identity for the whole run.
+# For producers, --launch also scrubs APD_PROJECT_DIR + CLAUDE_PLUGIN_ROOT so the
+# new session resolves the worktree as its own project root (not a leaked
+# main-checkout root, R6).
 #
-# Exit codes: 0 ok, 1 usage / unknown role / operator role / non-git, 2 collision / inside-worktree
+# Exit codes: 0 ok, 1 usage / unknown role / non-git, 2 collision / inside-worktree
 
 set -u
 
@@ -57,6 +73,28 @@ _rows() { grep -vE '^[[:space:]]*(#|$)' "$ROLES_FILE" 2>/dev/null; }
 _role_row() { _rows | awk -F'|' -v r="$1" '$1==r { print; exit }'; }
 _producer_roles() { _rows | awk -F'|' '$2=="yes" { print $1 }'; }
 
+# Build the session charter from the role's own roles.conf fields. The user
+# never writes this — the role definition carries its own identity, and
+# --launch injects it verbatim as an appended system prompt so the spawned CC
+# session knows what it is and what it may touch for the whole run.
+# Args: role worktree-flag profile scope boundary
+_role_charter() {
+    local role="$1" wt="$2" profile="$3" scope="$4" boundary="$5" workspace
+    if [ "$wt" = "yes" ]; then
+        workspace="an isolated git worktree on branch '${role}-work' with its own APD pipeline (merge back via 'apd merge-role ${role}')"
+    else
+        workspace="the main checkout — an operator role: you manage shared state or integrate across roles, so you get NO isolated worktree"
+    fi
+    cat <<EOF
+You are operating as the APD "${role}" role for this entire session.
+Workspace: ${workspace}.
+Scope — what this role owns and may change: ${scope}
+Boundary — what this role must NOT do: ${boundary}
+Default model profile for this role: ${profile}.
+Stay strictly inside this scope and boundary for the whole session. If a task needs work outside them, stop and surface it for reassignment rather than crossing the boundary.
+EOF
+}
+
 # Am I inside a linked worktree? (git-dir != git-common-dir) — same test the
 # resolver uses, redefined here because the resolver unsets its copy.
 _in_worktree() {
@@ -72,7 +110,7 @@ LAUNCH=false
 for arg in "$@"; do
     case "$arg" in
         --help|-h)
-            sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         --launch) LAUNCH=true ;;
@@ -95,7 +133,7 @@ for arg in "$@"; do
 done
 
 if [ -z "$ROLE" ]; then
-    err "Usage: apd run-role <role>   (--list for eligible roles)"
+    err "Usage: apd run-role <role> [--launch]   (--list for eligible roles)"
     exit 1
 fi
 
@@ -112,14 +150,36 @@ IFS='|' read -r _r WT _profile _scope _boundary <<EOF
 $ROW
 EOF
 
-# --- E2: only producer roles get a worktree ---
+# Charter is built once from the role's own fields and injected automatically on
+# --launch — into the worktree for producers, into the main checkout for operators.
+CHARTER=$(_role_charter "$ROLE" "$WT" "$_profile" "$_scope" "$_boundary")
+
+# --- Operator role (worktree=no): no worktree, but it still gets a session.
+# A worktree belongs to PRODUCERS of an artifact; operators (devops/debug/master)
+# manage shared state or integrate, so they run in the MAIN checkout. They are
+# NOT blocked — run-role just skips the worktree and charter-launches in place. ---
 if [ "$WT" != "yes" ]; then
-    apd_blocked "'$ROLE' is an operator role (worktree=no)."
-    echo "  Operator roles (devops/debug/master) run in the MAIN checkout — they" >&2
-    echo "  manage shared state or integrate, so a worktree would only hurt." >&2
-    echo "  Producer roles eligible for a worktree:" >&2
-    for r in $(_producer_roles); do echo "    $r" >&2; done
-    exit 1
+    apd_header "Run role: $ROLE (operator — main checkout)"
+    echo ""
+    echo "  workspace: main checkout (operator role — no worktree, by design)"
+    echo "  profile:   $_profile"
+    echo "  scope:     $_scope"
+    echo ""
+    if [ "$LAUNCH" = true ] && command -v claude >/dev/null 2>&1; then
+        ok "Launching Claude Code as operator role '$ROLE' (charter injected automatically)."
+        # No cd: operators work in the main checkout. Scrub leaked env so the new
+        # session resolves the project from cwd, consistent with the producer path.
+        unset APD_PROJECT_DIR CLAUDE_PLUGIN_ROOT
+        exec claude --append-system-prompt "$CHARTER"
+    fi
+    # E11: --launch requested but no `claude` on PATH → print the manual command.
+    [ "$LAUNCH" = true ] && warn "--launch requested but 'claude' is not on PATH — not spawned."
+    ok "Operator role '$ROLE' runs in the main checkout. Start a charter-scoped session with:"
+    echo ""
+    echo "    $APD_SHORTCUT_DISPLAY run-role $ROLE --launch"
+    echo ""
+    echo "  ${D}--launch injects this role's scope/boundary as the session charter automatically.${R}"
+    exit 0
 fi
 
 # --- E7: worktrees require git ---
@@ -223,7 +283,7 @@ fi
 echo ""
 
 if [ "$LAUNCH" = true ] && command -v claude >/dev/null 2>&1; then
-    ok "Worktree ready — launching Claude Code in it (role '$ROLE')."
+    ok "Worktree ready — launching Claude Code as role '$ROLE' (charter injected automatically)."
     echo ""
     echo "  ${D}Merge back when done: commit on '$BRANCH', then from the main checkout"
     echo "  git merge $BRANCH (or open a PR). Remove: git worktree remove <path>.${R}"
@@ -232,7 +292,7 @@ if [ "$LAUNCH" = true ] && command -v claude >/dev/null 2>&1; then
     # Scrub leaked env so the new CC session resolves the worktree as its own
     # project root (not a stale main-checkout root) — R6.
     unset APD_PROJECT_DIR CLAUDE_PLUGIN_ROOT
-    exec claude
+    exec claude --append-system-prompt "$CHARTER"
 fi
 
 # E11: --launch requested but no `claude` on PATH → degrade to prepare-only.
