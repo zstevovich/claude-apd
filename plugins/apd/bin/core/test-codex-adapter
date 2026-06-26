@@ -9169,6 +9169,141 @@ fi
 rm -rf "$WTB_MAIN"
 
 # -----------------------------------------------------------
+# 87. v6.19 — generic role registry (apd roles), Milestone A
+#     roles.conf is DATA (8 generic roles: role|worktree|profile|scope|boundary);
+#     `apd roles list|status` is read-only and mirrors model-profiles.conf.
+#     Producer roles (worktree=yes) vs operator roles (worktree=no). Project
+#     override via .apd/roles.conf wins wholesale. role ≠ agent.
+# -----------------------------------------------------------
+section "87. role registry (v6.19)"
+
+ROLES_SCRIPT="$APD_PLUGIN_ROOT/bin/core/roles"
+ROLES_CONF="$APD_PLUGIN_ROOT/templates/roles.conf"
+
+# Static A: script exists + executable
+_check "roles script exists and is executable" test -x "$ROLES_SCRIPT"
+
+# Static B: roles.conf ships in templates
+_check "roles.conf exists in templates" test -f "$ROLES_CONF"
+
+# Static C: exactly 8 generic roles (non-comment rows)
+ROLES_N=$(grep -vE '^[[:space:]]*(#|$)' "$ROLES_CONF" | wc -l | tr -d ' ')
+if [ "$ROLES_N" = "8" ]; then
+    pass "roles.conf has 8 generic roles"
+    PASSES=$((PASSES + 1))
+else
+    fail "roles.conf role count wrong: $ROLES_N (want 8)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: every non-comment row has exactly 5 pipe fields
+ROLES_BADCOLS=$(grep -vE '^[[:space:]]*(#|$)' "$ROLES_CONF" | awk -F'|' 'NF!=5 {c++} END{print c+0}')
+if [ "$ROLES_BADCOLS" = "0" ]; then
+    pass "every roles.conf row has 5 fields (role|worktree|profile|scope|boundary)"
+    PASSES=$((PASSES + 1))
+else
+    fail "roles.conf has $ROLES_BADCOLS row(s) with wrong field count"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static E: worktree flags correct by class (5 producers=yes, 3 operators=no)
+ROLES_CLASS_OK=1
+for r in backend frontend mobile backoffice reporting; do
+    grep -qE "^$r\|yes\|" "$ROLES_CONF" || ROLES_CLASS_OK=0
+done
+for r in devops debug master; do
+    grep -qE "^$r\|no\|" "$ROLES_CONF" || ROLES_CLASS_OK=0
+done
+if [ "$ROLES_CLASS_OK" = "1" ]; then
+    pass "worktree flags correct: 5 producers=yes, 3 operators=no"
+    PASSES=$((PASSES + 1))
+else
+    fail "roles.conf worktree class flags wrong"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static F: dispatcher wires roles|rl
+if grep -qE 'roles\|rl\)' "$APD_PLUGIN_ROOT/bin/apd"; then
+    pass "dispatcher wires roles|rl"
+    PASSES=$((PASSES + 1))
+else
+    fail "dispatcher missing roles|rl case"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup: isolated empty project (plugin default — no override)
+ROLES_SCRATCH="$(mktemp -d -t apd-roles.XXXXXX)"
+run_roles() { ( unset CLAUDE_PLUGIN_ROOT; APD_PROJECT_DIR="$ROLES_SCRATCH" bash "$ROLES_SCRIPT" "$@" 2>&1 ); }
+
+# Live G: list renders registry from plugin default
+ROLES_LIST="$(run_roles list)"
+if echo "$ROLES_LIST" | grep -q "plugin default" \
+   && echo "$ROLES_LIST" | grep -q "backend" \
+   && echo "$ROLES_LIST" | grep -q "master"; then
+    pass "roles list renders registry (plugin default source)"
+    PASSES=$((PASSES + 1))
+else
+    fail "roles list output wrong"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live H: status summary lists the 5 producers + 3 operators (role-name lists are
+# plain text — robust vs ANSI color codes around the labels/counts)
+ROLES_STATUS="$(run_roles status)"
+if echo "$ROLES_STATUS" | grep -q "backend frontend mobile backoffice reporting" \
+   && echo "$ROLES_STATUS" | grep -q "devops debug master"; then
+    pass "roles status summary lists 5 producers + 3 operators"
+    PASSES=$((PASSES + 1))
+else
+    fail "roles status summary wrong: $ROLES_STATUS"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live I: status backend -> producer / worktree yes
+ROLES_BE="$(run_roles status backend)"
+if echo "$ROLES_BE" | grep -q "producer" && echo "$ROLES_BE" | grep -q "worktree: yes"; then
+    pass "roles status backend: producer, worktree yes"
+    PASSES=$((PASSES + 1))
+else
+    fail "roles status backend wrong: $ROLES_BE"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live J: debug (shorthand) -> operator / worktree no
+ROLES_DBG="$(run_roles debug)"
+if echo "$ROLES_DBG" | grep -q "operator" && echo "$ROLES_DBG" | grep -q "worktree: no"; then
+    pass "roles debug (shorthand): operator, worktree no"
+    PASSES=$((PASSES + 1))
+else
+    fail "roles debug wrong: $ROLES_DBG"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live K: unknown role -> exit 1
+run_roles bogus >/dev/null 2>&1; ROLES_RC=$?
+if [ "$ROLES_RC" = "1" ]; then
+    pass "unknown role exits 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "unknown role exit code wrong: $ROLES_RC (want 1)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live L: project .apd/roles.conf override wins wholesale
+mkdir -p "$ROLES_SCRATCH/.apd"
+printf 'solorole|yes|burn|only scope|only boundary\n' > "$ROLES_SCRATCH/.apd/roles.conf"
+ROLES_OVR="$(run_roles list)"
+if echo "$ROLES_OVR" | grep -q "project override" && echo "$ROLES_OVR" | grep -q "solorole"; then
+    pass "project .apd/roles.conf override wins wholesale"
+    PASSES=$((PASSES + 1))
+else
+    fail "project override not honored: $ROLES_OVR"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$ROLES_SCRATCH"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

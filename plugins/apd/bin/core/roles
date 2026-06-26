@@ -1,0 +1,171 @@
+#!/bin/bash
+# APD Roles — generic developer-role registry (read-only in this milestone).
+#
+# Roles are DATA, not code: plugins/apd/templates/roles.conf ships the generic
+# defaults (backend / frontend / mobile / backoffice / reporting / devops /
+# debug / master); a project may override the whole table via
+# <project>/.apd/roles.conf. Each role carries: worktree flag (producer vs
+# operator), a default model profile, a scope charter, and a boundary.
+#
+# Two independent axes:
+#   profile (apd profile) — how strong a brain the agents carry (burn/cruise/eco)
+#   role    (apd roles)   — which domain + which workspace an orchestrator owns
+#
+# A worktree belongs to PRODUCERS of an artifact (worktree=yes), not to
+# integrators or shared-plane operators (worktree=no). role ≠ agent: a role is a
+# workspace/domain, an agent is an executor inside the pipeline.
+#
+# Usage:
+#   roles list              show all roles (worktree / profile / scope / boundary)
+#   roles status            summary: producer vs operator counts + conf source
+#   roles status <role>     full detail for one role
+#   roles <role>            shorthand for: roles status <role>
+#
+# Read-only: this milestone inspects the registry only. Creating worktrees
+# (run-role) and applying role scope to agents are later milestones.
+#
+# Exit codes: 0 ok, 1 usage / unknown role
+
+set -u
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+
+ROLES_FILE="$APD_PLUGIN_ROOT/templates/roles.conf"
+PROJECT_ROLES="$PROJECT_DIR/.apd/roles.conf"
+[ -f "$PROJECT_ROLES" ] && ROLES_FILE="$PROJECT_ROLES"
+
+# --- Arg parsing ---
+ACTION=""
+ROLE_ARG=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --help|-h)
+            sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        list|--list) ACTION="list" ;;
+        status|--status) ACTION="status" ;;
+        *)
+            if [ -z "$ROLE_ARG" ]; then
+                ROLE_ARG="$arg"
+            else
+                echo "Unknown argument: $arg" >&2
+                exit 1
+            fi
+            ;;
+    esac
+done
+
+# Default: no action + no role -> list ; role alone -> status <role>
+if [ -z "$ACTION" ]; then
+    if [ -n "$ROLE_ARG" ]; then ACTION="status"; else ACTION="list"; fi
+fi
+
+# --- Conf helpers ---
+
+_rows() {
+    grep -vE '^[[:space:]]*(#|$)' "$ROLES_FILE" 2>/dev/null
+}
+
+# _known_roles -> role names in conf order (one row per role, no sort)
+_known_roles() {
+    _rows | cut -d'|' -f1
+}
+
+# _role_row <role> -> full pipe line (empty when no such role)
+_role_row() {
+    _rows | awk -F'|' -v r="$1" '$1==r { print; exit }'
+}
+
+_src_label() {
+    if [ "$ROLES_FILE" = "$PROJECT_ROLES" ]; then echo "project override"; else echo "plugin default"; fi
+}
+
+# Color a role name by class: producer (worktree=yes) violet, operator dim.
+_role_color() {
+    case "$1" in
+        yes) printf '%s' "$V" ;;
+        *)   printf '%s' "$BLU" ;;
+    esac
+}
+
+# --- list ---
+
+if [ "$ACTION" = "list" ]; then
+    apd_header "Roles"
+    echo ""
+    echo "  Source: ${ROLES_FILE} ($(_src_label))"
+    echo ""
+    while IFS='|' read -r role wt profile scope boundary; do
+        [ -z "$role" ] && continue
+        c=$(_role_color "$wt")
+        if [ "$wt" = "yes" ]; then wt_disp="${G}yes${R}"; else wt_disp="${Y}no${R} "; fi
+        printf "  %s%s%-12s%s worktree=%s  profile=%s\n" "$c" "$B" "$role" "$R" "$wt_disp" "$profile"
+        printf "    %sscope:%s    %s\n" "$D" "$R" "$scope"
+        printf "    %sboundary:%s %s\n" "$D" "$R" "$boundary"
+        echo ""
+    done <<EOF
+$(_rows)
+EOF
+    echo "  Detail: apd roles status <role>    Summary: apd roles status"
+    exit 0
+fi
+
+# --- status <role> (detail) ---
+
+if [ -n "$ROLE_ARG" ]; then
+    row=$(_role_row "$ROLE_ARG")
+    if [ -z "$row" ]; then
+        err "Unknown role: '$ROLE_ARG'"
+        echo "  Known roles: $(_known_roles | tr '\n' ' ')" >&2
+        echo "  Inspect: apd roles list" >&2
+        exit 1
+    fi
+    IFS='|' read -r role wt profile scope boundary <<EOF
+$row
+EOF
+    apd_header "Role: $role"
+    echo ""
+    if [ "$wt" = "yes" ]; then
+        echo "  Class:    ${V}producer${R} (gets its own git worktree)"
+    else
+        echo "  Class:    ${Y}operator${R} (runs in the main checkout, no worktree)"
+    fi
+    echo "  worktree: $wt"
+    echo "  profile:  $profile (default model profile)"
+    echo ""
+    printf "  %sScope%s\n    %s\n" "$V" "$R" "$scope"
+    echo ""
+    printf "  %sBoundary%s\n    %s\n" "$V" "$R" "$boundary"
+    exit 0
+fi
+
+# --- status (summary) ---
+
+apd_header "Role registry status"
+echo ""
+echo "  Source: ${ROLES_FILE} ($(_src_label))"
+echo ""
+PRODUCERS=""
+OPERATORS=""
+PCOUNT=0
+OCOUNT=0
+while IFS='|' read -r role wt profile scope boundary; do
+    [ -z "$role" ] && continue
+    if [ "$wt" = "yes" ]; then
+        PRODUCERS="${PRODUCERS}${role} "
+        PCOUNT=$((PCOUNT + 1))
+    else
+        OPERATORS="${OPERATORS}${role} "
+        OCOUNT=$((OCOUNT + 1))
+    fi
+done <<EOF
+$(_rows)
+EOF
+printf "  %sProducer%s roles (worktree): %s%d%s — %s\n" "$V" "$R" "$B" "$PCOUNT" "$R" "$PRODUCERS"
+printf "  %sOperator%s roles (root):     %s%d%s — %s\n" "$Y" "$R" "$B" "$OCOUNT" "$R" "$OPERATORS"
+echo ""
+echo "  Detail: apd roles status <role>    All: apd roles list"
+exit 0

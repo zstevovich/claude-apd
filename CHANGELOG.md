@@ -1,5 +1,26 @@
 # Changelog
 
+## v6.19.0 — 2026-06-26
+
+Generic role registry (`apd roles`) — Milestone A of the team-of-orchestrators model. Roles are the second axis next to model profiles (v6.16): a profile says how strong a brain the agents carry; a role says which domain + which workspace an orchestrator owns. This ships the registry as read-only DATA; worktree creation (`run-role`) and scope→agent scaffolding are later milestones in the chain.
+
+### What it does
+
+- `apd roles list` / `roles status` / `roles status <role>` inspect 8 generic, tech-agnostic developer roles in two classes: **producer** (backend, frontend, mobile, backoffice, reporting — `worktree=yes`, get their own git worktree in a later milestone) and **operator** (devops, debug, master — `worktree=no`, run from the main checkout). Governing principle: a worktree belongs to producers of an artifact, not to integrators or operators.
+
+### Implementation
+
+- **feat(roles.conf):** new `plugins/apd/templates/roles.conf` — DATA, pipe-delimited `role|worktree|default_profile|scope|boundary`. Each role carries a scope charter + boundary. Per-project override `.apd/roles.conf` wins wholesale (mirrors `model-profiles.conf`). **role ≠ agent**: a role is a workspace/domain, an agent is a pipeline executor; one producer role runs a full pipeline dispatching many agents.
+- **feat(roles):** new `plugins/apd/bin/core/roles` — read-only `list` / `status` / `status <role>` / `<role>` shorthand. Mirrors the read side of `pipeline-model-profile` (awk row parsing, project-override precedence). No mutation in this milestone.
+- **feat(apd dispatcher):** `roles|rl` case + help line.
+- **docs:** SPEC.md §2 CLI row + new §6.5 (Role registry).
+
+### Tests
+
+- **test(test-codex-adapter §87) +12:** 6 static (script executable, conf present, 8 roles, 5-field rows, worktree class flags, dispatcher wiring) + 6 live via `APD_PROJECT_DIR` isolation (list, status summary 5/3, status backend=producer, debug shorthand=operator, unknown→exit 1, project override wins). **712 → 724 PASS / 0 FAIL.**
+
+**Migration:** zero action. Read-only; `roles.conf` is a plugin template read directly, no project scaffolding. The command works in CC + Codex; producer-role worktrees are CC-only, a later milestone.
+
 ## v6.18.0 — 2026-06-24
 
 Parallel sessions via git worktree — make APD activate inside a fresh worktree so two independent pipelines can run on one repo without colliding. CC has native worktree support (`claude --worktree`), and the git-toplevel resolver already isolates pipeline state per-worktree (proven empirically: two concurrent pipelines, distinct commits, main untouched). The gap was config bootstrap: a real project gitignores the whole `.claude/` tree, so a fresh worktree starts without APD config/agents and session-start exits early. This closes that gap. Additive, CC-side — no existing gate touched.
