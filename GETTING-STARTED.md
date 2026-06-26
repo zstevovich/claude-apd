@@ -288,8 +288,25 @@ Shows: pipeline state, spec card validation, spec freeze hash, implementation pl
 | `apd verify` | Full setup verification (50+ checks) |
 | `apd trace` | Check spec traceability coverage |
 | `apd init` | Initialize or update APD in a project |
+| `apd profile <name>` | Switch the agent model profile (burn / cruise / eco) |
+| `apd roles list` | Show the 8 generic developer roles |
+| `apd run-role <role>` | Prepare a producer role's git worktree (`--launch` to enter CC) |
+| `apd merge-role <role>` | Read-only gate: is the role's branch ready to merge? |
 
 All commands: `bash .claude/bin/apd <command>`
+
+### Parallel work (optional)
+
+For two independent features at once, give each producer role its own git worktree:
+
+```bash
+bash .claude/bin/apd run-role backend     # backend's worktree (feature branch + isolated pipeline)
+bash .claude/bin/apd run-role frontend    # a second, parallel worktree — no collision
+# ...work in each (run-role --launch enters a CC session in the worktree)...
+bash .claude/bin/apd merge-role backend   # gate prints the git merge when backend-work is ready
+```
+
+Producer roles (backend/frontend/mobile/backoffice/reporting) get a worktree; operator roles (devops/debug/master) run in the main checkout. The gate never runs the merge — it advises, you merge. See the README "Parallel work" section for the full model.
 
 ---
 

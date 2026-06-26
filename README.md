@@ -136,6 +136,29 @@ Design notes baked into the defaults:
 - **Every switch is recorded** (`MODEL_PROFILE` in the APD config + an audit-log entry), so each pipeline run carries model attribution — economy vs quality becomes a measurable trade-off, not a feeling.
 - **Profiles are data, never enforcement.** The mapping lives in `model-profiles.conf` (per-project override supported); new model generations are a one-line table edit. No profile can loosen a gate or guard — the quality floor is not for sale, only the average is.
 
+## Parallel work — roles and worktrees
+
+Profile is one axis (how strong a brain). **Role is the other — which domain, and which workspace.** A role is a generic, tech-agnostic developer responsibility — and it is *not* an agent: one role runs a full pipeline that dispatches many agents.
+
+Eight roles ship as data (`roles.conf`), in two classes:
+
+| Producer — own git worktree | Operator — main checkout |
+|---|---|
+| backend · frontend · mobile · backoffice · reporting | devops · debug · master |
+
+Governing principle: **a worktree belongs to producers of an artifact, not to integrators or operators.** A producer role works in its own worktree — a feature branch + folder + *isolated APD pipeline* — so several run in parallel without colliding. Operators (devops/debug/master) run in the main checkout; a worktree would only cut them off from the shared state they manage.
+
+```bash
+apd roles list                 # the 8 roles + scope / boundary
+apd run-role backend           # create/reuse backend's worktree + dev-env, print launch cmd
+apd run-role backend --launch  # ...and enter a Claude Code session inside it
+apd merge-role backend         # read-only gate: is backend-work ready to merge into develop?
+```
+
+Lifecycle: `run-role` opens the workspace → you do the work in the isolated worktree → `merge-role` checks readiness (ahead / clean / idle / in-sync) and prints the exact `git merge`. **APD never runs the merge** — it's irreversible and, unlike commit/push, unguarded, so you pull that trigger. APD advises; you merge.
+
+A worktree isolates code + pipeline state, **not** shared external resources — a local DB, Redis, or fixed ports are shared across worktrees. Parallel producers that write the same database must coordinate, or isolate it in a tracked, idempotent `.apd/dev-env-setup` the worktree runs on creation. CC only (worktrees need git; Codex has no `--worktree`).
+
 ## Pipeline flow
 
 <p align="center">
