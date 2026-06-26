@@ -21,6 +21,7 @@
 #
 # Usage:
 #   run-role <role>          create/reuse the role's worktree + dev-env, print launch cmd
+#   run-role <role> --launch create/reuse + dev-env, then spawn Claude Code in the worktree
 #   run-role --list          list producer roles eligible for a worktree
 #
 # Guards (state-changing path — global rule 1):
@@ -32,6 +33,11 @@
 #   E5 dev-env hook failure          → report, NEVER auto-delete the worktree
 #   E3 worktree has active pipeline  → warn (resume, don't re-run)
 #   E6 dirty main checkout           → warn (uncommitted main work is NOT in the worktree)
+#   E11 --launch but no `claude` CLI → degrade to prepare-only + print the command
+#
+# --launch (C2) spawns CC in the worktree after prepare. It scrubs APD_PROJECT_DIR
+# and CLAUDE_PLUGIN_ROOT from the environment first, so the new session resolves
+# the worktree as its own project root (not a leaked main-checkout root, R6).
 #
 # Exit codes: 0 ok, 1 usage / unknown role / operator role / non-git, 2 collision / inside-worktree
 
@@ -62,12 +68,14 @@ _in_worktree() {
 
 # --- Arg parsing ---
 ROLE=""
+LAUNCH=false
 for arg in "$@"; do
     case "$arg" in
         --help|-h)
-            sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
+        --launch) LAUNCH=true ;;
         --list|--list-roles)
             echo ""
             echo "  ${V}Producer roles${R} (eligible for a worktree):"
@@ -211,8 +219,25 @@ if [ -n "$(git -C "$MAIN_ROOT" status --porcelain 2>/dev/null)" ]; then
     warn "Main checkout has uncommitted changes — they are NOT in this worktree (it branched from committed HEAD)."
 fi
 
-# --- Prepare-only: print the launch command (does NOT spawn CC) ---
+# --- Launch (C2, opt-in) or prepare-only (print the command, does NOT spawn) ---
 echo ""
+
+if [ "$LAUNCH" = true ] && command -v claude >/dev/null 2>&1; then
+    ok "Worktree ready — launching Claude Code in it (role '$ROLE')."
+    echo ""
+    echo "  ${D}Merge back when done: commit on '$BRANCH', then from the main checkout"
+    echo "  git merge $BRANCH (or open a PR). Remove: git worktree remove <path>.${R}"
+    echo ""
+    cd "$WT_DIR" || { err "cd to worktree failed: $WT_DIR"; exit 1; }
+    # Scrub leaked env so the new CC session resolves the worktree as its own
+    # project root (not a stale main-checkout root) — R6.
+    unset APD_PROJECT_DIR CLAUDE_PLUGIN_ROOT
+    exec claude
+fi
+
+# E11: --launch requested but no `claude` on PATH → degrade to prepare-only.
+[ "$LAUNCH" = true ] && warn "--launch requested but 'claude' is not on PATH — prepared the worktree only."
+
 ok "Worktree ready for role '$ROLE'. Enter it with:"
 echo ""
 echo "    cd \"$WT_DIR\" && claude"

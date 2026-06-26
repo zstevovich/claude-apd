@@ -196,7 +196,7 @@ case "$CMD" in
         echo "    audit-drift       Detect drift vs framework baseline (settings/version/workflow)"
         echo "    profile [name]    Switch agent model profile — economy vs quality (list|status|<name> [--dry-run])"
         echo "    roles [sub]       Inspect the generic role registry (list|status [role])"
-        echo "    run-role <role>   Prepare a git worktree for a producer role (--list)"
+        echo "    run-role <role>   Prepare a git worktree for a producer role (--launch to spawn, --list)"
         echo "    test              Quick static hook test"
         echo "    toggle [on|off]   Toggle claude-apd in CC settings (smart-detection)"
         echo "    cdx <sub>         Codex runtime adapter (init|test) — see 'apd cdx help'"

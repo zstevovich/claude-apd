@@ -9456,6 +9456,76 @@ rm -rf "$RR_NOGIT"
 rm -rf "$RR_MAIN"
 
 # -----------------------------------------------------------
+# 89. v6.21 — run-role --launch (opt-in spawn), Milestone C2
+#     After prepare, --launch scrubs APD_PROJECT_DIR + CLAUDE_PLUGIN_ROOT and
+#     exec's `claude` in the worktree so the new session resolves the worktree
+#     as its own root (R6). Degrades to prepare-only if no `claude` on PATH (E11).
+# -----------------------------------------------------------
+section "89. run-role --launch (v6.21)"
+
+RR="$APD_PLUGIN_ROOT/bin/core/run-role"
+
+# Static A: --launch flag parsed
+_check_file_contains "run-role parses --launch" "$RR" '\-\-launch\) LAUNCH=true'
+
+# Static B: spawns via exec claude
+_check_file_contains "run-role exec's claude on launch" "$RR" 'exec claude'
+
+# Static C: scrubs leaked env before spawn (R6)
+_check_file_contains "run-role scrubs APD_PROJECT_DIR + CLAUDE_PLUGIN_ROOT" "$RR" 'unset APD_PROJECT_DIR CLAUDE_PLUGIN_ROOT'
+
+# Static D: E11 — guards on claude presence
+if grep -q 'command -v claude' "$RR"; then
+    pass "run-role guards on claude presence (E11)"
+    PASSES=$((PASSES + 1))
+else
+    fail "run-role missing claude-presence guard (E11)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup: main checkout + a mock `claude` that reports cwd + leaked env
+RR_MB="$(mktemp -d -t apd-rrmock.XXXXXX)"
+printf '#!/bin/bash\necho "CLAUDE_LAUNCHED cwd=$(basename "$PWD") apd_proj=${APD_PROJECT_DIR:-EMPTY}"\n' > "$RR_MB/claude"
+chmod +x "$RR_MB/claude"
+RR_LMAIN="$(mktemp -d -t apd-c2.XXXXXX)"
+(
+  cd "$RR_LMAIN"
+  git init -q; git config user.email t@t.t; git config user.name t
+  mkdir -p .claude/agents
+  printf 'PROJECT_NAME=C2\n' > .claude/.apd-config
+  echo r > .claude/agents/code-reviewer.md
+  printf '.claude/\n.apd/pipeline/\n' > .gitignore
+  echo "# C2" > README.md
+  git add README.md .gitignore; git commit -qm init
+) >/dev/null 2>&1
+run_launch() { ( cd "$RR_LMAIN" && unset CLAUDE_PLUGIN_ROOT; APD_PROJECT_DIR="$RR_LMAIN" PATH="$RR_MB:$PATH" bash "$RR" "$@" 2>&1 ); }
+
+# Live E: --launch with a (mock) claude → spawns in the worktree, env scrubbed
+RR_L="$(run_launch backend --launch)"
+if echo "$RR_L" | grep -q "CLAUDE_LAUNCHED cwd=backend-work" && echo "$RR_L" | grep -q "apd_proj=EMPTY"; then
+    pass "--launch spawns claude in worktree with scrubbed env (R6)"
+    PASSES=$((PASSES + 1))
+else
+    fail "--launch spawn wrong: $RR_L"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live F: no --launch → prepare-only, does NOT spawn (C1 behavior unchanged)
+git -C "$RR_LMAIN" worktree remove --force .claude/worktrees/backend-work >/dev/null 2>&1
+git -C "$RR_LMAIN" branch -D backend-work >/dev/null 2>&1
+RR_NL="$(run_launch backend)"
+if echo "$RR_NL" | grep -q "cd " && ! echo "$RR_NL" | grep -q "CLAUDE_LAUNCHED"; then
+    pass "no --launch → prepare-only, does NOT spawn"
+    PASSES=$((PASSES + 1))
+else
+    fail "no-launch unexpectedly spawned or missing prepare output: $RR_NL"
+    FAILS=$((FAILS + 1))
+fi
+
+( cd "$RR_LMAIN" && git worktree remove --force .claude/worktrees/backend-work >/dev/null 2>&1; git worktree prune >/dev/null 2>&1 )
+rm -rf "$RR_LMAIN" "$RR_MB"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

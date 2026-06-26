@@ -1,5 +1,24 @@
 # Changelog
 
+## v6.21.0 — 2026-06-26
+
+`apd run-role --launch` (Milestone C2) — opt-in flag that spawns Claude Code in the prepared worktree, so a producer role goes from "no worktree" to "working in its session" in one command. C1 prepared the worktree and printed `cd <path> && claude`; C2 does that last step for you when you ask.
+
+### What it does
+
+- `apd run-role <role> --launch` prepares the worktree (same as C1: create/reuse + bootstrap + dev-env) and then enters it: it scrubs `APD_PROJECT_DIR` + `CLAUDE_PLUGIN_ROOT` from the environment and `exec claude` from inside the worktree, so the new session resolves the worktree as its **own** project root rather than inheriting a leaked main-checkout root (R6). Without `--launch`, behaviour is unchanged (prepare-only, prints the command).
+
+### Implementation
+
+- **feat(run-role):** `--launch` flag. After prepare: if `claude` is on PATH, `cd` into the worktree, `unset APD_PROJECT_DIR CLAUDE_PLUGIN_ROOT`, `exec claude`. If not (E11), degrade to prepare-only with a warning + the manual command. Spawning CC from a script is an established pattern in-tree (`skill-eval` runs `claude -p`).
+- **docs:** SPEC.md §2 row + §6.5 C2 note.
+
+### Tests
+
+- **test(test-codex-adapter §89) +6:** 4 static (`--launch` parsed, `exec claude`, env scrub, E11 `command -v claude` guard) + 2 live via a mock `claude` (—launch spawns in the worktree with `APD_PROJECT_DIR` scrubbed to EMPTY; no `--launch` → prepare-only, does NOT spawn). **736 → 742 PASS / 0 FAIL.**
+
+**Migration:** zero action. `--launch` is opt-in; default behaviour is unchanged. CC only.
+
 ## v6.20.0 — 2026-06-26
 
 `apd run-role` (Milestone C1) — prepare a git worktree for a producer role. The step after the v6.19 role registry: where `apd roles` *describes* the roles, `run-role` *puts a producer role to work* in its own isolated worktree (feature branch + folder + isolated APD pipeline). Prepare-only — it sets up the worktree and prints the launch command; spawning Claude Code is an opt-in `--launch` flag in a later patch (different reversibility class).
