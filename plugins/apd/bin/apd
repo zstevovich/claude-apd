@@ -198,7 +198,7 @@ case "$CMD" in
         echo "    scaffold <stack>  Generate stack-specific agents + skills (--list-stacks, --dry-run, --force)"
         echo "    audit-drift       Detect drift vs framework baseline (settings/version/workflow)"
         echo "    profile [name]    Switch agent model profile — economy vs quality (list|status|<name> [--dry-run])"
-        echo "    roles [sub]       Inspect the generic role registry (list|status [role])"
+        echo "    roles [sub]       Generic role registry + workflow (list|status [role]|guide)"
         echo "    run-role <role>   Prepare a git worktree for a producer role (--launch to spawn, --list)"
         echo "    merge-role <role> Read-only merge gate for a role's worktree (--into <branch>)"
         echo "    test              Quick static hook test"

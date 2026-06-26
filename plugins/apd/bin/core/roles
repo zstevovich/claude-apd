@@ -20,6 +20,7 @@
 #   roles status            summary: producer vs operator counts + conf source
 #   roles status <role>     full detail for one role
 #   roles <role>            shorthand for: roles status <role>
+#   roles guide             step-by-step worktree workflow (run-role → merge-role)
 #
 # Read-only: this milestone inspects the registry only. Creating worktrees
 # (run-role) and applying role scope to agents are later milestones.
@@ -47,6 +48,7 @@ for arg in "$@"; do
             ;;
         list|--list) ACTION="list" ;;
         status|--status) ACTION="status" ;;
+        guide|--guide) ACTION="guide" ;;
         *)
             if [ -z "$ROLE_ARG" ]; then
                 ROLE_ARG="$arg"
@@ -90,6 +92,31 @@ _role_color() {
         *)   printf '%s' "$BLU" ;;
     esac
 }
+
+# --- guide ---
+
+if [ "$ACTION" = "guide" ]; then
+    apd_header "Role workflow"
+    echo ""
+    echo "  A producer role works in its OWN git worktree; you (master) assign,"
+    echo "  integrate, and merge. Two axes: ${V}profile${R} (model) x ${V}role${R} (domain + workspace)."
+    echo ""
+    echo "  ${V}1.${R} apd roles list                  see the 8 roles (producer vs operator)"
+    echo "  ${V}2.${R} apd run-role <role>             open the role's worktree (--launch to enter CC)"
+    echo "       ${D}producers: backend/frontend/mobile/backoffice/reporting;${R}"
+    echo "       ${D}operators (devops/debug/master) run in the main checkout.${R}"
+    echo "  ${V}3.${R} cd .claude/worktrees/<role>-work && claude   ${D}work there (isolated pipeline)${R}"
+    echo "  ${V}4.${R} ${D}...commit on the <role>-work branch through the pipeline...${R}"
+    echo "  ${V}5.${R} cd <worktree> && git merge develop   ${D}(optional) keep the branch fresh${R}"
+    echo "  ${V}6.${R} apd merge-role <role>            read-only gate (from MAIN): ready to merge?"
+    echo "  ${V}7.${R} git checkout develop && git merge <role>-work   ${D}the gate prints this; you run it${R}"
+    echo "  ${V}8.${R} git worktree remove <path> && git branch -d <role>-work   ${D}clean up${R}"
+    echo ""
+    echo "  ${D}Parallel: repeat 2-3 for another role in another terminal — isolated"
+    echo "  worktrees, no collision. Shared DB/ports are NOT isolated — coordinate if"
+    echo "  two roles write the same database. APD advises the merge; you run it.${R}"
+    exit 0
+fi
 
 # --- list ---
 

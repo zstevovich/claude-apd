@@ -9301,6 +9301,16 @@ else
     FAILS=$((FAILS + 1))
 fi
 
+# Live M: guide prints the step-by-step worktree workflow
+ROLES_GUIDE="$(run_roles guide)"
+if echo "$ROLES_GUIDE" | grep -q "Role workflow" && echo "$ROLES_GUIDE" | grep -q "run-role" && echo "$ROLES_GUIDE" | grep -q "merge-role"; then
+    pass "roles guide prints the worktree workflow (run-role → merge-role)"
+    PASSES=$((PASSES + 1))
+else
+    fail "roles guide output wrong: $ROLES_GUIDE"
+    FAILS=$((FAILS + 1))
+fi
+
 rm -rf "$ROLES_SCRATCH"
 
 # -----------------------------------------------------------

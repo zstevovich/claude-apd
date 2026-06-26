@@ -1,5 +1,20 @@
 # Changelog
 
+## v6.23.0 — 2026-06-26
+
+`apd roles guide` — an in-CLI, step-by-step walkthrough of the role workflow, so the team-of-orchestrators recipe is at your fingertips, not only in the README. It prints the lifecycle as numbered steps (roles list → run-role → work in the isolated worktree → optional sync → merge-role gate → you merge → cleanup), with the producer/operator split and the shared-resource caveat.
+
+### Implementation
+
+- **feat(roles):** new `guide` action in `bin/core/roles` (read-only — prints the workflow, exit 0). `roles` now exposes `list` / `status [<role>]` / `<role>` / `guide`.
+- **docs:** SPEC.md §2 roles sub-commands.
+
+### Tests
+
+- **test(test-codex-adapter §87) +1:** `roles guide` prints the workflow (run-role → merge-role). **751 → 752 PASS / 0 FAIL.**
+
+**Migration:** zero action. Read-only addition. CC + Codex (the command works in both).
+
 ## v6.22.0 — 2026-06-26
 
 `apd merge-role` (Milestone D1) — a read-only merge gate, the exit side of the role lifecycle (`run-role` is the entry). It tells you whether a producer role's `<role>-work` branch is ready to merge back, and prints the command — it **never runs `git merge` itself**. The merge is irreversible and, unlike commit/push, `git merge` is not guarded — so the human pulls that trigger. APD advises, you merge.
