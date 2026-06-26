@@ -1,0 +1,222 @@
+#!/bin/bash
+# APD Run Role — prepare a git worktree for a producer role (prepare-only, C1).
+#
+# A producer role (worktree=yes in roles.conf) owns its domain and works in its
+# OWN git worktree: a feature branch + folder + isolated APD pipeline. This
+# command creates (or reuses) that worktree, bootstraps APD config into it, runs
+# the project's dev-env setup, and prints the launch command. It does NOT spawn
+# Claude Code (that is opt-in `--launch`, a later milestone) — preparing the
+# worktree and starting a session are different reversibility classes.
+#
+# APD owns the worktree lifecycle here: CC's native `claude --worktree` is
+# create-only (fatals on an existing worktree) and leaves stray directories on
+# exit (measured), so run-role drives `git worktree add` itself with a stable
+# `<role>-work` branch + `.claude/worktrees/<role>-work` path, and reuses an
+# existing one instead of recreating it.
+#
+# Dev-env: a fresh worktree checks out only tracked files, so deps/DB/secrets
+# are missing. If the project ships `.apd/dev-env-setup` (a tracked, idempotent
+# script — usually a thin call to the project's own run.sh / start_apps.sh),
+# run-role executes it. APD does not know the stack; the project does.
+#
+# Usage:
+#   run-role <role>          create/reuse the role's worktree + dev-env, print launch cmd
+#   run-role --list          list producer roles eligible for a worktree
+#
+# Guards (state-changing path — global rule 1):
+#   E1 invoked inside a worktree     → BLOCK (run from the main checkout)
+#   E2 operator role (worktree=no)   → BLOCK (runs in main checkout, no worktree)
+#   E7 non-git project               → BLOCK (worktrees need git)
+#   E9 unknown role                  → BLOCK (not in roles.conf)
+#   E4 worktree/branch collision     → reuse / attach / BLOCK (stray dir → manual cleanup)
+#   E5 dev-env hook failure          → report, NEVER auto-delete the worktree
+#   E3 worktree has active pipeline  → warn (resume, don't re-run)
+#   E6 dirty main checkout           → warn (uncommitted main work is NOT in the worktree)
+#
+# Exit codes: 0 ok, 1 usage / unknown role / operator role / non-git, 2 collision / inside-worktree
+
+set -u
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+
+ROLES_FILE="$APD_PLUGIN_ROOT/templates/roles.conf"
+PROJECT_ROLES="$PROJECT_DIR/.apd/roles.conf"
+[ -f "$PROJECT_ROLES" ] && ROLES_FILE="$PROJECT_ROLES"
+
+BOOTSTRAP="$(dirname "$0")/worktree-bootstrap"
+
+# --- Conf helpers (mirror bin/core/roles) ---
+_rows() { grep -vE '^[[:space:]]*(#|$)' "$ROLES_FILE" 2>/dev/null; }
+_role_row() { _rows | awk -F'|' -v r="$1" '$1==r { print; exit }'; }
+_producer_roles() { _rows | awk -F'|' '$2=="yes" { print $1 }'; }
+
+# Am I inside a linked worktree? (git-dir != git-common-dir) — same test the
+# resolver uses, redefined here because the resolver unsets its copy.
+_in_worktree() {
+    local gd gcd
+    gd=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || return 1
+    gcd=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+    [ -n "$gcd" ] && [ "$gd" != "$gcd" ]
+}
+
+# --- Arg parsing ---
+ROLE=""
+for arg in "$@"; do
+    case "$arg" in
+        --help|-h)
+            sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        --list|--list-roles)
+            echo ""
+            echo "  ${V}Producer roles${R} (eligible for a worktree):"
+            for r in $(_producer_roles); do echo "    $r"; done
+            echo ""
+            echo "  Run: apd run-role <role>    Inspect: apd roles status <role>"
+            exit 0
+            ;;
+        --*)
+            err "Unknown flag: $arg"
+            exit 1
+            ;;
+        *)
+            if [ -z "$ROLE" ]; then ROLE="$arg"; else err "Unexpected argument: $arg"; exit 1; fi
+            ;;
+    esac
+done
+
+if [ -z "$ROLE" ]; then
+    err "Usage: apd run-role <role>   (--list for eligible roles)"
+    exit 1
+fi
+
+# --- E9: role must exist in the registry ---
+ROW=$(_role_row "$ROLE")
+if [ -z "$ROW" ]; then
+    apd_blocked "Unknown role: '$ROLE'"
+    echo "  Known roles: $(_rows | cut -d'|' -f1 | tr '\n' ' ')" >&2
+    echo "  Inspect: $APD_SHORTCUT_DISPLAY roles list" >&2
+    exit 1
+fi
+
+IFS='|' read -r _r WT _profile _scope _boundary <<EOF
+$ROW
+EOF
+
+# --- E2: only producer roles get a worktree ---
+if [ "$WT" != "yes" ]; then
+    apd_blocked "'$ROLE' is an operator role (worktree=no)."
+    echo "  Operator roles (devops/debug/master) run in the MAIN checkout — they" >&2
+    echo "  manage shared state or integrate, so a worktree would only hurt." >&2
+    echo "  Producer roles eligible for a worktree:" >&2
+    for r in $(_producer_roles); do echo "    $r" >&2; done
+    exit 1
+fi
+
+# --- E7: worktrees require git ---
+if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
+    apd_blocked "Not a git repository — worktrees require git."
+    echo "  Initialize git first (git init) or run from inside the repo." >&2
+    exit 1
+fi
+
+# --- E1: must be invoked from the MAIN checkout, never from a worktree ---
+if _in_worktree; then
+    apd_blocked "run-role must be invoked from the MAIN checkout, not a worktree."
+    echo "  You are inside a linked worktree. Nesting worktrees creates confusing" >&2
+    echo "  sibling lineage. cd to the main checkout and run again." >&2
+    exit 2
+fi
+
+MAIN_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+WT_DIR="$MAIN_ROOT/.claude/worktrees/${ROLE}-work"
+BRANCH="${ROLE}-work"
+
+apd_header "Run role: $ROLE"
+echo ""
+echo "  worktree: ${WT_DIR#"$MAIN_ROOT"/}"
+echo "  branch:   $BRANCH"
+echo ""
+
+# --- E4: worktree / branch collision handling ---
+_wt_registered() { git -C "$MAIN_ROOT" worktree list --porcelain 2>/dev/null | grep -qx "worktree $WT_DIR"; }
+_branch_exists() { git -C "$MAIN_ROOT" branch --list "$BRANCH" 2>/dev/null | grep -q .; }
+
+CREATED=false
+if _wt_registered; then
+    # (a) registered worktree at the expected path → reuse, idempotent
+    ok "Reusing existing worktree (already registered)."
+elif [ -e "$WT_DIR" ]; then
+    # stray directory: exists on disk but not a registered worktree (CC native
+    # leaves these on exit). Do NOT auto-delete — report and let the user clean.
+    apd_blocked "A directory exists at the worktree path but is NOT a registered worktree (stray)."
+    echo "  Clean it up, then re-run:" >&2
+    echo "    rm -rf \"$WT_DIR\"" >&2
+    echo "    git -C \"$MAIN_ROOT\" worktree prune" >&2
+    exit 2
+elif _branch_exists; then
+    # (b) branch exists without a worktree → attach it (don't recreate the branch)
+    if git -C "$MAIN_ROOT" worktree add "$WT_DIR" "$BRANCH" >/dev/null 2>&1; then
+        fix "Attached existing branch '$BRANCH' to a new worktree."
+        CREATED=true
+    else
+        apd_blocked "Branch '$BRANCH' exists but could not be attached (checked out elsewhere?)."
+        echo "  git -C \"$MAIN_ROOT\" worktree list   # see where it's checked out" >&2
+        exit 2
+    fi
+else
+    # (c) fresh: new branch + worktree from current HEAD
+    if git -C "$MAIN_ROOT" worktree add "$WT_DIR" -b "$BRANCH" >/dev/null 2>&1; then
+        fix "Created worktree on new branch '$BRANCH' (from $(git -C "$MAIN_ROOT" rev-parse --abbrev-ref HEAD))."
+        CREATED=true
+    else
+        apd_blocked "git worktree add failed."
+        echo "  git -C \"$MAIN_ROOT\" worktree add \"$WT_DIR\" -b \"$BRANCH\"   # see the error" >&2
+        exit 2
+    fi
+fi
+
+# --- E8: bootstrap APD config into the worktree (no-op if already present) ---
+if [ -x "$BOOTSTRAP" ]; then
+    ( cd "$WT_DIR" && bash "$BOOTSTRAP" 2>&1 | sed 's/^/  /' )
+fi
+
+# --- E3: warn if the worktree already has an active pipeline ---
+if [ -f "$WT_DIR/.apd/pipeline/spec-card.md" ]; then
+    warn "Worktree has an ACTIVE pipeline (spec-card.md present) — resume it, don't re-run from scratch."
+fi
+
+# --- dev-env: run the project's idempotent setup hook if present ---
+DEVENV="$WT_DIR/.apd/dev-env-setup"
+if [ -f "$DEVENV" ]; then
+    echo ""
+    echo "  ${V}dev-env${R}: running .apd/dev-env-setup …"
+    if ( cd "$WT_DIR" && bash "$DEVENV" 2>&1 | sed 's/^/    /' ); then
+        ok "dev-env setup finished."
+    else
+        # E5: do NOT auto-delete the worktree — deletion is the irreversible
+        # direction and the user may have half-set-up state worth keeping.
+        warn "dev-env setup failed (worktree left in place). Fix the script and re-run run-role, or remove the worktree manually."
+    fi
+else
+    echo ""
+    echo "  ${D}No .apd/dev-env-setup found — install deps/DB manually if the worktree needs them.${R}"
+    echo "  ${D}(Tip: add a tracked, idempotent .apd/dev-env-setup that calls your project's run script.)${R}"
+fi
+
+# --- E6: warn on a dirty main checkout (its uncommitted work is NOT in the worktree) ---
+if [ -n "$(git -C "$MAIN_ROOT" status --porcelain 2>/dev/null)" ]; then
+    echo ""
+    warn "Main checkout has uncommitted changes — they are NOT in this worktree (it branched from committed HEAD)."
+fi
+
+# --- Prepare-only: print the launch command (does NOT spawn CC) ---
+echo ""
+ok "Worktree ready for role '$ROLE'. Enter it with:"
+echo ""
+echo "    cd \"$WT_DIR\" && claude"
+echo ""
+echo "  ${D}Merge back when done: commit on '$BRANCH', then from the main checkout"
+echo "  git merge $BRANCH (or open a PR). Remove: git worktree remove <path>.${R}"
+exit 0

@@ -1,5 +1,33 @@
 # Changelog
 
+## v6.20.0 — 2026-06-26
+
+`apd run-role` (Milestone C1) — prepare a git worktree for a producer role. The step after the v6.19 role registry: where `apd roles` *describes* the roles, `run-role` *puts a producer role to work* in its own isolated worktree (feature branch + folder + isolated APD pipeline). Prepare-only — it sets up the worktree and prints the launch command; spawning Claude Code is an opt-in `--launch` flag in a later patch (different reversibility class).
+
+### What it does
+
+- `apd run-role <role>` creates (or reuses) `.claude/worktrees/<role>-work` on branch `<role>-work`, bootstraps APD config into it (**never** the pipeline state), runs the project's `.apd/dev-env-setup` if present, and prints `cd <path> && claude`. Only producer roles (`worktree=yes`) are eligible; operator roles (devops/debug/master) run in the main checkout.
+
+### Why APD owns the worktree lifecycle
+
+CC native `claude --worktree` was measured to be create-only (fatals on an existing worktree) and to leave stray directories on exit. So run-role drives `git worktree add` itself with a stable `<role>-work` convention and reuses an existing worktree instead of recreating it.
+
+### Dev-env
+
+A fresh worktree checks out only tracked files — deps/DB/secrets are missing. If the project ships a tracked, idempotent `.apd/dev-env-setup` (typically a thin call to its own `run.sh` / `start_apps.sh`), run-role runs it. APD doesn't know the stack; the project does. (Note: a worktree isolates code + pipeline, NOT shared external resources — a local DB/Redis/fixed ports are shared across worktrees; parallel producers that write the same DB must coordinate or isolate it in their dev-env-setup.)
+
+### Implementation
+
+- **feat(run-role):** new `plugins/apd/bin/core/run-role` (prepare-only). Guards: E1 inside-worktree → BLOCK exit 2; E2 operator role → BLOCK exit 1; E4 stray dir → BLOCK exit 2 (**never auto-deletes** — global rule 1); E7 non-git → exit 1; E9 unknown role → exit 1; E3 active pipeline → warn; E6 dirty main → warn. Reuses `worktree-bootstrap` for config.
+- **feat(apd dispatcher):** `run-role|rr` case + help line.
+- **docs:** SPEC.md §2 CLI row + §6.5 C1 note (incl. why Milestone B — scope→agent scaffolding — was skipped as redundant: scope already flows through `{{SCOPE_PATHS}}`/`{{SCOPE_*}}` and `roles.conf` carries the charter).
+
+### Tests
+
+- **test(test-codex-adapter §88) +12:** 3 static (executable, dispatcher wiring, never-auto-delete invariant) + 9 live (E9 unknown, E2 operator, producer create, worktree registered + config bootstrapped + pipeline NOT leaked, dev-env hook ran, reuse idempotent, E1 inside-worktree, E4 stray dir, E7 non-git). **724 → 736 PASS / 0 FAIL.**
+
+**Migration:** zero action. CC only (worktrees need `git`; Codex has no `--worktree`). Operator roles and non-git projects are unaffected (guarded).
+
 ## v6.19.0 — 2026-06-26
 
 Generic role registry (`apd roles`) — Milestone A of the team-of-orchestrators model. Roles are the second axis next to model profiles (v6.16): a profile says how strong a brain the agents carry; a role says which domain + which workspace an orchestrator owns. This ships the registry as read-only DATA; worktree creation (`run-role`) and scope→agent scaffolding are later milestones in the chain.

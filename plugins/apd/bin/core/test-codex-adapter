@@ -9304,6 +9304,158 @@ fi
 rm -rf "$ROLES_SCRATCH"
 
 # -----------------------------------------------------------
+# 88. v6.20 — run-role (worktree per producer role), Milestone C1 prepare-only
+#     APD owns the worktree lifecycle (CC --worktree is create-only + leaky):
+#     git worktree add `<role>-work`, bootstrap config, run .apd/dev-env-setup,
+#     print launch cmd (no spawn). Guards E1/E2/E4/E7/E9; never copies pipeline,
+#     never auto-deletes on failure.
+# -----------------------------------------------------------
+section "88. run-role prepare-only (v6.20)"
+
+RR="$APD_PLUGIN_ROOT/bin/core/run-role"
+
+# Static A: script exists + executable
+_check "run-role script exists and is executable" test -x "$RR"
+
+# Static B: dispatcher wires run-role|rr
+if grep -qE 'run-role\|rr\)' "$APD_PLUGIN_ROOT/bin/apd"; then
+    pass "dispatcher wires run-role|rr"
+    PASSES=$((PASSES + 1))
+else
+    fail "dispatcher missing run-role|rr case"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: never auto-deletes worktree on dev-env failure (E5 invariant in source)
+if grep -q 'do NOT auto-delete' "$RR"; then
+    pass "run-role documents never-auto-delete (E5 invariant)"
+    PASSES=$((PASSES + 1))
+else
+    fail "run-role missing never-auto-delete invariant"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup: main checkout (gitignored .claude/), tracked dev-env hook
+RR_MAIN="$(mktemp -d -t apd-rr.XXXXXX)"
+(
+  cd "$RR_MAIN"
+  git init -q; git config user.email t@t.t; git config user.name t
+  mkdir -p .claude/agents
+  printf 'PROJECT_NAME=RR\nAPD_VERSION=6.20.0\n' > .claude/.apd-config
+  echo "6.20.0" > .claude/.apd-version
+  echo r > .claude/agents/code-reviewer.md
+  mkdir -p .apd
+  printf '#!/bin/bash\necho RR_DEVENV_RAN\n' > .apd/dev-env-setup
+  printf '.claude/\n.apd/pipeline/\n' > .gitignore
+  echo "# RR" > README.md
+  git add README.md .gitignore .apd/dev-env-setup; git commit -qm init
+) >/dev/null 2>&1
+run_rr() { ( cd "$RR_MAIN" && unset CLAUDE_PLUGIN_ROOT APD_PROJECT_DIR; bash "$RR" "$@" 2>&1 ); }
+
+# Live D: unknown role → BLOCK exit 1 (E9)
+run_rr bogus >/dev/null 2>&1; RR_RC=$?
+if [ "$RR_RC" = "1" ]; then
+    pass "E9 unknown role → exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "E9 unknown role exit wrong: $RR_RC (want 1)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live E: operator role (debug, worktree=no) → BLOCK exit 1 (E2)
+RR_DBG="$(run_rr debug)"; run_rr debug >/dev/null 2>&1; RR_RC=$?
+if [ "$RR_RC" = "1" ] && echo "$RR_DBG" | grep -q "operator role"; then
+    pass "E2 operator role (debug) → BLOCK exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "E2 operator role wrong: rc=$RR_RC out=$RR_DBG"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live F: producer role (backend) → create worktree + exit 0
+RR_BE="$(run_rr backend)"; RR_RC=$?
+if [ "$RR_RC" = "0" ] && echo "$RR_BE" | grep -q "Created worktree on new branch 'backend-work'"; then
+    pass "producer backend → worktree created, exit 0"
+    PASSES=$((PASSES + 1))
+else
+    fail "producer create wrong: rc=$RR_RC out=$RR_BE"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live G: worktree registered + config bootstrapped + pipeline NOT leaked.
+# (substring match on the branch name — macOS mktemp /var vs git's canonical
+# /private/var symlink would break an exact path match; reuse test below proves
+# run-role's own registration detection is exact.)
+RR_WT="$RR_MAIN/.claude/worktrees/backend-work"
+if git -C "$RR_MAIN" worktree list 2>/dev/null | grep -q "backend-work" \
+   && [ -f "$RR_WT/.claude/.apd-config" ] \
+   && [ ! -e "$RR_WT/.apd/pipeline/spec-card.md" ]; then
+    pass "worktree registered, config bootstrapped, pipeline NOT leaked"
+    PASSES=$((PASSES + 1))
+else
+    fail "worktree state wrong (registered=$(git -C "$RR_MAIN" worktree list | grep -c backend-work) config=$([ -f "$RR_WT/.claude/.apd-config" ] && echo y || echo n))"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live H: dev-env hook ran (idempotent project setup)
+if echo "$RR_BE" | grep -q "RR_DEVENV_RAN"; then
+    pass "dev-env setup hook (.apd/dev-env-setup) executed"
+    PASSES=$((PASSES + 1))
+else
+    fail "dev-env hook did not run"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live I: reuse — second run is idempotent, exit 0, does not recreate
+RR_REUSE="$(run_rr backend)"; RR_RC=$?
+if [ "$RR_RC" = "0" ] && echo "$RR_REUSE" | grep -qi "Reusing existing worktree"; then
+    pass "reuse: second run idempotent (exit 0, no recreate)"
+    PASSES=$((PASSES + 1))
+else
+    fail "reuse wrong: rc=$RR_RC out=$RR_REUSE"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live J: invoked from INSIDE the worktree → BLOCK exit 2 (E1)
+( cd "$RR_WT" && unset CLAUDE_PLUGIN_ROOT APD_PROJECT_DIR; bash "$RR" frontend >/dev/null 2>&1 ); RR_RC=$?
+if [ "$RR_RC" = "2" ]; then
+    pass "E1 invoked inside a worktree → BLOCK exit 2"
+    PASSES=$((PASSES + 1))
+else
+    fail "E1 inside-worktree exit wrong: $RR_RC (want 2)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live K: stray directory (not a registered worktree) → BLOCK exit 2 (E4 stray)
+git -C "$RR_MAIN" worktree remove --force .claude/worktrees/backend-work >/dev/null 2>&1
+git -C "$RR_MAIN" branch -D backend-work >/dev/null 2>&1
+mkdir -p "$RR_WT"   # stray dir, no git registration
+run_rr backend >/dev/null 2>&1; RR_RC=$?
+if [ "$RR_RC" = "2" ]; then
+    pass "E4 stray directory → BLOCK exit 2 (no auto-delete)"
+    PASSES=$((PASSES + 1))
+else
+    fail "E4 stray-dir exit wrong: $RR_RC (want 2)"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$RR_WT"
+
+# Live L: non-git project → BLOCK exit 1 (E7)
+RR_NOGIT="$(mktemp -d -t apd-rr-nogit.XXXXXX)"
+( cd "$RR_NOGIT" && unset CLAUDE_PLUGIN_ROOT APD_PROJECT_DIR; bash "$RR" backend >/dev/null 2>&1 ); RR_RC=$?
+if [ "$RR_RC" = "1" ]; then
+    pass "E7 non-git project → BLOCK exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "E7 non-git exit wrong: $RR_RC (want 1)"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$RR_NOGIT"
+
+( cd "$RR_MAIN" && git worktree prune >/dev/null 2>&1 )
+rm -rf "$RR_MAIN"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
