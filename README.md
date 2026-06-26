@@ -18,6 +18,10 @@
   <b>v6.24.0</b> &middot; MIT &middot; macOS + Linux
 </p>
 
+<p align="center">
+  <a href="https://www.claudepluginhub.com/plugins/zstevovich-claude-apd?ref=badge"><img src="https://www.claudepluginhub.com/badge/zstevovich-claude-apd" alt="Listed on ClaudePluginHub"></a>
+</p>
+
 ![APD Demo](docs/demo/apd-demo.gif)
 
 ---
