@@ -1,0 +1,169 @@
+#!/bin/bash
+# APD Merge Role — read-only merge gate for a producer role's worktree (D1).
+#
+# The exit side of the role lifecycle (run-role is the entry). This inspects
+# whether a producer role's `<role>-work` branch is ready to merge into the
+# integration branch, and prints guidance — it NEVER runs `git merge` itself.
+# The merge is irreversible and `git merge` is NOT guarded (unlike commit/push),
+# so the human pulls that trigger: APD advises, you merge.
+#
+# What it checks (all read-only):
+#   - the `<role>-work` branch exists
+#   - it is AHEAD of the target (has commits to merge)
+#   - the worktree (if present) is clean — no uncommitted work to lose
+#   - the pipeline is IDLE — no spec-card.md (mid-run); reads git state + idle,
+#     NOT verifier.done (the post-commit reset deletes the *.done flags, so a
+#     "passed" flag is gone by merge time — git provenance is the durable signal)
+#   - whether the target moved (BEHIND) → sync-first needed
+#
+# Target branch: --into <branch>, else auto-detect develop → main → master.
+# Sync-first uses `git merge <target>` (NOT rebase — rebase needs force-push,
+# which IS guarded), resolved IN the role worktree where the domain context is.
+#
+# Usage:
+#   merge-role <role>            check the role's branch readiness + print guidance
+#   merge-role <role> --into X   check against target branch X instead of auto-detect
+#
+# Exit codes: 0 ready to merge, 1 not ready / usage / unknown role
+# (read-only — never mutates anything regardless of exit code)
+
+set -u
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+
+ROLES_FILE="$APD_PLUGIN_ROOT/templates/roles.conf"
+PROJECT_ROLES="$PROJECT_DIR/.apd/roles.conf"
+[ -f "$PROJECT_ROLES" ] && ROLES_FILE="$PROJECT_ROLES"
+
+_rows() { grep -vE '^[[:space:]]*(#|$)' "$ROLES_FILE" 2>/dev/null; }
+_role_row() { _rows | awk -F'|' -v r="$1" '$1==r { print; exit }'; }
+
+# --- Arg parsing ---
+ROLE=""
+INTO=""
+_expect_into=false
+for arg in "$@"; do
+    if [ "$_expect_into" = true ]; then INTO="$arg"; _expect_into=false; continue; fi
+    case "$arg" in
+        --help|-h) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --into) _expect_into=true ;;
+        --*) err "Unknown flag: $arg"; exit 1 ;;
+        *) if [ -z "$ROLE" ]; then ROLE="$arg"; else err "Unexpected argument: $arg"; exit 1; fi ;;
+    esac
+done
+
+[ -z "$ROLE" ] && { err "Usage: apd merge-role <role> [--into <branch>]"; exit 1; }
+
+# --- E9: role must exist ---
+ROW=$(_role_row "$ROLE")
+[ -z "$ROW" ] && { apd_blocked "Unknown role: '$ROLE'"; echo "  Known roles: $(_rows | cut -d'|' -f1 | tr '\n' ' ')" >&2; exit 1; }
+WT_FLAG=$(printf '%s' "$ROW" | cut -d'|' -f2)
+if [ "$WT_FLAG" != "yes" ]; then
+    apd_blocked "'$ROLE' is an operator role (worktree=no) — no worktree, nothing to merge."
+    exit 1
+fi
+
+# --- E7: git ---
+git rev-parse --git-dir >/dev/null 2>&1 || { apd_blocked "Not a git repository."; exit 1; }
+
+# Main root works whether invoked from main or a worktree (shared common dir).
+_gcd=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+MAIN_ROOT=$(dirname "$_gcd")
+BRANCH="${ROLE}-work"
+WT_DIR="$MAIN_ROOT/.claude/worktrees/${ROLE}-work"
+
+_branch_exists() { git branch --list "$1" 2>/dev/null | grep -q .; }
+
+# --- Branch must exist ---
+if ! _branch_exists "$BRANCH"; then
+    apd_blocked "No '$BRANCH' branch — run the role first: $APD_SHORTCUT_DISPLAY run-role $ROLE"
+    exit 1
+fi
+
+# --- Target branch: --into, else auto-detect ---
+if [ -n "$INTO" ]; then
+    TARGET="$INTO"
+    if ! _branch_exists "$TARGET"; then
+        apd_blocked "Target branch '$TARGET' does not exist."
+        exit 1
+    fi
+else
+    TARGET=""
+    for cand in develop main master; do
+        if _branch_exists "$cand"; then TARGET="$cand"; break; fi
+    done
+    if [ -z "$TARGET" ]; then
+        apd_blocked "No integration branch found (develop/main/master). Specify one: --into <branch>"
+        exit 1
+    fi
+fi
+
+# --- Read-only checks ---
+AHEAD=$(git rev-list --count "${TARGET}..${BRANCH}" 2>/dev/null || echo 0)
+BEHIND=$(git rev-list --count "${BRANCH}..${TARGET}" 2>/dev/null || echo 0)
+TARGET_SHA=$(git rev-parse --short "$TARGET" 2>/dev/null)
+
+WT_PRESENT=false; WT_CLEAN=true; PIPELINE_IDLE=true
+if [ -d "$WT_DIR" ]; then
+    WT_PRESENT=true
+    [ -n "$(git -C "$WT_DIR" status --porcelain 2>/dev/null)" ] && WT_CLEAN=false
+    [ -f "$WT_DIR/.apd/pipeline/spec-card.md" ] && PIPELINE_IDLE=false
+fi
+
+apd_header "Merge gate: $ROLE → $TARGET"
+echo ""
+echo "  branch:  $BRANCH"
+echo "  target:  $TARGET (@ ${TARGET_SHA:-?})"
+echo "  ahead:   $AHEAD commit(s)   behind: $BEHIND commit(s)"
+echo "  worktree: $([ "$WT_PRESENT" = true ] && echo "$WT_DIR" || echo "(removed — branch-only)")"
+echo ""
+
+READY=true
+# ahead
+if [ "$AHEAD" -gt 0 ] 2>/dev/null; then
+    pass "branch is ahead of $TARGET ($AHEAD commit(s) to merge)"
+else
+    fail "branch is NOT ahead of $TARGET — nothing to merge"
+    READY=false
+fi
+# clean (only when the worktree is present)
+if [ "$WT_PRESENT" = true ]; then
+    if [ "$WT_CLEAN" = true ]; then
+        pass "worktree is clean (no uncommitted work)"
+    else
+        fail "worktree has UNCOMMITTED changes — commit on $BRANCH first"
+        READY=false
+    fi
+    if [ "$PIPELINE_IDLE" = true ]; then
+        pass "pipeline is idle (no active spec-card)"
+    else
+        fail "pipeline is MID-RUN (spec-card present) — finish + commit before merging"
+        READY=false
+    fi
+fi
+# sync
+if [ "$BEHIND" -gt 0 ] 2>/dev/null; then
+    warn "$TARGET moved $BEHIND commit(s) ahead — SYNC FIRST (see below)"
+    READY=false
+fi
+
+echo ""
+if [ "$READY" = true ]; then
+    ok "READY to merge. APD does not run the merge (read-only gate) — from the main checkout:"
+    echo ""
+    echo "    git checkout $TARGET && git merge $BRANCH"
+    echo ""
+    echo "  ${D}Pre-merge $TARGET SHA: ${TARGET_SHA:-?} — recover with: git reset --hard <that sha> if needed.${R}"
+    echo "  ${D}After merging, remove the worktree: git worktree remove $WT_DIR${R}"
+    exit 0
+else
+    apd_blocked "NOT ready to merge — resolve the ✗ items above."
+    if [ "$BEHIND" -gt 0 ] 2>/dev/null; then
+        echo "  ${V}Sync first${R} (in the role worktree, where the domain context is):" >&2
+        echo "    cd $WT_DIR && git merge $TARGET" >&2
+        echo "    ${D}resolve any conflicts there, re-run the verifier, then re-check.${R}" >&2
+        echo "    ${D}(merge, NOT rebase — rebase needs force-push, which is guarded.)${R}" >&2
+    fi
+    exit 1
+fi

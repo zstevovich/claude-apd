@@ -1,5 +1,30 @@
 # Changelog
 
+## v6.22.0 — 2026-06-26
+
+`apd merge-role` (Milestone D1) — a read-only merge gate, the exit side of the role lifecycle (`run-role` is the entry). It tells you whether a producer role's `<role>-work` branch is ready to merge back, and prints the command — it **never runs `git merge` itself**. The merge is irreversible and, unlike commit/push, `git merge` is not guarded — so the human pulls that trigger. APD advises, you merge.
+
+### What it checks (all read-only)
+
+- `<role>-work` branch exists and is **ahead** of the integration branch (auto-detected develop → main → master, or `--into <branch>`)
+- the worktree is **clean** (no uncommitted work to lose)
+- the pipeline is **idle** — no active `spec-card.md`. It reads git state + idle, NOT `verifier.done`: the post-commit reset deletes the `*.done` flags, so a "passed" flag is gone by merge time; git provenance is the durable signal.
+- whether the target moved (**behind**) → prints sync-first guidance: `git merge <target>` in the worktree (NOT rebase — rebase needs force-push, which is guarded), resolve conflicts where the domain context is, re-run the verifier, re-check.
+
+When ready it prints `git checkout <target> && git merge <branch>` + the pre-merge target SHA (for `git reset --hard` recovery). It does not run it.
+
+### Implementation
+
+- **feat(merge-role):** new `plugins/apd/bin/core/merge-role`. Resolves the main root via the shared git-common-dir so it works from the main checkout or a worktree. Guards: unknown role / operator role / non-git / missing `<role>-work` branch → exit 1.
+- **feat(apd dispatcher):** `merge-role|mr` case + help line.
+- **docs:** SPEC.md §2 row + §6.5 D1 note.
+
+### Tests
+
+- **test(test-codex-adapter §90) +9:** 3 static (executable, dispatcher wiring, read-only invariant) + 6 live (READY → exit 0 + merge guidance; **read-only proof — develop SHA unchanged after the gate ran**; unknown role; operator role; missing branch; BEHIND → sync-first + exit 1). **742 → 751 PASS / 0 FAIL.**
+
+**Migration:** zero action. Read-only; the human runs the merge. CC only.
+
 ## v6.21.0 — 2026-06-26
 
 `apd run-role --launch` (Milestone C2) — opt-in flag that spawns Claude Code in the prepared worktree, so a producer role goes from "no worktree" to "working in its session" in one command. C1 prepared the worktree and printed `cd <path> && claude`; C2 does that last step for you when you ask.

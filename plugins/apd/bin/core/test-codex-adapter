@@ -9526,6 +9526,102 @@ fi
 rm -rf "$RR_LMAIN" "$RR_MB"
 
 # -----------------------------------------------------------
+# 90. v6.22 — merge-role read-only gate, Milestone D1
+#     Inspects a producer role's <role>-work branch readiness to merge into the
+#     integration branch (develop/main/master auto-detect): ahead / clean /
+#     idle (no spec-card — git state, NOT verifier.done) / behind (sync-first).
+#     READ-ONLY — never runs `git merge` (irreversible + unguarded → human pulls
+#     that trigger; D1 must be proven read-only before any D2 actuator).
+# -----------------------------------------------------------
+section "90. merge-role read-only gate (v6.22)"
+
+MR="$APD_PLUGIN_ROOT/bin/core/merge-role"
+
+# Static A: exists + executable
+_check "merge-role script exists and is executable" test -x "$MR"
+
+# Static B: dispatcher wires merge-role|mr
+if grep -qE 'merge-role\|mr\)' "$APD_PLUGIN_ROOT/bin/apd"; then
+    pass "dispatcher wires merge-role|mr"
+    PASSES=$((PASSES + 1))
+else
+    fail "dispatcher missing merge-role|mr case"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: documents read-only / does-not-run-merge invariant
+if grep -q 'NEVER run' "$MR" && grep -q 'read-only' "$MR"; then
+    pass "merge-role documents read-only / never-runs-merge invariant"
+    PASSES=$((PASSES + 1))
+else
+    fail "merge-role missing read-only invariant"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup: repo with develop + a backend-work worktree that's ahead by 1
+MR_MAIN="$(mktemp -d -t apd-d1.XXXXXX)"
+(
+  cd "$MR_MAIN"
+  git init -q; git config user.email t@t.t; git config user.name t
+  mkdir -p .claude/agents
+  printf 'PROJECT_NAME=D1\n' > .claude/.apd-config
+  echo r > .claude/agents/code-reviewer.md
+  printf '.claude/\n.apd/pipeline/\n' > .gitignore
+  echo init > f.txt; git add f.txt .gitignore; git commit -qm init
+  git branch develop
+  git worktree add .claude/worktrees/backend-work -b backend-work develop
+  ( cd .claude/worktrees/backend-work && echo work > w.txt && git add w.txt && git commit -qm "backend work" )
+) >/dev/null 2>&1
+run_mr() { ( cd "$MR_MAIN" && unset CLAUDE_PLUGIN_ROOT; APD_PROJECT_DIR="$MR_MAIN" bash "$MR" "$@" 2>&1 ); }
+
+# Live D: READY (ahead, clean, idle, in-sync) → exit 0 + guidance
+MR_DEV_BEFORE=$(git -C "$MR_MAIN" rev-parse develop)
+MR_READY="$(run_mr backend)"; run_mr backend >/dev/null 2>&1; MR_RC=$?
+if [ "$MR_RC" = "0" ] && echo "$MR_READY" | grep -q "READY to merge" && echo "$MR_READY" | grep -q "git checkout develop && git merge backend-work"; then
+    pass "READY: ahead+clean+idle+in-sync → exit 0 + merge guidance"
+    PASSES=$((PASSES + 1))
+else
+    fail "READY check wrong: rc=$MR_RC out=$MR_READY"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live E: read-only — develop is unchanged after the gate ran
+MR_DEV_AFTER=$(git -C "$MR_MAIN" rev-parse develop)
+if [ "$MR_DEV_BEFORE" = "$MR_DEV_AFTER" ]; then
+    pass "gate is read-only (develop SHA unchanged after check)"
+    PASSES=$((PASSES + 1))
+else
+    fail "gate mutated develop: $MR_DEV_BEFORE -> $MR_DEV_AFTER"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live F: unknown role → exit 1
+run_mr bogus >/dev/null 2>&1; MR_RC=$?
+[ "$MR_RC" = "1" ] && { pass "unknown role → exit 1"; PASSES=$((PASSES + 1)); } || { fail "unknown role exit $MR_RC (want 1)"; FAILS=$((FAILS + 1)); }
+
+# Live G: operator role → exit 1
+run_mr debug >/dev/null 2>&1; MR_RC=$?
+[ "$MR_RC" = "1" ] && { pass "operator role (debug) → exit 1"; PASSES=$((PASSES + 1)); } || { fail "operator role exit $MR_RC (want 1)"; FAILS=$((FAILS + 1)); }
+
+# Live H: producer with no <role>-work branch → BLOCK exit 1
+run_mr frontend >/dev/null 2>&1; MR_RC=$?
+[ "$MR_RC" = "1" ] && { pass "no <role>-work branch → BLOCK exit 1"; PASSES=$((PASSES + 1)); } || { fail "no-branch exit $MR_RC (want 1)"; FAILS=$((FAILS + 1)); }
+
+# Live I: BEHIND (develop moves ahead) → NOT ready, sync-first, exit 1
+( cd "$MR_MAIN" && git checkout -q develop && echo more > m.txt && git add m.txt && git commit -qm "develop moved" ) >/dev/null 2>&1
+MR_BEHIND="$(run_mr backend)"; run_mr backend >/dev/null 2>&1; MR_RC=$?
+if [ "$MR_RC" = "1" ] && echo "$MR_BEHIND" | grep -q "SYNC FIRST" && echo "$MR_BEHIND" | grep -q "git merge develop"; then
+    pass "BEHIND target → NOT ready + sync-first guidance, exit 1"
+    PASSES=$((PASSES + 1))
+else
+    fail "BEHIND check wrong: rc=$MR_RC out=$MR_BEHIND"
+    FAILS=$((FAILS + 1))
+fi
+
+( cd "$MR_MAIN" && git worktree remove --force .claude/worktrees/backend-work >/dev/null 2>&1; git worktree prune >/dev/null 2>&1 )
+rm -rf "$MR_MAIN"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
