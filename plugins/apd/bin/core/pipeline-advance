@@ -450,6 +450,17 @@ case "$STEP" in
         echo "    ${D}2. Dispatch project builders: Agent({ subagent_type: \"<agent-name>\", ... })${R}" >&2
         echo "    ${D}3. Dispatch project reviewer: Agent({ subagent_type: \"code-reviewer\", ... })${R}" >&2
         echo "    ${D}   NEVER use superpowers: or feature-dev: agents — pipeline will BLOCK${R}" >&2
+        # Model-profile reminder — ADVICE, never a gate. The profile (which model
+        # the agents carry) is an economic judgment, not a safety floor, so it
+        # must not block. But a passive line in CLAUDE.md gets skipped, so the
+        # nudge belongs HERE: the moment the task scope exists, before builders
+        # are dispatched (profile switch + /reload-plugins is still cheap now).
+        _CUR_PROFILE=$(grep '^MODEL_PROFILE=' "$APD_CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
+        [ -z "$_CUR_PROFILE" ] && _CUR_PROFILE="none declared (agents run their own model/effort)"
+        echo "" >&2
+        echo "    ${D}Model profile: ${_CUR_PROFILE} — judge the fit for THIS task before dispatching:${R}" >&2
+        echo "    ${D}  eco (trivial / copy / local) · cruise (standard) · burn (launch-critical / rule-1 path).${R}" >&2
+        echo "    ${D}  Switch if it doesn't match: bash $APD_SHORTCUT_DISPLAY profile <name> + /reload-plugins (advisory — never blocks).${R}" >&2
         ;;
 
     builder)

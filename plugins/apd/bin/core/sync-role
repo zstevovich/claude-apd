@@ -1,0 +1,128 @@
+#!/bin/bash
+# APD Sync Role — pull the integration branch into the current role worktree (mid-work).
+#
+# The MIDDLE of the role lifecycle: run-role (entry) → work → [sync-role] →
+# merge-role (exit gate) → you merge. A long-running role worktree drifts from
+# the integration branch; sync-role merges the integration branch INTO the
+# worktree's branch periodically so conflicts surface small and early, in the
+# worktree where the domain context is — not as one big conflict at merge time.
+# A conflict here is a SIGNAL, not a failure: it means the two lines of work
+# diverged and you want to know now, not at merge.
+#
+# merge, NOT rebase — rebase rewrites the branch and needs force-push (guarded).
+# Merging the integration branch INTO the feature branch is reversible (git merge
+# --abort on conflict, or reset --hard <pre-sync sha> when clean), so — unlike
+# merge-role, which never merges INTO the integration branch (that direction is
+# irreversible) — sync-role DOES run the merge. On conflict it STOPS and leaves
+# the merge in progress for you to resolve (or abort); it never auto-resolves.
+#
+# Run this FROM INSIDE the role worktree (the agent calls it while working).
+#
+# Usage:
+#   sync-role                 merge the auto-detected integration branch into the current branch
+#   sync-role --from <branch> merge <branch> instead of auto-detect (develop → main → master)
+#
+# Exit codes: 0 synced / already up to date, 1 usage / not-in-worktree / dirty / no-target,
+#             2 merge conflict (left in progress — resolve or `git merge --abort`)
+
+set -u
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+
+# --- Arg parsing ---
+FROM=""
+_expect_from=false
+for arg in "$@"; do
+    if [ "$_expect_from" = true ]; then FROM="$arg"; _expect_from=false; continue; fi
+    case "$arg" in
+        --help|-h) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --from) _expect_from=true ;;
+        --*) err "Unknown flag: $arg"; exit 1 ;;
+        *) err "Unexpected argument: $arg"; exit 1 ;;
+    esac
+done
+
+# --- E7: git ---
+git rev-parse --git-dir >/dev/null 2>&1 || { apd_blocked "Not a git repository."; exit 1; }
+
+# --- Must be invoked from INSIDE a linked worktree, never the main checkout.
+# (git-dir != git-common-dir is the linked-worktree test; merge lands in the
+# branch checked out HERE, so the command belongs in the worktree.) ---
+_gd=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null)
+_gcd=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+if [ "$_gd" = "$_gcd" ]; then
+    apd_blocked "sync-role runs from INSIDE a role worktree, not the main checkout."
+    echo "  cd into your role worktree (e.g. .claude/worktrees/<role>-work) and re-run." >&2
+    echo "  (sync-role merges the integration branch into the worktree's branch.)" >&2
+    exit 1
+fi
+
+CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+if [ -z "$CURRENT" ] || [ "$CURRENT" = "HEAD" ]; then
+    apd_blocked "Detached HEAD — check out the role branch first."
+    exit 1
+fi
+
+_branch_exists() { git branch --list "$1" 2>/dev/null | grep -q .; }
+
+# --- Source (integration) branch: --from, else auto-detect, skipping current ---
+if [ -n "$FROM" ]; then
+    TARGET="$FROM"
+    _branch_exists "$TARGET" || { apd_blocked "Source branch '$TARGET' does not exist."; exit 1; }
+else
+    TARGET=""
+    for cand in develop main master; do
+        [ "$cand" = "$CURRENT" ] && continue
+        if _branch_exists "$cand"; then TARGET="$cand"; break; fi
+    done
+    [ -z "$TARGET" ] && { apd_blocked "No integration branch found (develop/main/master). Specify one: --from <branch>"; exit 1; }
+fi
+if [ "$TARGET" = "$CURRENT" ]; then
+    apd_blocked "Source and current branch are both '$CURRENT' — nothing to sync."
+    exit 1
+fi
+
+apd_header "Sync role: $TARGET → $CURRENT"
+echo ""
+echo "  current:  $CURRENT (worktree branch)"
+echo "  from:     $TARGET (integration branch)"
+
+# --- Clean check: never merge over uncommitted work ---
+if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    echo ""
+    apd_blocked "Worktree has uncommitted changes — commit (or stash) on '$CURRENT' first."
+    echo "  Merging over a dirty tree risks losing work; sync-role won't do that." >&2
+    exit 1
+fi
+
+BEHIND=$(git rev-list --count "${CURRENT}..${TARGET}" 2>/dev/null || echo 0)
+PRESHA=$(git rev-parse --short HEAD 2>/dev/null)
+echo "  behind:   $BEHIND commit(s)"
+echo ""
+
+if [ "$BEHIND" -eq 0 ] 2>/dev/null; then
+    ok "Already up to date with $TARGET — nothing to sync."
+    exit 0
+fi
+
+# --- Do the merge. Reversible: --abort on conflict, reset --hard $PRESHA when clean. ---
+if git merge --no-edit "$TARGET" >/dev/null 2>&1; then
+    NEWSHA=$(git rev-parse --short HEAD 2>/dev/null)
+    ok "Synced — merged $BEHIND commit(s) from $TARGET into $CURRENT."
+    echo ""
+    echo "  ${D}Pre-sync SHA: $PRESHA → now $NEWSHA. Undo with: git reset --hard $PRESHA${R}"
+    echo "  ${D}Re-run the verifier before continuing — the merge changed your tree.${R}"
+    exit 0
+else
+    # Conflict: leave the merge in progress. This IS the signal — surface it.
+    apd_blocked "CONFLICT syncing $TARGET into $CURRENT — divergence surfaced early (this is the signal)."
+    echo "" >&2
+    echo "  Conflicted files:" >&2
+    git diff --name-only --diff-filter=U 2>/dev/null | sed 's/^/    /' >&2
+    echo "" >&2
+    echo "  Resolve them HERE — the domain context is in this worktree — then:" >&2
+    echo "    git add <files> && git commit        # completes the sync" >&2
+    echo "  ${D}or back out entirely: git merge --abort  (returns to $PRESHA)${R}" >&2
+    exit 2
+fi

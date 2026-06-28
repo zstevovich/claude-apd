@@ -79,9 +79,10 @@ _producer_roles() { _rows | awk -F'|' '$2=="yes" { print $1 }'; }
 # session knows what it is and what it may touch for the whole run.
 # Args: role worktree-flag profile scope boundary
 _role_charter() {
-    local role="$1" wt="$2" profile="$3" scope="$4" boundary="$5" workspace
+    local role="$1" wt="$2" profile="$3" scope="$4" boundary="$5" workspace sync_hint=""
     if [ "$wt" = "yes" ]; then
         workspace="an isolated git worktree on branch '${role}-work' with its own APD pipeline (merge back via 'apd merge-role ${role}')"
+        sync_hint=$'\n'"Keep the branch fresh: periodically run 'apd sync-role' from this worktree to merge the integration branch in. It surfaces conflicts early — small and in context — instead of one big conflict at merge time; a conflict during sync is a useful signal, not a failure."
     else
         workspace="the main checkout — an operator role: you manage shared state or integrate across roles, so you get NO isolated worktree"
     fi
@@ -91,7 +92,7 @@ Workspace: ${workspace}.
 Scope — what this role owns and may change: ${scope}
 Boundary — what this role must NOT do: ${boundary}
 Default model profile for this role: ${profile}.
-Stay strictly inside this scope and boundary for the whole session. If a task needs work outside them, stop and surface it for reassignment rather than crossing the boundary.
+Stay strictly inside this scope and boundary for the whole session. If a task needs work outside them, stop and surface it for reassignment rather than crossing the boundary.${sync_hint}
 EOF
 }
 

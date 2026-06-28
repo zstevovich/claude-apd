@@ -108,7 +108,7 @@ if [ "$ACTION" = "guide" ]; then
     echo "       ${D}operators (devops/debug/master): in the main checkout, no worktree.${R}"
     echo "  ${V}3.${R} ${D}the session knows its scope/boundary from roles.conf — no manual prompt${R}"
     echo "  ${V}4.${R} ${D}...commit on the <role>-work branch through the pipeline...${R}"
-    echo "  ${V}5.${R} cd <worktree> && git merge develop   ${D}(optional) keep the branch fresh${R}"
+    echo "  ${V}5.${R} apd sync-role                   ${D}(from the worktree) merge integration in — surfaces conflicts early${R}"
     echo "  ${V}6.${R} apd merge-role <role>            read-only gate (from MAIN): ready to merge?"
     echo "  ${V}7.${R} git checkout develop && git merge <role>-work   ${D}the gate prints this; you run it${R}"
     echo "  ${V}8.${R} git worktree remove <path> && git branch -d <role>-work   ${D}clean up${R}"

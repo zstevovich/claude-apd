@@ -3148,7 +3148,16 @@ cat > "$PLAN_DIR/.apd/pipeline/spec-card.md" <<'EOF'
 EOF
 _guide_marker "$PLAN_DIR" "task"
 
-(cd "$PLAN_DIR" && APD_PROJECT_DIR="$PLAN_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task" >/dev/null 2>&1)
+# Profile reminder is ADVISORY (not a gate): spec advance must emit it AND still exit 0.
+SPEC_OUT=$(cd "$PLAN_DIR" && APD_PROJECT_DIR="$PLAN_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task" 2>&1); SPEC_RC=$?
+if [ "$SPEC_RC" = "0" ] && echo "$SPEC_OUT" | grep -q "Model profile:" && echo "$SPEC_OUT" | grep -q "burn"; then
+    pass "spec advance emits model-profile reminder (advisory — exit 0, not a gate)"
+    PASSES=$((PASSES + 1))
+else
+    fail "profile reminder missing or spec blocked: rc=$SPEC_RC out=$SPEC_OUT"
+    FAILS=$((FAILS + 1))
+fi
+
 (cd "$PLAN_DIR" && APD_PROJECT_DIR="$PLAN_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder >/dev/null 2>&1)
 RC=$?
 if [ "$RC" = "1" ]; then
@@ -9668,6 +9677,108 @@ fi
 
 ( cd "$MR_MAIN" && git worktree remove --force .claude/worktrees/backend-work >/dev/null 2>&1; git worktree prune >/dev/null 2>&1 )
 rm -rf "$MR_MAIN"
+
+# -----------------------------------------------------------
+# 91. v6.25 — sync-role (pull integration into the worktree, lifecycle MIDDLE)
+#     Run FROM INSIDE the worktree: merges the auto-detected integration branch
+#     into the worktree's branch (merge, NOT rebase). Reversible — DOES run the
+#     merge (unlike merge-role). On conflict it STOPS, leaving the merge in
+#     progress (the conflict is the signal); never auto-resolves/auto-aborts.
+# -----------------------------------------------------------
+section "91. sync-role (v6.25)"
+
+SR="$APD_PLUGIN_ROOT/bin/core/sync-role"
+
+# Static A: exists + executable
+_check "sync-role script exists and is executable" test -x "$SR"
+
+# Static B: dispatcher wires sync-role|sr
+if grep -qE 'sync-role\|sr\)' "$APD_PLUGIN_ROOT/bin/apd"; then
+    pass "dispatcher wires sync-role|sr"
+    PASSES=$((PASSES + 1))
+else
+    fail "dispatcher missing sync-role|sr case"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static C: merges (not rebases) + leaves conflict in progress (never auto-resolve)
+if grep -q 'git merge --no-edit' "$SR" && grep -q 'merge --abort' "$SR" && ! grep -q 'git rebase' "$SR"; then
+    pass "sync-role merges (not rebases) + documents --abort recovery"
+    PASSES=$((PASSES + 1))
+else
+    fail "sync-role merge/rebase invariant wrong"
+    FAILS=$((FAILS + 1))
+fi
+
+# Static D: producer charter recommends sync-role; operator charter does NOT
+if grep -q "sync-role' from this worktree" "$APD_PLUGIN_ROOT/bin/core/run-role"; then
+    pass "producer charter recommends sync-role (agent guidance)"
+    PASSES=$((PASSES + 1))
+else
+    fail "producer charter missing sync-role recommendation"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live setup: repo (main) + develop + a backend-work worktree off develop
+SR_MAIN="$(mktemp -d -t apd-sr.XXXXXX)"
+(
+  cd "$SR_MAIN"
+  git init -q -b main; git config user.email t@t.t; git config user.name t
+  printf '.claude/\n.apd/pipeline/\n' > .gitignore
+  printf 'a\nb\nc\n' > shared.txt; echo "# SR" > README.md
+  git add -A; git commit -qm init
+  git branch develop
+  git worktree add .claude/worktrees/backend-work -b backend-work develop
+) >/dev/null 2>&1
+SR_WT="$SR_MAIN/.claude/worktrees/backend-work"
+run_sr() { ( cd "$1" && unset CLAUDE_PLUGIN_ROOT APD_PROJECT_DIR; bash "$SR" "${@:2}" 2>&1 ); }
+
+# Live E: already up to date → exit 0
+SR_UP="$(run_sr "$SR_WT")"; SR_RC=$?
+if [ "$SR_RC" = "0" ] && echo "$SR_UP" | grep -qi "up to date"; then
+    pass "already up to date → exit 0"
+    PASSES=$((PASSES + 1))
+else
+    fail "up-to-date wrong: rc=$SR_RC out=$SR_UP"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live F: invoked from the MAIN checkout → BLOCK exit 1 (must run in worktree)
+run_sr "$SR_MAIN" >/dev/null 2>&1; SR_RC=$?
+[ "$SR_RC" = "1" ] && { pass "run from main checkout → BLOCK exit 1"; PASSES=$((PASSES + 1)); } || { fail "main-checkout guard exit $SR_RC (want 1)"; FAILS=$((FAILS + 1)); }
+
+# Live G: develop moves (non-conflicting) → merges into worktree, exit 0, file pulled in
+( cd "$SR_MAIN" && git checkout -q develop && printf 'a\nb\nc\nd-from-develop\n' > shared.txt && git commit -qam "develop +d" && git checkout -q main ) >/dev/null 2>&1
+SR_SYNC="$(run_sr "$SR_WT")"; SR_RC=$?
+if [ "$SR_RC" = "0" ] && echo "$SR_SYNC" | grep -qi "Synced" && grep -q "d-from-develop" "$SR_WT/shared.txt"; then
+    pass "non-conflicting develop move → merged into worktree, exit 0"
+    PASSES=$((PASSES + 1))
+else
+    fail "clean sync wrong: rc=$SR_RC out=$SR_SYNC"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live H: dirty worktree → BLOCK exit 1 (never merge over uncommitted work)
+( cd "$SR_WT" && echo dirty >> shared.txt )
+run_sr "$SR_WT" >/dev/null 2>&1; SR_RC=$?
+[ "$SR_RC" = "1" ] && { pass "dirty worktree → BLOCK exit 1"; PASSES=$((PASSES + 1)); } || { fail "dirty guard exit $SR_RC (want 1)"; FAILS=$((FAILS + 1)); }
+( cd "$SR_WT" && git checkout -q -- shared.txt )
+
+# Live I: conflicting edits → exit 2, merge LEFT IN PROGRESS (the signal), not auto-aborted
+( cd "$SR_MAIN" && git checkout -q develop && printf 'a\nDEVELOP\nc\nd-from-develop\n' > shared.txt && git commit -qam "develop edits b" && git checkout -q main ) >/dev/null 2>&1
+( cd "$SR_WT" && printf 'a\nWORKTREE\nc\nd-from-develop\n' > shared.txt && git commit -qam "worktree edits b" ) >/dev/null 2>&1
+SR_CONF="$(run_sr "$SR_WT")"; SR_RC=$?
+if [ "$SR_RC" = "2" ] && echo "$SR_CONF" | grep -qi "CONFLICT" && ( cd "$SR_WT" && git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 ); then
+    pass "conflict → exit 2, merge left in progress (signal preserved)"
+    PASSES=$((PASSES + 1))
+else
+    fail "conflict handling wrong: rc=$SR_RC merge_head=$( cd "$SR_WT" && git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 && echo y || echo n) out=$SR_CONF"
+    FAILS=$((FAILS + 1))
+fi
+( cd "$SR_WT" && git merge --abort >/dev/null 2>&1 )
+
+( cd "$SR_MAIN" && git worktree remove --force .claude/worktrees/backend-work >/dev/null 2>&1; git worktree prune >/dev/null 2>&1 )
+rm -rf "$SR_MAIN"
 
 # -----------------------------------------------------------
 # Summary

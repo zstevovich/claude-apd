@@ -291,6 +291,7 @@ Shows: pipeline state, spec card validation, spec freeze hash, implementation pl
 | `apd profile <name>` | Switch the agent model profile (burn / cruise / eco) |
 | `apd roles list` | Show the 8 generic developer roles |
 | `apd run-role <role> --launch` | Enter CC **as** the role — charter (scope/boundary) injected automatically (producer = own worktree, operator = main checkout) |
+| `apd sync-role` | (from inside a worktree) merge the integration branch in — surfaces conflicts early |
 | `apd merge-role <role>` | Read-only gate: is the role's branch ready to merge? |
 
 All commands: `bash .claude/bin/apd <command>`
@@ -303,10 +304,11 @@ For two independent features at once, give each producer role its own git worktr
 bash .claude/bin/apd run-role backend     # backend's worktree (feature branch + isolated pipeline)
 bash .claude/bin/apd run-role frontend    # a second, parallel worktree — no collision
 # ...work in each (run-role --launch enters a CC session in the worktree)...
+bash .claude/bin/apd sync-role            # (inside a worktree) merge develop in periodically — early conflict = signal
 bash .claude/bin/apd merge-role backend   # gate prints the git merge when backend-work is ready
 ```
 
-Producer roles (backend/frontend/mobile/backoffice/reporting) get a worktree; operator roles (devops/debug/master) run in the main checkout — but both `run-role --launch` enter a CC session with the role's charter (scope + boundary) injected automatically, no manual prompt. The gate never runs the merge — it advises, you merge. See the README "Parallel work" section for the full model.
+Producer roles (backend/frontend/mobile/backoffice/reporting) get a worktree; operator roles (devops/debug/master) run in the main checkout — but both `run-role --launch` enter a CC session with the role's charter (scope + boundary) injected automatically, no manual prompt. Long-running worktrees drift, so `sync-role` (run from inside the worktree) merges the integration branch back in to surface conflicts early; the producer charter reminds the agent to do this. The merge gate never runs the merge — it advises, you merge. See the README "Parallel work" section for the full model.
 
 ---
 

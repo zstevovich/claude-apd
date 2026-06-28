@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>v6.24.0</b> &middot; MIT &middot; macOS + Linux
+  <b>v6.25.0</b> &middot; MIT &middot; macOS + Linux
 </p>
 
 <p align="center">
@@ -88,7 +88,7 @@ codex plugin marketplace upgrade codex-apd                    # pulls latest mai
 To pin the upgrade to a specific tag or branch (e.g. for pre-release testing):
 ```bash
 codex plugin marketplace remove codex-apd
-codex plugin marketplace add zstevovich/claude-apd@v6.24.0     # or @<branch> for a feature branch
+codex plugin marketplace add zstevovich/claude-apd@v6.25.0     # or @<branch> for a feature branch
 ```
 
 **Codex — direct-drop install:**
@@ -158,10 +158,11 @@ Governing principle: **a worktree belongs to producers of an artifact, not to in
 apd roles list                 # the 8 roles + scope / boundary
 apd run-role backend --launch  # producer: own worktree + dev-env, enter CC with backend's charter
 apd run-role devops  --launch  # operator: enter CC in the main checkout with devops's charter (no worktree)
+apd sync-role                  # (from inside the worktree) merge develop in — surface conflicts early
 apd merge-role backend         # read-only gate: is backend-work ready to merge into develop?
 ```
 
-Lifecycle: `run-role` opens the workspace → you do the work in the isolated worktree → `merge-role` checks readiness (ahead / clean / idle / in-sync) and prints the exact `git merge`. **APD never runs the merge** — it's irreversible and, unlike commit/push, unguarded, so you pull that trigger. APD advises; you merge.
+Lifecycle: `run-role` opens the workspace → you work in the isolated worktree → `sync-role` periodically pulls the integration branch in (conflicts surface small and early, in context — a conflict is a signal, not a failure) → `merge-role` checks readiness (ahead / clean / idle / in-sync) and prints the exact `git merge`. `sync-role` merges the integration branch *into* your worktree (reversible, runs the merge); `merge-role` **never** runs the merge into the integration branch — that's irreversible and unguarded, so you pull that trigger. APD advises; you merge.
 
 A worktree isolates code + pipeline state, **not** shared external resources — a local DB, Redis, or fixed ports are shared across worktrees. Parallel producers that write the same database must coordinate, or isolate it in a tracked, idempotent `.apd/dev-env-setup` the worktree runs on creation. CC only (worktrees need git; Codex has no `--worktree`).
 

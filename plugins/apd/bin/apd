@@ -74,6 +74,9 @@ case "$CMD" in
     merge-role|mr)
         exec bash "$CORE_DIR/merge-role" "$@"
         ;;
+    sync-role|sr)
+        exec bash "$CORE_DIR/sync-role" "$@"
+        ;;
     test)
         exec bash "$CORE_DIR/test-hooks" "$@"
         ;;
@@ -201,6 +204,7 @@ case "$CMD" in
         echo "    roles [sub]       Generic role registry + workflow (list|status [role]|guide)"
         echo "    run-role <role>   Launch CC as a role with its charter (--launch; producer=worktree, operator=root, --list)"
         echo "    merge-role <role> Read-only merge gate for a role's worktree (--into <branch>)"
+        echo "    sync-role         Merge the integration branch into the current worktree (run from inside it, --from <branch>)"
         echo "    test              Quick static hook test"
         echo "    toggle [on|off]   Toggle claude-apd in CC settings (smart-detection)"
         echo "    cdx <sub>         Codex runtime adapter (init|test) — see 'apd cdx help'"

@@ -1,5 +1,27 @@
 # Changelog
 
+## v6.25.0 — 2026-06-28
+
+Two additions to the role lifecycle, both advisory — never gates.
+
+`apd sync-role` is the **middle** of the role lifecycle (`run-role` → work → **sync-role** → `merge-role`). Run from inside a producer worktree, it merges the integration branch (auto-detected develop → main → master, or `--from`) **into** the worktree's branch — `git merge`, not rebase — so divergence surfaces small and early, in the worktree where the domain context is, instead of one big conflict at merge time. Unlike `merge-role` (which never merges, that direction is irreversible) sync-role **runs** the merge: merging integration into a feature branch is reversible (`git merge --abort` on conflict, `git reset --hard` when clean). On conflict it **stops and leaves the merge in progress** — a conflict here is a *signal*, not a failure; it never auto-resolves or auto-aborts. The producer charter now tells the agent to run it periodically.
+
+A **model-profile reminder** at `spec` advance: right after the Next-steps block, the pipeline prints the current profile and the eco/cruise/burn fit for the task. It's advice at the decision point (a passive line in CLAUDE.md gets skipped), and it **never blocks** — the profile is an economic judgment, not a safety floor; the floor (guards + quality gates) stays enforced regardless.
+
+### Implementation
+
+- **feat(sync-role):** new `plugins/apd/bin/core/sync-role` + dispatcher `sync-role|sr` + `apd help` line. Guards: not a git repo / invoked from the main checkout (must be in a worktree) / detached HEAD / dirty tree / no integration branch → exit 1; conflict → exit 2 (merge left in progress).
+- **feat(run-role):** producer charter (`_role_charter`) recommends running `apd sync-role` periodically; operator charter unchanged.
+- **feat(pipeline-advance):** advisory model-profile reminder emitted after a successful `spec` advance (reads `MODEL_PROFILE` from config; exit unchanged).
+- **docs:** SPEC.md `sync-role` row + §6.5 lifecycle middle + profile row reminder note; `roles guide` step 5 (replaces the bare `git merge develop` tip); README + GETTING-STARTED "Parallel work".
+
+### Tests
+
+- **test(test-codex-adapter §91) +9:** sync-role — 4 static (executable, dispatcher wiring, merges-not-rebases + `--abort` recovery, producer-charter recommendation) + 5 live (already-up-to-date → exit 0; run from main → block; non-conflicting merge → pulled in; dirty → block; **conflict → exit 2 with the merge left in progress, MERGE_HEAD preserved**).
+- **test(test-codex-adapter §32) +1:** spec advance emits the profile reminder **and still exits 0** (advisory, not a gate). **755 → 765 PASS / 0 FAIL.**
+
+**Migration:** zero action. Both additions are advisory; nothing existing changes behavior. CC (worktrees + profiles are git/CC).
+
 ## v6.24.0 — 2026-06-27
 
 `apd run-role` becomes a **role launcher with charter injection**. `run-role <role> --launch` now enters a Claude Code session *as* the role: it builds the role's charter — workspace + scope + boundary + profile — automatically from `roles.conf` and passes it to `claude --append-system-prompt`, so the session knows what it is and what it may touch without you typing a prompt. The role carries its own identity.
