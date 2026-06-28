@@ -1,0 +1,16 @@
+#!/bin/bash
+# CC adapter shim for guard-agent-reload (PreToolUse on the Agent tool).
+# The agent-reload drift gate keys on the .apd/.pending-reload marker, not on
+# any tool_input field, so this shim just drains the stdin payload and forwards
+# to core. NOTE: at PreToolUse only exit 2 blocks — if core were missing, `exec`
+# fails with 127, which CC treats as a non-blocking error (fails OPEN). Both
+# files ship together (always present), so this is moot in practice; the shim
+# does not, however, guarantee fail-closed.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CORE_DIR="$SCRIPT_DIR/../../core"
+
+# Drain the PreToolUse JSON payload (we gate on marker presence, not its fields).
+cat >/dev/null 2>&1 || true
+
+exec "$CORE_DIR/guard-agent-reload" "$@"

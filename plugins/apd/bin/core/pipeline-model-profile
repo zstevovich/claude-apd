@@ -289,8 +289,8 @@ fi
 
 # Pending-reload marker — CC caches agent definitions at session start, and
 # /reload-plugins does NOT fire SessionStart (tested), so APD can't observe the
-# reload. Drop a marker the SubagentStart drift-guard reads: it blocks dispatch
-# until the user reloads (then `apd reload-done`) or restarts (a startup
+# reload. Drop a marker the PreToolUse(Agent) drift-guard reads: it blocks
+# dispatch pre-spawn until the user reloads (then `apd reload-done`) or restarts (a startup
 # session-start clears it). Only when something actually changed.
 if [ "$CHANGED" -gt 0 ]; then
     RELOAD_MARKER="$(dirname "$PIPELINE_DIR")/.pending-reload"

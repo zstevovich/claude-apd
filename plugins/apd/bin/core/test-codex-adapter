@@ -9781,20 +9781,26 @@ fi
 rm -rf "$SR_MAIN"
 
 # -----------------------------------------------------------
-# 92. v6.26 — agent-reload drift gate (Dizajn B)
+# 92. v6.27 — agent-reload drift gate at PreToolUse(Agent)
 #     CC caches agent definitions at session start and /reload-plugins does NOT
 #     fire SessionStart (empirically tested), so APD can't observe a reload.
 #     apd-profile drops a .apd/.pending-reload marker on a change; the
-#     SubagentStart guard blocks dispatch while it stands; cleared by
-#     `apd reload-done` OR a startup session-start (--startup arg). NOT cleared by
-#     compaction-reinjection (no arg) — that doesn't reload agents.
+#     PreToolUse(Agent) guard (guard-agent-reload) BLOCKS dispatch PRE-spawn
+#     while it stands. (The v6.26 SubagentStart placement was post-spawn — exit 2
+#     there only shows stderr while the agent spawns and runs anyway, proven on
+#     FFAI; PreToolUse(Agent) exit 2 was empirically verified to block the spawn.)
+#     Cleared by `apd reload-done` OR a startup session-start (--startup arg).
+#     NOT cleared by compaction-reinjection (no arg) — that doesn't reload agents.
 # -----------------------------------------------------------
-section "92. agent-reload drift gate (v6.26)"
+section "92. agent-reload drift gate (PreToolUse, v6.27)"
 
 RG_PROF="$APD_PLUGIN_ROOT/bin/core/pipeline-model-profile"
+RG_GUARD="$APD_PLUGIN_ROOT/bin/core/guard-agent-reload"
+RG_SHIM="$APD_PLUGIN_ROOT/bin/adapter/cc/guard-agent-reload"
 RG_TRACK="$APD_PLUGIN_ROOT/bin/core/track-agent"
 RG_SS="$APD_PLUGIN_ROOT/bin/core/session-start"
 RG_RD="$APD_PLUGIN_ROOT/bin/core/reload-done"
+RG_HOOKS="$APD_PLUGIN_ROOT/../../hooks/hooks.json"
 
 # Static A: reload-done exists + dispatcher wires reload-done|rd
 _check "reload-done exists and is executable" test -x "$RG_RD"
@@ -9804,15 +9810,37 @@ else
     fail "dispatcher missing reload-done|rd"; FAILS=$((FAILS + 1))
 fi
 
-# Static B: track-agent drift-guard reads the marker + honours the opt-out
-if grep -q '\.pending-reload' "$RG_TRACK" && grep -q 'APD_SKIP_RELOAD_GATE' "$RG_TRACK"; then
-    pass "track-agent has the drift-guard (marker + opt-out)"; PASSES=$((PASSES + 1))
+# Static B: the PreToolUse(Agent) guard core + its CC adapter shim exist
+_check "guard-agent-reload core exists and is executable" test -x "$RG_GUARD"
+_check "guard-agent-reload CC adapter shim exists and is executable" test -x "$RG_SHIM"
+
+# Static C: core guard reads the marker + honours the opt-out + APD_ACTIVE gate
+if grep -q '\.pending-reload' "$RG_GUARD" && grep -q 'APD_SKIP_RELOAD_GATE' "$RG_GUARD" \
+   && grep -qE 'APD_ACTIVE.*=.*false' "$RG_GUARD"; then
+    pass "guard-agent-reload reads marker + opt-out + APD_ACTIVE gate"; PASSES=$((PASSES + 1))
 else
-    fail "track-agent missing drift-guard"; FAILS=$((FAILS + 1))
+    fail "guard-agent-reload missing marker/opt-out/APD_ACTIVE logic"; FAILS=$((FAILS + 1))
 fi
 
-# Static C: hooks.json startup passes --startup; session-start gates clear on it
-if grep -q '"--startup"' "$APD_PLUGIN_ROOT/../../hooks/hooks.json" \
+# Static D: track-agent carries the SubagentStart CANARY (warns, never blocks) —
+# the post-spawn fallback that surfaces only if the PreToolUse(Agent) guard ever
+# fails to fire (CC matcher drift). It must reference the marker as a WARNING,
+# NOT re-introduce a blocking exit 2 (Live O proves the non-blocking behaviour).
+if grep -q '\.pending-reload' "$RG_TRACK" && grep -q 'spawned while agents are pending reload' "$RG_TRACK"; then
+    pass "track-agent has the SubagentStart canary (marker WARNING)"; PASSES=$((PASSES + 1))
+else
+    fail "track-agent missing the SubagentStart canary"; FAILS=$((FAILS + 1))
+fi
+
+# Static E: hooks.json wires PreToolUse matcher 'Agent' → guard-agent-reload shim
+if grep -q '"matcher": "Agent"' "$RG_HOOKS" && grep -q 'adapter/cc/guard-agent-reload' "$RG_HOOKS"; then
+    pass "hooks.json PreToolUse 'Agent' matcher routes to guard-agent-reload"; PASSES=$((PASSES + 1))
+else
+    fail "hooks.json missing PreToolUse Agent → guard-agent-reload"; FAILS=$((FAILS + 1))
+fi
+
+# Static F: hooks.json startup passes --startup; session-start gates clear on it
+if grep -q '"--startup"' "$RG_HOOKS" \
    && grep -q '"--startup"' "$RG_SS" && grep -q '\.pending-reload' "$RG_SS"; then
     pass "hooks.json startup passes --startup; session-start clears marker on it"; PASSES=$((PASSES + 1))
 else
@@ -9827,7 +9855,7 @@ printf -- '---\nname: backend-x\nmodel: sonnet\neffort: xhigh\n---\nbody\n' > "$
 RG_MARK="$RG_PROJ/.apd/.pending-reload"
 rg_prof() { APD_PROJECT_DIR="$RG_PROJ" bash "$RG_PROF" "$@" >/dev/null 2>&1; }
 
-# Live D: apply a profile that changes the agent → marker written with the name
+# Live G: apply a profile that changes the agent → marker written with the name
 rg_prof cruise
 if [ -f "$RG_MARK" ] && grep -q 'backend-x' "$RG_MARK"; then
     pass "apd-profile change writes .pending-reload with changed agent name"; PASSES=$((PASSES + 1))
@@ -9835,38 +9863,62 @@ else
     fail "marker not written / missing agent name"; FAILS=$((FAILS + 1))
 fi
 
-# Live E: SubagentStart with the marker → BLOCK exit 2 + actionable message
-RG_OUT=$(APD_PROJECT_DIR="$RG_PROJ" bash "$RG_TRACK" --event SubagentStart --agent-type backend-x --agent-id a1 2>&1); RG_RC=$?
+# Live H: core guard with the marker → BLOCK exit 2 + actionable message
+RG_OUT=$(APD_PROJECT_DIR="$RG_PROJ" bash "$RG_GUARD" </dev/null 2>&1); RG_RC=$?
 if [ "$RG_RC" = "2" ] && echo "$RG_OUT" | grep -qi 'reload-plugins' && echo "$RG_OUT" | grep -qi 'reload-done'; then
-    pass "SubagentStart with marker → BLOCK exit 2 (msg names /reload-plugins + reload-done)"; PASSES=$((PASSES + 1))
+    pass "PreToolUse guard with marker → BLOCK exit 2 (msg names /reload-plugins + reload-done)"; PASSES=$((PASSES + 1))
 else
     fail "drift block wrong: rc=$RG_RC out=$RG_OUT"; FAILS=$((FAILS + 1))
 fi
 
-# Live F: opt-out env lets dispatch through (exit 0)
-APD_PROJECT_DIR="$RG_PROJ" APD_SKIP_RELOAD_GATE=1 bash "$RG_TRACK" --event SubagentStart --agent-type backend-x --agent-id a2 >/dev/null 2>&1; RG_RC=$?
+# Live I: the CC adapter shim drains the PreToolUse JSON payload + forwards → exit 2
+RG_RC=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"backend-x"}}' \
+    | { APD_PROJECT_DIR="$RG_PROJ" bash "$RG_SHIM" >/dev/null 2>&1; echo $?; })
+[ "$RG_RC" = "2" ] && { pass "adapter shim drains stdin + forwards to core → exit 2"; PASSES=$((PASSES + 1)); } || { fail "shim path exit $RG_RC (want 2)"; FAILS=$((FAILS + 1)); }
+
+# Live J: opt-out env lets dispatch through (exit 0)
+APD_PROJECT_DIR="$RG_PROJ" APD_SKIP_RELOAD_GATE=1 bash "$RG_GUARD" </dev/null >/dev/null 2>&1; RG_RC=$?
 [ "$RG_RC" = "0" ] && { pass "APD_SKIP_RELOAD_GATE=1 bypasses the gate (exit 0)"; PASSES=$((PASSES + 1)); } || { fail "opt-out exit $RG_RC (want 0)"; FAILS=$((FAILS + 1)); }
 
-# Live G: apd reload-done clears the marker → dispatch unblocked.
-# (Use a distinct agent-type so the parallel-same-agent guard — which fires on
-# repeat dispatch of the SAME agent within the window — can't mask the result.)
+# Live K: apd reload-done clears the marker → guard no longer blocks
 APD_PROJECT_DIR="$RG_PROJ" bash "$RG_RD" >/dev/null 2>&1
 if [ ! -f "$RG_MARK" ]; then
-    APD_PROJECT_DIR="$RG_PROJ" bash "$RG_TRACK" --event SubagentStart --agent-type database --agent-id a3 >/dev/null 2>&1; RG_RC=$?
-    [ "$RG_RC" != "2" ] && { pass "reload-done clears marker → SubagentStart no longer blocked"; PASSES=$((PASSES + 1)); } || { fail "still blocked after reload-done (rc=$RG_RC)"; FAILS=$((FAILS + 1)); }
+    APD_PROJECT_DIR="$RG_PROJ" bash "$RG_GUARD" </dev/null >/dev/null 2>&1; RG_RC=$?
+    [ "$RG_RC" = "0" ] && { pass "reload-done clears marker → guard allows (exit 0)"; PASSES=$((PASSES + 1)); } || { fail "still blocked after reload-done (rc=$RG_RC)"; FAILS=$((FAILS + 1)); }
 else
     fail "reload-done did not clear the marker"; FAILS=$((FAILS + 1))
 fi
 
-# Live H: session-start --startup clears the marker (restart path)
+# Live L: session-start --startup clears the marker (restart path)
 rg_prof burn   # recreate marker
 APD_PROJECT_DIR="$RG_PROJ" bash "$RG_SS" --startup >/dev/null 2>&1
 [ ! -f "$RG_MARK" ] && { pass "session-start --startup clears the marker (cold start)"; PASSES=$((PASSES + 1)); } || { fail "--startup did not clear marker"; FAILS=$((FAILS + 1)); }
 
-# Live I: session-start WITHOUT --startup (compaction sim) → marker survives
+# Live M: session-start WITHOUT --startup (compaction sim) → marker survives
 rg_prof cruise   # recreate marker
 APD_PROJECT_DIR="$RG_PROJ" bash "$RG_SS" >/dev/null 2>&1
 [ -f "$RG_MARK" ] && { pass "session-start without --startup leaves marker (compaction doesn't reload)"; PASSES=$((PASSES + 1)); } || { fail "no-arg session-start wrongly cleared marker"; FAILS=$((FAILS + 1)); }
+
+# Live N: dormant / Codex install (no .apd/config) → APD_ACTIVE=false → guard
+# allows even with a marker present (never gates non-CC / inactive installs).
+RG_DORM="$(mktemp -d -t apd-rg-dorm.XXXXXX)"
+mkdir -p "$RG_DORM/.apd"
+printf 'x | apd-profile cruise | agents: backend-x\n' > "$RG_DORM/.apd/.pending-reload"
+APD_PROJECT_DIR="$RG_DORM" bash "$RG_GUARD" </dev/null >/dev/null 2>&1; RG_RC=$?
+[ "$RG_RC" = "0" ] && { pass "dormant install (no config) → guard short-circuits (exit 0) despite marker"; PASSES=$((PASSES + 1)); } || { fail "dormant guard exit $RG_RC (want 0)"; FAILS=$((FAILS + 1)); }
+rm -rf "$RG_DORM"
+
+# Live O: track-agent SubagentStart canary — marker present, a subagent still
+# starts (simulating a PreToolUse(Agent) that failed to block). Must NOT block
+# (exit 0), must WARN, and must STILL record the start (the agent is real).
+[ -f "$RG_MARK" ] || rg_prof cruise   # ensure marker present
+RG_OUT=$(APD_PROJECT_DIR="$RG_PROJ" bash "$RG_TRACK" --event SubagentStart --agent-type canary-x --agent-id k1 2>&1); RG_RC=$?
+if [ "$RG_RC" = "0" ] && echo "$RG_OUT" | grep -qi 'WARNING' && echo "$RG_OUT" | grep -qi 'reload' \
+   && grep -q '|start|canary-x|k1' "$RG_PROJ/.apd/pipeline/.agents" 2>/dev/null; then
+    pass "SubagentStart canary warns (exit 0) + records the start when marker present"; PASSES=$((PASSES + 1))
+else
+    fail "canary wrong: rc=$RG_RC out=$RG_OUT"; FAILS=$((FAILS + 1))
+fi
 
 rm -rf "$RG_PROJ"
 

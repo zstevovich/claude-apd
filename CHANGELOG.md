@@ -1,5 +1,26 @@
 # Changelog
 
+## v6.27.0 — 2026-06-28
+
+**Agent-reload drift gate — now actually prevents the dispatch.** v6.26.0 placed the gate on the `SubagentStart` hook, which fires AFTER the subagent has already spawned: `exit 2` there only prints to stderr while the agent runs to completion. So the v6.26 gate was a *detector*, not a preventer — the first dispatch after a forgotten reload still ran the stale model. (Found on a live run, then confirmed against CC's hook docs: `SubagentStart` "shows stderr only" vs `PreToolUse` "blocks the tool call".)
+
+v6.27 moves the gate to **`PreToolUse` on the `Agent` tool** — which is PRE-spawn, so `exit 2` genuinely blocks the dispatch before the subagent starts. Verified empirically before shipping: a `PreToolUse(Agent)` exit-2 hook stops the dispatch with no `SubagentStart`/`SubagentStop` ever firing (and the subagent-dispatch matcher is confirmed to be `Agent`).
+
+Everything else is unchanged: `apd profile` still drops `.apd/.pending-reload`, `apd reload-done` and a `startup` session clear it, compaction leaves it, and `APD_SKIP_RELOAD_GATE=1` opts out.
+
+### Implementation
+
+- **feat(guard-agent-reload):** new `bin/core/guard-agent-reload` (the gate logic: `APD_ACTIVE` short-circuit → opt-out → marker → exit 2) + CC adapter shim `bin/adapter/cc/guard-agent-reload` (drains the PreToolUse payload, forwards to core).
+- **feat(hooks.json):** new `PreToolUse` matcher `Agent` → `guard-agent-reload`.
+- **fix(track-agent):** removed the (post-spawn) SubagentStart blocking gate; replaced it with a lightweight **canary** — it only WARNS (never blocks) and still records the start, firing solely if the pre-spawn guard ever fails to fire (e.g. a future CC build renaming the `Agent` matcher). A stale-run signal instead of silent zero-protection.
+- **docs:** SPEC.md guard table + guard-detail row + profile/reload-done/state-file rows updated to `PreToolUse(Agent)`/`guard-agent-reload`, with the canary fallback noted.
+
+### Tests
+
+- **test(test-codex-adapter §92) rewritten:** the gate is exercised through the new guard + its shim (block exit 2, opt-out, `reload-done` clear, `--startup` clear, compaction leaves, dormant-no-config short-circuit) plus a canary test (SubagentStart with marker → warns, exit 0, still records the start). **775 → 782 PASS / 0 FAIL.**
+
+**Migration:** zero action. Same trigger (a forgotten reload after `apd profile`), now blocked before the subagent runs instead of after. CC only.
+
 ## v6.26.0 — 2026-06-28
 
 **Agent-reload drift gate.** When `apd profile` rewrites agent models mid-session, the running session keeps the OLD agents — CC caches agent definitions at session start, and the orchestrator can't run `/reload-plugins` itself (only you can). Until now a forgotten reload meant a silent stale-model run. Now APD blocks it loudly.

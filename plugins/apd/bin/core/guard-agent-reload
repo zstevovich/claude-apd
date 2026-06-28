@@ -1,0 +1,39 @@
+#!/bin/bash
+# APD agent-reload drift gate (v6.27) — PreToolUse(Agent) guard. CC-only.
+#
+# CC caches agent definitions at session start. `apd profile` can rewrite them
+# mid-session, and /reload-plugins does NOT fire SessionStart (empirically
+# tested), so APD cannot observe a reload. While the .apd/.pending-reload marker
+# stands, EVERY subagent dispatch would run the STALE definition.
+#
+# This guard runs at PreToolUse on the Agent tool — which is PRE-spawn, so
+# exit 2 actually PREVENTS the dispatch. (The v6.26 version ran at SubagentStart,
+# which is POST-spawn: exit 2 there only shows stderr while the agent spawns and
+# runs anyway — proven on FFAI 2026-06-28. PreToolUse(Agent) exit 2 was
+# empirically verified to block the spawn before SubagentStart fires.)
+#
+# It blocks until the human reloads (/reload-plugins + `apd reload-done`) or
+# restarts the session (a cold `startup` session-start clears the marker).
+#
+# CC-only: model profiles + the Agent dispatch tool are CC concepts. The
+# APD_ACTIVE gate short-circuits for Codex / dormant / framework-self installs.
+# Opt-out: APD_SKIP_RELOAD_GATE=1 (the risk is the operator's).
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
+[ "${APD_SKIP_RELOAD_GATE:-}" = "1" ] && exit 0
+
+RELOAD_MARKER="$(dirname "$PIPELINE_DIR")/.pending-reload"
+[ -f "$RELOAD_MARKER" ] || exit 0
+
+source "$(dirname "$0")/../lib/style.sh"
+_changed=$(sed -n 's/.*agents: //p' "$RELOAD_MARKER" | head -1)
+echo "" >&2
+echo "  ${RED}${B}BLOCKED:${R} ${RED}agent definitions changed on disk (${_changed:-?}) but this${R}" >&2
+echo "  ${RED}session still has the OLD ones — CC caches agents at session start.${R}" >&2
+echo "  ${Y}The orchestrator cannot reload agents. You apply it, one of:${R}" >&2
+echo "    • /reload-plugins   then   bash $APD_SHORTCUT_DISPLAY reload-done" >&2
+echo "    • or restart the session (the marker clears itself on a fresh start)" >&2
+echo "  ${D}Then re-dispatch. (Override: APD_SKIP_RELOAD_GATE=1 — the risk is yours.)${R}" >&2
+echo "  ${Y}NOTE:${R} ${D}This dispatch was BLOCKED before the subagent spawned.${R}" >&2
+exit 2

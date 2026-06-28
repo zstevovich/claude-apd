@@ -44,24 +44,22 @@ ac=$(_agent_color "$AGENT_TYPE")
 
 case "$EVENT" in
   SubagentStart)
-    # Agent-drift gate — CC caches agent definitions at session start; if
-    # apd-profile rewrote them mid-session, the running session still holds the
-    # OLD ones, and /reload-plugins does NOT fire SessionStart (tested), so APD
-    # can't observe a reload. Block dispatch while the marker stands — the
-    # orchestrator can't reload, so the human must (/reload-plugins + reload-done,
-    # or restart). Runs first so a blocked dispatch leaves no start in .agents.
-    RELOAD_MARKER="$(dirname "$PIPELINE_DIR")/.pending-reload"
-    if [ -f "$RELOAD_MARKER" ] && [ "${APD_SKIP_RELOAD_GATE:-}" != "1" ]; then
-        _changed=$(sed -n 's/.*agents: //p' "$RELOAD_MARKER" | head -1)
+    # Agent-reload CANARY (v6.27) — the real prevention is at PreToolUse(Agent)
+    # (bin/core/guard-agent-reload), which is pre-spawn. SubagentStart is
+    # POST-spawn, so we CANNOT block here (a re-added exit 2 only shows stderr
+    # while the agent runs anyway — the v6.26 bug). But if we reach SubagentStart
+    # with the marker still present, the pre-spawn guard did NOT fire (e.g. a CC
+    # build where the Agent dispatch matcher differs) and a STALE-definition agent
+    # has already spawned. Surface a loud WARNING (a canary for matcher drift); do
+    # NOT exit — the agent is real, so let its start be recorded below.
+    _RELOAD_MARKER="$(dirname "$PIPELINE_DIR")/.pending-reload"
+    if [ -f "$_RELOAD_MARKER" ] && [ "${APD_SKIP_RELOAD_GATE:-}" != "1" ]; then
+        _changed=$(sed -n 's/.*agents: //p' "$_RELOAD_MARKER" | head -1)
         echo "" >&2
-        echo "  ${RED}${B}BLOCKED:${R} ${RED}agent definitions changed on disk (${_changed:-?}) but this${R}" >&2
-        echo "  ${RED}session still has the OLD ones — CC caches agents at session start.${R}" >&2
-        echo "  ${Y}The orchestrator cannot reload agents. You apply it, one of:${R}" >&2
-        echo "    • /reload-plugins   then   bash $APD_SHORTCUT_DISPLAY reload-done" >&2
-        echo "    • or restart the session (the marker clears itself on a fresh start)" >&2
-        echo "  ${D}Then re-dispatch. (Override: APD_SKIP_RELOAD_GATE=1 — the risk is yours.)${R}" >&2
-        echo "  ${Y}NOTE:${R} ${D}This SubagentStart was rejected — not recorded in .agents.${R}" >&2
-        exit 2
+        echo "  ${RED}${B}WARNING:${R} ${RED}a subagent spawned while agents are pending reload (${_changed:-?}).${R}" >&2
+        echo "  ${RED}The PreToolUse(Agent) guard did NOT block it — this agent runs the STALE definition.${R}" >&2
+        echo "  ${Y}Reload now: /reload-plugins then bash $APD_SHORTCUT_DISPLAY reload-done (or restart).${R}" >&2
+        echo "  ${D}If the pre-spawn block is consistently missing, the CC Agent matcher may have changed — check hooks.json.${R}" >&2
     fi
 
     # Adversarial pre-flight gate (v6.1 B1) — hard block when adversarial

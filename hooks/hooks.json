@@ -16,6 +16,17 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-agent-reload"],
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {
