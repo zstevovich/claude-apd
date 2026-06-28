@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>v6.25.0</b> &middot; MIT &middot; macOS + Linux
+  <b>v6.26.0</b> &middot; MIT &middot; macOS + Linux
 </p>
 
 <p align="center">
@@ -88,7 +88,7 @@ codex plugin marketplace upgrade codex-apd                    # pulls latest mai
 To pin the upgrade to a specific tag or branch (e.g. for pre-release testing):
 ```bash
 codex plugin marketplace remove codex-apd
-codex plugin marketplace add zstevovich/claude-apd@v6.25.0     # or @<branch> for a feature branch
+codex plugin marketplace add zstevovich/claude-apd@v6.26.0     # or @<branch> for a feature branch
 ```
 
 **Codex — direct-drop install:**
@@ -132,7 +132,7 @@ apd profile status            # current agents vs declared profile (flags drift)
 apd profile cruise            # apply, then /reload-plugins
 ```
 
-Or just run `/apd-profile` and pick.
+Or just run `/apd-profile` and pick. After a switch APD blocks subagent dispatch until you reload (the orchestrator can't run `/reload-plugins` itself) — so a forgotten reload is a clear block, not a silent stale-model run. Clear it with `apd reload-done` (or restart).
 
 Design notes baked into the defaults:
 

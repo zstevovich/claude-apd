@@ -1,5 +1,31 @@
 # Changelog
 
+## v6.26.0 — 2026-06-28
+
+**Agent-reload drift gate.** When `apd profile` rewrites agent models mid-session, the running session keeps the OLD agents — CC caches agent definitions at session start, and the orchestrator can't run `/reload-plugins` itself (only you can). Until now a forgotten reload meant a silent stale-model run. Now APD blocks it loudly.
+
+We confirmed empirically this session that **`/reload-plugins` does NOT fire the `SessionStart` hook**, so APD can't observe a reload — the design is marker-based:
+
+- `apd profile <name>` drops a `.apd/.pending-reload` marker when it actually changes agents (with the changed agent names).
+- The **SubagentStart guard hard-blocks every dispatch** while the marker stands, with an actionable message: run `/reload-plugins`, then `apd reload-done` — or restart (a fresh session clears the marker automatically). Override with `APD_SKIP_RELOAD_GATE=1`.
+- Compaction-reinjection does NOT clear the marker (it doesn't reload agents); only a real cold start (`startup`) does.
+
+So a profile switch that you forget to activate surfaces as a clear block at dispatch time, not as agents silently running the wrong model.
+
+### Implementation
+
+- **feat(pipeline-model-profile):** writes `.apd/.pending-reload` (outside `pipeline/`, survives `pipeline reset`) on `changed>0`; the final message now says the reload is yours to run and points at `apd reload-done`.
+- **feat(track-agent):** SubagentStart drift-guard — blocks (exit 2) while the marker exists, runs before the start event is logged so a blocked dispatch leaves no record. `APD_ACTIVE=false` short-circuits first, so dormant/Codex paths are untouched.
+- **feat(session-start):** clears the marker on the `--startup` invocation only (hooks.json now passes `--startup` on the `startup` matcher); the compaction-reinjection invocation leaves it.
+- **feat(reload-done):** new `bin/core/reload-done` + dispatcher `reload-done|rd` + `apd help` line.
+- **docs:** SPEC.md `reload-done` row, profile drift-guard note, `.pending-reload` state-file row, hooks `--startup` note; `apd-profile` skill (reload is the user's step; drift-guard explained; anti-patterns).
+
+### Tests
+
+- **test(test-codex-adapter §92) +10:** 3 static (reload-done + dispatcher, track-agent guard + opt-out, hooks `--startup` wiring) + 7 live (marker written with names; SubagentStart → BLOCK exit 2 with actionable message; opt-out env passes; `reload-done` clears + unblocks; `--startup` clears; no-arg session-start leaves it). **765 → 775 PASS / 0 FAIL.**
+
+**Migration:** zero action. The gate only triggers after `apd profile` changes agents; it's the moment you'd have needed to reload anyway. CC only (profiles + SubagentStart are CC).
+
 ## v6.25.0 — 2026-06-28
 
 Two additions to the role lifecycle, both advisory — never gates.

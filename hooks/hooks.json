@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "bash",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/session-start"],
+            "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/session-start", "--startup"],
             "timeout": 5,
             "statusMessage": "Loading APD context..."
           }

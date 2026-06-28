@@ -1,0 +1,29 @@
+#!/bin/bash
+# APD Reload Done — clear the pending-reload marker after you reloaded agents.
+#
+# CC caches agent definitions at session start, and /reload-plugins does NOT fire
+# SessionStart (tested), so APD can't observe a reload. apd-profile drops a
+# .apd/.pending-reload marker that the SubagentStart drift-guard blocks on. After
+# you run /reload-plugins (so the session has the new agent models), run
+# `apd reload-done` to clear the marker and unblock subagent dispatch. A fresh
+# (startup) session clears it automatically — this is the no-restart path.
+#
+# Usage: reload-done
+# Exit: 0 cleared / nothing to clear
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+
+case "${1:-}" in
+    --help|-h) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+esac
+
+RELOAD_MARKER="$(dirname "$PIPELINE_DIR")/.pending-reload"
+if [ -f "$RELOAD_MARKER" ]; then
+    rm -f "$RELOAD_MARKER"
+    ok "Reload marker cleared — subagent dispatch unblocked."
+    echo "  ${D}(If you did NOT actually run /reload-plugins, the session still has the old agents.)${R}"
+else
+    ok "No pending reload — nothing to clear."
+fi
+exit 0

@@ -60,10 +60,19 @@ Profiles are data, not code: defaults ship in the plugin
    names are never touched), records `MODEL_PROFILE=<name>` in the APD config,
    and writes an INFO entry to guard-audit.log.
 
-5. **Run `/reload-plugins`.** The running session keeps the old models until
-   agent definitions are reloaded — `/reload-plugins` is sufficient (verified
-   live), a full session restart also works. Do not claim the change is live
-   before one of the two happened.
+5. **Tell the USER to run `/reload-plugins` — you cannot.** `/reload-plugins`
+   is an interactive slash command; only the user can run it (the orchestrator
+   has no way to). The running session keeps the old models until agent
+   definitions are reloaded — `/reload-plugins` is sufficient (verified live),
+   a full session restart also works. Do not claim the change is live before one
+   of the two happened.
+
+6. **APD now blocks subagent dispatch until the reload happens (drift guard).**
+   When `apd profile` changes agents it drops a `.apd/.pending-reload` marker;
+   the SubagentStart guard hard-blocks any dispatch while it stands — so a
+   forgotten reload surfaces as a clear block, not a silent stale-model run.
+   After the user runs `/reload-plugins`, clear it with **`apd reload-done`**
+   (or just restart — a fresh session clears the marker automatically).
 
 ## Exit criteria
 
@@ -78,5 +87,6 @@ Profiles are data, not code: defaults ship in the plugin
 |---|---|
 | Hand-edit `model:` across agents to "switch profile" | Run `apd profile <name>` — config + audit trail stay consistent |
 | Switch profiles while a pipeline task is active | Finish (commit) or reset first — mid-run swap pollutes the run's model attribution |
-| Claim the new models are active immediately after apply | Run `/reload-plugins` first (or session restart) — only then are the new models live |
+| Claim the new models are active immediately after apply | The USER runs `/reload-plugins` (you can't) — only then are the new models live |
+| Dispatch agents right after apply, assuming it worked | APD blocks dispatch until reload (drift guard); user runs `/reload-plugins` + `apd reload-done`, or restarts |
 | Invent profile names or model IDs | Only offer what `apd profile list` prints; new mappings belong in model-profiles.conf |

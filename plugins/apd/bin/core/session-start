@@ -42,6 +42,17 @@ fi
 
 [ "$APD_ACTIVE" = false ] && { _ss_log "EXIT: APD_ACTIVE=false"; exit 0; }
 
+# --- Clear the pending-reload marker on a real cold start (--startup) ---
+# A fresh process loads agent definitions fresh, so an apd-profile drift marker
+# is satisfied. Gated on the --startup arg (hooks.json startup matcher) so the
+# compaction-reinjection invocation — which does NOT reload agents — leaves the
+# marker standing. /reload-plugins doesn't fire SessionStart at all (tested), so
+# the brzi put is `apd reload-done`; this is the restart path.
+if [ "${1:-}" = "--startup" ]; then
+    _RELOAD_MARKER="$(dirname "$PIPELINE_DIR")/.pending-reload"
+    [ -f "$_RELOAD_MARKER" ] && rm -f "$_RELOAD_MARKER" && _ss_log "cleared pending-reload marker (startup)"
+fi
+
 # --- CRITICAL: Create shortcut FIRST (before anything that might timeout) ---
 APD_CMD="$CLAUDE_DIR/bin/apd"
 if [ ! -f "$APD_CMD" ] || ! grep -q "$APD_PLUGIN_ROOT/bin/apd" "$APD_CMD" 2>/dev/null; then

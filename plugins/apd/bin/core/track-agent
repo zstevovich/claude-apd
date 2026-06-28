@@ -44,6 +44,26 @@ ac=$(_agent_color "$AGENT_TYPE")
 
 case "$EVENT" in
   SubagentStart)
+    # Agent-drift gate — CC caches agent definitions at session start; if
+    # apd-profile rewrote them mid-session, the running session still holds the
+    # OLD ones, and /reload-plugins does NOT fire SessionStart (tested), so APD
+    # can't observe a reload. Block dispatch while the marker stands — the
+    # orchestrator can't reload, so the human must (/reload-plugins + reload-done,
+    # or restart). Runs first so a blocked dispatch leaves no start in .agents.
+    RELOAD_MARKER="$(dirname "$PIPELINE_DIR")/.pending-reload"
+    if [ -f "$RELOAD_MARKER" ] && [ "${APD_SKIP_RELOAD_GATE:-}" != "1" ]; then
+        _changed=$(sed -n 's/.*agents: //p' "$RELOAD_MARKER" | head -1)
+        echo "" >&2
+        echo "  ${RED}${B}BLOCKED:${R} ${RED}agent definitions changed on disk (${_changed:-?}) but this${R}" >&2
+        echo "  ${RED}session still has the OLD ones — CC caches agents at session start.${R}" >&2
+        echo "  ${Y}The orchestrator cannot reload agents. You apply it, one of:${R}" >&2
+        echo "    • /reload-plugins   then   bash $APD_SHORTCUT_DISPLAY reload-done" >&2
+        echo "    • or restart the session (the marker clears itself on a fresh start)" >&2
+        echo "  ${D}Then re-dispatch. (Override: APD_SKIP_RELOAD_GATE=1 — the risk is yours.)${R}" >&2
+        echo "  ${Y}NOTE:${R} ${D}This SubagentStart was rejected — not recorded in .agents.${R}" >&2
+        exit 2
+    fi
+
     # Adversarial pre-flight gate (v6.1 B1) — hard block when adversarial
     # dispatched out of order. Runs BEFORE the start event is logged so a
     # blocked dispatch leaves no fake start in .agents.

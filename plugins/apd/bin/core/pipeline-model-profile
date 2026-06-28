@@ -237,6 +237,7 @@ apd_header "Model profile: $PROFILE"
 echo ""
 CHANGED=0
 SKIPPED=0
+CHANGED_NAMES=""
 for f in "${AGENT_FILES[@]}"; do
     name=$(basename "$f" .md)
     target=$(_target_for "$PROFILE" "$name")
@@ -260,6 +261,7 @@ for f in "${AGENT_FILES[@]}"; do
     _apply_agent "$f" "$want_m" "$want_e"
     echo "  ${G}✓${R} $name: ${cur_m:-?}/${cur_e:-?} -> ${want_m}/${want_e}"
     CHANGED=$((CHANGED + 1))
+    CHANGED_NAMES="${CHANGED_NAMES:+$CHANGED_NAMES,}$name"
 done
 
 echo ""
@@ -285,8 +287,24 @@ if [ -d "${MEMORY_DIR:-}" ]; then
     echo "$(date +"%Y-%m-%d %H:%M:%S")|$(_audit_type INFO)|orchestrator|model-profile-switch|profile=$PROFILE changed=$CHANGED skipped=$SKIPPED" >> "$MEMORY_DIR/guard-audit.log"
 fi
 
+# Pending-reload marker — CC caches agent definitions at session start, and
+# /reload-plugins does NOT fire SessionStart (tested), so APD can't observe the
+# reload. Drop a marker the SubagentStart drift-guard reads: it blocks dispatch
+# until the user reloads (then `apd reload-done`) or restarts (a startup
+# session-start clears it). Only when something actually changed.
+if [ "$CHANGED" -gt 0 ]; then
+    RELOAD_MARKER="$(dirname "$PIPELINE_DIR")/.pending-reload"
+    mkdir -p "$(dirname "$RELOAD_MARKER")"
+    printf '%s | apd-profile %s | agents: %s\n' "$(date +"%Y-%m-%d %H:%M:%S")" "$PROFILE" "$CHANGED_NAMES" > "$RELOAD_MARKER"
+fi
+
 ok "Profile '$PROFILE' applied: $CHANGED changed, $SKIPPED skipped, ${#AGENT_FILES[@]} total."
 echo ""
-echo "  ${Y}Run /reload-plugins now${R} (or restart the CC session) — the running"
-echo "  session keeps the OLD models until agent definitions are reloaded."
+if [ "$CHANGED" -gt 0 ]; then
+    echo "  ${Y}YOU must reload — the orchestrator can't.${R} CC caches agents at session start;"
+    echo "  the running session keeps the OLD models until you reload. Until then APD"
+    echo "  blocks subagent dispatch (drift guard). One of:"
+    echo "    • /reload-plugins   then   bash $APD_SHORTCUT_DISPLAY reload-done"
+    echo "    • or restart the CC session (the marker clears itself on a fresh start)"
+fi
 exit 0
