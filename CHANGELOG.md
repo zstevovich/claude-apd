@@ -1,5 +1,24 @@
 # Changelog
 
+## v6.28.0 — 2026-06-29
+
+**Hook-non-delivery: a clear recovery hint at the builder/reviewer gates.** When CC's SubagentStart/Stop hooks silently don't fire (background dispatch / harness), the `.agents` evidence ledger stays empty even though agents ran, and `apd pipeline builder` / `reviewer` would BLOCK with a confusing "no agent dispatched". The gate now detects the on-disk CC transcripts and, if any exist for the current task, BLOCKs with a clear hint pointing at the explicit recovery — run `apd pipeline reconstruct-agents`, then re-run.
+
+It deliberately does **not** auto-apply the reconstruction. The CC transcript directory is orchestrator-writable (`guard-bash-scope` only protects `.apd/pipeline/`), so silently trusting transcripts inside a gate would be a fabrication-assist path — an adversarial orchestrator could forge a transcript with two `printf`s. So the detect runs in dry-run mode (counts, writes nothing) and recovery stays an explicit, visible operator step. The enforcement floor is unchanged: the gate still BLOCKs; nothing is auto-trusted.
+
+(An auto-apply design was built first, then caught by the independent pre-commit audit — a reminder that enforcement-code changes need an independent reviewer.)
+
+### Implementation
+
+- **feat(pipeline-advance):** the shared `_reconstruct_from_transcripts` gains a dry-run / detect-only mode (`RA_DRY_RUN=1`); the builder and reviewer gates call it on an empty-`.agents` BLOCK and append a `reconstruct-agents` hint when transcripts exist. The subcommand and the gates share the one reconstruct path (single source of truth).
+- **docs:** SPEC.md gate detect+hint note (with the transcript-writability caveat); workflow.md safety-net line.
+
+### Tests
+
+- **test(test-codex-adapter §93):** BLOCK + hint with no auto-apply and `.agents` left untouched; explicit `reconstruct-agents → builder` still recovers (escape hatch); no-transcript → BLOCK without a false hint. **787 / 0.**
+
+**Migration:** none. CC only.
+
 ## v6.27.0 — 2026-06-28
 
 **Agent-reload drift gate — now actually prevents the dispatch.** v6.26.0 placed the gate on the `SubagentStart` hook, which fires AFTER the subagent has already spawned: `exit 2` there only prints to stderr while the agent runs to completion. So the v6.26 gate was a *detector*, not a preventer — the first dispatch after a forgotten reload still ran the stale model. (Found on a live run, then confirmed against CC's hook docs: `SubagentStart` "shows stderr only" vs `PreToolUse` "blocks the tool call".)
