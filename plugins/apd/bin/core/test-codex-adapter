@@ -9923,6 +9923,98 @@ fi
 rm -rf "$RG_PROJ"
 
 # -----------------------------------------------------------
+# 93. v6.x — builder/reviewer gate hook-non-delivery DETECT + HINT (floor-preserving)
+#     The .agents ledger is written by CC SubagentStart/Stop hooks, which can
+#     silently NOT fire (background dispatch / harness / CC bug) → empty .agents
+#     → confusing "no agent dispatched" BLOCK. The gate now DETECTS (dry-run,
+#     writes nothing) whether transcript-backed agents exist and blocks with a
+#     clear hint at the EXPLICIT `reconstruct-agents` recovery. It does NOT
+#     auto-apply: CC transcript files are orchestrator-writable, so auto-trusting
+#     them would be a fabrication-assist path. Floor stays — gate still BLOCKs;
+#     recovery is an explicit, visible operator step.
+# -----------------------------------------------------------
+section "93. gate hook-non-delivery detect + hint (floor-preserving)"
+
+GF_ADVANCE="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+
+# Static A: a SINGLE shared _reconstruct_from_transcripts (subcommand + the two
+# gate dry-run detects), with a dry-run / detect-only mode.
+if grep -q '_reconstruct_from_transcripts()' "$GF_ADVANCE" \
+   && [ "$(grep -c '_reconstruct_from_transcripts' "$GF_ADVANCE")" -ge 3 ] \
+   && grep -q 'RA_DRY_RUN' "$GF_ADVANCE"; then
+    pass "shared _reconstruct_from_transcripts with dry-run detect (subcommand + 2 gates)"; PASSES=$((PASSES + 1))
+else
+    fail "shared reconstruct / dry-run detect not wired"; FAILS=$((FAILS + 1))
+fi
+
+# Static B: gates HINT at the explicit recovery + do NOT auto-apply (no silent
+# recovered-from-transcripts — CC transcripts are orchestrator-writable).
+if grep -q 'pipeline reconstruct-agents' "$GF_ADVANCE" \
+   && [ "$(grep -c 'RA_DRY_RUN=1; _reconstruct_from_transcripts' "$GF_ADVANCE")" -ge 2 ] \
+   && ! grep -q 'recovered-from-transcripts' "$GF_ADVANCE"; then
+    pass "gates detect+hint (dry-run) — no silent auto-apply"; PASSES=$((PASSES + 1))
+else
+    fail "detect+hint not wired / auto-apply still present"; FAILS=$((FAILS + 1))
+fi
+
+# Build a CC project with a validator-SIGNED spec + plan + a project builder agent.
+_gf_make_pipeline() {  # $1=projdir $2=task
+    local _p="$1" _task="$2"
+    mkdir -p "$_p/.apd/pipeline" "$_p/.claude/memory" "$_p/.claude/agents"
+    printf 'PROJECT_NAME=gf\n' > "$_p/.claude/.apd-config"
+    printf -- '---\nname: database\nmodel: sonnet\n---\nbody\n' > "$_p/.claude/agents/database.md"
+    printf '## %s\n**Acceptance criteria:**\n- R1: thing\n' "$_task" > "$_p/.apd/pipeline/spec-card.md"
+    printf '%s|%s\n' "$_task" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$_p/.apd/pipeline/.guide-marker"
+    APD_PROJECT_DIR="$_p" bash "$GF_ADVANCE" spec "$_task" >/dev/null 2>&1
+    printf '## Plan: %s\n\n### Section 1 — stub\n**Implements:** R1\n\nNo-op.\n' "$_task" > "$_p/.apd/pipeline/implementation-plan.md"
+}
+# Drop a transcript-backed agent (created AFTER spec → mtime is post-spec).
+_gf_add_transcript() {  # $1=projdir $2=fcdir $3=agentid(17-hex, validator-valid)
+    local _slug; _slug=$(printf '%s' "$1" | sed 's#[^A-Za-z0-9]#-#g')
+    mkdir -p "$2/projects/$_slug/sess/subagents"
+    printf '{"agentType":"database","description":"d"}\n' > "$2/projects/$_slug/sess/subagents/agent-$3.meta.json"
+    printf '{"l":1}\n' > "$2/projects/$_slug/sess/subagents/agent-$3.jsonl"
+}
+
+GF_FC="$(mktemp -d -t apd-gffc.XXXXXX)"
+
+# Live C: empty .agents + real transcript → BLOCK + hint, NO auto-recover, .agents
+# UNTOUCHED (the transcript-trust boundary is not crossed silently).
+GF_P1="$(mktemp -d -t apd-gf1.XXXXXX)"
+_gf_make_pipeline "$GF_P1" "GF One"
+_gf_add_transcript "$GF_P1" "$GF_FC" "abd193596a46fd3fd"
+GF_OUT=$(CLAUDE_CONFIG_DIR="$GF_FC" APD_PROJECT_DIR="$GF_P1" bash "$GF_ADVANCE" builder 2>&1)
+if [ ! -f "$GF_P1/.apd/pipeline/builder.done" ] \
+   && echo "$GF_OUT" | grep -q 'transcript-backed agent' \
+   && echo "$GF_OUT" | grep -q 'pipeline reconstruct-agents' \
+   && [ ! -s "$GF_P1/.apd/pipeline/.agents" ]; then
+    pass "empty .agents + transcript → BLOCK + reconstruct-agents hint, no auto-apply, .agents untouched"; PASSES=$((PASSES + 1))
+else
+    fail "detect+hint wrong: done=$([ -f "$GF_P1/.apd/pipeline/builder.done" ] && echo yes) agents=$([ -s "$GF_P1/.apd/pipeline/.agents" ] && echo nonempty) out=$GF_OUT"; FAILS=$((FAILS + 1))
+fi
+
+# Live D: the EXPLICIT recovery still works (reconstruct-agents → builder).
+CLAUDE_CONFIG_DIR="$GF_FC" APD_PROJECT_DIR="$GF_P1" bash "$GF_ADVANCE" reconstruct-agents >/dev/null 2>&1
+CLAUDE_CONFIG_DIR="$GF_FC" APD_PROJECT_DIR="$GF_P1" bash "$GF_ADVANCE" builder >/dev/null 2>&1
+if [ -f "$GF_P1/.apd/pipeline/builder.done" ]; then
+    pass "explicit reconstruct-agents → builder recovers (escape hatch intact)"; PASSES=$((PASSES + 1))
+else
+    fail "explicit recovery path broken (builder.done not created)"; FAILS=$((FAILS + 1))
+fi
+
+# Live E: no transcript at all → BLOCK, and NO recovery hint (nothing to recover).
+GF_P3="$(mktemp -d -t apd-gf3.XXXXXX)"
+_gf_make_pipeline "$GF_P3" "GF Three"
+GF_OUT3=$(CLAUDE_CONFIG_DIR="$GF_FC" APD_PROJECT_DIR="$GF_P3" bash "$GF_ADVANCE" builder 2>&1)
+if [ ! -f "$GF_P3/.apd/pipeline/builder.done" ] && ! echo "$GF_OUT3" | grep -q 'transcript-backed agent'; then
+    pass "no transcript → BLOCK without recovery hint (floor intact, no false hint)"; PASSES=$((PASSES + 1))
+else
+    fail "no-transcript case wrong: done=$([ -f "$GF_P3/.apd/pipeline/builder.done" ] && echo yes)"; FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$GF_P1" "$GF_P3" "$GF_FC"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

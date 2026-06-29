@@ -40,6 +40,12 @@
      `track-agent` SubagentStop will flag this via the v6.7.2 F2 telemetry,
      but the dispatch-prompt rule is the upstream fix.)
    → bash .claude/bin/apd pipeline builder (after agent completes)
+   → Safety net: if the gate BLOCKs "no Builder agent dispatched" but an agent
+     DID run (CC SubagentStart/Stop hooks can silently not fire for background
+     dispatches), the BLOCK now detects the on-disk transcripts and points you at
+     the recovery — run `apd pipeline reconstruct-agents`, then re-run builder.
+     (The gate never auto-applies transcripts — they're orchestrator-writable —
+     so recovery stays an explicit, visible step.)
    ↓
 6. DISPATCH REVIEWER AGENT — opus/max, read-only, finds bugs
    → bash .claude/bin/apd pipeline reviewer (after reviewer completes)

@@ -254,6 +254,105 @@ verify_done() {
     return 0
 }
 
+# --- Agent-evidence helpers — hook-non-delivery robustness (v6.x) -------------
+# The .agents ledger is written by the CC SubagentStart/Stop hooks. Those can
+# silently fail to fire (background dispatch, harness quirk, CC bug — observed
+# 2026-06-04 and 2026-06-29), leaving .agents empty even though real agents ran
+# → the builder/reviewer gates false-BLOCK. _reconstruct_from_transcripts
+# rebuilds .agents from the CC subagent transcripts on disk (ground truth — the
+# orchestrator cannot fabricate them). The scan helpers are factored out so the
+# gate can re-scan after a fallback reconstruct. Single source of truth for
+# "what counts as a real agent" — the gate fallback and the reconstruct-agents
+# subcommand share the SAME reconstruct logic (no security-relevant drift).
+
+# Rebuild .agents from CC subagent transcripts for the current task window.
+# Sets RA_COUNT (new pairs written) and RA_BASE (transcript dir, global so the
+# caller can report it). Returns 0 if it ran (even with 0 new pairs), 1 if a
+# precondition is missing (no spec.done / no transcript dir) — silent, so the
+# gate fallback can call it unconditionally.
+_reconstruct_from_transcripts() {
+    RA_COUNT=0
+    [ -f "$PIPELINE_DIR/spec.done" ] || return 1
+    local RA_SPEC_TS _meta _jsonl _id _stop _start _type _sh _eh
+    local _alog="$PIPELINE_DIR/.agents"
+    RA_SPEC_TS=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f1)
+    # CC transcript dir: project path with every non-alnum char → '-'
+    RA_BASE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$PROJECT_DIR" | sed 's#[^A-Za-z0-9]#-#g')"
+    [ -d "$RA_BASE" ] || return 1
+    [ "${RA_DRY_RUN:-0}" = "1" ] || touch "$_alog"
+    for _meta in "$RA_BASE"/*/subagents/agent-*.meta.json; do
+        [ -f "$_meta" ] || continue
+        _jsonl="${_meta%.meta.json}.jsonl"
+        [ -f "$_jsonl" ] || continue   # require the transcript itself = proof it ran
+        _id=$(basename "$_meta" | sed 's/^agent-//; s/\.meta\.json$//')
+        grep -qF "|${_id}" "$_alog" 2>/dev/null && continue           # already recorded
+        _stop=$(stat -f %m "$_jsonl" 2>/dev/null || stat -c %Y "$_jsonl" 2>/dev/null || echo 0)
+        [ "$_stop" -ge "$RA_SPEC_TS" ] 2>/dev/null || continue        # current-task window only
+        _start=$(stat -f %m "$_meta" 2>/dev/null || stat -c %Y "$_meta" 2>/dev/null || echo "$_stop")
+        [ "$_start" -lt "$_stop" ] 2>/dev/null || _start=$(( _stop - 60 ))
+        _type=$(sed -n 's/.*"agentType"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_meta" | head -1)
+        [ -n "$_type" ] || continue
+        # Detect-only (dry-run): count what WOULD be recoverable, write nothing.
+        if [ "${RA_DRY_RUN:-0}" = "1" ]; then RA_COUNT=$((RA_COUNT + 1)); continue; fi
+        _sh=$(date -r "$_start" +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "@$_start" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
+        _eh=$(date -r "$_stop" +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "@$_stop" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
+        printf '%s|start|%s|%s\n' "$_sh" "$_type" "$_id" >> "$_alog"
+        printf '%s|stop|%s|%s\n'  "$_eh" "$_type" "$_id" >> "$_alog"
+        RA_COUNT=$((RA_COUNT + 1))
+        [ "${RA_VERBOSE:-0}" = "1" ] && echo "  + ${_type} (${_id})  ${_sh} → ${_eh}"
+    done
+    [ "${RA_DRY_RUN:-0}" = "1" ] && return 0   # detect-only: write nothing, no audit log
+    if [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ]; then
+        echo "$(date +"%Y-%m-%d %H:%M:%S")|INFO|reconstruct-agents|rebuilt $RA_COUNT transcript-backed agent pair(s) from $RA_BASE" >> "$MEMORY_DIR/guard-audit.log"
+    fi
+    return 0
+}
+
+# Scan .agents for a post-spec, project-defined, validated builder stop event.
+# Sets BUILDER_RAN + diagnostics (BLOCKED_AGENTS / SUSPICIOUS / STALE_DISPATCH).
+# Reads AGENTS_LOG, SPEC_TS_HUMAN, APD_AGENTS_DIR. Factored so the gate can
+# re-scan after a fallback reconstruct.
+_scan_builder_ran() {
+    BUILDER_RAN=""; BLOCKED_AGENTS=""; SUSPICIOUS=""; STALE_DISPATCH=""
+    local REJECTED_PREFIXES="superpowers:" _ts _evt agent_type _id
+    [ -f "$AGENTS_LOG" ] || return 0
+    while IFS='|' read -r _ts _evt agent_type _id; do
+        [ "$_evt" = "stop" ] || continue
+        if echo "$agent_type" | grep -qE "^(${REJECTED_PREFIXES})"; then
+            BLOCKED_AGENTS="${BLOCKED_AGENTS}${agent_type}, "; continue
+        fi
+        if [ -n "$_ts" ] && [ -n "$SPEC_TS_HUMAN" ] && [ "$_ts" \< "$SPEC_TS_HUMAN" ]; then
+            [ -f "$APD_AGENTS_DIR/${agent_type}.md" ] && STALE_DISPATCH="${STALE_DISPATCH}${agent_type}, "
+            continue
+        fi
+        if [ -f "$APD_AGENTS_DIR/${agent_type}.md" ]; then
+            if validate_agent_entry "stop" "$agent_type" "$AGENTS_LOG"; then BUILDER_RAN="$agent_type"
+            else SUSPICIOUS="${SUSPICIOUS}${agent_type}, "; fi
+        fi
+    done < "$AGENTS_LOG"
+    return 0
+}
+
+# Scan .agents for a project-defined, validated reviewer stop event (name ~ review).
+# Sets REVIEWER_RAN + diagnostics (BLOCKED_AGENTS / SUSPICIOUS). Reads AGENTS_LOG,
+# APD_AGENTS_DIR. (Reviewer scan has no pre-spec STALE filter — mirrors original.)
+_scan_reviewer_ran() {
+    REVIEWER_RAN=""; BLOCKED_AGENTS=""; SUSPICIOUS=""
+    local REJECTED_PREFIXES="superpowers:" _ts _evt agent_type _id
+    [ -f "$AGENTS_LOG" ] || return 0
+    while IFS='|' read -r _ts _evt agent_type _id; do
+        [ "$_evt" = "stop" ] || continue
+        if echo "$agent_type" | grep -qE "^(${REJECTED_PREFIXES})"; then
+            BLOCKED_AGENTS="${BLOCKED_AGENTS}${agent_type}, "; continue
+        fi
+        if [ -f "$APD_AGENTS_DIR/${agent_type}.md" ] && echo "$agent_type" | grep -qiE 'review'; then
+            if validate_agent_entry "stop" "$agent_type" "$AGENTS_LOG"; then REVIEWER_RAN="$agent_type"
+            else SUSPICIOUS="${SUSPICIOUS}${agent_type}, "; fi
+        fi
+    done < "$AGENTS_LOG"
+    return 0
+}
+
 case "$STEP" in
     spec)
         if [ -z "$ARG" ]; then
@@ -560,39 +659,10 @@ case "$STEP" in
         # `YYYY-MM-DD HH:MM:SS` format which lexically (and chronologically)
         # compares correctly against the human field at spec.done column 2.
         SPEC_TS_HUMAN=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f2)
-        BUILDER_RAN=""
-        BLOCKED_AGENTS=""
-        SUSPICIOUS=""
-        STALE_DISPATCH=""
-        # Superpowers skills that conflict with APD roles
-        REJECTED_PREFIXES="superpowers:"
-        if [ -f "$AGENTS_LOG" ]; then
-            while IFS='|' read -r _ts _evt agent_type _id; do
-                [ "$_evt" = "stop" ] || continue
-                # Reject specific conflicting agents
-                if echo "$agent_type" | grep -qE "^(${REJECTED_PREFIXES})"; then
-                    BLOCKED_AGENTS="${BLOCKED_AGENTS}${agent_type}, "
-                    continue
-                fi
-                # v6.6.1 — require post-spec timestamp; pre-spec dispatches are
-                # logged as stale but do NOT satisfy BUILDER_RAN. ISO-8601
-                # zero-padded human timestamps sort lexically = chronologically.
-                if [ -n "$_ts" ] && [ -n "$SPEC_TS_HUMAN" ] && [ "$_ts" \< "$SPEC_TS_HUMAN" ]; then
-                    if [ -f "$APD_AGENTS_DIR/${agent_type}.md" ]; then
-                        STALE_DISPATCH="${STALE_DISPATCH}${agent_type}, "
-                    fi
-                    continue
-                fi
-                # Accept project-defined agents (with validation)
-                if [ -f "$APD_AGENTS_DIR/${agent_type}.md" ]; then
-                    if validate_agent_entry "stop" "$agent_type" "$AGENTS_LOG"; then
-                        BUILDER_RAN="$agent_type"
-                    else
-                        SUSPICIOUS="${SUSPICIOUS:-}${agent_type}, "
-                    fi
-                fi
-            done < "$AGENTS_LOG"
-        fi
+        # Scan factored into _scan_builder_ran so the gate can re-scan after a
+        # hook-non-delivery fallback reconstruct (below). Sets BUILDER_RAN +
+        # BLOCKED_AGENTS / SUSPICIOUS / STALE_DISPATCH.
+        _scan_builder_ran
         # Codex runtime defaults to inline orchestration for APD builder work.
         # Subagents may exist, but APD cannot require them without an explicit
         # user delegation request. Skip the legacy CC agent-presence check when
@@ -603,6 +673,25 @@ case "$STEP" in
         if [ -z "${BUILDER_RAN:-}" ]; then
             echo "BLOCKED: No project Builder agent was dispatched!" >&2
             echo "" >&2
+            # Hook-non-delivery hint: if real CC transcripts exist for this task
+            # but .agents is empty (SubagentStart/Stop didn't fire — background
+            # dispatch / harness), point at the EXPLICIT recovery. DETECT only
+            # (dry-run count, writes nothing): the transcript-backed recovery
+            # stays an explicit `reconstruct-agents` step, never an automatic gate
+            # action — the transcript-trust boundary is never crossed silently
+            # (CC transcript files are orchestrator-writable, so auto-applying
+            # them would be a fabrication-assist path).
+            if [ "${APD_RUNTIME:-}" != "codex" ]; then
+                RA_DRY_RUN=1; _reconstruct_from_transcripts; RA_DRY_RUN=0
+                if [ "${RA_COUNT:-0}" -gt 0 ]; then
+                    echo "  ${RA_COUNT} CC transcript-backed agent(s) exist for this task but .agents is empty —" >&2
+                    echo "  the SubagentStart/Stop hooks likely did not fire (background dispatch / harness)." >&2
+                    echo "  If you DID dispatch real agents, recover explicitly:" >&2
+                    echo "    bash $APD_SHORTCUT_DISPLAY pipeline reconstruct-agents   # rebuild .agents from transcripts" >&2
+                    echo "    bash $APD_SHORTCUT_DISPLAY pipeline builder              # then re-run" >&2
+                    echo "" >&2
+                fi
+            fi
             if [ -n "${STALE_DISPATCH:-}" ]; then
                 echo "  Stale pre-spec dispatch detected: ${STALE_DISPATCH%, }" >&2
                 echo "  These agents stopped BEFORE the current spec was signed —" >&2
@@ -730,28 +819,9 @@ case "$STEP" in
 
         # Verify that a PROJECT-DEFINED reviewer agent ran
         AGENTS_LOG="$PIPELINE_DIR/.agents"
-        REVIEWER_RAN=""
-        BLOCKED_AGENTS=""
-        SUSPICIOUS=""
-        REJECTED_PREFIXES="superpowers:"
-        if [ -f "$AGENTS_LOG" ]; then
-            while IFS='|' read -r _ts _evt agent_type _id; do
-                [ "$_evt" = "stop" ] || continue
-                # Reject specific conflicting agents
-                if echo "$agent_type" | grep -qE "^(${REJECTED_PREFIXES})"; then
-                    BLOCKED_AGENTS="${BLOCKED_AGENTS}${agent_type}, "
-                    continue
-                fi
-                # Accept reviewer if defined in project (with validation)
-                if [ -f "$APD_AGENTS_DIR/${agent_type}.md" ] && echo "$agent_type" | grep -qiE 'review'; then
-                    if validate_agent_entry "stop" "$agent_type" "$AGENTS_LOG"; then
-                        REVIEWER_RAN="$agent_type"
-                    else
-                        SUSPICIOUS="${SUSPICIOUS}${agent_type}, "
-                    fi
-                fi
-            done < "$AGENTS_LOG"
-        fi
+        # Scan factored into _scan_reviewer_ran so the gate can re-scan after a
+        # hook-non-delivery fallback reconstruct (below).
+        _scan_reviewer_ran
         # Codex runtime: orchestrator performs the review inline unless the
         # user explicitly requested delegated subagent review.
         if [ -z "${REVIEWER_RAN:-}" ] && [ "${APD_RUNTIME:-}" = "codex" ]; then
@@ -760,6 +830,20 @@ case "$STEP" in
         if [ -z "${REVIEWER_RAN:-}" ]; then
             echo "BLOCKED: No project Reviewer agent was dispatched!" >&2
             echo "" >&2
+            # Hook-non-delivery hint (see builder gate) — DETECT only (dry-run,
+            # writes nothing); point at the EXPLICIT reconstruct-agents recovery,
+            # never auto-apply (CC transcripts are orchestrator-writable).
+            if [ "${APD_RUNTIME:-}" != "codex" ]; then
+                RA_DRY_RUN=1; _reconstruct_from_transcripts; RA_DRY_RUN=0
+                if [ "${RA_COUNT:-0}" -gt 0 ]; then
+                    echo "  ${RA_COUNT} CC transcript-backed agent(s) exist for this task but .agents is empty —" >&2
+                    echo "  the SubagentStart/Stop hooks likely did not fire (background dispatch / harness)." >&2
+                    echo "  If you DID dispatch a real reviewer, recover explicitly:" >&2
+                    echo "    bash $APD_SHORTCUT_DISPLAY pipeline reconstruct-agents   # rebuild .agents from transcripts" >&2
+                    echo "    bash $APD_SHORTCUT_DISPLAY pipeline reviewer             # then re-run" >&2
+                    echo "" >&2
+                fi
+            fi
             if [ -n "${SUSPICIOUS:-}" ]; then
                 echo "  Suspicious dispatch detected: ${SUSPICIOUS%, }" >&2
                 echo "  Agent entries look fabricated (wrong timestamp, zero duration, or missing start)." >&2
@@ -1557,41 +1641,13 @@ EOF
             echo "BLOCKED: no active pipeline (spec.done missing) — nothing to scope reconstruction against." >&2
             exit 1
         fi
-        RA_SPEC_TS=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f1)
-        # CC transcript dir: project path with every non-alnum char → '-'
-        RA_SLUG=$(printf '%s' "$PROJECT_DIR" | sed 's#[^A-Za-z0-9]#-#g')
-        RA_BASE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$RA_SLUG"
-        if [ ! -d "$RA_BASE" ]; then
+        # Shared with the builder/reviewer gate fallback (single source of truth
+        # for "what counts as a real transcript-backed agent").
+        RA_VERBOSE=1
+        if ! _reconstruct_from_transcripts; then
             echo "BLOCKED: CC transcript dir not found: $RA_BASE" >&2
             echo "  Cannot reconstruct without CC subagent transcripts (ground truth)." >&2
             exit 1
-        fi
-        AGENTS_LOG="$PIPELINE_DIR/.agents"
-        touch "$AGENTS_LOG"
-        RA_COUNT=0
-        for _meta in "$RA_BASE"/*/subagents/agent-*.meta.json; do
-            [ -f "$_meta" ] || continue
-            _jsonl="${_meta%.meta.json}.jsonl"
-            [ -f "$_jsonl" ] || continue   # require the transcript itself = proof it ran
-            _id=$(basename "$_meta" | sed 's/^agent-//; s/\.meta\.json$//')
-            grep -qF "|${_id}" "$AGENTS_LOG" 2>/dev/null && continue   # already recorded
-            _stop=$(stat -f %m "$_jsonl" 2>/dev/null || stat -c %Y "$_jsonl" 2>/dev/null || echo 0)
-            [ "$_stop" -ge "$RA_SPEC_TS" ] 2>/dev/null || continue     # current-task window only
-            _start=$(stat -f %m "$_meta" 2>/dev/null || stat -c %Y "$_meta" 2>/dev/null || echo "$_stop")
-            # Guarantee start < stop (non-zero duration) so validate-agent does not
-            # flag the pair as zero-duration/suspicious on coarse-mtime filesystems.
-            [ "$_start" -lt "$_stop" ] 2>/dev/null || _start=$(( _stop - 60 ))
-            _type=$(sed -n 's/.*"agentType"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_meta" | head -1)
-            [ -n "$_type" ] || continue
-            _sh=$(date -r "$_start" +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "@$_start" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
-            _eh=$(date -r "$_stop" +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "@$_stop" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
-            printf '%s|start|%s|%s\n' "$_sh" "$_type" "$_id" >> "$AGENTS_LOG"
-            printf '%s|stop|%s|%s\n'  "$_eh" "$_type" "$_id" >> "$AGENTS_LOG"
-            RA_COUNT=$((RA_COUNT + 1))
-            echo "  + ${_type} (${_id})  ${_sh} → ${_eh}"
-        done
-        if [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ]; then
-            echo "$(date +"%Y-%m-%d %H:%M:%S")|INFO|reconstruct-agents|rebuilt $RA_COUNT transcript-backed agent pair(s) from $RA_BASE" >> "$MEMORY_DIR/guard-audit.log"
         fi
         if [ "$RA_COUNT" -eq 0 ]; then
             echo "No transcript-backed agents to reconstruct (none after spec, or all already recorded)." >&2
