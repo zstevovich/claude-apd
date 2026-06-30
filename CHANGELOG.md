@@ -1,5 +1,21 @@
 # Changelog
 
+## v6.28.1 — 2026-07-01
+
+**eco/cruise Sonnet slots pinned to Claude Sonnet 5.** Anthropic released Claude Sonnet 5 (`claude-sonnet-5`) — same standard price as Sonnet 4.6 ($3/$15 per MTok; introductory $2/$10 through Aug 31 2026), a newer knowledge cutoff (Jan 2026 vs Aug 2025), 1M context / 128k output, adaptive thinking, no breaking API changes. A clean drop-in for the Sonnet-tier profile slots.
+
+`model-profiles.conf` previously used the CC `sonnet` alias in those slots; the alias resolves at session time, so the served Sonnet generation was neither pinned nor recorded. This pins `claude-sonnet-5` explicitly in the three Sonnet slots — `cruise` adversarial, `eco` builder, `eco` adversarial — making the served model knowable per run (the same per-run model-attribution concern behind the `MODEL_PROFILE` audit entry). `eco` benefits most: its builder moves from Sonnet 4.6 to Sonnet 5 (smarter + fresher knowledge at the same or lower cost). The adversarial slot is risk-free — adversarial value is positional (fresh context over model tier), so a smarter Sonnet there is at worst neutral. `opus` / `fable` rows stay as aliases (only deliberately-chosen models are pinned).
+
+### Implementation
+
+- **data(model-profiles.conf):** `cruise|adversarial`, `eco|default`, `eco|adversarial` → `claude-sonnet-5` (effort levels unchanged: `max` / `xhigh`). Pure template-data change; no script, guard, or hook logic touched.
+
+### Tests
+
+- `test-codex-adapter` **787 / 0** (§83 asserts row presence, not literal model strings; live-apply tests use their own fixtures).
+
+**Migration:** none. CC only. Re-apply with `apd profile eco` (or `cruise`) + reload. `effort: max`/`xhigh` acceptance on Sonnet 5 verifies on the first live `eco`/`cruise` dispatch (high confidence — Sonnet 4.6 supports both with the same effort parameter).
+
 ## v6.28.0 — 2026-06-29
 
 **Hook-non-delivery: a clear recovery hint at the builder/reviewer gates.** When CC's SubagentStart/Stop hooks silently don't fire (background dispatch / harness), the `.agents` evidence ledger stays empty even though agents ran, and `apd pipeline builder` / `reviewer` would BLOCK with a confusing "no agent dispatched". The gate now detects the on-disk CC transcripts and, if any exist for the current task, BLOCKs with a clear hint pointing at the explicit recovery — run `apd pipeline reconstruct-agents`, then re-run.
