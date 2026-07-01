@@ -4,7 +4,7 @@
 # Usage: apd <command> [args...]
 #
 # Commands:
-#   pipeline <step>   Pipeline advance (spec/builder/reviewer/verifier/status/show/reset/rollback/metrics/reconstruct-agents)
+#   pipeline <step>   Pipeline advance (spec/builder/reviewer/verifier/status/show/reset/rollback/metrics/reconstruct-agents/spinoff-finding)
 #   doctor            Pipeline diagnostics
 #   init [--quick]    Initialize or update APD in a project
 #   update [project]  Pull latest plugin from GitHub + reinit project

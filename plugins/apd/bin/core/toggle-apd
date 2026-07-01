@@ -8,6 +8,7 @@
 #   toggle-apd --global ...       Target ~/.claude/settings.json (user-global)
 #   toggle-apd --project ...      Target <project>/.claude/settings.json (tracked)
 #   toggle-apd --local ...        Target <project>/.claude/settings.local.json (per-dev)
+#   toggle-apd off --force "reason"  Disable even while a pipeline is active (audited)
 #   toggle-apd --help
 #
 # Smart detection (default when no --global/--project/--local): edit the file
@@ -25,7 +26,7 @@ source "$(dirname "$0")/../lib/resolve-project.sh"
 PLUGIN_KEY="claude-apd@zstevovich-plugins"
 
 usage() {
-    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -35,14 +36,30 @@ fi
 
 TARGET=""
 NEW_VALUE=""
+FORCE=false
+FORCE_REASON=""
+_capture_force_reason=false
 
 for arg in "$@"; do
+    if [ "$_capture_force_reason" = true ]; then
+        _capture_force_reason=false
+        case "$arg" in
+            # A flag right after --force means the reason was omitted. Do NOT
+            # swallow it as the reason (that would drop a real --global/--local
+            # target AND force-disable enforcement with a garbage reason). Leave
+            # FORCE_REASON empty (the friction's missing-reason BLOCK fires) and
+            # fall through so the flag is processed normally.
+            -*) ;;
+            *)  FORCE_REASON="$arg"; continue ;;
+        esac
+    fi
     case "$arg" in
         --global)  TARGET="user-global" ;;
         --project) TARGET="project-tracked" ;;
         --local)   TARGET="project-local" ;;
         on|enable|true|1)    NEW_VALUE="true" ;;
         off|disable|false|0) NEW_VALUE="false" ;;
+        --force)   FORCE=true; _capture_force_reason=true ;;
         --help|-h|help)      usage; exit 0 ;;
         *)
             echo "ERROR: unknown arg '$arg'" >&2
@@ -110,6 +127,44 @@ if [ -z "$NEW_VALUE" ]; then
             exit 1
             ;;
     esac
+fi
+
+# --- Toggle-off friction while a pipeline is active (v6.29) ---------------
+# `toggle off` disables the ENTIRE enforcement layer at once (guards, cycle
+# caps, pipeline gates). Observed bypass (2026-07-01, GLM-frequent): an
+# orchestrator reached for it to cram an accepted-but-out-of-scope adversarial
+# finding past the cycle cap. The sanctioned path for that is
+# `apd pipeline spinoff-finding` (record it as a follow-up task, continue in
+# scope). Refuse an off-flip while a pipeline is active unless the user forces
+# it with an explicit reason. Only bites in an active APD project with a
+# spec-card present; framework-self / dormant projects are unaffected.
+if [ "$NEW_VALUE" = "false" ] && [ "${APD_ACTIVE:-false}" = "true" ] && [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+    if [ "$FORCE" != "true" ] || [ -z "$FORCE_REASON" ]; then
+        echo "BLOCKED: refusing to toggle APD OFF while a pipeline is active." >&2
+        echo "" >&2
+        echo "  A spec-card is present ($PIPELINE_DIR/spec-card.md) — a run is in progress." >&2
+        echo "  Toggling off disables the WHOLE enforcement layer (guards, caps, gates)." >&2
+        echo "" >&2
+        echo "  If an adversarial finding is real but out of THIS task's scope, do NOT" >&2
+        echo "  disable APD to land it. Record it as a follow-up task and continue in scope:" >&2
+        echo "    bash $APD_SHORTCUT_DISPLAY pipeline spinoff-finding <id> \"<why out of scope + the follow-up task>\"" >&2
+        echo "" >&2
+        echo "  To finish/abandon the run cleanly first:  bash $APD_SHORTCUT_DISPLAY pipeline reset" >&2
+        echo "" >&2
+        echo "  If you still must disable now, force it with a reason:" >&2
+        echo "    bash $APD_SHORTCUT_DISPLAY toggle off --force \"<reason>\"" >&2
+        if [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ]; then
+            echo "$(date +"%Y-%m-%d %H:%M:%S")|BLOCK|orchestrator|toggle-off-active-pipeline|spec-card present" >> "$MEMORY_DIR/guard-audit.log"
+        fi
+        exit 2
+    fi
+    # Forced off with a reason — allowed, but loud + audited.
+    echo "WARNING: forcing APD OFF while a pipeline is active." >&2
+    echo "  Reason: $FORCE_REASON" >&2
+    if [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ]; then
+        FR_CLEAN="${FORCE_REASON//$'\n'/ }"; FR_CLEAN="${FR_CLEAN//$'\r'/ }"
+        echo "$(date +"%Y-%m-%d %H:%M:%S")|INFO|orchestrator|toggle-off-forced|reason=$FR_CLEAN" >> "$MEMORY_DIR/guard-audit.log"
+    fi
 fi
 
 # Create file if needed

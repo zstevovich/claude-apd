@@ -1,5 +1,27 @@
 # Changelog
 
+## v6.29.0 — 2026-07-01
+
+**Spinoff-finding: a sanctioned third disposition, so no one disables APD to land an out-of-scope fix.** Observed bypass (cross-vendor, GLM-frequent): when the adversarial reviewer surfaces a finding that is *real but out of the task's declared scope* — and the builder is at its cycle cap — the orchestrator reaches for `apd toggle off`, commits the fix directly, then toggles back on. That disables the **whole** enforcement layer (guards, caps, gates) mid-run, and it lands the fix with no fresh adversarial, no reviewer, no failing-test-first — precisely the treatment a real (often concurrency/rule-1) defect most needs. The root cause was a **missing** cheap, sanctioned in-pipeline path for "accepted, but out of scope and beyond the cap"; the cap and spec-immutability were doing their jobs and left no legitimate option but the nuclear toggle.
+
+Three layers, all additive — the enforcement floor is unchanged (verified by an independent pre-commit audit):
+
+- **`apd pipeline spinoff-finding <id> "<reason>"`** — records the finding as a follow-up task **seed** (source task + finding id + source `T:A:D` + why-out-of-scope + next-step) in the persistent `<memory>/deferred-tasks.md`, plus a per-run `.deferred-findings` marker. It does **not** touch the cycle cap and does **not** touch the immutable spec-card. The spun-off finding becomes its own APD task next — full spec + fresh adversarial + red-green test. Read the backlog with `apd pipeline show deferred`. Both args are mandatory (the reason is auditable — distinct from a dismissal); precondition is an adversarial pass on record. A spun-off finding is still `**Status:** accepted` in the rationale (it's real — it counts in `A`); `spinoff-finding` is the deferral record, not a fourth rationale status.
+- **Toggle-off friction** — `apd toggle off` is refused (exit 2) while a pipeline is active (`APD_ACTIVE` + a `spec-card.md` present); the BLOCK points at `spinoff-finding` (record it) or `apd pipeline reset` (end the run). Override with `apd toggle off --force "<reason>"` (reason mandatory, loudly audited). `toggle on` and idle / dormant / framework-self projects are unaffected. This is a speed-bump on the `apd toggle` path, not an airtight wall (a direct `settings.json` edit still bypasses it) — the real lever is removing the *incentive* (the sanctioned path above).
+- **Soft layer** — the pipeline guide (CC + Codex), `workflow.md`, and the Codex `AGENTS.md` now teach three dispositions (accept / dismiss / **spinoff**) and instruct the orchestrator to list spinoff **first and recommended** when asking the user what to do about an out-of-scope finding at the cap. Changing the framing changes the outcome.
+
+### Implementation
+
+- **feat(pipeline-advance):** `spinoff-finding` subcommand (+ `ARG2`), `show deferred` read path, `.deferred-findings` in the state digest and both wipe sites (reset + spec re-advance).
+- **feat(toggle-apd):** active-pipeline OFF-flip friction + `--force "<reason>"` valve (a flag right after `--force` is not swallowed as the reason).
+- **docs:** SPEC.md (subcommand, toggle CLI, two state-file rows), guide (CC + Codex), workflow.md, Codex AGENTS.md.
+
+### Tests
+
+- **test(test-codex-adapter §94):** +18 — static wiring (subcommand, read path, friction, soft-layer across all four docs, status-clarification, both wipe sites) + live (spinoff happy path / missing-reason BLOCK / pre-adversarial BLOCK / spec-card + cap untouched / show deferred) + live toggle friction (active-pipeline BLOCK, `--force` without reason, `--force "reason"` allowed, `toggle on` unaffected, `--force <flag>` not swallowed, idle allowed). **805 / 0.**
+
+**Migration:** none. Purely additive; no existing gate touched. The toggle-off friction is CC-only (settings); `spinoff-finding` is runtime-neutral.
+
 ## v6.28.1 — 2026-07-01
 
 **eco/cruise Sonnet slots pinned to Claude Sonnet 5.** Anthropic released Claude Sonnet 5 (`claude-sonnet-5`) — same standard price as Sonnet 4.6 ($3/$15 per MTok; introductory $2/$10 through Aug 31 2026), a newer knowledge cutoff (Jan 2026 vs Aug 2025), 1M context / 128k output, adaptive thinking, no breaking API changes. A clean drop-in for the Sonnet-tier profile slots.

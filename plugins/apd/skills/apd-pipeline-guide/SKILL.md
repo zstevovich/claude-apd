@@ -86,6 +86,36 @@ block per finding:
 - Do NOT write `adversarial: max_defects=...` in the spec — DEPRECATED (v6.9),
   removed in v7.0; the rationale gate is the replacement.
 
+## Finding dispositions — accept / dismiss / SPINOFF
+
+Every adversarial finding gets one of three dispositions:
+
+- **accept** — real AND in this task's scope (and within the cycle cap) → fix via builder.
+- **dismiss** — not a real defect → rationale ≥40 chars.
+- **spinoff** — real BUT out of THIS task's declared scope (often the ones that
+  surface at the cycle cap). Do NOT expand the task, do NOT cram it into this
+  commit, and **NEVER disable APD to land it**. Record it as a follow-up task
+  seed and continue in scope:
+
+  ```bash
+  apd pipeline spinoff-finding <id> "<why out of scope + the follow-up task>"
+  apd pipeline show deferred   # the follow-up backlog
+  ```
+
+  In `.adversarial-rationale.md` a spun-off finding is still **`**Status:** accepted`**
+  (it is real — it counts in the summary `A`). `spinoff-finding` is the durable
+  deferral RECORD, not a rationale status — the rationale gate only knows
+  `accepted | dismissed | reviewer-self-dismissed`, so do NOT invent a `spinoff`
+  status (that BLOCKs at verifier).
+
+  The spun-off finding becomes its own APD task next — full spec + fresh
+  adversarial + red-green test. That is exactly the treatment a real (often
+  rule-1) defect deserves; cramming it in with enforcement disabled skips it.
+
+**When you ask the user what to do about an out-of-scope finding at the cap,
+list spinoff FIRST and recommend it.** "Expand this task / raise the cap" is only
+right when the finding is genuinely in scope and the cap raise is justified.
+
 ## Reading pipeline state
 
 Use the sanctioned read path — shell `cat`/`ls` on `.apd/pipeline/` is

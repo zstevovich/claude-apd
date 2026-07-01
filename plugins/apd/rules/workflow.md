@@ -60,9 +60,20 @@
    → Agent sees only git diff + touched files, finds issues blind. Each finding
      gets a `Status:` field — `active` (real defect) or `self-dismissed`
      (reviewer concluded inline it's not actionable, with `Note:` reason).
-   → Orchestrator processes each finding:
-     - `active` → decide accept (dispatch builder fix) or dismiss (with rationale).
+   → Orchestrator processes each finding. Three dispositions — accept / dismiss / SPINOFF:
+     - `active` in scope → accept (dispatch builder fix) or dismiss (with rationale).
      - `self-dismissed` → copy reviewer's Note as rationale text.
+     - **spinoff** — real BUT out of THIS task's declared scope (especially the
+       ones that surface AT the cycle cap). Do NOT expand the task and do NOT
+       `apd toggle off` to cram it in. Record a follow-up task seed and continue
+       in scope: `bash .claude/bin/apd pipeline spinoff-finding <id> "<why out of scope + follow-up>"`.
+       In `.adversarial-rationale.md` a spun-off finding is still `**Status:** accepted`
+       (it's real — counts in summary `A`); `spinoff-finding` is the deferral record,
+       NOT a rationale status (don't invent a `spinoff` status — it BLOCKs at verifier).
+       The spun-off finding becomes its own APD task (spec + fresh adversarial +
+       red-green) — the full treatment a real (often rule-1) defect deserves.
+       **If you ask the user what to do about an out-of-scope finding at the cap,
+       list spinoff FIRST and recommend it.**
    → Write ADVERSARIAL:total:accepted:dismissed to .apd/pipeline/.adversarial-summary
      where `dismissed` = orchestrator-dismissed + reviewer-self-dismissed (sum kept
      in summary for backward compat; rationale file disambiguates).
@@ -255,7 +266,7 @@ reviewer: max_cycles=3        # same — independent of builder
 builder: max_cycles=unlimited # no cap (use only with strong reason)
 ```
 
-When blocked, three ways forward: STOP and review (is the plan complete? scope drift? same issue flagged repeatedly?), decompose into smaller tasks and reset, or raise the cap with explicit rationale via rollback + re-advance.
+When blocked, ways forward: STOP and review (is the plan complete? scope drift? same issue flagged repeatedly?), decompose into smaller tasks and reset, or raise the cap with explicit rationale via rollback + re-advance. If the blocker is an accepted finding that is genuinely **out of this task's scope**, do NOT raise the cap and do NOT `apd toggle off` — **spin it off** to a follow-up task and continue in scope: `bash .claude/bin/apd pipeline spinoff-finding <id> "<reason>"`. When you surface this choice to the user, spinoff is the first, recommended option.
 
 ### Polish mode
 

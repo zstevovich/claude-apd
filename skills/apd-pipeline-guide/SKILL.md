@@ -111,6 +111,36 @@ block per finding:
 - Do NOT write `adversarial: max_defects=...` in the spec — DEPRECATED (v6.9),
   removed in v7.0; the rationale gate is the replacement.
 
+## Finding dispositions — accept / dismiss / SPINOFF
+
+Every adversarial finding gets one of three dispositions:
+
+- **accept** — real AND in this task's scope (and within the cycle cap) → fix via builder.
+- **dismiss** — not a real defect → rationale ≥40 chars.
+- **spinoff** — real BUT out of THIS task's declared scope (often the ones that
+  surface at the cycle cap). Do NOT expand the task, do NOT cram it into this
+  commit, and **NEVER `apd toggle off` to land it** (that disables the whole
+  enforcement layer). Record it as a follow-up task seed and continue in scope:
+
+  ```bash
+  bash .claude/bin/apd pipeline spinoff-finding <id> "<why out of scope + the follow-up task>"
+  bash .claude/bin/apd pipeline show deferred   # the follow-up backlog
+  ```
+
+  In `.adversarial-rationale.md` a spun-off finding is still **`**Status:** accepted`**
+  (it is real — it counts in the summary `A`). `spinoff-finding` is the durable
+  deferral RECORD, not a rationale status — the rationale gate only knows
+  `accepted | dismissed | reviewer-self-dismissed`, so do NOT invent a `spinoff`
+  status (that BLOCKs at verifier).
+
+  The spun-off finding becomes its own APD task next — full spec + fresh
+  adversarial + red-green test. That is exactly the treatment a real (often
+  rule-1) defect deserves; cramming it in under a disabled pipeline skips it.
+
+**When you ask the user what to do about an out-of-scope finding at the cap,
+list spinoff FIRST and recommend it.** "Expand this task / raise the cap" is only
+right when the finding is genuinely in scope and the cap raise is justified.
+
 ## Reading pipeline state
 
 Use the sanctioned read path — `cat`/`ls` on `.apd/pipeline/` is guard-blocked:
@@ -138,6 +168,7 @@ Write/Edit tool — bash redirects to `.apd/pipeline/` are blocked by design.
 | `adversarial-before-reviewer` | Dispatch code-reviewer first; advance reviewer; THEN adversarial |
 | `max_defects-*` (DEPRECATED v6.9) | Remove the `max_defects` field from spec-card; do not re-introduce |
 | `pipeline-state-write` on a read | You used bash `cat`/`ls` on pipeline state — use `apd pipeline show` |
+| `toggle-off-active-pipeline` | Don't disable APD mid-run to cram an out-of-scope fix — use `apd pipeline spinoff-finding <id> "<reason>"`, or `apd pipeline reset` to end the run |
 
 ## Exit — write the marker
 

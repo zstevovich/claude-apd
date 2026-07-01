@@ -10015,6 +10015,181 @@ fi
 rm -rf "$GF_P1" "$GF_P3" "$GF_FC"
 
 # -----------------------------------------------------------
+# 94. spinoff-finding + toggle-off friction (v6.29)
+#     Third adversarial disposition (accept/dismiss/SPINOFF) + the friction that
+#     removes the toggle-off enforcement-escape. Closes the observed bypass
+#     (2026-07-01): orchestrator toggled APD off mid-pipeline to cram an
+#     accepted-but-out-of-scope finding past the cycle cap.
+# -----------------------------------------------------------
+section "94. spinoff-finding + toggle-off friction (v6.29)"
+
+SO_ADVANCE="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+SO_TOGGLE="$APD_PLUGIN_ROOT/bin/core/toggle-apd"
+
+# Static A: spinoff-finding case writes the persistent seed + per-run marker.
+if grep -q 'spinoff-finding)' "$SO_ADVANCE" \
+   && grep -q 'deferred-tasks.md' "$SO_ADVANCE" \
+   && grep -q '.deferred-findings' "$SO_ADVANCE"; then
+    pass "pipeline-advance: spinoff-finding writes deferred-tasks.md + .deferred-findings"; PASSES=$((PASSES + 1))
+else
+    fail "spinoff-finding case / seed / marker missing"; FAILS=$((FAILS + 1))
+fi
+
+# Static B: read path (show deferred) + state digest surface the spinoff.
+if grep -q 'deferred)' "$SO_ADVANCE" \
+   && grep -q 'show \[spec|plan|state|deferred\]' "$SO_ADVANCE" \
+   && grep -q 'deferred (spinoff) findings' "$SO_ADVANCE"; then
+    pass "show deferred case + state digest expose spun-off findings"; PASSES=$((PASSES + 1))
+else
+    fail "show deferred / state digest not wired"; FAILS=$((FAILS + 1))
+fi
+
+# Static C: toggle-off friction — refuses OFF mid-pipeline, points at spinoff, --force valve.
+if grep -q 'toggle-off-active-pipeline' "$SO_TOGGLE" \
+   && grep -q 'spinoff-finding' "$SO_TOGGLE" \
+   && grep -q 'FORCE_REASON' "$SO_TOGGLE" \
+   && grep -q 'toggle-off-forced' "$SO_TOGGLE"; then
+    pass "toggle-apd: active-pipeline OFF friction + spinoff hint + --force reason valve"; PASSES=$((PASSES + 1))
+else
+    fail "toggle-off friction not wired"; FAILS=$((FAILS + 1))
+fi
+
+# Static D: (c) soft layer — guide (CC + Codex) list spinoff FIRST + recommended.
+SO_GUIDE_CC="$APD_PLUGIN_ROOT/../../skills/apd-pipeline-guide/SKILL.md"
+SO_GUIDE_CDX="$APD_PLUGIN_ROOT/skills/apd-pipeline-guide/SKILL.md"
+if grep -q 'spinoff-finding' "$SO_GUIDE_CC" && grep -qi 'spinoff FIRST' "$SO_GUIDE_CC" \
+   && grep -q 'spinoff-finding' "$SO_GUIDE_CDX" && grep -qi 'spinoff FIRST' "$SO_GUIDE_CDX"; then
+    pass "guide (CC + Codex): spinoff disposition = FIRST recommended option"; PASSES=$((PASSES + 1))
+else
+    fail "guide soft-layer (spinoff-first) missing from CC or Codex"; FAILS=$((FAILS + 1))
+fi
+
+# Static E: (c) soft layer — workflow.md + Codex AGENTS.md template carry spinoff.
+SO_WORKFLOW="$APD_PLUGIN_ROOT/rules/workflow.md"
+SO_AGENTS="$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"
+if grep -q 'spinoff-finding' "$SO_WORKFLOW" && grep -qi 'spinoff FIRST' "$SO_WORKFLOW" \
+   && grep -q 'spinoff-finding' "$SO_AGENTS" && grep -qi 'spinoff FIRST' "$SO_AGENTS"; then
+    pass "workflow.md + Codex AGENTS.md: spinoff disposition + first-option framing"; PASSES=$((PASSES + 1))
+else
+    fail "workflow.md / AGENTS.md soft-layer missing"; FAILS=$((FAILS + 1))
+fi
+
+# Static F: (audit #1) guide clarifies a spun-off finding is Status: accepted —
+# not a 4th rationale status (the verifier gate only knows accepted/dismissed/
+# reviewer-self-dismissed, so a literal `spinoff` status would BLOCK).
+if grep -q 'not a rationale status' "$SO_GUIDE_CC" && grep -q 'not a rationale status' "$SO_GUIDE_CDX"; then
+    pass "guide (CC + Codex): spun-off finding recorded as Status: accepted (not a 4th status)"; PASSES=$((PASSES + 1))
+else
+    fail "guide missing 'spinoff is Status: accepted, not a rationale status' clarification"; FAILS=$((FAILS + 1))
+fi
+
+# Static G: (audit #2) .deferred-findings is a per-run marker — wiped on BOTH the
+# spec re-advance and the reset, so a new task never inherits a stale spinoff count.
+if [ "$(grep -c 'rm -f.*\.deferred-findings' "$SO_ADVANCE")" -eq 2 ]; then
+    pass ".deferred-findings wiped on both spec re-advance and reset (no stale digest)"; PASSES=$((PASSES + 1))
+else
+    fail ".deferred-findings not wiped at both sites (found $(grep -c 'rm -f.*\.deferred-findings' "$SO_ADVANCE"), want 2)"; FAILS=$((FAILS + 1))
+fi
+
+# ---- Live setup: an active pipeline with an adversarial pass on record ----
+SO_P="$(mktemp -d -t apd-spinoff.XXXXXX)"
+mkdir -p "$SO_P/.apd/pipeline" "$SO_P/.claude/memory"
+echo "PROJECT_NAME=spinoff-test" > "$SO_P/.apd/config"
+printf '## Task\n**Acceptance criteria:**\n- R1: clamp\n' > "$SO_P/.apd/pipeline/spec-card.md"
+printf '%s|%s|Bundle backend\n' "$(date +%s)" "$(date +'%Y-%m-%d %H:%M:%S')" > "$SO_P/.apd/pipeline/spec.done"
+echo "ADVERSARIAL:8:1:7" > "$SO_P/.apd/pipeline/.adversarial-summary"
+_so_run() { APD_PROJECT_DIR="$SO_P" bash "$SO_ADVANCE" "$@" 2>&1; }
+SO_SPEC_HASH_BEFORE=$(shasum -a 256 "$SO_P/.apd/pipeline/spec-card.md" | cut -d' ' -f1)
+
+# Live F: spinoff-finding <id> <reason> → exit 0, seed + marker + INFO audit.
+_so_run spinoff-finding 5 "lost-update on update/remove; out of scope (spec=clamp), needs own spec + red-green test" >/dev/null
+SO_RC=$?
+if [ "$SO_RC" = "0" ] \
+   && grep -q 'finding #5' "$SO_P/.claude/memory/deferred-tasks.md" 2>/dev/null \
+   && grep -q '#5' "$SO_P/.apd/pipeline/.deferred-findings" 2>/dev/null \
+   && grep -q 'finding-spinoff' "$SO_P/.claude/memory/guard-audit.log" 2>/dev/null; then
+    pass "spinoff-finding <id> <reason> → seed appended + marker + INFO audit (exit 0)"; PASSES=$((PASSES + 1))
+else
+    fail "spinoff-finding happy path broken (rc=$SO_RC)"; FAILS=$((FAILS + 1))
+fi
+
+# Live G: does NOT touch the cycle cap or the immutable spec-card.
+SO_SPEC_HASH_AFTER=$(shasum -a 256 "$SO_P/.apd/pipeline/spec-card.md" | cut -d' ' -f1)
+if [ "$SO_SPEC_HASH_BEFORE" = "$SO_SPEC_HASH_AFTER" ] \
+   && [ ! -f "$SO_P/.apd/pipeline/builder.done" ] \
+   && [ ! -f "$SO_P/.apd/pipeline/.builder-count" ]; then
+    pass "spinoff-finding leaves spec-card + cycle cap untouched"; PASSES=$((PASSES + 1))
+else
+    fail "spinoff-finding mutated spec/cap (hash-changed=$([ "$SO_SPEC_HASH_BEFORE" != "$SO_SPEC_HASH_AFTER" ] && echo yes))"; FAILS=$((FAILS + 1))
+fi
+
+# Live H: show deferred echoes the seed.
+SO_DEF=$(_so_run show deferred)
+if echo "$SO_DEF" | grep -q 'finding #5' && echo "$SO_DEF" | grep -q 'Bundle backend'; then
+    pass "apd pipeline show deferred echoes the follow-up backlog"; PASSES=$((PASSES + 1))
+else
+    fail "show deferred did not echo the seed"; FAILS=$((FAILS + 1))
+fi
+
+# Live I: reason mandatory → BLOCK exit 1.
+_so_run spinoff-finding 6 >/dev/null; SO_RC=$?
+[ "$SO_RC" = "1" ] && { pass "spinoff-finding without reason → BLOCK exit 1"; PASSES=$((PASSES + 1)); } || { fail "missing-reason exit $SO_RC (want 1)"; FAILS=$((FAILS + 1)); }
+
+# Live J: no adversarial on record → BLOCK exit 1 (nothing to spin off).
+rm -f "$SO_P/.apd/pipeline/.adversarial-summary" "$SO_P/.apd/pipeline/.adversarial-rationale.md"
+_so_run spinoff-finding 7 "reason text long enough to pass the arg check here" >/dev/null; SO_RC=$?
+[ "$SO_RC" = "1" ] && { pass "spinoff-finding before adversarial → BLOCK exit 1"; PASSES=$((PASSES + 1)); } || { fail "pre-adversarial exit $SO_RC (want 1)"; FAILS=$((FAILS + 1)); }
+
+rm -rf "$SO_P"
+
+# ---- Live setup: toggle-off friction, HOME-isolated (never touch real ~/.claude) ----
+TF="$(mktemp -d -t apd-togglefric.XXXXXX)"
+mkdir -p "$TF/proj/.apd/pipeline" "$TF/proj/.claude/memory" "$TF/home/.claude"
+echo "PROJECT_NAME=tf" > "$TF/proj/.apd/config"
+printf '## Task\n- R1: thing\n' > "$TF/proj/.apd/pipeline/spec-card.md"   # active pipeline
+echo '{"enabledPlugins":{"claude-apd@zstevovich-plugins":true}}' | jq . > "$TF/proj/.claude/settings.local.json"
+_tf_toggle() { HOME="$TF/home" APD_PROJECT_DIR="$TF/proj" bash "$SO_TOGGLE" "$@" 2>&1; }
+_tf_val() { jq -r '.enabledPlugins["claude-apd@zstevovich-plugins"]' "$TF/proj/.claude/settings.local.json"; }
+
+# Live K: toggle OFF while pipeline active → BLOCK exit 2, value UNCHANGED, audited.
+_tf_toggle off >/dev/null; TF_RC=$?
+if [ "$TF_RC" = "2" ] && [ "$(_tf_val)" = "true" ] \
+   && grep -q 'toggle-off-active-pipeline' "$TF/proj/.claude/memory/guard-audit.log" 2>/dev/null; then
+    pass "toggle off (active pipeline) → BLOCK exit 2, setting unchanged, audited"; PASSES=$((PASSES + 1))
+else
+    fail "toggle-off friction failed (rc=$TF_RC val=$(_tf_val))"; FAILS=$((FAILS + 1))
+fi
+
+# Live L: --force WITHOUT a reason → still BLOCK exit 2.
+_tf_toggle off --force >/dev/null; TF_RC=$?
+[ "$TF_RC" = "2" ] && [ "$(_tf_val)" = "true" ] && { pass "toggle off --force without reason → BLOCK exit 2"; PASSES=$((PASSES + 1)); } || { fail "force-no-reason exit $TF_RC val=$(_tf_val) (want 2/true)"; FAILS=$((FAILS + 1)); }
+
+# Live M: --force "reason" → allowed, value=false, INFO toggle-off-forced.
+_tf_toggle off --force "landing hotfix, will re-enable" >/dev/null; TF_RC=$?
+if [ "$TF_RC" = "0" ] && [ "$(_tf_val)" = "false" ] \
+   && grep -q 'toggle-off-forced' "$TF/proj/.claude/memory/guard-audit.log" 2>/dev/null; then
+    pass "toggle off --force \"reason\" → allowed (value=false), INFO audited"; PASSES=$((PASSES + 1))
+else
+    fail "forced-off wrong (rc=$TF_RC val=$(_tf_val))"; FAILS=$((FAILS + 1))
+fi
+
+# Live N: toggle ON is never blocked by the friction (value=true, exit 0).
+_tf_toggle on >/dev/null; TF_RC=$?
+[ "$TF_RC" = "0" ] && [ "$(_tf_val)" = "true" ] && { pass "toggle on unaffected by friction (exit 0, value=true)"; PASSES=$((PASSES + 1)); } || { fail "toggle on blocked (rc=$TF_RC val=$(_tf_val))"; FAILS=$((FAILS + 1)); }
+
+# Live P: (audit #3) --force immediately followed by a flag does NOT swallow the
+# flag as the reason — reason stays empty → BLOCK exit 2 (no silent forced-off).
+_tf_toggle off --force --local >/dev/null; TF_RC=$?
+[ "$TF_RC" = "2" ] && [ "$(_tf_val)" = "true" ] && { pass "--force <flag> not swallowed as reason → BLOCK exit 2"; PASSES=$((PASSES + 1)); } || { fail "force+flag swallowed (rc=$TF_RC val=$(_tf_val))"; FAILS=$((FAILS + 1)); }
+
+# Live O: idle pipeline (no spec-card) → toggle off allowed with no force.
+rm -f "$TF/proj/.apd/pipeline/spec-card.md"
+_tf_toggle off >/dev/null; TF_RC=$?
+[ "$TF_RC" = "0" ] && [ "$(_tf_val)" = "false" ] && { pass "idle pipeline (no spec-card) → toggle off allowed (exit 0)"; PASSES=$((PASSES + 1)); } || { fail "idle toggle off blocked (rc=$TF_RC val=$(_tf_val))"; FAILS=$((FAILS + 1)); }
+
+rm -rf "$TF"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

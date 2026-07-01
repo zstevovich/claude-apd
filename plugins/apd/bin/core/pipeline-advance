@@ -5,6 +5,8 @@
 #   pipeline-advance spec "Task name"
 #   pipeline-advance builder|reviewer|verifier
 #   pipeline-advance reset|status|stats|metrics|rollback
+#   pipeline-advance show [spec|plan|state|deferred]
+#   pipeline-advance spinoff-finding <id> "<reason>"  (defer accepted out-of-scope finding)
 #   pipeline-advance init "Description"  (first setup only)
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
@@ -70,6 +72,7 @@ for _arg in "$@"; do
 done
 STEP="${_positional_args[0]:-}"
 ARG="${_positional_args[1]:-}"
+ARG2="${_positional_args[2]:-}"
 if [ "$_legacy_skip_flag" = true ]; then
     echo "BLOCKED: --skip-brainstorm was removed in v6.15." >&2
     echo "" >&2
@@ -234,6 +237,11 @@ print_pipeline_state() {
     fi
     [ -f "$pd/.builder-count" ]  && echo "    builder cycles:  $(cat "$pd/.builder-count" 2>/dev/null)"
     [ -f "$pd/.reviewer-count" ] && echo "    reviewer cycles: $(cat "$pd/.reviewer-count" 2>/dev/null)"
+    if [ -f "$pd/.deferred-findings" ]; then
+        local _dfc
+        _dfc=$(grep -c . "$pd/.deferred-findings" 2>/dev/null)
+        echo "    deferred (spinoff) findings: ${_dfc:-0} — see: apd pipeline show deferred"
+    fi
 }
 
 # Verify .done file signature
@@ -532,7 +540,7 @@ case "$STEP" in
         # v6.3 audit fix: also wipe .builder-count / .reviewer-count so a new
         # task doesn't inherit cycle counts from a prior task (would block first
         # dispatch with a misleading "task X has hit its budget" message).
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings"
         create_done "spec" "$ARG"
         # Freeze spec-card.md — hash for tamper detection
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
@@ -1516,7 +1524,7 @@ EOF
         # .agents was already archived above (before metrics write).
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings"
         # Reset completed cleanly — drop the in-progress marker.
         rm -f "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
         echo "Pipeline reset. Ready for new task."
@@ -1616,13 +1624,23 @@ EOF
                     echo "implementation-plan.md: none"
                 fi
                 ;;
+            deferred)
+                if [ -n "${MEMORY_DIR:-}" ] && [ -f "$MEMORY_DIR/deferred-tasks.md" ]; then
+                    cat "$MEMORY_DIR/deferred-tasks.md"
+                else
+                    echo "deferred-tasks.md: none — no findings spun off yet"
+                    echo "  Record an accepted, out-of-scope finding with:"
+                    echo "    apd pipeline spinoff-finding <id> \"<why out of scope + the follow-up task>\""
+                fi
+                ;;
             ""|state|status)
                 print_pipeline_state
                 ;;
             *)
-                echo "Usage: apd pipeline show [spec|plan|state]" >&2
+                echo "Usage: apd pipeline show [spec|plan|state|deferred]" >&2
                 echo "  reviewed-files + adversarial appear as digests in 'state'" >&2
                 echo "  (raw generated state is not dumped — use 'state' for counts)" >&2
+                echo "  deferred = the spun-off follow-up task backlog" >&2
                 exit 1
                 ;;
         esac
@@ -1656,6 +1674,70 @@ EOF
             echo "Reconstructed $RA_COUNT agent pair(s) from CC transcripts — each backed by a real" >&2
             echo "subagent transcript on disk (NOT fabricated). Re-run 'apd pipeline builder'." >&2
         fi
+        ;;
+
+    spinoff-finding)
+        # Third disposition for an adversarial finding: accept / dismiss / SPINOFF.
+        # A finding that is REAL but OUT of the declared spec scope (and typically
+        # beyond the builder/reviewer cycle cap) is NOT crammed into this commit —
+        # it is recorded as a task SEED for a follow-up pipeline (its own spec +
+        # fresh adversarial + red-green test), so a rule-1 fix gets the full
+        # treatment it deserves. This is the sanctioned alternative to reaching
+        # for `apd toggle off` (which disables the WHOLE enforcement layer) just
+        # to land an out-of-scope fix. Does NOT touch the cycle cap and does NOT
+        # touch the immutable spec-card. Guardrail: for an ACCEPTED, genuinely
+        # out-of-scope finding only — reason mandatory (auditable), distinct from
+        # a dismissal.
+        FID="$ARG"
+        FREASON="$ARG2"
+        if [ -z "$FID" ] || [ -z "$FREASON" ]; then
+            echo "BLOCKED: spinoff-finding needs a finding id AND a reason." >&2
+            echo "" >&2
+            echo "  Usage: apd pipeline spinoff-finding <id> \"<why out of scope + the follow-up task>\"" >&2
+            echo "  Example: apd pipeline spinoff-finding 5 \\" >&2
+            echo "    \"lost-update on update/remove; out of scope (spec = clamp + add-lock), needs own spec + red-green concurrency test\"" >&2
+            echo "" >&2
+            echo "  Use this for an ACCEPTED, genuinely out-of-scope finding — NOT a dismissal." >&2
+            exit 1
+        fi
+        # Precondition: an adversarial pass must be on record (there is a finding).
+        if [ ! -f "$PIPELINE_DIR/.adversarial-summary" ] && [ ! -f "$PIPELINE_DIR/.adversarial-rationale.md" ]; then
+            echo "BLOCKED: no adversarial review on record — nothing to spin off yet." >&2
+            echo "  Run the adversarial pass first; spinoff-finding records a finding it surfaced." >&2
+            exit 1
+        fi
+        if [ -z "${MEMORY_DIR:-}" ] || [ ! -d "$MEMORY_DIR" ]; then
+            echo "BLOCKED: no memory dir resolved — cannot persist the deferred task seed." >&2
+            exit 1
+        fi
+        SRC_TASK="(unknown)"
+        [ -f "$PIPELINE_DIR/spec.done" ] && SRC_TASK=$(head -1 "$PIPELINE_DIR/spec.done" 2>/dev/null | cut -d'|' -f3)
+        [ -n "$SRC_TASK" ] || SRC_TASK="(unknown)"
+        DEFER_FILE="$MEMORY_DIR/deferred-tasks.md"
+        FREASON_CLEAN="${FREASON//$'\n'/ }"
+        FREASON_CLEAN="${FREASON_CLEAN//$'\r'/ }"
+        ADV_LINE=$(grep '^ADVERSARIAL:' "$PIPELINE_DIR/.adversarial-summary" 2>/dev/null | head -1)
+        {
+            echo ""
+            echo "<!-- ============================================================ -->"
+            echo "## [$(date +%Y-%m-%d)] Spinoff from \"$SRC_TASK\" — finding #$FID"
+            echo "**Status:** deferred (accepted, out of current spec scope)"
+            echo "**Source task:** $SRC_TASK"
+            echo "**Source adversarial:** ${ADV_LINE:-n/a}"
+            echo "**Finding id:** $FID"
+            echo "**Seed (why out of scope + follow-up task):** $FREASON_CLEAN"
+            echo "**Next step:** open as its own APD task — full spec (R-criteria) + fresh adversarial + red-green test BEFORE fix."
+        } >> "$DEFER_FILE"
+        # Per-run marker so `apd pipeline show state` notes a spinoff happened.
+        echo "$(date +"%Y-%m-%d %H:%M:%S")|#${FID}|${SRC_TASK}" >> "$PIPELINE_DIR/.deferred-findings"
+        # Loud, auditable — a real disposition, not a bypass.
+        if [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ]; then _st=SYNTHETIC; else _st=INFO; fi
+        echo "$(date +"%Y-%m-%d %H:%M:%S")|${_st}|orchestrator|finding-spinoff|task=$SRC_TASK id=$FID" >> "$MEMORY_DIR/guard-audit.log"
+        echo ""
+        echo "  Recorded finding #$FID as a deferred task seed → $DEFER_FILE"
+        echo "  It will NOT be crammed into this run. Continue the current pipeline in scope;"
+        echo "  open the spinoff as its own task (spec + fresh adversarial + red-green) next."
+        echo "  Backlog: apd pipeline show deferred"
         ;;
 
     stats)
@@ -1846,8 +1928,9 @@ EOF
         echo "  pipeline-advance spec \"Task name\"" >&2
         echo "  pipeline-advance builder|reviewer|verifier" >&2
         echo "  pipeline-advance reset|status|stats|metrics" >&2
-        echo "  pipeline-advance show [spec|plan|state]   # read-only state inspection" >&2
+        echo "  pipeline-advance show [spec|plan|state|deferred]  # read-only state inspection" >&2
         echo "  pipeline-advance reconstruct-agents       # rebuild .agents from CC transcripts (hook-failure recovery)" >&2
+        echo "  pipeline-advance spinoff-finding <id> \"<reason>\"  # defer an accepted out-of-scope finding to a follow-up task" >&2
         echo "  pipeline-advance rollback" >&2
         echo "  pipeline-advance init \"Description\"     # First setup only" >&2
         echo "" >&2
