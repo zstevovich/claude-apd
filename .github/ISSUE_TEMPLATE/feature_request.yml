@@ -1,0 +1,39 @@
+name: Feature request
+description: Propose an improvement or a new capability for APD.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What real situation does this address? Concrete incidents beat hypotheticals.
+      placeholder: "During a pipeline run on my project, ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should APD do? A rough sketch is fine.
+
+  - type: dropdown
+    id: enforcement
+    attributes:
+      label: Does this change enforcement behavior?
+      description: >
+        APD's enforcement floor (guards, gates, blocking behavior) is non-negotiable —
+        see CONTRIBUTING.md. Proposals that loosen it are reworked into additive
+        sanctioned paths instead. Flagging this early saves a round-trip.
+      options:
+        - "No — additive or observability-only"
+        - "Yes — touches a guard/gate"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered (optional)
+      description: Workarounds you use today, or other approaches you rejected.

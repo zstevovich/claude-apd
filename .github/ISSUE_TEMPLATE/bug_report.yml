@@ -1,0 +1,79 @@
+name: Bug report
+description: Something in APD misbehaves — a guard, gate, script, skill, or install/update path.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did APD do, and what did you expect instead?
+      placeholder: "`apd pipeline builder` blocked with ... although ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal sequence that triggers it. Include the exact commands.
+      placeholder: |
+        1. apd init
+        2. apd pipeline spec
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: apd-version
+    attributes:
+      label: APD version
+      description: Output of `apd version`.
+      placeholder: "6.29.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime
+      options:
+        - Claude Code
+        - Codex
+        - Both / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: runtime-version
+    attributes:
+      label: Runtime version
+      description: "`claude --version` or `codex --version`."
+      placeholder: "Claude Code 2.1.195"
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Relevant output
+      description: >
+        The BLOCK message, matching lines from `guard-audit.log` (in your project's
+        APD memory directory — `.apd/memory/` or `.claude/memory/`), and/or
+        `apd doctor` output. This is usually what makes the report diagnosable.
+      render: shell
+
+  - type: textarea
+    id: pipeline-context
+    attributes:
+      label: Pipeline context (optional)
+      description: If it happened mid-pipeline, paste `apd pipeline status` output.
+      render: shell
