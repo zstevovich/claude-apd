@@ -167,6 +167,7 @@ if [ -f "$WORKFLOW_FILE" ] && [ -f "$FRAMEWORK_WORKFLOW" ]; then
         "DEPRECATED"
         "unconditional"
         "apd-pipeline-guide"
+        "SUPERVISION"
     )
     MISSING_MARKERS=()
     for marker in "${MARKERS[@]}"; do

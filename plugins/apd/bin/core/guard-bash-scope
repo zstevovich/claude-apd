@@ -102,7 +102,8 @@ _pipeline_block_guidance() {
   echo "                      (never cat/ls/head files under .apd/pipeline/)" >&2
   echo "    WRITE your file → Write/Edit tool for allowlisted files only:" >&2
   echo "                      spec-card.md, implementation-plan.md," >&2
-  echo "                      .adversarial-summary, .adversarial-rationale.md, .guide-marker" >&2
+  echo "                      .adversarial-summary, .adversarial-rationale.md," >&2
+  echo "                      .supervision-summary, .supervision-rationale.md, .guide-marker" >&2
   echo "    ADVANCE phase   → bash $APD_SHORTCUT_DISPLAY pipeline <spec|builder|reviewer|verifier|reset>" >&2
 }
 

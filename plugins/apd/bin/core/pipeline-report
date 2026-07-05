@@ -454,7 +454,11 @@ _render_current() {
 _render_last_from_metrics() {
     local last_line
     last_line=$(tail -1 "$METRICS_LOG")
-    IFS='|' read -r _ts task_name spec_ts builder_ts reviewer_ts verifier_ts status adv_t adv_a adv_d agents_t agents_x <<< "$last_line"
+    # v6.30: name every column + a _rest sink. The old 12-name read absorbed
+    # columns 13+ into agents_x on v6.7.1's 15-col rows, silently suppressing
+    # the MaxTurn line (numeric test failed on "0|5|1|0"). Old shorter rows
+    # leave the trailing vars empty → zero defaults below.
+    IFS='|' read -r _ts task_name spec_ts builder_ts reviewer_ts verifier_ts status adv_t adv_a adv_d agents_t agents_x adv_do adv_dr adv_w sup_t sup_a sup_d _rest <<< "$last_line"
 
     spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
     builder_ts=$(echo "$builder_ts" | tr -d '[:space:]')
@@ -466,6 +470,9 @@ _render_last_from_metrics() {
     adv_d=$(echo "${adv_d:-0}" | tr -d '[:space:]')
     agents_t=$(echo "${agents_t:-0}" | tr -d '[:space:]')
     agents_x=$(echo "${agents_x:-0}" | tr -d '[:space:]')
+    sup_t=$(echo "${sup_t:-0}" | tr -d '[:space:]')
+    sup_a=$(echo "${sup_a:-0}" | tr -d '[:space:]')
+    sup_d=$(echo "${sup_d:-0}" | tr -d '[:space:]')
 
     local dur="N/A"
     if [ "$verifier_ts" -gt 0 ] 2>/dev/null && [ "$spec_ts" -gt 0 ] 2>/dev/null; then
@@ -504,8 +511,8 @@ _render_last_from_metrics() {
         fi
     done
 
-    # Adversarial + MaxTurn
-    if [ "$adv_t" -gt 0 ] 2>/dev/null || [ "$agents_x" -gt 0 ] 2>/dev/null; then
+    # Adversarial + Supervision + MaxTurn
+    if [ "$adv_t" -gt 0 ] 2>/dev/null || [ "$agents_x" -gt 0 ] 2>/dev/null || [ "$sup_t" -gt 0 ] 2>/dev/null; then
         _box_sep
         _box_line "  Quality" "  ${V}${B}Quality${R}"
         if [ "$adv_t" -gt 0 ] 2>/dev/null; then
@@ -514,6 +521,10 @@ _render_last_from_metrics() {
                       "  ${D}Adversarial:${R}    ${ORG}${adv_t}${R} findings (${hr}% hit)"
             _box_line "    accepted: ${adv_a}  dismissed: ${adv_d}" \
                       "    ${G}accepted: ${adv_a}${R}  ${D}dismissed: ${adv_d}${R}"
+        fi
+        if [ "$sup_t" -gt 0 ] 2>/dev/null; then
+            _box_line "  Supervision:    ${sup_t} findings (accepted: ${sup_a}, dismissed: ${sup_d})" \
+                      "  ${D}Supervision:${R}    ${ORG}${sup_t}${R} findings (${G}accepted: ${sup_a}${R}, ${D}dismissed: ${sup_d}${R})"
         fi
         if [ "$agents_x" -gt 0 ] 2>/dev/null; then
             _box_line "  MaxTurn exhaust: ${agents_x}/${agents_t} agents" \

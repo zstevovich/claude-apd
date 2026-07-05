@@ -32,6 +32,14 @@ Mode: `pipeline_mode: polish` in spec-card.md lowers cycle caps to 1 and skips
 adversarial for 1-2 R hotfixes. Lean vs Full is declared in the spec; this guide
 applies to BOTH.
 
+Note: the v6.30 supervision layer (frontier final review, coupled to CC model
+profiles) is CC-owned — pure-Codex projects never declare `MODEL_PROFILE`, so
+the gate is inert there. **Hybrid CC+Codex projects share the APD config:** if
+CC declared a profile with a supervisor row (v1: eco), the verifier gate is
+active in Codex sessions too. In that case run the supervision pass from the CC
+side (Codex has no supervisor agent); the summary/rationale files are
+Write/Edit-allowlisted on both runtimes.
+
 ## Implementation plan contract
 
 Write `.apd/pipeline/implementation-plan.md` BEFORE the builder advance.

@@ -94,6 +94,19 @@
    → If accepted findings → fix via builder → re-review
    → Lean mode skips this step — see "Lean vs Full" below
    ↓
+6b. SUPERVISION (v6.30 — ONLY when the model profile has a supervisor row; v1: eco, Full mode)
+   → AFTER all adversarial findings are triaged and fixed — the supervisor judges
+     the FINAL diff, not the pre-fix state.
+   → Dispatch supervisor agent (frontier model, memory: none). Its scope is ONLY:
+     R-criteria still met by the final diff / fix-of-findings collateral /
+     Regression-surface claims vs diff / commit verdict. NOT a second bug hunt.
+   → Write SUPERVISION:total:accepted:dismissed to .apd/pipeline/.supervision-summary
+     (Write/Edit tool). If T>0: .apd/pipeline/.supervision-rationale.md — SAME
+     per-finding contract as adversarial (Severity/Status/Rationale, spinoff
+     disposition available). Accepted → builder fix → ONE re-check (cap: 2 completed passes; an exhausted dispatch doesn't count).
+   → NO spec-card opt-out (by design). Ways out: reset, or switch profile BEFORE spec.
+   → Rollout: verifier WARNS now; becomes a hard BLOCK in a future release.
+   ↓
 7. RUN VERIFIER — build + test
    → **Sanity check FIRST:** does `.apd/pipeline/.adversarial-rationale.md` exist
      with one `## Finding N` block per adversarial finding? If not, go back to
@@ -117,6 +130,12 @@
      dismissal pattern. Soft warns on rationale text <40 chars or lazy patterns
      (`ok`, `n/a`, `false positive`, etc.). Per-task opt-out:
      `adversarial: rationale_gate=off` in spec-card.md.
+   → SUPERVISION GATE (v6.30): when the declared profile carries a supervisor row
+     (v1: eco) and adversarial ran, the verifier checks .supervision-summary +
+     .supervision-rationale.md (same structural contract as adversarial, plus a
+     dispatch-backed check, a finality check (supervisor stop must be the last
+     agent activity) and a 2-completed-passes churn cap). Currently WARN (rollout);
+     flips to hard BLOCK in a future release. NO spec-card opt-out.
    → If verifier FAILS → MANDATORY: /apd-debug before re-dispatching builder
    ↓
 8. ONE COMMIT for the entire feature

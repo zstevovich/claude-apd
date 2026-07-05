@@ -373,6 +373,24 @@ if [ "$MODE" = "update" ]; then
         fi
     fi
 
+    # --- supervisor agent (v6.30 — frontier final review, profile-gated) ---
+    # No hardcoded model repair here (v6.16.1 lesson): the template pins the
+    # frontier tier and `apd profile` owns rewrites where a supervisor row
+    # exists. Init only scaffolds the file + surfaces a broken memory contract.
+    if [ -f "$CLAUDE_DIR/agents/supervisor.md" ]; then
+        if grep -q 'memory: none' "$CLAUDE_DIR/agents/supervisor.md" 2>/dev/null; then
+            ok "supervisor (final-review layer, memory: none)"
+        else
+            warn "supervisor: missing 'memory: none' (decontextualization contract)"
+        fi
+    else
+        if [ -f "$APD_PLUGIN_ROOT/templates/supervisor-template.md" ]; then
+            sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/supervisor-template.md" > "$CLAUDE_DIR/agents/supervisor.md"
+            fix "Created supervisor.md (frontier final review — required by eco profile, Full mode)"
+            FIXES=$((FIXES + 1))
+        fi
+    fi
+
     # --- Clean APD-VERIFY pollution from pipeline-metrics.log (one-time) ---
     if [ -f "$MEMORY_DIR/pipeline-metrics.log" ]; then
         if grep -q '^[0-9]*|APD-VERIFY-' "$MEMORY_DIR/pipeline-metrics.log" 2>/dev/null; then
@@ -392,8 +410,8 @@ if [ "$MODE" = "update" ]; then
         [ -f "$agent_file" ] || continue
         AGENT_NAME=$(basename "$agent_file" .md)
         case "$AGENT_NAME" in
-            code-reviewer|adversarial-reviewer) TARGET=30 ;;
-            *)                                  TARGET=40 ;;
+            code-reviewer|adversarial-reviewer|supervisor) TARGET=30 ;;
+            *)                                             TARGET=40 ;;
         esac
         if grep -q '^maxTurns:' "$agent_file" 2>/dev/null; then
             CURRENT_MT=$(grep '^maxTurns:' "$agent_file" | head -1 | awk '{print $2}')
@@ -452,7 +470,7 @@ maxTurns: $TARGET" "$agent_file" 2>/dev/null && rm -f "$agent_file.bak"
         if grep -q 'CLAUDE_PLUGIN_ROOT' "$CLAUDE_DIR/rules/workflow.md" 2>/dev/null || grep -qF '.claude/.pipeline' "$CLAUDE_DIR/rules/workflow.md" 2>/dev/null; then
             WF_STALE_REASON="stale paths"
         else
-            for wf_marker in "Implements:" "rationale gate" "DEPRECATED" "unconditional" "apd-pipeline-guide"; do
+            for wf_marker in "Implements:" "rationale gate" "DEPRECATED" "unconditional" "apd-pipeline-guide" "SUPERVISION"; do
                 if grep -q "$wf_marker" "$APD_PLUGIN_ROOT/rules/workflow.md" 2>/dev/null \
                    && ! grep -q "$wf_marker" "$CLAUDE_DIR/rules/workflow.md" 2>/dev/null; then
                     WF_STALE_REASON="missing '$wf_marker' guidance"

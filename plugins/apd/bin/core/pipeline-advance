@@ -174,10 +174,11 @@ archive_rationale() {
     # Skip verify-apd's synthetic Section 8 rationale (same rationale as #1 tagging).
     [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ] && return 0
     local rat="$PIPELINE_DIR/.adversarial-rationale.md"
-    [ -s "$rat" ] || return 0
+    local sup="$PIPELINE_DIR/.supervision-rationale.md"
+    [ -s "$rat" ] || [ -s "$sup" ] || return 0
     [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ] || return 0
     local archive="$MEMORY_DIR/adversarial-rationale-archive.md"
-    local ts task adv
+    local ts task adv supline
     ts=$(date +"%Y-%m-%d %H:%M:%S")
     task=$(head -1 "$PIPELINE_DIR/spec.done" 2>/dev/null | cut -d'|' -f3)
     [ -n "$task" ] || task="(unknown)"
@@ -189,8 +190,21 @@ archive_rationale() {
         echo "## Archived $ts — $task"
         echo "**Summary:** $adv"
         echo ""
-        cat "$rat"
-        echo ""
+        if [ -s "$rat" ]; then
+            cat "$rat"
+            echo ""
+        fi
+        # v6.30 — supervision rationale rides in the same archive entry so a
+        # dismiss-heavy supervision pass stays retro-auditable (same
+        # ephemerality lesson as the adversarial rationale).
+        if [ -s "$sup" ]; then
+            supline=$(grep '^SUPERVISION:' "$PIPELINE_DIR/.supervision-summary" 2>/dev/null | head -1)
+            echo "### Supervision rationale"
+            echo "**Summary:** ${supline:-SUPERVISION:n/a}"
+            echo ""
+            cat "$sup"
+            echo ""
+        fi
     } >> "$archive" 2>/dev/null || true
 }
 
@@ -235,6 +249,15 @@ print_pipeline_state() {
     else
         echo "    rationale: none"
     fi
+    if [ -f "$pd/.supervision-summary" ]; then
+        local _sup _sfc
+        _sup=$(grep '^SUPERVISION:' "$pd/.supervision-summary" 2>/dev/null | head -1)
+        _sfc=""
+        if [ -f "$pd/.supervision-rationale.md" ]; then
+            _sfc=" ($(grep -c '^## Finding ' "$pd/.supervision-rationale.md" 2>/dev/null) rationale blocks)"
+        fi
+        echo "    supervision: ${_sup:-n/a}${_sfc}"
+    fi
     [ -f "$pd/.builder-count" ]  && echo "    builder cycles:  $(cat "$pd/.builder-count" 2>/dev/null)"
     [ -f "$pd/.reviewer-count" ] && echo "    reviewer cycles: $(cat "$pd/.reviewer-count" 2>/dev/null)"
     if [ -f "$pd/.deferred-findings" ]; then
@@ -242,6 +265,41 @@ print_pipeline_state() {
         _dfc=$(grep -c . "$pd/.deferred-findings" 2>/dev/null)
         echo "    deferred (spinoff) findings: ${_dfc:-0} — see: apd pipeline show deferred"
     fi
+}
+
+# _supervision_issue <summary-file> <rationale-file> — v6.30 supervision gate
+# structural checks, mirroring the adversarial rationale contract (count match,
+# valid fields, T/A/D accounting, 100%-orchestrator-dismiss pattern). Prints the
+# FIRST issue found as "code|detail"; prints nothing when structurally clean.
+# The caller decides warn vs block (Phase 1 rollout default = warn).
+_supervision_issue() {
+    local sum="$1" rat="$2" line t a d fc sev st ra af s_do s_dr
+    [ -f "$sum" ] || { echo "supervision-missing|no .supervision-summary"; return; }
+    line=$(grep '^SUPERVISION:' "$sum" 2>/dev/null | head -1)
+    [ -n "$line" ] || { echo "supervision-summary-malformed|no SUPERVISION:T:A:D line"; return; }
+    t=$(echo "$line" | cut -d: -f2); a=$(echo "$line" | cut -d: -f3); d=$(echo "$line" | cut -d: -f4)
+    t=${t:-0}; a=${a:-0}; d=${d:-0}
+    case "${t}${a}${d}" in *[!0-9]*) echo "supervision-summary-malformed|non-numeric T/A/D ($line)"; return ;; esac
+    if [ "$t" -gt 0 ]; then
+        [ -f "$rat" ] || { echo "supervision-rationale-missing|T=$t"; return; }
+        fc=$(grep -c '^## Finding ' "$rat" 2>/dev/null); fc=${fc:-0}
+        if [ "$fc" -ne "$t" ]; then echo "supervision-rationale-count-mismatch|found=$fc expected=$t"; return; fi
+        sev=$(grep -cE '^\*\*Severity:\*\* (critical|important|minor)$' "$rat" 2>/dev/null); sev=${sev:-0}
+        st=$(grep -cE '^\*\*Status:\*\* (accepted|dismissed|reviewer-self-dismissed)$' "$rat" 2>/dev/null); st=${st:-0}
+        ra=$(grep -cE '^\*\*Rationale:\*\* .+' "$rat" 2>/dev/null); ra=${ra:-0}
+        if [ "$sev" -ne "$fc" ] || [ "$st" -ne "$fc" ] || [ "$ra" -ne "$fc" ]; then
+            echo "supervision-rationale-malformed|sev=$sev stat=$st rat=$ra findings=$fc"; return
+        fi
+        af=$(grep -c '^\*\*Status:\*\* accepted$' "$rat" 2>/dev/null); af=${af:-0}
+        s_do=$(grep -c '^\*\*Status:\*\* dismissed$' "$rat" 2>/dev/null); s_do=${s_do:-0}
+        s_dr=$(grep -c '^\*\*Status:\*\* reviewer-self-dismissed$' "$rat" 2>/dev/null); s_dr=${s_dr:-0}
+        if [ "$af" -ne "$a" ]; then echo "supervision-accepted-mismatch|rationale=$af summary=$a"; return; fi
+        if [ $((s_do + s_dr)) -ne "$d" ]; then echo "supervision-status-mismatch|Do=$s_do Dr=$s_dr sum=$((s_do + s_dr)) D=$d"; return; fi
+        if [ "$t" -ge 3 ] && [ "$a" -eq 0 ] && [ "$s_do" -ge 1 ]; then
+            echo "supervision-100pct-orch-dismiss|T=$t Do=$s_do Dr=$s_dr"; return
+        fi
+    fi
+    return 0
 }
 
 # Verify .done file signature
@@ -540,7 +598,7 @@ case "$STEP" in
         # v6.3 audit fix: also wipe .builder-count / .reviewer-count so a new
         # task doesn't inherit cycle counts from a prior task (would block first
         # dispatch with a misleading "task X has hit its budget" message).
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings"
         create_done "spec" "$ARG"
         # Freeze spec-card.md — hash for tamper detection
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
@@ -1224,6 +1282,109 @@ function _check() {
             fi
         fi
 
+        # v6.30 — Supervision gate (profile-coupled frontier final review).
+        # Applies ONLY when the declared MODEL_PROFILE has a `supervisor` row in
+        # model-profiles.conf (v1: eco) AND adversarial ran (Full mode) — absent
+        # row / no profile / Lean / pure Codex → inert by construction. The
+        # supervisor reviews the FINAL diff (post-adversarial-fixes): R-criteria
+        # still met, fix-of-findings collateral, Regression-surface claims vs
+        # diff, commit verdict. NO spec-card opt-out BY DESIGN (user decision
+        # 2026-07-05: a gameable required gate repeats the R-atomization lesson)
+        # — the only ways out are `apd pipeline reset` or a profile change
+        # (mid-pipeline refused). Phase 1 rollout default = warn (advisory);
+        # Phase 2 flips SUPERVISION_GATE_DEFAULT to strict — one-line change.
+        # ENV IS ONE-WAY (audit 2026-07-05 #1): APD_SUPERVISION_GATE=strict may
+        # ESCALATE above the default; any downgrade attempt is IGNORED + logged.
+        # No `off`, no synthetic skip — a gate an env prefix can silence is
+        # cheaper to bypass than to satisfy, which broke the D3 design bar.
+        SUPERVISION_GATE_DEFAULT="warn"
+        SUP_PROFILE=$(grep '^MODEL_PROFILE=' "$APD_CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
+        SUP_ROW=""
+        if [ -n "$SUP_PROFILE" ]; then
+            SUP_CONF="$PROJECT_DIR/.apd/model-profiles.conf"
+            [ -f "$SUP_CONF" ] || SUP_CONF="$APD_PLUGIN_ROOT/templates/model-profiles.conf"
+            SUP_ROW=$(grep -v '^[[:space:]]*#' "$SUP_CONF" 2>/dev/null | awk -F'|' -v p="$SUP_PROFILE" '$1==p && $2=="supervisor" {print $3; exit}')
+        fi
+        if [ -n "$SUP_ROW" ] && [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
+            SUP_MODE="$SUPERVISION_GATE_DEFAULT"
+            if [ "${APD_SUPERVISION_GATE:-}" = "strict" ]; then
+                SUP_MODE="strict"   # escalation is always allowed
+            elif [ -n "${APD_SUPERVISION_GATE:-}" ] && [ "${APD_SUPERVISION_GATE:-}" != "$SUP_MODE" ]; then
+                # Downgrade attempt (off/warn-below-default/junk) — ignored, audited.
+                if [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ]; then _sgt=SYNTHETIC; else _sgt=INFO; fi
+                [ -d "$MEMORY_DIR" ] && echo "$(date +"%Y-%m-%d %H:%M:%S")|${_sgt}|orchestrator|supervision-gate-downgrade-ignored|requested=${APD_SUPERVISION_GATE} default=$SUP_MODE" >> "$MEMORY_DIR/guard-audit.log"
+            fi
+            SUP_ISSUE=$(_supervision_issue "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md")
+            # Fabrication check: summary present but supervisor never dispatched
+            # (same class as adversarial-summary-without-dispatch).
+            if [ -z "$SUP_ISSUE" ] && [ -f "$AGENTS_LOG" ] && ! grep -q "|start|supervisor|" "$AGENTS_LOG" 2>/dev/null; then
+                SUP_ISSUE="supervision-summary-without-dispatch|no supervisor start in agent log"
+            fi
+            # Churn cap (plan D7): one pass + at most one re-check after fixes.
+            # Counts STOPS, not starts (audit #6) — a maxTurn-exhausted dispatch
+            # (start without stop, ~22% baseline) must not burn the budget.
+            if [ -z "$SUP_ISSUE" ] && [ -f "$AGENTS_LOG" ]; then
+                SUP_STOPS=$(grep -c "|stop|supervisor|" "$AGENTS_LOG" 2>/dev/null); SUP_STOPS=${SUP_STOPS:-0}
+                if [ "$SUP_STOPS" -gt 2 ]; then
+                    SUP_ISSUE="supervision-cycle-cap|stops=$SUP_STOPS cap=2"
+                fi
+            fi
+            # Finality check (audit #5): supervision judges the FINAL diff, so
+            # the last supervisor STOP must be the last agent activity on record
+            # — any later builder/reviewer/adversarial stop means the reviewed
+            # state is stale (the fix-of-findings gap this layer exists to
+            # close). Timestamps share one format → lexical compare is safe.
+            if [ -z "$SUP_ISSUE" ] && [ -f "$AGENTS_LOG" ]; then
+                SUP_LAST_STOP=$(grep "|stop|supervisor|" "$AGENTS_LOG" 2>/dev/null | tail -1 | cut -d'|' -f1)
+                if [ -z "$SUP_LAST_STOP" ]; then
+                    SUP_ISSUE="supervision-not-final|no supervisor stop recorded (exhausted dispatch? re-dispatch and let it finish)"
+                else
+                    OTHER_LAST_STOP=$(grep "|stop|" "$AGENTS_LOG" 2>/dev/null | grep -v "|stop|supervisor|" | tail -1 | cut -d'|' -f1)
+                    if [ -n "$OTHER_LAST_STOP" ] && [ "$OTHER_LAST_STOP" \> "$SUP_LAST_STOP" ]; then
+                        SUP_ISSUE="supervision-not-final|agent activity after last supervisor stop ($OTHER_LAST_STOP > $SUP_LAST_STOP) — re-dispatch supervisor on the final state"
+                    fi
+                fi
+            fi
+            if [ -n "$SUP_ISSUE" ]; then
+                SUP_CODE="${SUP_ISSUE%%|*}"; SUP_DETAIL="${SUP_ISSUE#*|}"
+                if [ "$SUP_MODE" = "strict" ]; then
+                    echo "BLOCKED: Supervision gate — ${SUP_CODE}." >&2
+                    echo "" >&2
+                    echo "  Profile '$SUP_PROFILE' carries a supervisor row: a supervision pass over" >&2
+                    echo "  the FINAL diff is required before the verifier (Full mode)." >&2
+                    echo "  Detail: $SUP_DETAIL" >&2
+                    echo "" >&2
+                    echo "  1. Dispatch: Agent({ subagent_type: \"supervisor\", prompt: \"Final review per charter\" })" >&2
+                    echo "  2. Record:   .apd/pipeline/.supervision-summary   (SUPERVISION:T:A:D + Notes)" >&2
+                    echo "  3. Triage:   .apd/pipeline/.supervision-rationale.md (same contract as adversarial)" >&2
+                    echo "  Then re-run: bash $APD_SHORTCUT_DISPLAY pipeline verifier" >&2
+                    echo "" >&2
+                    echo "  No spec-card opt-out. Ways out: apd pipeline reset, or switch profile BEFORE spec." >&2
+                    log_block "$SUP_CODE" "$SUP_DETAIL"
+                    exit 1
+                else
+                    echo "" >&2
+                    echo "! WARN Supervision gate (${SUP_CODE}): profile '$SUP_PROFILE' expects a" >&2
+                    echo "  frontier supervision pass over the FINAL diff before the verifier." >&2
+                    echo "  Detail: $SUP_DETAIL" >&2
+                    echo "  Dispatch supervisor + record .supervision-summary / .supervision-rationale.md." >&2
+                    echo "  (Advisory during rollout — this becomes a hard BLOCK in a future release.)" >&2
+                    # Warn-path telemetry (audit #9): the strict-flip criterion is
+                    # "how often did the warn fire and get ignored" — unmeasurable
+                    # without this. INFO (not BLOCK) so session-log stays clean.
+                    if [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ]; then _sgt=SYNTHETIC; else _sgt=INFO; fi
+                    [ -d "$MEMORY_DIR" ] && echo "$(date +"%Y-%m-%d %H:%M:%S")|${_sgt}|orchestrator|supervision-warn|$SUP_CODE profile=$SUP_PROFILE" >> "$MEMORY_DIR/guard-audit.log"
+                fi
+            else
+                # Gate satisfied — log per-run supervisor model attribution
+                # (plan §3.5; frontmatter model is the honest v1 source).
+                SUP_MODEL=$(grep '^model:' "$CLAUDE_DIR/agents/supervisor.md" 2>/dev/null | head -1 | awk '{print $2}')
+                SUP_SUM_LINE=$(grep '^SUPERVISION:' "$PIPELINE_DIR/.supervision-summary" 2>/dev/null | head -1)
+                if [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ]; then _sgt=SYNTHETIC; else _sgt=INFO; fi
+                [ -d "$MEMORY_DIR" ] && echo "$(date +"%Y-%m-%d %H:%M:%S")|${_sgt}|orchestrator|supervision-pass|model=${SUP_MODEL:-unknown} ${SUP_SUM_LINE:-SUPERVISION:n/a} profile=$SUP_PROFILE" >> "$MEMORY_DIR/guard-audit.log"
+            fi
+        fi
+
         # Run build + tests. verify-all.sh lives IN THE PROJECT, not the plugin.
         # Search Codex-native location first, then legacy CC path, so pure-Codex
         # projects can keep their verifier entirely under .codex/.
@@ -1317,6 +1478,18 @@ function _c() {
 ' "$PIPELINE_DIR/.adversarial-rationale.md" 2>/dev/null)
                 ADV_W=${ADV_W:-0}
             fi
+            # v6.30 — supervision stats (columns 16-18; zero defaults when the
+            # supervision layer didn't run — old 15-column rows stay valid, the
+            # same backward-compat pattern as the v6.7.1 12→15 extension).
+            SUP_T=0; SUP_A=0; SUP_D=0
+            if [ -f "$PIPELINE_DIR/.supervision-summary" ]; then
+                SUP_LINE=$(grep '^SUPERVISION:' "$PIPELINE_DIR/.supervision-summary" 2>/dev/null | head -1)
+                if [ -n "$SUP_LINE" ]; then
+                    SUP_T=$(echo "$SUP_LINE" | cut -d: -f2); SUP_T=${SUP_T:-0}
+                    SUP_A=$(echo "$SUP_LINE" | cut -d: -f3); SUP_A=${SUP_A:-0}
+                    SUP_D=$(echo "$SUP_LINE" | cut -d: -f4); SUP_D=${SUP_D:-0}
+                fi
+            fi
             # Agent dispatch counts — total starts and exhausted (start without matching stop = maxTurn hit)
             AGENTS_T=0; AGENTS_X=0
             if [ -f "$PIPELINE_DIR/.agents" ]; then
@@ -1338,7 +1511,7 @@ function _c() {
                     : # skip metrics write
                     ;;
                 *)
-                    echo "${NOW}|${TASK_NAME}|${SPEC_TS_V}|${BUILDER_TS_V}|${REVIEWER_TS_V}|${VERIFIER_TS_V}|${STATUS}|${ADV_T}|${ADV_A}|${ADV_D}|${AGENTS_T}|${AGENTS_X}|${ADV_DO}|${ADV_DR}|${ADV_W}" >> "$METRICS_LOG"
+                    echo "${NOW}|${TASK_NAME}|${SPEC_TS_V}|${BUILDER_TS_V}|${REVIEWER_TS_V}|${VERIFIER_TS_V}|${STATUS}|${ADV_T}|${ADV_A}|${ADV_D}|${AGENTS_T}|${AGENTS_X}|${ADV_DO}|${ADV_DR}|${ADV_W}|${SUP_T}|${SUP_A}|${SUP_D}" >> "$METRICS_LOG"
                     ;;
             esac
 
@@ -1524,7 +1697,7 @@ EOF
         # .agents was already archived above (before metrics write).
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings"
         # Reset completed cleanly — drop the in-progress marker.
         rm -f "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
         echo "Pipeline reset. Ready for new task."
@@ -1536,13 +1709,15 @@ EOF
         for step in verifier reviewer builder spec; do
             if [ -f "$PIPELINE_DIR/$step.done" ]; then
                 rm -f "$PIPELINE_DIR/$step.done"
-                # If verifier rolled back, also remove cache timestamp and trace summary
-                [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-rationale.md"
+                # If verifier rolled back, also remove cache timestamp and trace summary.
+                # Supervision state falls too — it judged a FINAL diff that is no
+                # longer final once anything re-runs (v6.30).
+                [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md"
                 # Rollback to reviewer must also clear the adversarial summary, else
                 # the next verifier sees stale summary + new .adversarial-pending and
                 # mis-reports "Adversarial ran BEFORE reviewer step completed" when
                 # the real problem is the summary is from the previous run.
-                [ "$step" = "reviewer" ] && rm -f "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-rationale.md"
+                [ "$step" = "reviewer" ] && rm -f "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md"
                 # implementation-plan.md is NOT deleted on rollback — it's part of the frozen spec
                 apd_header "Rollback: $step"
                 show_pipeline "$step"
@@ -1700,9 +1875,11 @@ EOF
             echo "  Use this for an ACCEPTED, genuinely out-of-scope finding — NOT a dismissal." >&2
             exit 1
         fi
-        # Precondition: an adversarial pass must be on record (there is a finding).
-        if [ ! -f "$PIPELINE_DIR/.adversarial-summary" ] && [ ! -f "$PIPELINE_DIR/.adversarial-rationale.md" ]; then
-            echo "BLOCKED: no adversarial review on record — nothing to spin off yet." >&2
+        # Precondition: an adversarial OR supervision pass must be on record
+        # (there is a finding). v6.30: supervision findings can be spun off too.
+        if [ ! -f "$PIPELINE_DIR/.adversarial-summary" ] && [ ! -f "$PIPELINE_DIR/.adversarial-rationale.md" ] \
+            && [ ! -f "$PIPELINE_DIR/.supervision-summary" ] && [ ! -f "$PIPELINE_DIR/.supervision-rationale.md" ]; then
+            echo "BLOCKED: no adversarial or supervision review on record — nothing to spin off yet." >&2
             echo "  Run the adversarial pass first; spinoff-finding records a finding it surfaced." >&2
             exit 1
         fi
@@ -1717,6 +1894,7 @@ EOF
         FREASON_CLEAN="${FREASON//$'\n'/ }"
         FREASON_CLEAN="${FREASON_CLEAN//$'\r'/ }"
         ADV_LINE=$(grep '^ADVERSARIAL:' "$PIPELINE_DIR/.adversarial-summary" 2>/dev/null | head -1)
+        SUP_LINE=$(grep '^SUPERVISION:' "$PIPELINE_DIR/.supervision-summary" 2>/dev/null | head -1)
         {
             echo ""
             echo "<!-- ============================================================ -->"
@@ -1724,6 +1902,7 @@ EOF
             echo "**Status:** deferred (accepted, out of current spec scope)"
             echo "**Source task:** $SRC_TASK"
             echo "**Source adversarial:** ${ADV_LINE:-n/a}"
+            [ -n "$SUP_LINE" ] && echo "**Source supervision:** $SUP_LINE"
             echo "**Finding id:** $FID"
             echo "**Seed (why out of scope + follow-up task):** $FREASON_CLEAN"
             echo "**Next step:** open as its own APD task — full spec (R-criteria) + fresh adversarial + red-green test BEFORE fix."
@@ -1848,7 +2027,11 @@ EOF
         ADV_DR_SUM=0
         ADV_W_SUM=0
         ADV_TASKS=0
-        while IFS='|' read -r _ts _task _s _b _r _v _status adv_t adv_a adv_d _at _ax adv_do adv_dr adv_w; do
+        # v6.30: _rest sink — without it 18-col rows fold `|sup_t|sup_a|sup_d`
+        # into adv_w and $((sum + adv_w)) evaluates `|` as BITWISE OR (audit #3:
+        # row `…|2|4|2|2` yielded warns contribution 6, corrupting the warns=0
+        # rubber-stamp discriminator).
+        while IFS='|' read -r _ts _task _s _b _r _v _status adv_t adv_a adv_d _at _ax adv_do adv_dr adv_w _sup_t _sup_a _sup_d _rest; do
             adv_t=$(echo "${adv_t:-0}" | tr -d '[:space:]')
             adv_a=$(echo "${adv_a:-0}" | tr -d '[:space:]')
             adv_do=$(echo "${adv_do:-0}" | tr -d '[:space:]')

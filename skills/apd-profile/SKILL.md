@@ -47,7 +47,15 @@ Profiles are data, not code: defaults ship in the plugin
 3. Ask the user which profile to apply (AskUserQuestion with the profiles as
    options, current one marked). Briefly state the trade-off: `burn` =
    maximum quality / maximum cost, `cruise` = strong daily default, `eco` =
-   cheapest, for small well-scoped work.
+   cheapest builders, for small well-scoped work. **eco carries the supervision
+   layer (v6.30):** every Full-mode run adds a frontier-model supervision pass
+   over the final diff before the verifier (one extra frontier dispatch —
+   that is the mechanism that keeps eco's quality floor; say this at the
+   decision point so the cost is not a surprise).
+
+   Also mention: the eco supervisor rewrite pins `supervisor` from the profile
+   row; on burn/cruise the supervisor agent is left untouched (no row = no
+   supervision on that profile).
 
 4. Apply:
 

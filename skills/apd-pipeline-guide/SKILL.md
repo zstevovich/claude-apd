@@ -17,7 +17,7 @@ back here. This guide is unconditional either way.
 ## Pipeline phase map
 
 ```
-spec → builder → reviewer → adversarial → verifier → commit
+spec → builder → reviewer → adversarial → [supervision] → verifier → commit
 ```
 
 | Advance | Gate checks at that point |
@@ -26,7 +26,8 @@ spec → builder → reviewer → adversarial → verifier → commit
 | `apd pipeline builder` | implementation-plan.md exists, plan-spec consistency (strict), regression surface (Cover/Evidence), no stale pre-spec dispatch |
 | `apd pipeline reviewer` | builder ran post-spec, builder cycle cap (default 2) |
 | adversarial dispatch | only AFTER reviewer.done (out-of-order start is not recorded — re-dispatch) |
-| `apd pipeline verifier` | `.adversarial-summary` + `.adversarial-rationale.md` present, rationale gate, spec-hash immutability |
+| supervision dispatch | ONLY when the declared model profile carries a `supervisor` row (v1: `eco`) AND adversarial ran (Full mode) — see Supervision contract below |
+| `apd pipeline verifier` | `.adversarial-summary` + `.adversarial-rationale.md` present, rationale gate, supervision gate (profile-coupled), spec-hash immutability |
 | commit | guard-git: pipeline complete, commit message prefix, no mass staging |
 
 Mode: `pipeline_mode: polish` in spec-card.md lowers cycle caps to 1 and skips
@@ -141,6 +142,32 @@ Every adversarial finding gets one of three dispositions:
 list spinoff FIRST and recommend it.** "Expand this task / raise the cap" is only
 right when the finding is genuinely in scope and the cap raise is justified.
 
+## Supervision contract (v6.30 — profile-coupled)
+
+When the declared model profile carries a `supervisor` row (v1: **eco**) and the
+run is Full mode (adversarial ran), a **supervision pass over the FINAL diff** is
+expected before the verifier. Rollout: currently a WARN at the verifier; becomes
+a hard BLOCK in a future release — treat it as required now.
+
+Sequence, AFTER all adversarial findings are triaged and fixed:
+
+1. Dispatch: `Agent({ subagent_type: "supervisor", prompt: "Final review per charter" })`.
+   The supervisor judges only: R-criteria still met by the final diff,
+   fix-of-findings collateral, Regression-surface claims vs the diff, commit
+   verdict. It does NOT repeat the adversarial bug hunt.
+2. Record `.apd/pipeline/.supervision-summary` (Write/Edit tool):
+   `SUPERVISION:T:A:D` + Notes — same shape as the adversarial summary.
+3. If T>0: triage into `.apd/pipeline/.supervision-rationale.md` — the SAME
+   per-finding contract as the adversarial rationale (Severity/Status/Rationale,
+   three dispositions incl. spinoff, ≥40-char dismissals). Accepted findings →
+   builder fix → ONE supervisor re-check (cap: 2 COMPLETED passes — an
+   exhausted dispatch doesn't count; the supervisor's stop must also be the
+   LAST agent activity before the verifier, or the gate flags
+   `supervision-not-final`).
+
+There is NO spec-card opt-out for this gate — by design. The ways out are
+`apd pipeline reset` or switching profile BEFORE the spec advance.
+
 ## Reading pipeline state
 
 Use the sanctioned read path — `cat`/`ls` on `.apd/pipeline/` is guard-blocked:
@@ -152,8 +179,9 @@ bash .claude/bin/apd pipeline show plan     # full implementation-plan.md
 ```
 
 Writes to allowlisted pipeline files (spec-card.md, implementation-plan.md,
-.adversarial-summary, .adversarial-rationale.md, .guide-marker) go through the
-Write/Edit tool — bash redirects to `.apd/pipeline/` are blocked by design.
+.adversarial-summary, .adversarial-rationale.md, .supervision-summary,
+.supervision-rationale.md, .guide-marker) go through the Write/Edit tool — bash
+redirects to `.apd/pipeline/` are blocked by design.
 
 ## Common BLOCKs + recovery
 
@@ -169,6 +197,10 @@ Write/Edit tool — bash redirects to `.apd/pipeline/` are blocked by design.
 | `max_defects-*` (DEPRECATED v6.9) | Remove the `max_defects` field from spec-card; do not re-introduce |
 | `pipeline-state-write` on a read | You used bash `cat`/`ls` on pipeline state — use `apd pipeline show` |
 | `toggle-off-active-pipeline` | Don't disable APD mid-run to cram an out-of-scope fix — use `apd pipeline spinoff-finding <id> "<reason>"`, or `apd pipeline reset` to end the run |
+| `supervision-missing` (warn now, BLOCK later) | Profile has a supervisor row: dispatch supervisor on the FINAL diff, record `.supervision-summary` (+ rationale if T>0); re-run verifier |
+| `supervision-summary-without-dispatch` | Summary written but no supervisor in agent log — actually dispatch the agent first |
+| `supervision-not-final` | Agent activity after the last supervisor stop — re-dispatch supervisor on the FINAL state |
+| `supervision-cycle-cap` | >2 completed supervisor passes — the loop is the problem; reset or finish the fix properly |
 
 ## Exit — write the marker
 

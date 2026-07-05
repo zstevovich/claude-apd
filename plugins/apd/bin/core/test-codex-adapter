@@ -5307,8 +5307,9 @@ _COLS=$(echo "$_LAST" | awk -F'|' '{print NF}')
 _DO=$(echo "$_LAST" | awk -F'|' '{print $13}')
 _DR=$(echo "$_LAST" | awk -F'|' '{print $14}')
 _W=$(echo "$_LAST" | awk -F'|' '{print $15}')
-if [ "$_COLS" = "15" ] && [ "$_DO" = "1" ] && [ "$_DR" = "1" ] && [ "$_W" = "2" ]; then
-    pass "end-to-end: rationale produces 15-col row with Do=1 Dr=1 W=2 ('ok' is short AND lazy)"
+# v6.30: rows are 18-col (16-18 = sup_t|sup_a|sup_d, zeros when no supervision ran)
+if [ "$_COLS" = "18" ] && [ "$_DO" = "1" ] && [ "$_DR" = "1" ] && [ "$_W" = "2" ]; then
+    pass "end-to-end: rationale produces 18-col row with Do=1 Dr=1 W=2 ('ok' is short AND lazy)"
     PASSES=$((PASSES + 1))
 else
     fail "end-to-end metrics row mismatch (cols=$_COLS Do=$_DO Dr=$_DR W=$_W; row=$_LAST)"
@@ -7225,6 +7226,7 @@ cat > "$V6_10_SCRATCH/.claude/rules/workflow.md" <<'EOF'
 **DEPRECATED as of v6.9** — max_defects soft removal
 **unconditional** — guide-marker v6.15
 **apd-pipeline-guide** — v6.15 mandatory operating manual
+**SUPERVISION** — v6.30 profile-coupled final review
 EOF
 CLEAN_OUT="$(run_drift_v6_10)"
 if echo "$CLEAN_OUT" | grep -qE "EXIT=0" && echo "$CLEAN_OUT" | grep -qE "CLEAN|no drift detected"; then
@@ -7328,6 +7330,7 @@ cat > "$V6_10_SCRATCH/.claude/rules/workflow.md" <<'EOF'
 **DEPRECATED as of v6.9**
 **unconditional** — v6.15
 **apd-pipeline-guide** — v6.15
+**SUPERVISION** — v6.30
 EOF
 PATCH_OUT="$(run_drift_v6_10)"
 if echo "$PATCH_OUT" | grep -qE "EXIT=0" \
@@ -8021,6 +8024,7 @@ rationale gate
 DEPRECATED
 unconditional
 apd-pipeline-guide
+SUPERVISION
 
 ## Cross-layer verification
 apd verify-contracts automatically checks PHP DTO ↔ TypeScript types.
@@ -8046,6 +8050,7 @@ rationale gate
 DEPRECATED
 unconditional
 apd-pipeline-guide
+SUPERVISION
 
 ## Cross-layer verification
 When a task involves backend + frontend/mobile:
@@ -10188,6 +10193,306 @@ _tf_toggle off >/dev/null; TF_RC=$?
 [ "$TF_RC" = "0" ] && [ "$(_tf_val)" = "false" ] && { pass "idle pipeline (no spec-card) → toggle off allowed (exit 0)"; PASSES=$((PASSES + 1)); } || { fail "idle toggle off blocked (rc=$TF_RC val=$(_tf_val))"; FAILS=$((FAILS + 1)); }
 
 rm -rf "$TF"
+
+# -----------------------------------------------------------
+# 95. Supervision layer (v6.30) — profile-coupled frontier final review
+#     Gate at verifier when the declared MODEL_PROFILE carries a `supervisor`
+#     row (v1: eco) + Full mode. Phase 1 default = warn; strict tested via
+#     APD_SUPERVISION_GATE env. No spec-card opt-out BY DESIGN.
+# -----------------------------------------------------------
+section "95. Supervision layer (v6.30)"
+
+SV_ADVANCE="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+SV_PROFILE_BIN="$APD_PLUGIN_ROOT/bin/core/pipeline-model-profile"
+SV_CONF="$APD_PLUGIN_ROOT/templates/model-profiles.conf"
+
+# Static A: conf — supervisor row on eco ONLY (v1); cruise/burn stay bare.
+if grep -q '^eco|supervisor|claude-fable-5|' "$SV_CONF" \
+   && ! grep -q '^cruise|supervisor|' "$SV_CONF" \
+   && ! grep -q '^burn|supervisor|' "$SV_CONF"; then
+    pass "model-profiles.conf: supervisor row on eco only (frontier model)"; PASSES=$((PASSES + 1))
+else
+    fail "conf supervisor rows wrong (want eco only)"; FAILS=$((FAILS + 1))
+fi
+
+# Static B: template exists — decontextualized (memory: none) + frontier pin;
+# profile script maps supervisor role WITHOUT default fallback.
+SV_TPL="$APD_PLUGIN_ROOT/templates/supervisor-template.md"
+if [ -f "$SV_TPL" ] && grep -q 'memory: none' "$SV_TPL" && grep -q 'model: claude-fable-5' "$SV_TPL" \
+   && grep -q 'supervisor)           echo "supervisor"' "$SV_PROFILE_BIN" \
+   && grep -q '"$role" != "supervisor"' "$SV_PROFILE_BIN"; then
+    pass "supervisor template (memory:none, fable) + profile role match with NO default fallback"; PASSES=$((PASSES + 1))
+else
+    fail "supervisor template / profile role wiring missing"; FAILS=$((FAILS + 1))
+fi
+
+# Static C: gate wiring in pipeline-advance — structural fn, ONE-WAY env
+# (escalate-only, downgrade logged), fabrication check, stops-based churn cap,
+# finality check, pass/warn telemetry. No `off`, no synthetic skip (audit #1).
+if grep -q '_supervision_issue()' "$SV_ADVANCE" \
+   && grep -q 'SUPERVISION_GATE_DEFAULT="warn"' "$SV_ADVANCE" \
+   && grep -q 'supervision-gate-downgrade-ignored' "$SV_ADVANCE" \
+   && grep -q 'supervision-summary-without-dispatch' "$SV_ADVANCE" \
+   && grep -q 'supervision-cycle-cap' "$SV_ADVANCE" \
+   && grep -q 'supervision-not-final' "$SV_ADVANCE" \
+   && grep -q 'supervision-pass' "$SV_ADVANCE" \
+   && grep -q 'supervision-warn' "$SV_ADVANCE" \
+   && ! grep -q 'supervision-gate-off' "$SV_ADVANCE"; then
+    pass "verifier supervision gate: one-way env + fabrication + stop-cap + finality + telemetry, no off"; PASSES=$((PASSES + 1))
+else
+    fail "supervision gate wiring incomplete in pipeline-advance"; FAILS=$((FAILS + 1))
+fi
+
+# Static D: state lifecycle — both files wiped at ALL FOUR sites (spec re-advance,
+# reset, rollback verifier, rollback reviewer); archived before wipe.
+if [ "$(grep -c 'rm -f.*\.supervision-summary' "$SV_ADVANCE")" -eq 4 ] \
+   && grep -q 'Supervision rationale' "$SV_ADVANCE"; then
+    pass "supervision files wiped at 4 sites + archived in archive_rationale"; FAILS=$FAILS; PASSES=$((PASSES + 1))
+else
+    fail "wipe sites=$(grep -c 'rm -f.*\.supervision-summary' "$SV_ADVANCE") (want 4) or archive missing"; FAILS=$((FAILS + 1))
+fi
+
+# Static E: guards + education — pipeline-state allowlist, bash-scope message,
+# guide CC contract, Codex mirror CC-only note, workflow.md step 6b.
+SV_GUIDE_CC="$APD_PLUGIN_ROOT/../../skills/apd-pipeline-guide/SKILL.md"
+SV_GUIDE_CDX="$APD_PLUGIN_ROOT/skills/apd-pipeline-guide/SKILL.md"
+if grep -q '.supervision-summary|.supervision-rationale.md' "$APD_PLUGIN_ROOT/bin/core/guard-pipeline-state" \
+   && grep -q '.supervision-summary, .supervision-rationale.md' "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" \
+   && grep -q 'Supervision contract' "$SV_GUIDE_CC" \
+   && grep -qi 'CC-owned' "$SV_GUIDE_CDX" \
+   && grep -q '6b. SUPERVISION' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
+    pass "guards allowlist + guide (CC contract, Codex CC-only note) + workflow 6b"; PASSES=$((PASSES + 1))
+else
+    fail "guard/education surface missing supervision"; FAILS=$((FAILS + 1))
+fi
+
+# Static F: apd-init scaffolds supervisor as 4th default agent, no model repair.
+if grep -q 'supervisor-template.md' "$APD_PLUGIN_ROOT/bin/core/apd-init" \
+   && grep -q 'Created supervisor.md' "$APD_PLUGIN_ROOT/bin/core/apd-init"; then
+    pass "apd-init scaffolds supervisor.md (template, no hardcoded model repair)"; PASSES=$((PASSES + 1))
+else
+    fail "apd-init supervisor scaffold missing"; FAILS=$((FAILS + 1))
+fi
+
+# Static G: spinoff precondition widened to supervision-on-record.
+if grep -q 'no adversarial or supervision review on record' "$SV_ADVANCE"; then
+    pass "spinoff-finding precondition accepts supervision-on-record"; PASSES=$((PASSES + 1))
+else
+    fail "spinoff precondition not widened"; FAILS=$((FAILS + 1))
+fi
+
+# Static H: metrics columns 16-18 + report parser _rest sink (fixes the v6.7.1
+# agents_x absorption bug) + Supervision render line.
+if grep -q 'SUP_T}|${SUP_A}|${SUP_D}' "$SV_ADVANCE" \
+   && grep -q 'sup_t sup_a sup_d _rest' "$APD_PLUGIN_ROOT/bin/core/pipeline-report" \
+   && grep -q 'Supervision:' "$APD_PLUGIN_ROOT/bin/core/pipeline-report"; then
+    pass "metrics cols 16-18 + report _rest sink + Supervision line"; PASSES=$((PASSES + 1))
+else
+    fail "metrics/report supervision columns missing"; FAILS=$((FAILS + 1))
+fi
+
+# ---- Live: fixtures via _v67_make_state (real advances, signed .done files) ----
+# ADVERSARIAL:0:0:0 keeps the adversarial rationale gate quiet so the supervision
+# branch is isolated. verify-all.sh absent in fixtures → build step skipped.
+_v95_verifier() { # <dir> [gate-mode: empty=default(warn), strict=escalate]
+    APD_PROJECT_DIR="$1" APD_SUPERVISION_GATE="${2:-}" \
+        bash "$SV_ADVANCE" verifier 2>&1
+}
+_v95_sup_agents() { # <dir> [count] — inject supervisor start/stop pairs
+    local n="${2:-1}" i=1
+    while [ "$i" -le "$n" ]; do
+        cat >> "$1/.apd/pipeline/.agents" <<EOF_SUP
+$(_v67_ts $((50 + i * 2)))|start|supervisor|aabbccddeeff9$(printf '%03d' "$i")
+$(_v67_ts $((51 + i * 2)))|stop|supervisor|aabbccddeeff9$(printf '%03d' "$i")
+EOF_SUP
+        i=$((i + 1))
+    done
+}
+
+# Live I: eco + Full + NO supervision → default (warn) mode: WARN but exit 0.
+_T="$(mktemp -d -t apd-v95i.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:0:0:0"
+echo "MODEL_PROFILE=eco" >> "$_T/.apd/config"
+_OUT=$(_v95_verifier "$_T"); _RC=$?
+if [ "$_RC" = "0" ] && echo "$_OUT" | grep -q 'WARN Supervision gate (supervision-missing)'; then
+    pass "eco + no supervision → WARN + exit 0 (Phase 1 default)"; PASSES=$((PASSES + 1))
+else
+    fail "warn-mode behavior wrong (rc=$_RC)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live J: eco + strict + NO supervision → BLOCK exit 1 + guard-audit log_block.
+_T="$(mktemp -d -t apd-v95j.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:0:0:0"
+echo "MODEL_PROFILE=eco" >> "$_T/.apd/config"
+_OUT=$(_v95_verifier "$_T" strict); _RC=$?
+if [ "$_RC" = "1" ] && echo "$_OUT" | grep -q 'BLOCKED: Supervision gate — supervision-missing' \
+   && grep -q 'supervision-missing' "$_T/.claude/memory/guard-audit.log" 2>/dev/null \
+   && [ ! -f "$_T/.apd/pipeline/verifier.done" ]; then
+    pass "eco + strict + no supervision → BLOCK exit 1 + audit, no verifier.done"; PASSES=$((PASSES + 1))
+else
+    fail "strict BLOCK wrong (rc=$_RC)"; FAILS=$((FAILS + 1))
+fi
+
+# Live K: same fixture + valid supervision (dispatch-backed) → strict passes.
+_v95_sup_agents "$_T" 1
+printf 'SUPERVISION:1:1:0\nNotes: fix-of-findings collateral in handler X, accepted and fixed\n' > "$_T/.apd/pipeline/.supervision-summary"
+cat > "$_T/.apd/pipeline/.supervision-rationale.md" <<'EOF_SVR'
+## Finding 1 — fix-of-findings collateral in handler X
+**Severity:** important
+**Status:** accepted
+**Rationale:** the adversarial fix removed the cancellation guard next to it; restored and covered by the existing handler test
+EOF_SVR
+_OUT=$(_v95_verifier "$_T" strict); _RC=$?
+if [ "$_RC" = "0" ] && [ -f "$_T/.apd/pipeline/verifier.done" ]; then
+    pass "eco + strict + valid dispatch-backed supervision → verifier passes"; PASSES=$((PASSES + 1))
+else
+    fail "valid supervision should pass strict (rc=$_RC)"; FAILS=$((FAILS + 1))
+fi
+
+# Live L: spec re-advance wipes supervision files + archive got the sup block.
+_guide_marker "$_T" "v95-task2"
+APD_PROJECT_DIR="$_T" bash "$SV_ADVANCE" spec "v95-task2" >/dev/null 2>&1
+if [ ! -f "$_T/.apd/pipeline/.supervision-summary" ] && [ ! -f "$_T/.apd/pipeline/.supervision-rationale.md" ] \
+   && grep -q '### Supervision rationale' "$_T/.claude/memory/adversarial-rationale-archive.md" 2>/dev/null; then
+    pass "spec re-advance wipes supervision state AFTER archiving it"; PASSES=$((PASSES + 1))
+else
+    fail "supervision wipe/archive on re-advance broken"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live M: fabricated summary (no supervisor dispatch in .agents) → strict BLOCK.
+_T="$(mktemp -d -t apd-v95m.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:0:0:0"
+echo "MODEL_PROFILE=eco" >> "$_T/.apd/config"
+printf 'SUPERVISION:0:0:0\nNotes: hand-written safe-to-commit verdict without any dispatch\n' > "$_T/.apd/pipeline/.supervision-summary"
+_OUT=$(_v95_verifier "$_T" strict); _RC=$?
+if [ "$_RC" = "1" ] && echo "$_OUT" | grep -q 'supervision-summary-without-dispatch'; then
+    pass "summary without supervisor dispatch → BLOCK (fabrication check)"; PASSES=$((PASSES + 1))
+else
+    fail "fabricated summary not blocked (rc=$_RC)"; FAILS=$((FAILS + 1))
+fi
+
+# Live N: churn cap — 3 supervisor dispatch pairs → strict BLOCK (cap=2).
+_v95_sup_agents "$_T" 3
+_OUT=$(_v95_verifier "$_T" strict); _RC=$?
+if [ "$_RC" = "1" ] && echo "$_OUT" | grep -q 'supervision-cycle-cap'; then
+    pass "3 supervisor dispatches → BLOCK supervision-cycle-cap (cap 2)"; PASSES=$((PASSES + 1))
+else
+    fail "churn cap not enforced (rc=$_RC)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live O: no MODEL_PROFILE declared → gate inert even under strict.
+_T="$(mktemp -d -t apd-v95o.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:0:0:0"
+_OUT=$(_v95_verifier "$_T" strict); _RC=$?
+if [ "$_RC" = "0" ] && ! echo "$_OUT" | grep -q 'Supervision'; then
+    pass "no profile declared → supervision gate inert (Codex-shaped safety)"; PASSES=$((PASSES + 1))
+else
+    fail "gate not inert without profile (rc=$_RC)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live P: cruise profile (no supervisor row) → inert under strict.
+_T="$(mktemp -d -t apd-v95p.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:0:0:0"
+echo "MODEL_PROFILE=cruise" >> "$_T/.apd/config"
+_OUT=$(_v95_verifier "$_T" strict); _RC=$?
+if [ "$_RC" = "0" ] && ! echo "$_OUT" | grep -q 'Supervision'; then
+    pass "cruise (no supervisor row) → gate inert"; PASSES=$((PASSES + 1))
+else
+    fail "cruise not inert (rc=$_RC)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live Q: synthetic run (verify-apd Section 8 shape) — gate stays ACTIVE (no
+# synthetic bypass, audit #1) but Phase 1 default is warn → exit 0, and the
+# warn telemetry is tagged SYNTHETIC (excluded from analytics).
+_T="$(mktemp -d -t apd-v95q.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:0:0:0"
+echo "MODEL_PROFILE=eco" >> "$_T/.apd/config"
+_OUT=$(APD_PROJECT_DIR="$_T" APD_AUDIT_SYNTHETIC=1 bash "$SV_ADVANCE" verifier 2>&1); _RC=$?
+if [ "$_RC" = "0" ] && echo "$_OUT" | grep -q 'WARN Supervision gate' \
+   && grep -q 'SYNTHETIC|orchestrator|supervision-warn' "$_T/.claude/memory/guard-audit.log" 2>/dev/null; then
+    pass "synthetic run: gate ACTIVE (no bypass), warn exit 0, telemetry tagged SYNTHETIC"; PASSES=$((PASSES + 1))
+else
+    fail "synthetic behavior wrong (rc=$_RC)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live Q2: downgrade attempt (env=off) is IGNORED + audited — gate still warns.
+_T="$(mktemp -d -t apd-v95q2.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:0:0:0"
+echo "MODEL_PROFILE=eco" >> "$_T/.apd/config"
+_OUT=$(_v95_verifier "$_T" off); _RC=$?
+if [ "$_RC" = "0" ] && echo "$_OUT" | grep -q 'WARN Supervision gate' \
+   && grep -q 'supervision-gate-downgrade-ignored|requested=off' "$_T/.claude/memory/guard-audit.log" 2>/dev/null; then
+    pass "env one-way: 'off' downgrade ignored + audited, warn still fires"; PASSES=$((PASSES + 1))
+else
+    fail "downgrade not ignored/audited (rc=$_RC)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live Q3: finality — builder activity AFTER the supervisor stop → strict BLOCK
+# (supervision judged a stale, pre-fix diff — the gap the layer exists to close).
+_T="$(mktemp -d -t apd-v95q3.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:0:0:0"
+echo "MODEL_PROFILE=eco" >> "$_T/.apd/config"
+_v95_sup_agents "$_T" 1
+printf 'SUPERVISION:0:0:0\nNotes: final diff consistent with spec, safe to commit verdict recorded\n' > "$_T/.apd/pipeline/.supervision-summary"
+cat >> "$_T/.apd/pipeline/.agents" <<EOF_LATE
+$(_v67_ts 70)|start|backend-builder|aabbccddeeff7007
+$(_v67_ts 72)|stop|backend-builder|aabbccddeeff7007
+EOF_LATE
+_OUT=$(_v95_verifier "$_T" strict); _RC=$?
+if [ "$_RC" = "1" ] && echo "$_OUT" | grep -q 'supervision-not-final'; then
+    pass "builder stop after supervisor stop → BLOCK supervision-not-final"; PASSES=$((PASSES + 1))
+else
+    fail "finality check missed post-supervision activity (rc=$_RC)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live Q4: metrics reader — 18-col row must NOT corrupt the warns sum (audit #3:
+# `|` absorbed into adv_w made $((sum+adv_w)) a BITWISE OR; 2 became 6).
+_T="$(mktemp -d -t apd-v95q4.XXXXXX)"
+mkdir -p "$_T/.apd/pipeline" "$_T/.claude/memory"
+echo "PROJECT_NAME=v95-metrics" > "$_T/.apd/config"
+_NOWQ=$(date +%s)
+printf '%s|taskA|%s|%s|%s|%s|completed|3|1|2|3|0|1|1|2|4|2|2\n' "$_NOWQ" "$_NOWQ" "$_NOWQ" "$_NOWQ" "$_NOWQ" > "$_T/.claude/memory/pipeline-metrics.log"
+_OUT=$(APD_PROJECT_DIR="$_T" bash "$SV_ADVANCE" metrics 2>&1)
+if echo "$_OUT" | grep -Eq 'Rationale warns:[[:space:]]+2 \(' \
+   && ! echo "$_OUT" | grep -Eq 'Rationale warns:[[:space:]]+6 \('; then
+    pass "apd pipeline metrics: 18-col row sums warns=2 (no bitwise-OR corruption)"; PASSES=$((PASSES + 1))
+else
+    fail "metrics reader corrupts warns on 18-col rows"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live R: profile apply — cruise leaves supervisor untouched (no fallback);
+# eco pins it to the conf row. Fixture has no spec-card (mid-pipeline refuse).
+_T="$(mktemp -d -t apd-v95r.XXXXXX)"
+mkdir -p "$_T/.apd" "$_T/.claude/agents" "$_T/.claude/memory"
+echo "PROJECT_NAME=v95-prof" > "$_T/.apd/config"
+cat > "$_T/.claude/agents/supervisor.md" <<'EOF_SVA'
+---
+name: supervisor
+model: opus
+effort: high
+memory: none
+---
+test
+EOF_SVA
+APD_PROJECT_DIR="$_T" bash "$SV_PROFILE_BIN" cruise >/dev/null 2>&1
+SV_M_CRUISE=$(grep '^model:' "$_T/.claude/agents/supervisor.md" | head -1)
+APD_PROJECT_DIR="$_T" bash "$SV_PROFILE_BIN" eco >/dev/null 2>&1
+SV_M_ECO=$(grep '^model:' "$_T/.claude/agents/supervisor.md" | head -1)
+if [ "$SV_M_CRUISE" = "model: opus" ] && [ "$SV_M_ECO" = "model: claude-fable-5" ]; then
+    pass "profile apply: cruise leaves supervisor as-is, eco pins claude-fable-5"; PASSES=$((PASSES + 1))
+else
+    fail "supervisor role apply wrong (cruise='$SV_M_CRUISE' eco='$SV_M_ECO')"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
 
 # -----------------------------------------------------------
 # Summary

@@ -7,6 +7,8 @@
 # (model, effort) pair. Role resolution by agent file name:
 #   adversarial-reviewer  -> adversarial
 #   code-reviewer         -> reviewer (falls back to default when no row)
+#   supervisor            -> supervisor (v6.30; NO fallback — no row = agent
+#                            left untouched, keeps its frontier template pin)
 #   apd-verify-*          -> skipped (reserved namespace, never touched)
 #   everything else       -> default (builder class)
 #
@@ -86,6 +88,7 @@ _role_for() {
     case "$1" in
         adversarial-reviewer) echo "adversarial" ;;
         code-reviewer)        echo "reviewer" ;;
+        supervisor)           echo "supervisor" ;;
         *)                    echo "default" ;;
     esac
 }
@@ -95,7 +98,12 @@ _target_for() {
     local row role
     role=$(_role_for "$2")
     row=$(_lookup "$1" "$role")
-    [ -z "$row" ] && row=$(_lookup "$1" "default")
+    # supervisor NEVER falls back to default: no supervisor row means the
+    # profile has no supervision layer (v6.30) — the agent keeps its template
+    # pin (frontier tier) instead of being dragged down to builder tier.
+    if [ -z "$row" ] && [ "$role" != "supervisor" ]; then
+        row=$(_lookup "$1" "default")
+    fi
     echo "$row"
 }
 
@@ -241,6 +249,11 @@ CHANGED_NAMES=""
 for f in "${AGENT_FILES[@]}"; do
     name=$(basename "$f" .md)
     target=$(_target_for "$PROFILE" "$name")
+    if [ -z "$target" ]; then
+        # Only the supervisor role can produce an empty target (no-fallback rule).
+        echo "  ${D}=${R} $name: profile '$PROFILE' has no $(_role_for "$name") row — left as-is"
+        continue
+    fi
     want_m="${target%%|*}"; want_e="${target##*|}"
     cur_m=$(_fm_field "$f" model)
     cur_e=$(_fm_field "$f" effort)

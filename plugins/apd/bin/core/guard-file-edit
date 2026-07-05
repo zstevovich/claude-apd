@@ -46,6 +46,11 @@ AUTHORING_ALLOWLIST = {
     ".apd/pipeline/.adversarial-rationale.md",
     ".apd/pipeline/.guide-marker",
     ".apd/pipeline/.brainstorm-marker",  # legacy until v7.0
+    # v6.30 — hybrid CC+Codex projects share the APD config: if CC declared an
+    # eco profile, a Codex session hits the supervision gate too and must be
+    # able to write the files the gate asks for (audit 2026-07-05 #4).
+    ".apd/pipeline/.supervision-summary",
+    ".apd/pipeline/.supervision-rationale.md",
 }
 GUARD_CACHE_MAX_AGE_SECONDS = 600
 
