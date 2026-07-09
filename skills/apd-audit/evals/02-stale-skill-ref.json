@@ -6,7 +6,7 @@
   "query": "Run an APD audit.",
   "files": {
     "CLAUDE.md": "# App\n\n## APD\n\n### Mandatory skills\n- /apd-init       ← (renamed)\n- /github-projects ← (renamed)\n- /apd-tdd\n- /apd-debug\n",
-    ".claude/agents/backend-api.md": "---\nname: backend-api\nmodel: sonnet\neffort: xhigh\nmaxTurns: 40\n---\n\n# backend-api\n",
+    ".claude/agents/backend-api.md": "---\nname: backend-api\nmodel: sonnet\neffort: xhigh\n---\n\n# backend-api\n",
     ".claude/settings.json": "{ \"enabledPlugins\": {} }\n"
   },
   "expected_behavior": [

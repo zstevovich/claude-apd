@@ -14,10 +14,12 @@ source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
 source "$(dirname "$0")/../lib/agents-parse.sh"
 
-# v6.8.10 — maxturns sub-command dispatched to dedicated script
-if [ "${1:-}" = "maxturns" ] || [ "${1:-}" = "mt" ]; then
+# v6.31 — turns sub-command: real turn/duration telemetry from CC transcripts.
+# Replaces the removed maxturns proxy — agent-frontmatter maxTurns is a no-op
+# (controlled test 2026-07-09; only CLI --max-turns binds, APD never sets it).
+if [ "${1:-}" = "turns" ] || [ "${1:-}" = "t" ]; then
     shift
-    exec bash "$(dirname "$0")/pipeline-report-maxturns" "$@"
+    exec bash "$(dirname "$0")/pipeline-report-turns" "$@"
 fi
 
 MODE="${1:-current}"

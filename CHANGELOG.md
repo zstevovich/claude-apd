@@ -1,5 +1,23 @@
 # Changelog
 
+## v6.31.0 — 2026-07-09
+
+**Real turn/duration telemetry replaces the `maxTurns` mechanism — which a controlled test proved is a no-op.** Investigating why a pipeline "felt too long" surfaced that the whole `maxTurns` story was built on a misread signal. A controlled test settled it: the `maxTurns:` frontmatter field in `.claude/agents/*.md` is **ignored** by Claude Code (a subagent with `maxTurns: 3` ran 34 turns and finished a 14-step chain; only the CLI `--max-turns` main-loop flag binds, and APD never sets it). So the field never limited anything — builders freely exceeded their values (measured: 40→94 turns) — and every "start without a stop" in the telemetry was always a **dropped `SubagentStop` hook**, never a maxTurn exhaust. The "~22% exhaust rate" was misattributed; SPEC's "start without stop = maxTurn hit" was false; the apd-init repair, the apd-audit "missing maxTurns" check, and the `report maxturns` proxy were all acting on an inert field.
+
+**Added — `apd report turns` (real telemetry):** new `bin/core/pipeline-report-turns` reads the actual CC subagent transcripts (`~/.claude/projects/<slug>/*/subagents/agent-<id>.jsonl`, same slug derivation as `reconstruct-agents`), joins them with `agent-history.log`, and reports per agent type: dispatches, median turns, median wall, effective generation rate (tok/s), and dropped-stop count. **tok/s is the honest API/infra-stall discriminator** — steady ~50-150 = generation-bound (the duration is real work, not latency); a sustained low rate flags a genuine stall. An unpaired start with a full transcript is surfaced as a dropped-stop (recover with `apd pipeline reconstruct-agents`), and a finished dispatch whose transcript was pruned is counted as `no-transcript` rather than silently dropped. Read-only; `--days N` (default 14).
+
+**Removed — `maxTurns` (CC only, zero behavior change):** deleted `pipeline-report-maxturns` + its `report maxturns`/`mt` dispatch + help; removed the maxTurns repair block from `apd-init`; **inverted apd-audit** (missing maxTurns is no longer a defect — the `01-missing-maxturns` eval removed from all three mirror locations, its worked example replaced with a missing-scope example); removed the `maxTurns:` field from the seven CC agent templates; corrected the false `workflow.md` "Raising maxTurns makes pipelines faster" section and the SPEC "start without stop = maxTurn hit" claim; cleaned the apd-setup docs/reference/evals. **Codex `max_turns` is intentionally left intact** — a different runtime, not yet tested for the same inertness; the same controlled test is needed there before removing it.
+
+### Audit
+
+Independent pre-commit audit (decontextualized agent) + empirical exercise of the new tool: **no floor regression** — maxTurns was never a gate, and the removal left every guard/gate/rationale path and the eval-mirror counts intact; Codex confirmed untouched. Verdict SAFE TO BUMP with three MINOR robustness items in the new read-only tool, all fixed in-session (a `--days` with no value crashing under `set -u`; a per-row color threshold that could contradict the summary stall verdict; a paired dispatch with a pruned transcript being dropped from all counts).
+
+### Tests
+
+- **test(test-codex-adapter §96):** +7 — 4 static (script exists/executable, dispatcher routes `turns`/`t`, reads transcripts, computes tok/s) + 3 live on a synthetic fixture (paired dispatch tok/s + no-stall verdict + dropped-stop detection with the reconstruct-agents hint). Removed §69 (the maxturns proxy). Eval count 27→26 (removed scenario) and mirror 24→23; §24 assertions updated. **828 / 0.**
+
+**Migration:** none. `maxTurns` in existing project agents was already inert and stays harmless; nothing needs editing. Use `apd report turns` for turn/duration observability. Codex projects are unaffected (`max_turns` untouched).
+
 ## v6.30.0 — 2026-07-05
 
 **Supervision layer: a profile-coupled frontier-model final review — eco runs get a strong last look before the verifier.** The economics are asymmetric: building consumes the vast majority of a run's tokens (multi-dispatch builder loops), while reviewing the final diff is a single dispatch over a bounded artifact. Putting the strongest available model (`claude-fable-5`) at the cheapest-per-value position — the final verdict — lets the eco profile (Sonnet builders) carry most tasks without giving up a frontier-grade quality check. It also closes a documented gap: nobody was REQUIRED to look at the final diff after adversarial findings were fixed (the corpus has a fix-of-findings regression that only a voluntary re-review caught), and the v6.17 Regression-surface claims were presence-checked but never evaluated.

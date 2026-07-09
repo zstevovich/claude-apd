@@ -1,0 +1,207 @@
+#!/bin/bash
+# APD Turn & Duration Telemetry — real agent turns/duration from CC transcripts.
+#
+# Replaces the retired maxTurns proxy (agent-frontmatter `maxTurns` is a no-op in
+# CC — see feedback-maxturns-frontmatter-noop). Reads the actual subagent
+# transcripts (`~/.claude/projects/<slug>/*/subagents/agent-<id>.jsonl`), joins
+# them with agent-history.log, and reports per agent_type: dispatches, turn
+# distribution (assistant messages), wall-clock, and effective generation rate
+# (tok/s). tok/s is the honest API/infra-stall discriminator: steady ~50-150
+# tok/s = generation-bound; a sustained low rate = a real API/infra stall.
+# An "unpaired" start (start logged, no stop) whose transcript is full is a
+# dropped SubagentStop hook (recover via `apd pipeline reconstruct-agents`),
+# NOT a maxTurn exhaust — there is no maxTurn exhaust for subagents.
+#
+# Usage:
+#   pipeline-report-turns [--days N]
+#
+# Default: last 14 days. Read-only.
+
+set -u
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+
+DAYS=14
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --days)
+            if [ -z "${2:-}" ]; then echo "  --days needs a number" >&2; exit 1; fi
+            DAYS="$2"; shift 2 ;;
+        --days=*) DAYS="${1#*=}"; shift ;;
+        *) shift ;;
+    esac
+done
+
+HISTORY_LOG="$MEMORY_DIR/agent-history.log"
+if [ ! -f "$HISTORY_LOG" ]; then
+    echo "  ${MARK_SKIP} agent-history.log not found at $HISTORY_LOG" >&2
+    echo "  Run at least one task pipeline first." >&2
+    exit 0
+fi
+
+# Transcript base for THIS project — same slug derivation as reconstruct-agents.
+RA_BASE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$PROJECT_DIR" | sed 's#[^A-Za-z0-9]#-#g')"
+CUTOFF=$(date -v-${DAYS}d +"%Y-%m-%d" 2>/dev/null || date -d "${DAYS} days ago" +"%Y-%m-%d" 2>/dev/null || echo "1970-01-01")
+
+BOX_W=58
+_dashes() { local n=$1 s=""; for ((i=0; i<n; i++)); do s="${s}─"; done; printf '%s' "$s"; }
+
+echo ""
+printf "  ${V}╭%s╮${R}\n" "$(_dashes $BOX_W)"
+TITLE="Turn & Duration Telemetry — last ${DAYS} days"
+TITLE_PAD=$(( (BOX_W - ${#TITLE}) / 2 ))
+printf "  ${V}│${R}%${TITLE_PAD}s${V}${B}%s${R}%$(( BOX_W - TITLE_PAD - ${#TITLE} ))s${V}│${R}\n" "" "$TITLE" ""
+printf "  ${V}╰%s╯${R}\n" "$(_dashes $BOX_W)"
+
+# python3 does the join + aggregation; emits pipe rows + a STALL/DROPPED summary.
+ROWS=$(python3 - "$HISTORY_LOG" "$RA_BASE" "$CUTOFF" <<'PY'
+import sys, os, json, glob
+from datetime import datetime
+
+history, ra_base, cutoff = sys.argv[1], sys.argv[2], sys.argv[3]
+
+def epoch(s):
+    try: return datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+    except Exception: return None
+
+# 1) dispatches in window from agent-history: id -> (agent, start, stop|None)
+starts = {}     # id -> (agent, start_ts)
+disp = []       # (agent, start, stop_or_None, id)
+open_ids = {}
+for line in open(history, errors="ignore"):
+    p = line.rstrip("\n").split("|")
+    if len(p) < 4: continue
+    ts, ev, ag, aid = p[0], p[1], p[2], p[3]
+    if ts[:10] < cutoff: continue
+    if ev == "start":
+        open_ids[aid] = (ag, ts)
+    elif ev == "stop" and aid in open_ids:
+        ag0, st = open_ids.pop(aid)
+        disp.append((ag0, st, ts, aid))
+for aid, (ag, st) in open_ids.items():
+    disp.append((ag, st, None, aid))   # unpaired start
+
+# 2) index transcripts by id across all session dirs under the slug
+tindex = {}
+for f in glob.glob(os.path.join(ra_base, "*", "subagents", "agent-*.jsonl")):
+    aid = os.path.basename(f)[len("agent-"):-len(".jsonl")]
+    tindex[aid] = f
+
+def transcript(aid):
+    f = tindex.get(aid)
+    if not f: return None
+    turns = 0; out_tok = 0; ts = []
+    try:
+        for line in open(f, errors="ignore"):
+            line = line.strip()
+            if not line: continue
+            try: d = json.loads(line)
+            except Exception: continue
+            if d.get("timestamp"): ts.append(d["timestamp"])
+            if d.get("type") == "assistant":
+                turns += 1
+                out_tok += ((d.get("message") or {}).get("usage") or {}).get("output_tokens", 0)
+    except Exception:
+        return None
+    span = None
+    if len(ts) >= 2:
+        try:
+            a = datetime.fromisoformat(ts[0].replace("Z", "+00:00"))
+            b = datetime.fromisoformat(ts[-1].replace("Z", "+00:00"))
+            span = (b - a).total_seconds()
+        except Exception: pass
+    return dict(turns=turns, out_tok=out_tok, span=span, size=os.path.getsize(f))
+
+agg = {}   # agent -> lists
+dropped = 0
+died = 0
+no_tx = 0
+for ag, st, stop, aid in disp:
+    t = transcript(aid)
+    # wall: paired -> stop-start; else transcript span
+    wall = None
+    if stop:
+        a, b = epoch(st), epoch(stop)
+        if a and b: wall = (b - a).total_seconds()
+    if wall is None and t and t.get("span"): wall = t["span"]
+    if t is None or t.get("turns", 0) == 0:
+        # no usable transcript: unpaired = agent died/killed;
+        # paired = finished per history but transcript pruned/absent (surface it,
+        # never silently drop — else "dispatches" under-reports vs agent-history)
+        if stop is None: died += 1
+        else: no_tx += 1
+        continue
+    if stop is None:
+        dropped += 1   # unpaired start + full transcript = dropped SubagentStop hook
+    a = agg.setdefault(ag, dict(turns=[], walls=[], tok=0, wallsum=0.0, dropped=0))
+    a["turns"].append(t["turns"])
+    if wall: a["walls"].append(wall); a["wallsum"] += wall
+    a["tok"] += t["out_tok"]
+    if stop is None: a["dropped"] += 1
+
+def med(xs):
+    if not xs: return 0
+    xs = sorted(xs); return xs[len(xs)//2]
+
+def fmt_wall(s):
+    s = int(s or 0); return f"{s//60}m{s%60:02d}s"
+
+low_rate = False
+for ag in sorted(agg, key=lambda k: -len(agg[k]["turns"])):
+    a = agg[ag]
+    n = len(a["turns"])
+    mt = med(a["turns"])
+    mw = med(a["walls"])
+    rate = (a["tok"] / a["wallsum"]) if a["wallsum"] > 0 else 0
+    low = 1 if (rate and rate < 10) else 0   # source of truth on the float, not the rounded display
+    if low: low_rate = True
+    print(f"ROW|{ag}|{n}|{mt}|{fmt_wall(mw)}|{rate:.0f}|{a['dropped']}|{low}")
+print(f"SUMMARY|{sum(len(a['turns']) for a in agg.values())}|{dropped}|{died}|{no_tx}|{1 if low_rate else 0}")
+PY
+)
+
+# --- Render ---
+printf "  ${B}%-26s %5s %6s %8s %7s %8s${R}\n" "Agent type" "disp" "turns" "wall" "tok/s" "dropped"
+echo "  $(_dashes $BOX_W)"
+
+echo "$ROWS" | while IFS='|' read -r tag agent disp mturns mwall rate dropped low; do
+    [ "$tag" = "ROW" ] || continue
+    # color the rate using python's float-based low flag (aligns with the
+    # summary verdict; avoids painting rate=0/no-data red or a rounded 10 green)
+    if [ "${low:-0}" = "1" ]; then
+        rate_c="${RED}${B}${rate}${R}"
+    else
+        rate_c="${G}${rate}${R}"
+    fi
+    drop_c="$dropped"; [ "${dropped:-0}" -gt 0 ] 2>/dev/null && drop_c="${Y}${dropped}${R}"
+    printf "  %-26s %5s %6s %8s %10b %10b\n" "$agent" "$disp" "$mturns" "$mwall" "$rate_c" "$drop_c"
+done
+
+SUMMARY=$(echo "$ROWS" | grep '^SUMMARY|')
+TOT_DISP=$(echo "$SUMMARY" | cut -d'|' -f2)
+TOT_DROP=$(echo "$SUMMARY" | cut -d'|' -f3)
+TOT_DIED=$(echo "$SUMMARY" | cut -d'|' -f4)
+TOT_NOTX=$(echo "$SUMMARY" | cut -d'|' -f5)
+LOW_RATE=$(echo "$SUMMARY" | cut -d'|' -f6)
+
+echo "  $(_dashes $BOX_W)"
+printf "  ${D}%s dispatches | %s dropped-stop (SubagentStop non-delivery, NOT maxTurn) | %s died | %s no-transcript${R}\n" "${TOT_DISP:-0}" "${TOT_DROP:-0}" "${TOT_DIED:-0}" "${TOT_NOTX:-0}"
+echo ""
+echo "  ${B}Reading it:${R}"
+echo "  ${D}- turns = real assistant messages (agent-frontmatter maxTurns is a no-op)${R}"
+echo "  ${D}- tok/s = generation rate. Steady ~50-150 = generation-bound (normal).${R}"
+if [ "${LOW_RATE:-0}" = "1" ]; then
+    echo "  ${RED}${MARK_FIX} An agent shows tok/s < 10 — sustained low rate = possible API/infra stall.${R}"
+else
+    echo "  ${G}${MARK_PASS} No agent below 10 tok/s — no API/infra stall; duration is generation volume.${R}"
+fi
+if [ "${TOT_DROP:-0}" -gt 0 ] 2>/dev/null; then
+    echo "  ${Y}${MARK_SKIP} ${TOT_DROP} dropped-stop dispatch(es): full transcript, no stop event.${R}"
+    echo "  ${D}  Recover the ledger with: apd pipeline reconstruct-agents${R}"
+fi
+if [ "${TOT_NOTX:-0}" -gt 0 ] 2>/dev/null; then
+    echo "  ${D}- ${TOT_NOTX} finished dispatch(es) had no transcript (pruned/rotated) — counted here, not in the per-agent turn table.${R}"
+fi
+echo ""
+echo "  ${D}Override: --days N${R}"

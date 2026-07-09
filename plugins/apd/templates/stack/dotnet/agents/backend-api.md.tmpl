@@ -5,7 +5,6 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 model: opus
 effort: xhigh
 color: purple
-maxTurns: 120
 permissionMode: bypassPermissions
 memory: project
 skills:
@@ -59,7 +58,3 @@ hooks:
 - Throwing exceptions for business errors (use `Result<T>` per dotnet-conventions skill)
 - Putting business logic in endpoints (thin endpoints rule)
 - Bundling unrelated schema changes into one migration (see `ef-core-migrations` skill if migrations are in scope)
-
-## Maxturns Calibration
-
-Default `maxTurns: 120` — high because .NET multi-file changes (endpoint + handler + domain entity + tests) cross-cut many files per task. If `apd report maxturns` flags rapid re-dispatch (>5 in 7 days), consider raising to 150.

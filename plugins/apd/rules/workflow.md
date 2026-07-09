@@ -215,7 +215,7 @@ To see what's in `.apd/pipeline/` (current phase, reviewed-files count, adversar
 - If a pipeline step fails, do NOT rollback code — fix the issue and retry. Builder work is preserved in the working tree.
 - NEVER use superpowers: or feature-dev: agents for pipeline steps. Pipeline BLOCKS non-project agents. Use: `Agent({ subagent_type: "code-reviewer", prompt: "..." })`
 - NEVER use SendMessage to continue a builder/reviewer agent. SendMessage does NOT trigger SubagentStart/Stop hooks — the agent dispatch will not be recorded and `apd pipeline` will BLOCK. Always dispatch a NEW agent with `Agent()`.
-- When an agent hits maxTurns limit and stops mid-work: check what was done (`git diff`), then dispatch a NEW agent with specific instructions for the remaining work. Do NOT attempt to finish the work directly — you are the orchestrator, not the builder.
+- When an agent stops mid-work (incomplete output): check what was done (`git diff`), then dispatch a NEW agent with specific instructions for the remaining work. Do NOT attempt to finish the work directly — you are the orchestrator, not the builder.
 - Max 7 acceptance criteria per spec. Large features MUST be decomposed into smaller pipeline cycles.
 - **NEVER write, edit, or create project source files** (code, templates, CSS, JS, tests, configs). You are the ORCHESTRATOR — you write ONLY pipeline files (spec-card.md, implementation-plan.md, .adversarial-summary) and memory files. ALL code changes go through dispatched Builder agents. `guard-orchestrator` mechanically blocks this — every failed attempt wastes tokens.
 - **NEVER read code files after a reviewer finishes** to "verify" or "double-check" the review. Trust the reviewer's findings. If the reviewer missed something, dispatch the reviewer again — do not replicate its work.
@@ -537,18 +537,11 @@ When a task involves backend + frontend/mobile:
 - **Never use effort: low or medium** — APD uses high, xhigh (builder), and max
 - **`effort: xhigh` on Sonnet 4.6** falls back to `high` automatically — it takes effect when Sonnet 4.7 is available. Forward-compatible configuration.
 
-### MaxTurn sizing — counterintuitive but important
+### Agent turn budget (there is no `maxTurns` knob)
 
-Raising `maxTurns` makes pipelines **faster**, not slower. When an agent hits the limit mid-work, the orchestrator dispatches a new agent — that agent re-reads the spec, plan, `.reviewed-files`, and source files from scratch, burning 10+ turns before doing new work. Context discontinuity between runs also produces test/implementation mismatches that the reviewer catches, forcing another fix cycle.
+The `maxTurns` frontmatter field is a **no-op** for CC subagents (controlled test 2026-07-09: a subagent with `maxTurns: 3` ran 34 turns and finished; only the CLI `--max-turns` main-loop flag binds, which APD never sets). Subagents run until they finish — there is no turn ceiling to size. Do not add or tune `maxTurns` in `.claude/agents/*.md`; it does nothing.
 
-APD defaults (v4.7.13+):
-- Builders (backend, frontend, mobile, database, devops, testing): **`maxTurns: 60`** (v6.1 — bumped from 40 after live runs showed builders re-dispatching mid-feature)
-- Code reviewer: **`maxTurns: 80`** (v6.1 B3 — bumped from 30; reviewers walk full diff and exhausted on 7-R features)
-- Adversarial reviewer: **`maxTurns: 80`** (v6.1 B3 — same bump; context-free does not mean fewer turns)
-
-- Raise per-project if you see recurring exhaust in `apd report`. Edit `.claude/agents/<name>.md` frontmatter directly — `apd init --quick` only bumps the exact legacy defaults (20/15), custom values are preserved.
-- Real-world example: BambiProject runs builders at 60 and code-reviewer at 45, eliminated exhaust, dropped adversarial hit rate from 25 % to 0 % across two consecutive runs.
-- **Do NOT lower maxTurns to "save tokens".** Lower values cause more re-dispatches, which cost MORE tokens and produce WORSE code.
+Observe real turn/duration usage with **`apd report turns`** (turns, wall-clock, tok/s per agent type). tok/s is the API/infra-stall discriminator. An agent that starts but has no stop event is a dropped `SubagentStop` hook (recover with `apd pipeline reconstruct-agents`), NOT a maxTurn exhaust.
 
 ## 9. Mandatory skills
 

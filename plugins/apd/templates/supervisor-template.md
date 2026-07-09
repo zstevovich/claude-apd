@@ -5,7 +5,6 @@ tools: Read, Glob, Grep, Bash
 model: claude-fable-5
 effort: max
 color: purple
-maxTurns: 80
 permissionMode: plan
 memory: none
 hooks:

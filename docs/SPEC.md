@@ -41,7 +41,7 @@ Top-level dispatcher routes by 1st arg. Resolves project root via `bin/lib/resol
 | `update` / `up` | `bin/core/apd-update` | `git pull --ff-only` on framework repo + re-run `install-codex-config` / `apd-init --quick` on target project. Aborts on dirty tree or non-FF. Flags: `--check-only`, `--skip-pull`. |
 | `pipeline` / `pl` | `bin/core/pipeline-advance` | Pipeline gate operations (steps + reset/rollback/status/stats/metrics) |
 | `doctor` / `dr` | `bin/core/pipeline-doctor` | 11-section audit of pipeline + project |
-| `report` / `rp` | `bin/core/pipeline-report` | Render formatted summary |
+| `report` / `rp` | `bin/core/pipeline-report` | Render formatted summary. Sub-command: `report turns`/`t` (v6.31 → `pipeline-report-turns`: real turn/duration/tok-s telemetry from CC transcripts) |
 | `audit-drift` (v6.10) | `bin/core/pipeline-audit-drift` | Drift detection across 3 dimensions (settings.json deny patterns, .apd-config APD_VERSION, workflow.md content markers). Invoked from `/apd-audit` skill Section 8. Exit 1 on IMPORTANT/CRITICAL findings, 0 on INFO-only/CLEAN. |
 | `stack` / `st` (v6.11) | `bin/core/pipeline-stack-detect` | Read-only stack detection across 7+ categories (.NET, PHP/Symfony, Node Next/Vite/React, KMP/Compose, Android, Python Django/FastAPI). Multi-stack monorepos supported. Flags: `--json` (machine output), `--strict` (exit 1 if zero stacks). Foundation for v6.12 stack-aware template scaffolding. |
 | `scaffold` / `sc` (v6.12) | `bin/core/pipeline-stack-scaffold` | Stack-aware template scaffolding — copies `templates/stack/<stack>/{agents,skills}/` into project `.claude/{agents,skills}/` with placeholder substitution. Additive default (skip existing); `--force` overwrites with `.bak.preaudit` backup. Flags: `--list-stacks`, `--dry-run`, `--force`. Supported stacks v6.12: `dotnet`. Roadmap: `node-react`, `php-symfony`, `kmp-compose`, `python-django` (v6.13+). |
@@ -286,7 +286,7 @@ Idempotent installer: `_backup_if_exists` for files that must be modified (confi
 |---|---|
 | `resolve-project.sh` | `git rev-parse --show-toplevel` primary; cwd-walk + project-marker fallback. Sets `PROJECT_DIR`, `APD_PLUGIN_ROOT`, `MEMORY_DIR`, `PIPELINE_DIR`, `APD_AGENTS_DIR`. v6.5: framework self-detection — when `PROJECT_DIR` contains `plugins/apd/VERSION` + `.claude-plugin/plugin.json` with `"name": "claude-apd"`, sets `APD_FRAMEWORK_SELF=true` and forces `APD_ACTIVE=false` even with a config file present. Override via `APD_FRAMEWORK_DEV_MODE=force-enable`. All scripts source it. |
 | `style.sh` | ANSI helpers (`${D}`, `${R}`, `${V}`, `${G}`, `${RED}`); `apd_header`, `show_pipeline`, `_box_line`; `log_block` (sanitises newlines per F3) |
-| `agents-parse.sh` | `parse_agents_log` → counts dispatch starts/exhausts (start without stop = maxTurn hit) |
+| `agents-parse.sh` | `parse_agents_log` → counts dispatch starts and unpaired starts. **A start without a stop is a dropped `SubagentStop` hook, NOT a maxTurn exhaust** — agent-frontmatter `maxTurns` is a no-op in CC (verified 2026-07-09; only the CLI `--max-turns` binds, which APD never sets). Recover the ledger with `apd pipeline reconstruct-agents`; observe real turns with `apd report turns`. (The legacy "exhaust" label in the parser/metrics is this same unpaired-start signal — a dropped stop, not a turn-limit hit.) |
 
 ## 11. Bootstrap
 
@@ -359,8 +359,6 @@ Codex 0.124+ fires `SessionStart` in TUI mode only, and timed to the first user 
 | Timeout — `codex-doctor` | 10s | MCP |
 | Timeout — guard-bash-scope hook | 5s | `<project>/.codex/hooks.json` |
 | Regex — `apd_role` whitelist | `[A-Za-z0-9_.-]+` | `apd_guard_write` |
-| Default agent maxTurns | 40 (builders), 30 (reviewers) | agent templates |
-| Effort levels | xhigh ≈ 40 turns, max ≈ 30 turns | agent template guidance |
 
 ## 16. CLI scripts deep dive
 
@@ -407,7 +405,9 @@ Exit 0 if no FAIL; 1 otherwise. Auto-heals legacy hook paths if found.
 
 **`pipeline-post-commit`** — PostToolUse hook on `Bash(git commit*)` with `APD_ORCHESTRATOR_COMMIT=1`. Calls `pipeline-advance reset` after successful commit. Hook never blocks (always exit 0).
 
-**`pipeline-report`** — render formatted summary box. Reads `*.done` timestamps, spec criteria count, adversarial summary (renders "rationale recorded" if 0/0/0 with notes; "N/A" if Lean skipped), `guard-audit.log` (silent skip orphan lines per F3).
+**`pipeline-report`** — render formatted summary box. Reads `*.done` timestamps, spec criteria count, adversarial summary (renders "rationale recorded" if 0/0/0 with notes; "N/A" if Lean skipped), `guard-audit.log` (silent skip orphan lines per F3). Sub-command short-circuits to a dedicated script: `turns`/`t` → `pipeline-report-turns`.
+
+**`pipeline-report-turns`** (v6.31) — real turn/duration telemetry. Reads CC subagent transcripts (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/<slug>/*/subagents/agent-<id>.jsonl`; slug = `PROJECT_DIR` with non-alnum → `-`, same derivation as `reconstruct-agents`), joins with `agent-history.log`, and reports per `agent_type`: dispatches, median turns (assistant messages), median wall, effective generation rate (tok/s), and dropped-stop count. **tok/s is the API/infra-stall discriminator** — steady ~50-150 = generation-bound; a sustained low rate flags a real stall. **An unpaired start with a FULL transcript = a dropped `SubagentStop` hook** (recover via `pipeline reconstruct-agents`), NOT a maxTurn exhaust — agent-frontmatter `maxTurns` is a no-op in CC (only the CLI `--max-turns` main-loop flag binds, which APD never sets; empirically verified 2026-07-09). Read-only; `--days N` (default 14). Replaces the `maxturns` proxy (which counted rapid re-dispatch as a maxTurn signal — that signal was always dropped-stop events).
 
 ### 16.2 Guards — full table
 
@@ -681,9 +681,8 @@ Frontmatter:
 | `description` | "Short domain + responsibility" | Listing label |
 | `tools` | Read, Write, Edit, Glob, Grep, Bash | Tool whitelist |
 | `model` | sonnet / opus | LLM assignment |
-| `effort` | xhigh ≈ 40 turns, max ≈ 30 turns | Context budget hint |
+| `effort` | xhigh (builders), max (reviewers) | Reasoning effort |
 | `color` | `{{AGENT_COLOR}}` | UI indicator |
-| `maxTurns` | 40 (builders), 30 (reviewers) | Turn budget cap |
 | `permissionMode` | `bypassPermissions` (builders), `plan` (reviewers) | CC permission mode |
 | `memory` | `project` (builders), `none` (adversarial) | Session memory scope |
 | `scope` (body comment) | `# src/ tests/` | Allowed paths; enforced by guard-scope |
@@ -703,7 +702,6 @@ v6.4 F4: master + reviewer + adversarial templates (CC) and all 5 Codex per-role
 | Model | opus | sonnet |
 | Effort | max | max |
 | Color | orange | red |
-| maxTurns | 30 | 30 |
 | permissionMode | plan | plan |
 | memory | project | **none** (context-free) |
 | Reads | files in `.reviewed-files` | discovered by scope |

@@ -10,7 +10,7 @@
   },
   "expected_behavior": [
     "creates CLAUDE.md with Stack, APD, Pipeline, Guardrails, Mandatory skills, Anti-patterns sections",
-    "creates at least one builder agent under .claude/agents/ with model, effort, maxTurns, scope set",
+    "creates at least one builder agent under .claude/agents/ with model, effort, scope set",
     "creates the .claude/memory/ directory with MEMORY.md and status.md",
     "does NOT leave any {{PLACEHOLDER}} unreplaced in the generated files"
   ]

@@ -104,7 +104,7 @@ Generate each file from the per-role and per-template rules:
 - **Agents (builder + reviewer):** See [reference/agent-templates.md](reference/agent-templates.md).
 - **CLAUDE.md, verify-all.sh, rules, memory, settings, gitignore, MCP recommendations:** See [reference/rules-templates.md](reference/rules-templates.md).
 
-The reviewer agent is mandatory — every project gets one with `opus / max / plan / orange / maxTurns: 80`.
+The reviewer agent is mandatory — every project gets one with `opus / max / plan / orange`.
 
 ### 5b. Stack-aware scaffolding (v6.12+)
 
@@ -168,7 +168,7 @@ You're done when:
 - For new setup: every file in the "What gets generated" table exists with no placeholders left
 - For maintenance: every gap analysis row is either ✓ or has been fixed
 - `bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/verify-apd` passes (X PASS / 0 FAIL)
-- The reviewer agent exists with `opus / max / plan / orange / maxTurns: 80`
+- The reviewer agent exists with `opus / max / plan / orange`
 - `.claude/.apd-config` (or `.apd/config`) is present with `PROJECT_NAME`, `APD_VERSION`, `STACK`
 - `.mcp.json` recommendations have been presented to the user (and either accepted or skipped explicitly)
 

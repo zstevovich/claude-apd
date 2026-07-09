@@ -30,7 +30,7 @@ allowed-tools: Read Glob Grep Bash
 |---|---|
 | Files exist? | Content correct and complete? |
 | JSON valid? | Hook `if` patterns correct? |
-| Agents have model? | Agents have correct model/effort/color/maxTurns? |
+| Agents have model? | Agents have correct model/effort/color? |
 | Pipeline runs? | Pipeline output matches expected format? |
 | Mechanical ✓/✗ | Qualitative review |
 
@@ -52,7 +52,6 @@ For each agent in `.claude/agents/*.md`:
 - `model:` — builders must be `sonnet`, reviewer must be `opus`
 - `effort:` — builders must be `xhigh`, reviewer must be `max`
 - `color:` — should be set (purple/blue/green/cyan for builders, orange for reviewer)
-- `maxTurns:` — should be set (40 for builders, 30 for reviewers); legacy 20/15 auto-bumped by `apd init`
 - `permissionMode:` — builders `bypassPermissions`, reviewer `plan`
 - `memory: project` — should be set
 
@@ -170,22 +169,23 @@ Result: X findings (Y critical, Z important)
 | Excuse | Reality |
 |--------|---------|
 | "verify-apd passes so it's fine" | verify-apd checks structure, not content quality |
-| "Agents work, no need to audit" | Wrong model or missing maxTurns wastes time and money |
+| "Agents work, no need to audit" | Wrong model or unbounded scope wastes time and money |
 | "CLAUDE.md looks ok" | Missing sections mean orchestrator skips important rules |
 | "I'll fix it when it breaks" | Broken pipeline produces broken code silently |
 
 ## Examples
 
-**Example 1 — Builder agent missing maxTurns.**
+**Example 1 — Builder agent missing scope.**
 
-*Input:* `.claude/agents/backend-api.md` frontmatter has `model: sonnet`, `effort: xhigh`, `permissionMode: bypassPermissions`, but no `maxTurns:` line. Pipeline has been re-dispatching builders 2–3× per task.
+*Input:* `.claude/agents/backend-api.md` frontmatter has `model`, `effort`, `permissionMode: bypassPermissions`, but no `scope:` line. The builder can write anywhere in the repo.
 
 *Output:*
 ```
 IMPORTANT:
-  1. [.claude/agents/backend-api.md:5] maxTurns missing — defaults to 20
-     Effect: builders hit maxTurn limit before finishing 3+ R-criteria → re-dispatch overhead
-     Fix: add `maxTurns: 40` after `effort: xhigh`
+  1. [.claude/agents/backend-api.md] scope missing — builder writes are unbounded
+     Effect: out-of-scope edits slip past the guard that keys on declared scope
+     Fix: declare the builder's scope paths (the `{{SCOPE_PATHS}}` the guard-scope
+     and guard-bash-scope hooks enforce) so writes outside them are blocked
 ```
 
 **Example 2 — Stale skill references in CLAUDE.md.**

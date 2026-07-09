@@ -2574,11 +2574,11 @@ rm -rf "$CC_DIR"
 section "24. skill-eval framework"
 
 EVAL_LIST_OUT=$(bash "$APD_PLUGIN_ROOT/bin/core/skill-eval" --list 2>&1 || true)
-if echo "$EVAL_LIST_OUT" | grep -q "27 scenarios"; then
-    pass "skill-eval --list reports 27 scenarios"
+if echo "$EVAL_LIST_OUT" | grep -q "26 scenarios"; then
+    pass "skill-eval --list reports 26 scenarios"
     PASSES=$((PASSES + 1))
 else
-    fail "skill-eval --list did not report 27 scenarios"
+    fail "skill-eval --list did not report 26 scenarios"
     FAILS=$((FAILS + 1))
 fi
 if echo "$EVAL_LIST_OUT" | grep -q "RUNTIME"; then
@@ -2590,18 +2590,18 @@ else
 fi
 
 EVAL_DRY_OUT=$(bash "$APD_PLUGIN_ROOT/bin/core/skill-eval" --dry-run 2>&1 || true)
-if echo "$EVAL_DRY_OUT" | grep -qE "valid:[[:space:]]+27" && echo "$EVAL_DRY_OUT" | grep -qE "invalid:[[:space:]]+0"; then
-    pass "skill-eval --dry-run validates all 27 scenarios"
+if echo "$EVAL_DRY_OUT" | grep -qE "valid:[[:space:]]+26" && echo "$EVAL_DRY_OUT" | grep -qE "invalid:[[:space:]]+0"; then
+    pass "skill-eval --dry-run validates all 26 scenarios"
     PASSES=$((PASSES + 1))
 else
     fail "skill-eval --dry-run did not pass all scenarios"
     FAILS=$((FAILS + 1))
 fi
 EVAL_DRY_CODEX_OUT=$(bash "$APD_PLUGIN_ROOT/bin/core/skill-eval" --rubric --runtime codex --dry-run 2>&1 || true)
-if echo "$EVAL_DRY_CODEX_OUT" | grep -qE "targeted:[[:space:]]+21 / 27" \
+if echo "$EVAL_DRY_CODEX_OUT" | grep -qE "targeted:[[:space:]]+21 / 26" \
     && echo "$EVAL_DRY_CODEX_OUT" | grep -qE "valid:[[:space:]]+21" \
     && echo "$EVAL_DRY_CODEX_OUT" | grep -qE "invalid:[[:space:]]+0"; then
-    pass "skill-eval runtime filter targets Codex execution subset (21/27)"
+    pass "skill-eval runtime filter targets Codex execution subset (21/26)"
     PASSES=$((PASSES + 1))
 else
     fail "skill-eval runtime filter did not target Codex subset"
@@ -2640,18 +2640,18 @@ fi
 bash "$APD_PLUGIN_ROOT/bin/core/eval-mirror" >/dev/null 2>&1 || true
 CC_MIRROR=$(find "$APD_PLUGIN_ROOT/../../skills" -path '*evals*' -name '*.json' 2>/dev/null | wc -l | xargs)
 CDX_MIRROR=$(find "$APD_PLUGIN_ROOT/skills" -path '*evals*' -name '*.json' 2>/dev/null | wc -l | xargs)
-if [ "$CC_MIRROR" = "24" ]; then
-    pass "eval-mirror populated CC: 24 scenarios"
+if [ "$CC_MIRROR" = "23" ]; then
+    pass "eval-mirror populated CC: 23 scenarios"
     PASSES=$((PASSES + 1))
 else
-    fail "eval-mirror CC count = $CC_MIRROR (expected 24)"
+    fail "eval-mirror CC count = $CC_MIRROR (expected 23)"
     FAILS=$((FAILS + 1))
 fi
-if [ "$CDX_MIRROR" = "24" ]; then
-    pass "eval-mirror populated Codex: 24 scenarios (no apd-setup)"
+if [ "$CDX_MIRROR" = "23" ]; then
+    pass "eval-mirror populated Codex: 23 scenarios (no apd-setup)"
     PASSES=$((PASSES + 1))
 else
-    fail "eval-mirror Codex count = $CDX_MIRROR (expected 24)"
+    fail "eval-mirror Codex count = $CDX_MIRROR (expected 23)"
     FAILS=$((FAILS + 1))
 fi
 
@@ -6669,84 +6669,6 @@ else
 fi
 
 # -----------------------------------------------------------
-# 69. v6.8.10 — apd report maxturns telemetry (read-only)
-#     User-observed problem (2026-05-22): trenutne maxTurns vrednosti
-#     (60 builders / 80 reviewers) su intuitivno postavljene, ne
-#     empirically-calibrated. Bambi v6.8 era pokazala 15 mobile
-#     rapid re-dispatch events u 2 dana (gap <120s = proxy za maxTurn
-#     exhaust). v6.8.10 dodaje telemetry surface da kalibrise per-agent
-#     vrednosti empirijski. Read-only — no behavior change.
-# -----------------------------------------------------------
-section "69. apd report maxturns telemetry (v6.8.10)"
-
-MT_SCRIPT="$APD_PLUGIN_ROOT/bin/core/pipeline-report-maxturns"
-
-# Static A: pipeline-report-maxturns script exists and is executable
-_check "pipeline-report-maxturns exists and is executable" test -x "$MT_SCRIPT"
-
-# Static B: apd report dispatcher includes maxturns sub-command
-if grep -qE '"maxturns".*"mt"|maxturns.*pipeline-report-maxturns' "$APD_PLUGIN_ROOT/bin/core/pipeline-report"; then
-    pass "pipeline-report dispatcher includes maxturns sub-command"
-    PASSES=$((PASSES + 1))
-else
-    fail "pipeline-report missing maxturns sub-command dispatcher"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static C: script computes per-agent rapid re-dispatch via awk
-if grep -qE 'rapid\[.*\]\+\+' "$MT_SCRIPT"; then
-    pass "pipeline-report-maxturns computes rapid re-dispatch counter"
-    PASSES=$((PASSES + 1))
-else
-    fail "pipeline-report-maxturns missing rapid counter logic"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static D: suggested action includes maxTurns parse from agent file
-if grep -qE 'maxTurns:' "$MT_SCRIPT"; then
-    pass "pipeline-report-maxturns reads current maxTurns from agent frontmatter"
-    PASSES=$((PASSES + 1))
-else
-    fail "pipeline-report-maxturns missing maxTurns frontmatter parse"
-    FAILS=$((FAILS + 1))
-fi
-
-# Live E: synthetic test — script runs cleanly on small history fixture
-V6810_SCRATCH="$(mktemp -d -t apd-v6810.XXXXXX)"
-mkdir -p "$V6810_SCRATCH/.apd/memory" "$V6810_SCRATCH/.codex" "$V6810_SCRATCH/.claude/agents"
-touch "$V6810_SCRATCH/.apd/config"
-# Generate synthetic history with 3 rapid re-dispatches.
-# Use TODAY's date (not a hardcoded one) so the fixture stays inside the
-# script's rolling 30-day window — a hardcoded date is a time-bomb: this test
-# silently expired once 2026-05-22 fell outside 30 days of "today".
-MT_DAY=$(date +"%Y-%m-%d")
-cat > "$V6810_SCRATCH/.apd/memory/agent-history.log" <<EOF
-$MT_DAY 10:00:00|start|mobile|aaa111
-$MT_DAY 10:05:00|stop|mobile|aaa111
-$MT_DAY 10:05:30|start|mobile|bbb222
-$MT_DAY 10:10:00|stop|mobile|bbb222
-$MT_DAY 10:10:45|start|mobile|ccc333
-$MT_DAY 10:15:00|stop|mobile|ccc333
-$MT_DAY 10:15:30|start|mobile|ddd444
-$MT_DAY 10:20:00|stop|mobile|ddd444
-EOF
-cat > "$V6810_SCRATCH/.claude/agents/mobile.md" <<'EOF'
----
-name: mobile
-maxTurns: 60
----
-EOF
-MT_OUT=$(cd "$V6810_SCRATCH" && bash "$MT_SCRIPT" 2>&1)
-if echo "$MT_OUT" | grep -q "mobile" && echo "$MT_OUT" | grep -qE "MaxTurns Telemetry"; then
-    pass "pipeline-report-maxturns runs cleanly on synthetic fixture sa mobile re-dispatch"
-    PASSES=$((PASSES + 1))
-else
-    fail "pipeline-report-maxturns synthetic test unexpected: $MT_OUT"
-    FAILS=$((FAILS + 1))
-fi
-rm -rf "$V6810_SCRATCH"
-
-# -----------------------------------------------------------
 # 70. v6.15 — guide-marker gate UNCONDITIONAL + task-name match
 #     Inherits the v6.8.11 lesson (R-count thresholds are gameable —
 #     orchestrator atomizes work to duck under them), so the guide gate
@@ -10493,6 +10415,93 @@ else
     fail "supervisor role apply wrong (cruise='$SV_M_CRUISE' eco='$SV_M_ECO')"; FAILS=$((FAILS + 1))
 fi
 rm -rf "$_T"
+
+# -----------------------------------------------------------
+# 96. v6.31 — apd report turns: real turn/duration telemetry from transcripts
+#     Replaces the maxTurns proxy (agent-frontmatter maxTurns proven a NO-OP:
+#     controlled test 2026-07-09 — subagent with maxTurns:3 ran 34 turns/14
+#     reads/finished; only CLI --max-turns binds, APD never sets it). New
+#     pipeline-report-turns reads CC subagent transcripts, joins agent-history,
+#     reports per agent_type: dispatches / median turns / median wall / tok/s /
+#     dropped-stops. tok/s is the honest API/infra-stall discriminator. An
+#     unpaired start with a FULL transcript = dropped SubagentStop hook (NOT a
+#     maxTurn exhaust — there is none for subagents). Read-only.
+# -----------------------------------------------------------
+section "96. apd report turns telemetry (v6.31)"
+
+TR_SCRIPT="$APD_PLUGIN_ROOT/bin/core/pipeline-report-turns"
+
+# Static A: script exists and is executable
+_check "pipeline-report-turns exists and is executable" test -x "$TR_SCRIPT"
+
+# Static B: dispatcher routes turns + t sub-command to the script
+if grep -qE '"turns".*"t"|turns.*pipeline-report-turns' "$APD_PLUGIN_ROOT/bin/core/pipeline-report"; then
+    pass "pipeline-report dispatcher routes turns/t sub-command"; PASSES=$((PASSES + 1))
+else
+    fail "pipeline-report missing turns sub-command dispatcher"; FAILS=$((FAILS + 1))
+fi
+
+# Static C: reads real transcripts (subagents/agent-*.jsonl glob)
+if grep -qE 'subagents/agent-\*\.jsonl|subagents.*agent-' "$TR_SCRIPT"; then
+    pass "pipeline-report-turns reads CC subagent transcripts"; PASSES=$((PASSES + 1))
+else
+    fail "pipeline-report-turns missing transcript glob"; FAILS=$((FAILS + 1))
+fi
+
+# Static D: computes tok/s generation rate (stall discriminator)
+if grep -qE 'tok.*wallsum|out_tok.*wall|tok/s' "$TR_SCRIPT"; then
+    pass "pipeline-report-turns computes tok/s generation rate"; PASSES=$((PASSES + 1))
+else
+    fail "pipeline-report-turns missing tok/s logic"; FAILS=$((FAILS + 1))
+fi
+
+# Live E + F: synthetic fixture (paired dispatch tok/s + dropped-stop detection)
+TR_SCRATCH="$(mktemp -d -t apd-v631.XXXXXX)"
+TR_CFG="$(mktemp -d -t apd-v631cfg.XXXXXX)"
+mkdir -p "$TR_SCRATCH/.apd/memory"
+touch "$TR_SCRATCH/.apd/config"
+TR_DAY=$(date +"%Y-%m-%d")
+# one paired dispatch (60s wall) + one unpaired (dropped stop)
+cat > "$TR_SCRATCH/.apd/memory/agent-history.log" <<EOF
+$TR_DAY 10:00:00|start|testbuilder|abc123def456
+$TR_DAY 10:01:00|stop|testbuilder|abc123def456
+$TR_DAY 11:00:00|start|testbuilder|def789ghi012
+EOF
+# slug = PROJECT_DIR with non-alnum -> '-' (same as reconstruct-agents / the script)
+TR_SLUG=$(printf '%s' "$TR_SCRATCH" | sed 's#[^A-Za-z0-9]#-#g')
+TR_SUB="$TR_CFG/projects/$TR_SLUG/sess1/subagents"
+mkdir -p "$TR_SUB"
+# paired transcript: 3 assistant msgs, 3000 out-tokens, ISO timestamps span 60s -> 50 tok/s
+cat > "$TR_SUB/agent-abc123def456.jsonl" <<EOF
+{"type":"user","timestamp":"${TR_DAY}T10:00:00.000Z","message":{"role":"user"}}
+{"type":"assistant","timestamp":"${TR_DAY}T10:00:00.000Z","message":{"role":"assistant","usage":{"output_tokens":1000}}}
+{"type":"assistant","timestamp":"${TR_DAY}T10:00:30.000Z","message":{"role":"assistant","usage":{"output_tokens":1000}}}
+{"type":"assistant","timestamp":"${TR_DAY}T10:01:00.000Z","message":{"role":"assistant","usage":{"output_tokens":1000}}}
+EOF
+# dropped-stop transcript: full transcript, but no stop event in history
+cat > "$TR_SUB/agent-def789ghi012.jsonl" <<EOF
+{"type":"assistant","timestamp":"${TR_DAY}T11:00:00.000Z","message":{"role":"assistant","usage":{"output_tokens":1500}}}
+{"type":"assistant","timestamp":"${TR_DAY}T11:00:30.000Z","message":{"role":"assistant","usage":{"output_tokens":1500}}}
+EOF
+TR_OUT=$(APD_PROJECT_DIR="$TR_SCRATCH" CLAUDE_CONFIG_DIR="$TR_CFG" bash "$TR_SCRIPT" --days 3 2>&1)
+if echo "$TR_OUT" | grep -q "testbuilder" && echo "$TR_OUT" | grep -qE "Turn & Duration Telemetry"; then
+    pass "pipeline-report-turns runs on synthetic fixture (testbuilder, real turns)"; PASSES=$((PASSES + 1))
+else
+    fail "pipeline-report-turns synthetic run unexpected: $TR_OUT"; FAILS=$((FAILS + 1))
+fi
+# tok/s computed (50) and no false stall flag on healthy rate
+if echo "$TR_OUT" | grep -qE "no API/infra stall"; then
+    pass "pipeline-report-turns reports no stall on healthy tok/s"; PASSES=$((PASSES + 1))
+else
+    fail "pipeline-report-turns stall verdict wrong: $TR_OUT"; FAILS=$((FAILS + 1))
+fi
+# dropped-stop detected (1) + reconstruct hint, NOT called a maxTurn exhaust
+if echo "$TR_OUT" | grep -qE "dropped-stop" && echo "$TR_OUT" | grep -q "reconstruct-agents"; then
+    pass "pipeline-report-turns flags dropped-stop with reconstruct-agents hint"; PASSES=$((PASSES + 1))
+else
+    fail "pipeline-report-turns dropped-stop detection failed: $TR_OUT"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$TR_SCRATCH" "$TR_CFG"
 
 # -----------------------------------------------------------
 # Summary

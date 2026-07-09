@@ -13,7 +13,7 @@
 #   contracts         Check cross-layer type contracts
 #   gh <step>         GitHub sync
 #   report [--history [N]] Pipeline run report
-#   report maxturns        Telemetry: agent rapid re-dispatch (maxTurn exhaust proxy)
+#   report turns           Telemetry: real agent turns/duration/tok-s from transcripts
 #   stack [--json]    Detect supported stacks in repo (v6.11+)
 #   scaffold <stack>  Generate stack-specific agents + skills (v6.12+)
 #   audit-drift       Detect drift vs framework baseline (v6.10+)

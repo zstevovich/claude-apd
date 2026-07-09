@@ -6,7 +6,7 @@
   "query": "Run APD setup again — finish what's missing.",
   "files": {
     "CLAUDE.md": "# App\n\n## Stack\n- TypeScript\n",
-    ".claude/agents/backend-api.md": "---\nname: backend-api\nmodel: sonnet\neffort: xhigh\nmaxTurns: 40\n---\n\n# backend-api\n",
+    ".claude/agents/backend-api.md": "---\nname: backend-api\nmodel: sonnet\neffort: xhigh\n---\n\n# backend-api\n",
     ".claude/settings.json": "{ \"enabledPlugins\": {} }\n"
   },
   "expected_behavior": [

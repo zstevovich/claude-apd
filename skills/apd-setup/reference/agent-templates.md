@@ -30,7 +30,6 @@ Generated from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/agent-template.md`. 
 | `tools` | `Read, Write, Edit, Glob, Grep, Bash` |
 | `model` | `sonnet` |
 | `effort` | `xhigh` |
-| `maxTurns` | `60` |
 | `permissionMode` | `bypassPermissions` |
 | `color` | `purple` (backend), `blue` (frontend), `green` (testing), `cyan` (other) |
 
@@ -50,7 +49,6 @@ ALWAYS generated, regardless of stack. Generated from `${CLAUDE_PLUGIN_ROOT}/plu
 | `tools` | `Read, Glob, Grep, Bash` — **no Write or Edit** |
 | `model` | `opus` |
 | `effort` | `max` |
-| `maxTurns` | `80` |
 | `permissionMode` | `plan` (read-only) |
 | `color` | `orange` |
 
