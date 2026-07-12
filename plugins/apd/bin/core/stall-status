@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# stall-status — one-line status-line indicator for active stall-watch watchers.
+#
+# Reads the per-project state files that `stall-watch` maintains and prints a
+# single short indicator (empty when nothing is watched). Designed to be called
+# from a user's CC statusLine command every render — fast, read-only. Prints:
+#   ⚠ STALL: <project> <Nm>     when a watcher is currently firing (oldest first)
+#   👁 <N>                       when N pipelines are being watched, none stalled
+#   (nothing)                    when idle
+# Stale entries (watcher PID dead) are skipped and pruned.
+set -u
+
+STATEDIR="$HOME/.claude/run/stall"
+[ -d "$STATEDIR" ] || exit 0
+
+now=$(date +%s)
+watching=0
+stall_name=""
+stall_since=0
+
+for f in "$STATEDIR"/*.state; do
+  [ -f "$f" ] || continue
+  IFS='|' read -r name status agent since pid < "$f" 2>/dev/null
+  # skip + prune dead watchers
+  if [ -z "${pid:-}" ] || ! kill -0 "$pid" 2>/dev/null; then
+    rm -f "$f" 2>/dev/null
+    continue
+  fi
+  if [ "${status:-}" = "stalled" ]; then
+    # keep the oldest stall (longest-running) as the headline
+    if [ -z "$stall_name" ] || [ "${since:-$now}" -lt "$stall_since" ]; then
+      stall_name="$name"; stall_since="${since:-$now}"
+    fi
+  fi
+  watching=$(( watching + 1 ))
+done
+
+if [ -n "$stall_name" ]; then
+  mins=$(( (now - stall_since) / 60 ))
+  printf '⚠ STALL: %s %dm' "$stall_name" "$mins"
+elif [ "$watching" -gt 0 ]; then
+  printf '👁 %d' "$watching"
+fi
+exit 0

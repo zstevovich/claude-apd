@@ -608,6 +608,19 @@ case "$STEP" in
         show_pipeline "builder"
         # GitHub sync (best-effort — never blocks pipeline)
         bash "$SCRIPT_DIR/gh-sync" spec "$ARG" 2>/dev/null || true
+        # Stall-watch: auto-launch the stream-stall detector for this pipeline,
+        # detached. Self-exits when spec-card is gone (reset). Opt-out with
+        # STALL_WATCH=off in .apd/config. Never blocks; output to a log file,
+        # NEVER to CC stdout (would corrupt the TUI). Its own dup-guard prevents
+        # duplicates on re-advance.
+        _SW_MODE=$(grep '^STALL_WATCH=' "$APD_CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
+        if [ "${_SW_MODE:-on}" != "off" ] && [ -x "$APD_PLUGIN_ROOT/bin/stall-watch" ]; then
+            mkdir -p "$HOME/.claude/logs" 2>/dev/null
+            _SW_NAME="$(basename "$PROJECT_DIR")"
+            nohup env SW_NAME="$_SW_NAME" "$APD_PLUGIN_ROOT/bin/stall-watch" "$PROJECT_DIR" \
+                >> "$HOME/.claude/logs/stall-watch-$_SW_NAME.log" 2>&1 &
+            disown 2>/dev/null || true
+        fi
         # Pre-flight checklist
         echo "" >&2
         echo "    ${D}Next steps:${R}" >&2

@@ -1,5 +1,19 @@
 # Changelog
 
+## v6.32.0 — 2026-07-12
+
+**Stall-watch — structural stream-stall detection with click-to-focus notifications.** CC subagent dispatches hit stream stalls (the model emits zero bytes for 15–47 min; CC's own byte-watchdog recovery is broken upstream — GitHub #49716/#39755 — and there is no per-subagent abort, #61405 "not planned"), which hang the pipeline while the user waits blind. There is no in-CC fix; the only reliable lever is the human pressing `Esc` on the stalled dispatch. This ships a first-class detector as a real, cross-platform feature (superseding the ad-hoc personal scripts explored earlier).
+
+**Added — `plugins/apd/bin/stall-watch`:** an external, read-only, NOTIFY-only detector. **Auto-launched detached by `pipeline-advance spec`** (default ON; opt-out `STALL_WATCH=off` in `.apd/config`), logging to `~/.claude/logs/`, never to CC stdout. It watches the newest subagent transcript on disk; a zero-byte gap ≥ 150s while the agent is still running = a stall → a cross-platform desktop notification whose **click focuses that project's VS Code window** (runs `code <project>`; macOS `terminal-notifier`, Linux `notify-send`; degrades to a bell if the notifier binary is absent). Re-pings every 30s ("STILL stalled"). Three false-alarm guards (any one ⇒ not a live stall): last event `stop_reason=end_turn`, a STOP in `.agents`, or the session's MAIN transcript newer than the subagent (the orchestrator has moved on). Self-exits when the pipeline ends (spec-card gone) or the session is abandoned. PID-file dup-guard, one per project. It never kills anything — the human cancels the stalled dispatch with `Esc` and re-dispatches (the only reliable lever).
+
+**Added — `apd stall-status` (`bin/core/stall-status`):** a read-only status-line indicator. Prints `⚠ STALL: <project> <Nm>` when a watcher is firing, `👁 <N>` when N pipelines are watched with none stalled, empty when idle; prunes dead-PID entries. Add it to your own CC `statusLine` — APD never clobbers it.
+
+**Fixed — worktree memory-Edit permission hang.** An `Edit`/`Write` to `<memory>/…` inside a linked worktree misses the bare `Edit(.claude/memory/**)` allow rule (which only matches a relative path), so it hits a CC permission prompt and — if the user is away — hangs the whole pipeline (a 74-min hang was observed on a worktree). `apd-init` now also writes the `**/`-prefixed forms `Edit(**/.claude/memory/**)` / `Write(**/.claude/memory/**)` in both the create and update branches, matching the `.apd/pipeline` rules that already carried them.
+
+**Dependency:** `terminal-notifier` (macOS) / `notify-send` (Linux) for click-to-focus; without it the feature still detects and bells.
+
+**Tests:** `test-codex-adapter` §97 (+10) plus a §30 memory-rule lock-in → 840/0. Design plan at `docs/plans/stall-watch.md`.
+
 ## v6.31.0 — 2026-07-09
 
 **Real turn/duration telemetry replaces the `maxTurns` mechanism — which a controlled test proved is a no-op.** Investigating why a pipeline "felt too long" surfaced that the whole `maxTurns` story was built on a misread signal. A controlled test settled it: the `maxTurns:` frontmatter field in `.claude/agents/*.md` is **ignored** by Claude Code (a subagent with `maxTurns: 3` ran 34 turns and finished a 14-step chain; only the CLI `--max-turns` main-loop flag binds, and APD never sets it). So the field never limited anything — builders freely exceeded their values (measured: 40→94 turns) — and every "start without a stop" in the telemetry was always a **dropped `SubagentStop` hook**, never a maxTurn exhaust. The "~22% exhaust rate" was misattributed; SPEC's "start without stop = maxTurn hit" was false; the apd-init repair, the apd-audit "missing maxTurns" check, and the `report maxturns` proxy were all acting on an inert field.

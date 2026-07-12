@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+# stall-watch — external CC subagent stream-stall detector (NOTIFY-only, read-only).
+#
+# Watches the newest subagent transcript on disk for a project. If it goes silent
+# past a threshold WHILE the agent is still running (a CC stream stall — zero bytes,
+# upstream bug #49716/#39755, no in-CC recovery), it fires a desktop notification
+# whose CLICK focuses that project's VS Code window (`code <project>`). It NEVER
+# touches the CC session and never kills anything — the human presses Esc to cancel
+# the stalled dispatch, then re-dispatches.
+#
+# Launched automatically by `pipeline-advance spec`; self-exits when the pipeline
+# ends (spec-card gone) or the session is abandoned. Also runnable by hand:
+#   stall-watch <project-dir>
+#
+# Tunables (env): SW_THRESH=150  SW_POLL=10  SW_REPING=30  SW_IDLE_EXIT=900
+#                 SW_ORPHAN=3600  SW_NAME=<label>  SW_MAX_ITERS=0
+set -u
+
+PROJ="${1:-$PWD}"
+THRESH="${SW_THRESH:-150}"        # seconds of stream silence => treat as stall
+POLL="${SW_POLL:-10}"             # poll interval (s)
+REPING="${SW_REPING:-30}"         # re-alarm interval while still stalled (s)
+IDLE_EXIT="${SW_IDLE_EXIT:-900}"  # self-exit after this many s idle AND no spec-card (0=never)
+ORPHAN="${SW_ORPHAN:-3600}"       # exit if the whole session is dead this long (abandoned pipeline)
+MAX_ITERS="${SW_MAX_ITERS:-0}"    # 0 = run forever (test hook)
+
+SLUG=$(printf '%s' "$PROJ" | sed 's/[^A-Za-z0-9]/-/g')
+PROJ_NAME="${SW_NAME:-$(basename "$PROJ")}"
+BASE="$HOME/.claude/projects/$SLUG"
+AGENTS="$PROJ/.apd/pipeline/.agents"
+SPEC_CARD="$PROJ/.apd/pipeline/spec-card.md"
+RUNDIR="$HOME/.claude/run"
+STATEDIR="$RUNDIR/stall"
+PIDF="$RUNDIR/stall-watch-$SLUG.pid"
+STATEF="$STATEDIR/$SLUG.state"
+mkdir -p "$STATEDIR" 2>/dev/null
+
+ts(){ date '+%H:%M:%S'; }
+line(){ printf '%s  %s\n' "$(ts)" "$*"; }
+
+# state file for `apd stall-status` — one line: name|status|agent|since_ts|pid
+state(){ printf '%s|%s|%s|%s|%s\n' "$PROJ_NAME" "$1" "${2:-}" "$(date +%s)" "$$" > "$STATEF" 2>/dev/null; }
+
+# cross-platform notification; click focuses the project's VS Code window.
+notify(){
+  local msg="$1" os; os="$(uname)"
+  if [ "$os" = "Darwin" ]; then
+    if command -v terminal-notifier >/dev/null 2>&1; then
+      terminal-notifier -title "⚠ Stall: $PROJ_NAME" -message "$msg" \
+        -execute "code '$PROJ'" -sound Sosumi >/dev/null 2>&1
+    else
+      # degraded: built-in notification cannot run a command on click
+      osascript -e "display notification \"$msg\" with title \"⚠ Stall: $PROJ_NAME\" sound name \"Sosumi\"" >/dev/null 2>&1
+    fi
+  elif command -v notify-send >/dev/null 2>&1; then
+    notify-send -u critical "⚠ Stall: $PROJ_NAME" "$msg" >/dev/null 2>&1
+  fi
+  printf '\a'
+  return 0
+}
+
+cleanup(){
+  [ -f "$PIDF" ] && [ "$(cat "$PIDF" 2>/dev/null)" = "$$" ] && rm -f "$PIDF"
+  [ -f "$STATEF" ] && grep -q "|$$\$" "$STATEF" 2>/dev/null && rm -f "$STATEF"
+}
+
+# --- dup-guard: one watcher per project ------------------------------------
+mkdir -p "$RUNDIR" 2>/dev/null
+if [ -f "$PIDF" ]; then
+  op=$(cat "$PIDF" 2>/dev/null)
+  if [ -n "$op" ] && kill -0 "$op" 2>/dev/null; then
+    line "already watching this project (pid $op) — exiting"
+    exit 0
+  fi
+fi
+echo "$$" > "$PIDF"
+trap cleanup EXIT INT TERM
+
+line "stall-watch armed — $PROJ_NAME (threshold=${THRESH}s)"
+state watching ""
+
+alarmed_id=""
+alarm_at=0
+idle_since=0
+iters=0
+
+while :; do
+  now=$(date +%s)
+  is_idle=0
+  f=$(ls -t "$BASE"/*/subagents/agent-*.jsonl 2>/dev/null | head -1)
+  if [ -n "$f" ]; then
+    id=$(basename "$f" .jsonl); id="${id#agent-}"
+    mt=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo "$now")
+    sil=$(( now - mt ))
+    # "finished / not-blocking" (suppress false alarm) if ANY:
+    #  (a) last event stop_reason=end_turn, (b) STOP in .agents,
+    #  (c) session MAIN transcript newer than the subagent => orchestrator moved on.
+    fin=0
+    tail -1 "$f" 2>/dev/null | grep -q '"stop_reason":[[:space:]]*"end_turn"' && fin=1
+    if [ "$fin" = 0 ] && [ -f "$AGENTS" ] && grep -qE "\|stop\|.*\|$id\$" "$AGENTS" 2>/dev/null; then fin=1; fi
+    if [ "$fin" = 0 ]; then
+      sess=$(basename "$(dirname "$(dirname "$f")")")
+      main_mt=$(stat -f %m "$BASE/$sess.jsonl" 2>/dev/null || stat -c %Y "$BASE/$sess.jsonl" 2>/dev/null || echo 0)
+      [ "$main_mt" -gt "$mt" ] && fin=1
+    fi
+    if [ "$fin" = 1 ]; then
+      [ "$alarmed_id" = "$id" ] && { alarmed_id=""; state watching ""; }
+      is_idle=1
+    else
+      typ=$(grep -E "\|start\|.*\|$id\$" "$AGENTS" 2>/dev/null | tail -1 | cut -d'|' -f3)
+      [ -z "$typ" ] && typ="?"
+      if [ "$sil" -ge "$THRESH" ]; then
+        if [ "$alarmed_id" != "$id" ] || [ $(( now - alarm_at )) -ge "$REPING" ]; then
+          if [ "$alarmed_id" != "$id" ]; then kind="STALL"; else kind="STILL stalled"; fi
+          notify "$kind: $typ silent ${sil}s — Esc + re-dispatch"
+          alarmed_id="$id"; alarm_at="$now"; state stalled "$typ"
+          line "🔔 $kind  $typ ($id) silent ${sil}s  — NOTIFIED"
+        fi
+      else
+        [ "$alarmed_id" = "$id" ] && { alarmed_id=""; state watching ""; }
+      fi
+    fi
+  else
+    is_idle=1
+  fi
+
+  # self-exit: pipeline over (no spec-card) + idle, OR the session is abandoned
+  # (nothing under the project's CC dir touched for ORPHAN seconds).
+  newest_any=$(ls -t "$BASE"/*.jsonl "$BASE"/*/subagents/agent-*.jsonl 2>/dev/null | head -1)
+  session_dead=0
+  if [ -n "$newest_any" ]; then
+    nmt=$(stat -f %m "$newest_any" 2>/dev/null || stat -c %Y "$newest_any" 2>/dev/null || echo "$now")
+    [ $(( now - nmt )) -ge "$ORPHAN" ] && session_dead=1
+  fi
+  if [ "$session_dead" = 1 ]; then
+    line "session abandoned (${ORPHAN}s dead) — exiting"; break
+  fi
+  if [ "$is_idle" = 1 ] && [ ! -f "$SPEC_CARD" ]; then
+    [ "$idle_since" = 0 ] && idle_since="$now"
+    if [ "$IDLE_EXIT" != 0 ] && [ $(( now - idle_since )) -ge "$IDLE_EXIT" ]; then
+      line "pipeline over (no spec-card) — exiting"; break
+    fi
+  else
+    idle_since=0
+  fi
+
+  iters=$(( iters + 1 ))
+  [ "$MAX_ITERS" != 0 ] && [ "$iters" -ge "$MAX_ITERS" ] && break
+  sleep "$POLL"
+done

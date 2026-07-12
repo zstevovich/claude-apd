@@ -203,6 +203,8 @@ FOOTER
     "allow": [
       "Edit(.claude/memory/**)",
       "Write(.claude/memory/**)",
+      "Edit(**/.claude/memory/**)",
+      "Write(**/.claude/memory/**)",
       "Write(.apd/pipeline/spec-card.md)",
       "Write(.apd/pipeline/implementation-plan.md)",
       "Write(.apd/pipeline/.adversarial-summary)",
@@ -568,6 +570,7 @@ with open('$CLAUDE_DIR/settings.json') as f:
     s = json.load(f)
 required_allow = [
     'Edit(.claude/memory/**)', 'Write(.claude/memory/**)',
+    'Edit(**/.claude/memory/**)', 'Write(**/.claude/memory/**)',
     'Write(.apd/pipeline/spec-card.md)', 'Write(.apd/pipeline/implementation-plan.md)',
     'Write(.apd/pipeline/.adversarial-summary)',
     'Write(**/.apd/pipeline/spec-card.md)', 'Write(**/.apd/pipeline/implementation-plan.md)',

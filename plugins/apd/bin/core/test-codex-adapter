@@ -3089,6 +3089,23 @@ for pattern in \
     fi
 done
 
+# Worktree memory writes: the **/-prefixed forms are REQUIRED or a memory
+# Edit/Write in a linked worktree (absolute path) misses the bare
+# `Edit(.claude/memory/**)` glob, hits a CC permission PROMPT, and — if the
+# user is away — hangs the whole pipeline (74-min hang observed 2026-07-11 on
+# a backend-work worktree). Lock in the **/ memory allow rules.
+for pattern in \
+    'Edit(**/.claude/memory/**)' \
+    'Write(**/.claude/memory/**)'; do
+    if grep -qF "$pattern" "$SETTINGS" 2>/dev/null; then
+        pass "worktree memory allow rule present: $pattern"
+        PASSES=$((PASSES + 1))
+    else
+        fail "worktree memory allow rule MISSING: $pattern"
+        FAILS=$((FAILS + 1))
+    fi
+done
+
 rm -rf "$INIT_DIR"
 
 # -----------------------------------------------------------
@@ -10502,6 +10519,44 @@ else
     fail "pipeline-report-turns dropped-stop detection failed: $TR_OUT"; FAILS=$((FAILS + 1))
 fi
 rm -rf "$TR_SCRATCH" "$TR_CFG"
+
+# -----------------------------------------------------------
+# 97. Stall-watch — stream-stall detector + status-line indicator
+# -----------------------------------------------------------
+section "97. stall-watch stream-stall detector"
+
+SW_BIN="$APD_PLUGIN_ROOT/bin/stall-watch"
+SS_BIN="$APD_PLUGIN_ROOT/bin/core/stall-status"
+PA_BIN="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+
+if [ -x "$SW_BIN" ]; then pass "stall-watch present + executable"; PASSES=$((PASSES + 1)); else fail "stall-watch missing/not exec"; FAILS=$((FAILS + 1)); fi
+if [ -x "$SS_BIN" ]; then pass "stall-status present + executable"; PASSES=$((PASSES + 1)); else fail "stall-status missing/not exec"; FAILS=$((FAILS + 1)); fi
+if grep -qF 'stall-status|ss)' "$APD_PLUGIN_ROOT/bin/apd"; then pass "apd dispatches stall-status|ss"; PASSES=$((PASSES + 1)); else fail "apd missing stall-status route"; FAILS=$((FAILS + 1)); fi
+
+# cross-platform notify (macOS terminal-notifier + Linux notify-send) with click-exec
+if grep -qF 'terminal-notifier' "$SW_BIN" && grep -qF 'notify-send' "$SW_BIN" && grep -qF '-execute' "$SW_BIN"; then
+    pass "stall-watch cross-platform notify + click-exec (code focus)"; PASSES=$((PASSES + 1))
+else fail "stall-watch notify layer incomplete"; FAILS=$((FAILS + 1)); fi
+
+# auto-launch wired into pipeline-advance spec, default ON, opt-out, logfile not stdout
+if grep -qF 'bin/stall-watch' "$PA_BIN" && grep -qF 'SW_NAME' "$PA_BIN" && grep -qF '${_SW_MODE:-on}' "$PA_BIN"; then
+    pass "pipeline-advance spec auto-launches stall-watch (default ON, opt-out)"; PASSES=$((PASSES + 1))
+else fail "pipeline-advance stall-watch launch not wired"; FAILS=$((FAILS + 1)); fi
+
+# self-exit gated on spec-card (not a naive idle timer) + main-newer false-positive guard
+if grep -qF 'SPEC_CARD' "$SW_BIN"; then pass "stall-watch self-exit gated on spec-card"; PASSES=$((PASSES + 1)); else fail "stall-watch spec-card gate missing"; FAILS=$((FAILS + 1)); fi
+if grep -qF 'main_mt' "$SW_BIN"; then pass "stall-watch main-newer false-positive guard"; PASSES=$((PASSES + 1)); else fail "stall-watch main-newer guard missing"; FAILS=$((FAILS + 1)); fi
+
+# stall-status live: stalled headline, watching indicator, dead-pid pruning
+SS_TMP="$HOME/.claude/run/stall"; mkdir -p "$SS_TMP"
+printf 'zz-stalltest|stalled|adversarial-reviewer|%s|%s\n' "$(( $(date +%s) - 180 ))" "$$" > "$SS_TMP/zz-stalltest.state"
+if bash "$SS_BIN" | grep -q 'STALL: zz-stalltest'; then pass "stall-status shows firing stall"; PASSES=$((PASSES + 1)); else fail "stall-status did not show stall"; FAILS=$((FAILS + 1)); fi
+printf 'zz-stalltest|watching||%s|%s\n' "$(date +%s)" "$$" > "$SS_TMP/zz-stalltest.state"
+if bash "$SS_BIN" | grep -qF '👁'; then pass "stall-status shows watching indicator"; PASSES=$((PASSES + 1)); else fail "stall-status watching indicator missing"; FAILS=$((FAILS + 1)); fi
+printf 'zz-dead|watching||%s|999999\n' "$(date +%s)" > "$SS_TMP/zz-dead.state"
+bash "$SS_BIN" >/dev/null 2>&1
+if [ ! -f "$SS_TMP/zz-dead.state" ]; then pass "stall-status prunes dead-pid state"; PASSES=$((PASSES + 1)); else fail "stall-status did not prune dead state"; FAILS=$((FAILS + 1)); fi
+rm -f "$SS_TMP/zz-stalltest.state" "$SS_TMP/zz-dead.state"
 
 # -----------------------------------------------------------
 # Summary

@@ -65,6 +65,9 @@ case "$CMD" in
     profile|pf)
         exec bash "$CORE_DIR/pipeline-model-profile" "$@"
         ;;
+    stall-status|ss)
+        exec bash "$CORE_DIR/stall-status" "$@"
+        ;;
     roles|rl)
         exec bash "$CORE_DIR/roles" "$@"
         ;;
@@ -204,6 +207,7 @@ case "$CMD" in
         echo "    scaffold <stack>  Generate stack-specific agents + skills (--list-stacks, --dry-run, --force)"
         echo "    audit-drift       Detect drift vs framework baseline (settings/version/workflow)"
         echo "    profile [name]    Switch agent model profile — economy vs quality (list|status|<name> [--dry-run])"
+        echo "    stall-status      Status-line indicator for active stall watchers (add to your statusLine)"
         echo "    roles [sub]       Generic role registry + workflow (list|status [role]|guide)"
         echo "    run-role <role>   Launch CC as a role with its charter (--launch; producer=worktree, operator=root, --list)"
         echo "    merge-role <role> Read-only merge gate for a role's worktree (--into <branch>)"
