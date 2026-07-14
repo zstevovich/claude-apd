@@ -1298,7 +1298,10 @@ function _check() {
         # v6.30 — Supervision gate (profile-coupled frontier final review).
         # Applies ONLY when the declared MODEL_PROFILE has a `supervisor` row in
         # model-profiles.conf (v1: eco) AND adversarial ran (Full mode) — absent
-        # row / no profile / Lean / pure Codex → inert by construction. The
+        # row / no profile / Lean → inert by construction. Codex runtime is
+        # explicitly honest-inert (v6.33): a hybrid project's shared config would
+        # otherwise fire this gate on Codex runs that structurally cannot dispatch
+        # the CC supervisor, which trusted a Codex-written summary as a false pass. The
         # supervisor reviews the FINAL diff (post-adversarial-fixes): R-criteria
         # still met, fix-of-findings collateral, Regression-surface claims vs
         # diff, commit verdict. NO spec-card opt-out BY DESIGN (user decision
@@ -1318,7 +1321,18 @@ function _check() {
             [ -f "$SUP_CONF" ] || SUP_CONF="$APD_PLUGIN_ROOT/templates/model-profiles.conf"
             SUP_ROW=$(grep -v '^[[:space:]]*#' "$SUP_CONF" 2>/dev/null | awk -F'|' -v p="$SUP_PROFILE" '$1==p && $2=="supervisor" {print $3; exit}')
         fi
-        if [ -n "$SUP_ROW" ] && [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
+        if [ -n "$SUP_ROW" ] && [ -f "$PIPELINE_DIR/.adversarial-summary" ] && [ "${APD_RUNTIME:-}" = "codex" ]; then
+            # v6.33 — Codex cannot dispatch the CC frontier supervisor (dispatch is
+            # CC-only via model-profiles + --append-system-prompt). A .supervision-summary
+            # on a Codex run has no real supervisor behind it, so trusting it logged a
+            # FALSE supervision-pass (2026-07-14, efiskalizacija End-to-end/Fail-fast:
+            # supervision-pass model=claude-fable-5 with no fable dispatch on record).
+            # Honest-inert: never a pass, never a strict block — just record that this
+            # run had no frontier supervision (this is what unblocks the Phase 2 strict
+            # flip for hybrid Codex projects). Codex-native supervisor path = deferred.
+            if [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ]; then _sgt=SYNTHETIC; else _sgt=INFO; fi
+            [ -d "$MEMORY_DIR" ] && echo "$(date +"%Y-%m-%d %H:%M:%S")|${_sgt}|orchestrator|supervision-not-applicable|runtime=codex profile=$SUP_PROFILE" >> "$MEMORY_DIR/guard-audit.log"
+        elif [ -n "$SUP_ROW" ] && [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
             SUP_MODE="$SUPERVISION_GATE_DEFAULT"
             if [ "${APD_SUPERVISION_GATE:-}" = "strict" ]; then
                 SUP_MODE="strict"   # escalation is always allowed
@@ -1328,9 +1342,12 @@ function _check() {
                 [ -d "$MEMORY_DIR" ] && echo "$(date +"%Y-%m-%d %H:%M:%S")|${_sgt}|orchestrator|supervision-gate-downgrade-ignored|requested=${APD_SUPERVISION_GATE} default=$SUP_MODE" >> "$MEMORY_DIR/guard-audit.log"
             fi
             SUP_ISSUE=$(_supervision_issue "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md")
-            # Fabrication check: summary present but supervisor never dispatched
-            # (same class as adversarial-summary-without-dispatch).
-            if [ -z "$SUP_ISSUE" ] && [ -f "$AGENTS_LOG" ] && ! grep -q "|start|supervisor|" "$AGENTS_LOG" 2>/dev/null; then
+            # Fabrication check: a pass REQUIRES positive proof of a real supervisor
+            # dispatch. Absence of the ledger is absence of proof, NOT "no problem"
+            # (2026-07-14 false-pass generalization, rule 5) — fire the issue whenever
+            # there is no |start|supervisor| on record, whether the agent log is
+            # missing entirely or merely lacks the start.
+            if [ -z "$SUP_ISSUE" ] && ! { [ -f "$AGENTS_LOG" ] && grep -q "|start|supervisor|" "$AGENTS_LOG" 2>/dev/null; }; then
                 SUP_ISSUE="supervision-summary-without-dispatch|no supervisor start in agent log"
             fi
             # Churn cap (plan D7): one pass + at most one re-check after fixes.
@@ -1517,6 +1534,41 @@ function _c() {
                     *)            cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log" ;;
                 esac
             fi
+            # v6.33 — per-run runtime tag (col 19: cc/codex). The metrics namespace
+            # is shared across runtimes, so without this a Codex run is
+            # indistinguishable from a CC run (2026-07-14: the efiskalizacija
+            # Codex runs had to be reconstructed forensically from CC-transcript
+            # gaps). APD_RUNTIME=codex is set by the sanctioned Codex MCP advance
+            # path; unset ⇒ cc. Appended after sup_d — the report reader's _rest
+            # sink keeps older 18-col rows readable.
+            RUNTIME_TAG="cc"; [ "${APD_RUNTIME:-}" = "codex" ] && RUNTIME_TAG="codex"
+            # v6.33 — per-run orchestrator model (col 20). The metrics namespace is
+            # model-blind: a GLM-on-CC (or any cross-vendor) run is indistinguishable
+            # from an Opus run (2026-07-14 festico: a full GLM pipeline fooled the
+            # analysis). Honest source = the CC transcript "model" field. Resolve THIS
+            # run's session from an agent-id in .agents (unique to this run's session,
+            # so unambiguous even under the user's parallel GLM/Opus/Codex sessions) →
+            # its main transcript's last model. Codex has no CC transcript → "codex";
+            # unresolved (no agents / transcript pruned) → "unknown". Best-effort,
+            # never fails the reset. Baked into the row so the log is self-describing
+            # after transcripts are deleted.
+            MODEL_TAG="unknown"
+            if [ "${APD_RUNTIME:-}" = "codex" ]; then
+                MODEL_TAG="codex"
+            elif [ -f "$PIPELINE_DIR/.agents" ]; then
+                _mid=$(grep '|start|' "$PIPELINE_DIR/.agents" 2>/dev/null | head -1 | awk -F'|' '{print $4}')
+                if [ -n "$_mid" ]; then
+                    _mslug=$(printf '%s' "$PROJECT_DIR" | sed 's#[^A-Za-z0-9]#-#g')
+                    _matx=$(ls "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$_mslug"/*/subagents/agent-"$_mid".jsonl 2>/dev/null | head -1)
+                    if [ -n "$_matx" ] && [ -f "$_matx" ]; then
+                        _mmain="$(dirname "$(dirname "$_matx")").jsonl"
+                        if [ -f "$_mmain" ]; then
+                            _mm=$(grep -o '"model":"[^"]*"' "$_mmain" 2>/dev/null | tail -1 | sed 's/.*"model":"//; s/"$//')
+                            [ -n "$_mm" ] && MODEL_TAG="$_mm"
+                        fi
+                    fi
+                fi
+            fi
             # Skip metrics write for verify-apd test harness runs (task names APD-VERIFY-*)
             # These are synthetic pipelines from `apd verify` and pollute real run history.
             case "$TASK_NAME" in
@@ -1524,7 +1576,7 @@ function _c() {
                     : # skip metrics write
                     ;;
                 *)
-                    echo "${NOW}|${TASK_NAME}|${SPEC_TS_V}|${BUILDER_TS_V}|${REVIEWER_TS_V}|${VERIFIER_TS_V}|${STATUS}|${ADV_T}|${ADV_A}|${ADV_D}|${AGENTS_T}|${AGENTS_X}|${ADV_DO}|${ADV_DR}|${ADV_W}|${SUP_T}|${SUP_A}|${SUP_D}" >> "$METRICS_LOG"
+                    echo "${NOW}|${TASK_NAME}|${SPEC_TS_V}|${BUILDER_TS_V}|${REVIEWER_TS_V}|${VERIFIER_TS_V}|${STATUS}|${ADV_T}|${ADV_A}|${ADV_D}|${AGENTS_T}|${AGENTS_X}|${ADV_DO}|${ADV_DR}|${ADV_W}|${SUP_T}|${SUP_A}|${SUP_D}|${RUNTIME_TAG}|${MODEL_TAG}" >> "$METRICS_LOG"
                     ;;
             esac
 

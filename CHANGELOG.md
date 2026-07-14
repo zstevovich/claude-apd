@@ -1,5 +1,27 @@
 # Changelog
 
+## v6.33.0 — 2026-07-14
+
+**Codex runtime attribution & correctness, plus a push-remote resolver.** This release closes two telemetry blind spots that fooled real pipeline analyses, hardens the v6.30 supervision gate against a Codex false-pass, and removes the finish flow's hardcoded `origin` assumption.
+
+**Added — `apd git-remote` (`bin/core/git-remote-resolve`):** a read-only push-remote resolver that removes the finish flow's hardcoded `origin` assumption (a repo whose remote is `esir` failed the first push). Resolution order: `APD_GIT_REMOTE` from `.apd/config` → the current branch's `@{upstream}` remote → the only remote → `origin` (preferred among multiple) → an all-remotes-same-URL alias set (shortest name) → otherwise ambiguous (lists candidates, exit 1, the orchestrator asks the user). Prints only the remote name on stdout; never runs push/add/commit — the push stays orchestrator-driven under `APD_ORCHESTRATOR_COMMIT=1` (guard-git enforces the prefix and blocks `--force`). `--report` summarizes remote/branch/upstream; `--set-remote <name>` pins `APD_GIT_REMOTE` in `.apd/config`. Wired into apd-finish (CC skill) + codex `rules/finish.md`, both of which now resolve the remote instead of assuming origin.
+
+**Added — per-run runtime + model columns in `pipeline-metrics.log` (cols 19–20).** The metrics namespace was runtime- and model-blind: a Codex run was indistinguishable from a CC run, and a cross-vendor GLM-on-CC run indistinguishable from Opus — two real analyses had to reconstruct the runtime/model forensically. `runtime` (`cc`|`codex`) comes from `APD_RUNTIME`; `model` (the per-run orchestrator model) is resolved at the reset write from the CC transcript's `"model"` field via an agent-id in `.agents` (this run's session → main transcript, unique even under parallel sessions; Codex ⇒ `codex`, unresolved ⇒ `unknown`; best-effort, never fails the reset). Baked into the row so the log stays self-describing after transcripts are pruned. `apd report` renders a `Runtime: <rt> · <model>` line.
+
+**Fixed — Codex supervision false-pass (v6.30 gate).** On a hybrid Codex project sharing the eco config, the supervision gate fired on Codex runs — which structurally cannot dispatch the CC frontier supervisor — and, because `.agents` is never written on Codex, silently skipped its fabrication/finality checks and trusted a Codex-written summary as a `supervision-pass model=claude-fable-5` with no fable dispatch on record (observed live on efiskalizacija). The gate is now **honest-inert on `APD_RUNTIME=codex`**: it logs `supervision-not-applicable|runtime=codex`, never a pass, never a strict block (which also unblocks the future Phase-2 strict flip for hybrid Codex projects). The CC fabrication check was tightened in the same spirit: a pass now requires positive proof of a supervisor dispatch (absence of the ledger is absence of proof, not "no problem").
+
+**Fixed — `.codex/bin/apd` shortcut now exports `APD_RUNTIME=codex`.** A Codex pipeline advanced via the bare shortcut (rather than the MCP tool, which set it in `_codex_env`) was silently treated as CC by the whole script. Both shortcut generators — `install-codex-config` and the MCP server's bootstrap — now write the export, and their skip-checks upgrade pre-export shortcuts on the next install/server-start.
+
+**Fixed — `apd report --history` crash on dotted model ids.** The history reader stopped at `agents_x`, so a col-20 model id containing a dot (`glm-5.2`, `gpt-4.1`) spilled into an arithmetic context and aborted the reader — on exactly the cross-vendor runs the model column targets (Claude ids use dashes, so they never tripped it). A `_rest` sink on both history reads fixes it (and a pre-existing v6.30 bitwise-OR corruption of the MaxTurn-exhaust aggregate in the same loop).
+
+### Audit
+
+Two independent pre-commit audits (decontextualized agents). Supervision honest-inert: SAFE TO BUMP, 0 critical / 0 important — the auditor reproduced the pre-fix false-pass and confirmed forged-ledger and unset-runtime shapes fail safe. Runtime/model columns: found the `apd report --history` crash (important) — fixed + regression-tested — and confirmed the resolver never fails the reset (every branch degrades to `unknown`/`codex`) and the parallel-session claim holds (17-hex agent-ids empirically unique across 476 real agent files, zero cross-session basename collisions).
+
+### Tests
+
+`test-codex-adapter` §95 (Codex honest-inert + CC fabrication tightening), the metrics runtime/model columns (write + resolve-from-transcript + history-crash regression), the shortcut export (install + upgrade + MCP bootstrap), and §98 (git-remote-resolve) → **858/0**.
+
 ## v6.32.0 — 2026-07-12
 
 **Stall-watch — structural stream-stall detection with click-to-focus notifications.** CC subagent dispatches hit stream stalls (the model emits zero bytes for 15–47 min; CC's own byte-watchdog recovery is broken upstream — GitHub #49716/#39755 — and there is no per-subagent abort, #61405 "not planned"), which hang the pipeline while the user waits blind. There is no in-CC fix; the only reliable lever is the human pressing `Esc` on the stalled dispatch. This ships a first-class detector as a real, cross-platform feature (superseding the ad-hoc personal scripts explored earlier).

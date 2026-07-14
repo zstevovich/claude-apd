@@ -68,7 +68,8 @@ Wait for the user's choice. Do not preemptively execute option 1.
 #### Option 1 — push
 
 ```bash
-APD_ORCHESTRATOR_COMMIT=1 git push -u origin <branch>
+# Resolve the push remote first — never assume "origin" (handles esir, upstream, etc.)
+REMOTE=$(apd git-remote) && APD_ORCHESTRATOR_COMMIT=1 git push -u "$REMOTE" <branch>
 ```
 
 (Codex does not yet ship a Git tool hook; run the push from a terminal
@@ -77,7 +78,8 @@ outside Codex — or have the user run it.)
 #### Option 2 — push and open a PR
 
 ```bash
-APD_ORCHESTRATOR_COMMIT=1 git push -u origin <branch>
+# Resolve the push remote first — never assume "origin" (handles esir, upstream, etc.)
+REMOTE=$(apd git-remote) && APD_ORCHESTRATOR_COMMIT=1 git push -u "$REMOTE" <branch>
 gh pr create --title "<feature>" --body "$(cat <<'EOF'
 ## Summary
 <what changed in one paragraph>
@@ -119,10 +121,12 @@ git branch -D <branch>
 | "I'll push and create the PR in one go" | User might want to review locally first. |
 | "Skip verification, we just ran tests" | Verify again. Something might have changed. |
 | "Force push to fix the branch" | Never force push. APD blocks it anyway. |
+| "Push to origin" | The remote may not be `origin` (e.g. `esir`). Run `apd git-remote` — never assume. |
 
 ## Rules
 
 - Never push without user approval
+- Resolve the push remote with `apd git-remote` — never hardcode `origin`. If it exits non-zero (ambiguous), ask the user or pin `apd git-remote --set-remote <name>`
 - Never force-push (the destructive-git guard blocks it)
 - Always verify tests before presenting options
 - PR body MUST include the APD pipeline summary — proves the work was reviewed

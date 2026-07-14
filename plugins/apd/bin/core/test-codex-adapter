@@ -105,6 +105,14 @@ echo "$FIRST_OUT" | grep -q "PreToolUse file-edit hook" && pass "wrote file-edit
 echo "$FIRST_OUT" | grep -q "SessionStart hook" && pass "wrote SessionStart hook" && PASSES=$((PASSES + 1)) || { fail "no SessionStart hook written"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "\.codex/bin/apd shortcut" && pass "wrote .codex/bin/apd shortcut" && PASSES=$((PASSES + 1)) || { fail "no apd shortcut created"; FAILS=$((FAILS + 1)); }
 _check ".codex/bin/apd is executable" test -x "$SCRATCH/.codex/bin/apd"
+_check ".codex/bin/apd exports APD_RUNTIME=codex (runtime tag for shortcut-driven advances)" \
+    grep -q 'export APD_RUNTIME=codex' "$SCRATCH/.codex/bin/apd"
+# Upgrade path: a pre-export shortcut from an older install is rewritten (the
+# skip-check now requires the APD_RUNTIME tag too, not just the plugin path).
+printf '#!/bin/bash\nexec bash "%s" "$@"\n' "$APD_PLUGIN_ROOT/bin/apd" > "$SCRATCH/.codex/bin/apd"
+bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$SCRATCH" >/dev/null 2>&1
+_check ".codex/bin/apd upgrade: pre-export shortcut rewritten with APD_RUNTIME tag" \
+    grep -q 'export APD_RUNTIME=codex' "$SCRATCH/.codex/bin/apd"
 echo "$FIRST_OUT" | grep -q "\.apd/config seed" && pass "seeded .apd/config (pure-Codex activation)" && PASSES=$((PASSES + 1)) || { fail "no .apd/config seed emitted"; FAILS=$((FAILS + 1)); }
 _check ".apd/config exists" test -f "$SCRATCH/.apd/config"
 _check "did NOT create .claude/ anywhere" test ! -e "$SCRATCH/.claude"
@@ -837,11 +845,11 @@ import apd_mcp_server as m
 m._bootstrap_shortcut()
 PY
 )
-    if [ -x "$BOOT_DIR/.codex/bin/apd" ]; then
-        pass "bootstrap creates .codex/bin/apd when .codex/ exists"
+    if [ -x "$BOOT_DIR/.codex/bin/apd" ] && grep -q 'export APD_RUNTIME=codex' "$BOOT_DIR/.codex/bin/apd"; then
+        pass "bootstrap creates .codex/bin/apd (with export APD_RUNTIME=codex) when .codex/ exists"
         PASSES=$((PASSES + 1))
     else
-        fail "bootstrap did not create .codex/bin/apd"
+        fail "bootstrap did not create .codex/bin/apd (or missing APD_RUNTIME export)"
         FAILS=$((FAILS + 1))
     fi
 
@@ -5324,12 +5332,16 @@ _COLS=$(echo "$_LAST" | awk -F'|' '{print NF}')
 _DO=$(echo "$_LAST" | awk -F'|' '{print $13}')
 _DR=$(echo "$_LAST" | awk -F'|' '{print $14}')
 _W=$(echo "$_LAST" | awk -F'|' '{print $15}')
-# v6.30: rows are 18-col (16-18 = sup_t|sup_a|sup_d, zeros when no supervision ran)
-if [ "$_COLS" = "18" ] && [ "$_DO" = "1" ] && [ "$_DR" = "1" ] && [ "$_W" = "2" ]; then
-    pass "end-to-end: rationale produces 18-col row with Do=1 Dr=1 W=2 ('ok' is short AND lazy)"
+_RT=$(echo "$_LAST" | awk -F'|' '{print $19}')
+_MDL=$(echo "$_LAST" | awk -F'|' '{print $20}')
+# v6.30: cols 16-18 = sup_t|sup_a|sup_d (zeros when no supervision ran).
+# v6.x: col 19 = runtime (cc — no APD_RUNTIME set), col 20 = model (unknown — the
+# fixture has no CC transcript to resolve) → 20-col row.
+if [ "$_COLS" = "20" ] && [ "$_DO" = "1" ] && [ "$_DR" = "1" ] && [ "$_W" = "2" ] && [ "$_RT" = "cc" ] && [ "$_MDL" = "unknown" ]; then
+    pass "end-to-end: rationale produces 20-col row with Do=1 Dr=1 W=2 runtime=cc model=unknown ('ok' is short AND lazy)"
     PASSES=$((PASSES + 1))
 else
-    fail "end-to-end metrics row mismatch (cols=$_COLS Do=$_DO Dr=$_DR W=$_W; row=$_LAST)"
+    fail "end-to-end metrics row mismatch (cols=$_COLS Do=$_DO Dr=$_DR W=$_W RT=$_RT MDL=$_MDL; row=$_LAST)"
     FAILS=$((FAILS + 1))
 fi
 rm -rf "$_T"
@@ -10176,8 +10188,9 @@ if grep -q '_supervision_issue()' "$SV_ADVANCE" \
    && grep -q 'supervision-not-final' "$SV_ADVANCE" \
    && grep -q 'supervision-pass' "$SV_ADVANCE" \
    && grep -q 'supervision-warn' "$SV_ADVANCE" \
+   && grep -q 'supervision-not-applicable|runtime=codex' "$SV_ADVANCE" \
    && ! grep -q 'supervision-gate-off' "$SV_ADVANCE"; then
-    pass "verifier supervision gate: one-way env + fabrication + stop-cap + finality + telemetry, no off"; PASSES=$((PASSES + 1))
+    pass "verifier supervision gate: one-way env + fabrication + stop-cap + finality + telemetry + codex honest-inert, no off"; PASSES=$((PASSES + 1))
 else
     fail "supervision gate wiring incomplete in pipeline-advance"; FAILS=$((FAILS + 1))
 fi
@@ -10220,15 +10233,82 @@ else
     fail "spinoff precondition not widened"; FAILS=$((FAILS + 1))
 fi
 
-# Static H: metrics columns 16-18 + report parser _rest sink (fixes the v6.7.1
-# agents_x absorption bug) + Supervision render line.
-if grep -q 'SUP_T}|${SUP_A}|${SUP_D}' "$SV_ADVANCE" \
-   && grep -q 'sup_t sup_a sup_d _rest' "$APD_PLUGIN_ROOT/bin/core/pipeline-report" \
-   && grep -q 'Supervision:' "$APD_PLUGIN_ROOT/bin/core/pipeline-report"; then
-    pass "metrics cols 16-18 + report _rest sink + Supervision line"; PASSES=$((PASSES + 1))
+# Static H: metrics columns 16-18 + col 19 runtime + report parser _rest sink
+# (fixes the v6.7.1 agents_x absorption bug) + Supervision/Runtime render lines.
+if grep -q 'SUP_T}|${SUP_A}|${SUP_D}|${RUNTIME_TAG}|${MODEL_TAG}' "$SV_ADVANCE" \
+   && grep -q 'sup_t sup_a sup_d runtime model _rest' "$APD_PLUGIN_ROOT/bin/core/pipeline-report" \
+   && grep -q 'Supervision:' "$APD_PLUGIN_ROOT/bin/core/pipeline-report" \
+   && grep -q 'Runtime:' "$APD_PLUGIN_ROOT/bin/core/pipeline-report"; then
+    pass "metrics cols 16-18 + col 19 runtime + col 20 model + report _rest sink + Supervision/Runtime lines"; PASSES=$((PASSES + 1))
 else
-    fail "metrics/report supervision columns missing"; FAILS=$((FAILS + 1))
+    fail "metrics/report supervision, runtime, or model columns missing"; FAILS=$((FAILS + 1))
 fi
+
+# Live: runtime column (col 19) — a Codex verifier advance tags the metrics row
+# `codex`, a CC advance tags `cc`, so the shared metrics namespace no longer hides
+# the runtime (2026-07-14 gap: efiskalizacija Codex runs were indistinguishable).
+# The metrics row is written at the RESET step (verifier only allows commit), so
+# advance verifier → reset with the same APD_RUNTIME in scope both times.
+_T="$(mktemp -d -t apd-rt-codex.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:0:0:0"
+APD_PROJECT_DIR="$_T" APD_RUNTIME=codex bash "$SV_ADVANCE" verifier >/dev/null 2>&1
+APD_PROJECT_DIR="$_T" APD_RUNTIME=codex bash "$SV_ADVANCE" reset "done" >/dev/null 2>&1
+_ROW_CX=$(tail -1 "$_T/.claude/memory/pipeline-metrics.log" 2>/dev/null)
+_T2="$(mktemp -d -t apd-rt-cc.XXXXXX)"
+_v67_make_state "$_T2" "ADVERSARIAL:0:0:0"
+APD_PROJECT_DIR="$_T2" bash "$SV_ADVANCE" verifier >/dev/null 2>&1
+APD_PROJECT_DIR="$_T2" bash "$SV_ADVANCE" reset "done" >/dev/null 2>&1
+_ROW_CC=$(tail -1 "$_T2/.claude/memory/pipeline-metrics.log" 2>/dev/null)
+_REP=$(APD_PROJECT_DIR="$_T" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-report" 2>&1)
+_RT_CX=$(echo "$_ROW_CX" | awk -F'|' '{print $19}')
+_RT_CC=$(echo "$_ROW_CC" | awk -F'|' '{print $19}')
+_MD_CX=$(echo "$_ROW_CX" | awk -F'|' '{print $20}')
+if [ "$_RT_CX" = "codex" ] && [ "$_RT_CC" = "cc" ] && [ "$_MD_CX" = "codex" ] \
+   && echo "$_REP" | grep -q 'Runtime:.*codex'; then
+    pass "metrics col 19 runtime: codex-run tags 'codex', cc-run tags 'cc' (codex model=codex), report renders Runtime"; PASSES=$((PASSES + 1))
+else
+    fail "runtime column wrong (rt_cx='$_RT_CX' rt_cc='$_RT_CC' md_cx='$_MD_CX')"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T" "$_T2"
+
+# Live: model column (col 20) resolves the orchestrator model from the CC transcript
+# (honest cross-vendor source; catches GLM-on-CC). Mock a session transcript for the
+# fixture's first agent-id and assert the main-transcript model is baked into the row.
+_T3="$(mktemp -d -t apd-model.XXXXXX)"
+_v67_make_state "$_T3" "ADVERSARIAL:0:0:0"
+_MSLUG=$(printf '%s' "$_T3" | sed 's#[^A-Za-z0-9]#-#g')
+_MCFG="$(mktemp -d -t apd-cfg.XXXXXX)"
+mkdir -p "$_MCFG/projects/$_MSLUG/sess-uuid/subagents"
+printf '{"type":"assistant","message":{"model":"glm-5.2"}}\n' > "$_MCFG/projects/$_MSLUG/sess-uuid.jsonl"
+printf '{"type":"assistant"}\n' > "$_MCFG/projects/$_MSLUG/sess-uuid/subagents/agent-aabbccddeeff1001.jsonl"
+APD_PROJECT_DIR="$_T3" CLAUDE_CONFIG_DIR="$_MCFG" bash "$SV_ADVANCE" verifier >/dev/null 2>&1
+APD_PROJECT_DIR="$_T3" CLAUDE_CONFIG_DIR="$_MCFG" bash "$SV_ADVANCE" reset "done" >/dev/null 2>&1
+_MODEL_ROW=$(tail -1 "$_T3/.claude/memory/pipeline-metrics.log" 2>/dev/null | awk -F'|' '{print $20}')
+if [ "$_MODEL_ROW" = "glm-5.2" ]; then
+    pass "metrics col 20 model: orchestrator model resolved from CC transcript (glm-5.2 — GLM-on-CC caught)"; PASSES=$((PASSES + 1))
+else
+    fail "model resolution wrong (got '$_MODEL_ROW', want glm-5.2)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T3" "$_MCFG"
+
+# Live: `apd report --history` must not crash on a 20-col row whose model id carries
+# a dot (glm-5.2 / gpt-4.1). The history reader stopped at agents_x (col 12), so the
+# model spilled into an arithmetic context: $((exhaust_total_x + …|cc|glm-5.2)) →
+# ".2" syntax error → the reader aborted (0 bytes, exit 1) on the feature's own
+# cross-vendor target (Claude ids use dashes, so they never tripped it). Regression
+# for the col-20 addition; fix = _rest sink on both history reads.
+_T4="$(mktemp -d -t apd-histmodel.XXXXXX)"
+mkdir -p "$_T4/.apd" "$_T4/.claude/memory"
+echo "PROJECT_NAME=histmodel" > "$_T4/.apd/config"
+_NOWH=$(date +%s)
+printf '%s|taskH|%s|%s|%s|%s|completed|4|1|3|2|0|0|0|0|0|0|0|cc|glm-5.2\n' "$_NOWH" "$_NOWH" "$_NOWH" "$_NOWH" "$_NOWH" > "$_T4/.claude/memory/pipeline-metrics.log"
+_HOUT=$(APD_PROJECT_DIR="$_T4" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-report" --history 2>&1); _HRC=$?
+if [ "$_HRC" = "0" ] && echo "$_HOUT" | grep -q 'taskH'; then
+    pass "apd report --history: 20-col dotted-model row (glm-5.2) does not crash the reader"; PASSES=$((PASSES + 1))
+else
+    fail "history reader crashes on dotted model (rc=$_HRC out='$(echo "$_HOUT" | head -1)')"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T4"
 
 # ---- Live: fixtures via _v67_make_state (real advances, signed .done files) ----
 # ADVERSARIAL:0:0:0 keeps the adversarial rationale gate quiet so the supervision
@@ -10389,6 +10469,49 @@ if [ "$_RC" = "1" ] && echo "$_OUT" | grep -q 'supervision-not-final'; then
     pass "builder stop after supervisor stop → BLOCK supervision-not-final"; PASSES=$((PASSES + 1))
 else
     fail "finality check missed post-supervision activity (rc=$_RC)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live CX1: Codex runtime → honest-inert (v6.33 false-pass fix). A Codex run cannot
+# dispatch the CC frontier supervisor, so an orchestrator-written .supervision-summary
+# has no real supervisor behind it. The gate must NOT trust it as a pass and must NOT
+# block even under strict — it logs supervision-not-applicable|runtime=codex. Repro of
+# 2026-07-14 efiskalizacija: supervision-pass model=claude-fable-5 with no fable dispatch.
+# Faithful Codex shape: .agents ABSENT (CC SubagentStart/Stop hooks never fire on
+# Codex) — this is the exact condition under which the old gate false-passed
+# (fabrication/churn/finality all skip on a missing ledger).
+_T="$(mktemp -d -t apd-v95cx1.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:0:0:0"
+echo "MODEL_PROFILE=eco" >> "$_T/.apd/config"
+rm -f "$_T/.apd/pipeline/.agents"
+printf 'SUPERVISION:0:0:0\nNotes: codex-written verdict, no CC supervisor dispatch possible\n' > "$_T/.apd/pipeline/.supervision-summary"
+_OUT=$(APD_PROJECT_DIR="$_T" APD_RUNTIME=codex APD_SUPERVISION_GATE=strict bash "$SV_ADVANCE" verifier 2>&1); _RC=$?
+if [ "$_RC" = "0" ] \
+   && grep -q 'supervision-not-applicable|runtime=codex' "$_T/.claude/memory/guard-audit.log" 2>/dev/null \
+   && ! grep -q 'orchestrator|supervision-pass' "$_T/.claude/memory/guard-audit.log" 2>/dev/null \
+   && ! echo "$_OUT" | grep -q 'BLOCKED: Supervision' \
+   && [ -f "$_T/.apd/pipeline/verifier.done" ]; then
+    pass "Codex runtime + summary + absent ledger + strict → honest-inert (not-applicable, no false pass, no block)"; PASSES=$((PASSES + 1))
+else
+    fail "Codex honest-inert broken — false-pass fix regressed (rc=$_RC)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_T"
+
+# Live CX2: CC runtime, SAME faithful shape (summary present, .agents ABSENT) → the
+# fabrication tightening (rule 5: absence of ledger is absence of proof, not "no
+# problem") must now BLOCK under strict, where the old `[ -f AGENTS_LOG ]`-guarded
+# check silently passed. Proves the tightening + that the codex carve-out is runtime-scoped.
+_T="$(mktemp -d -t apd-v95cx2.XXXXXX)"
+_v67_make_state "$_T" "ADVERSARIAL:0:0:0"
+echo "MODEL_PROFILE=eco" >> "$_T/.apd/config"
+rm -f "$_T/.apd/pipeline/.agents"
+printf 'SUPERVISION:0:0:0\nNotes: same summary, but this is a CC run with no ledger\n' > "$_T/.apd/pipeline/.supervision-summary"
+_OUT=$(APD_PROJECT_DIR="$_T" APD_SUPERVISION_GATE=strict bash "$SV_ADVANCE" verifier 2>&1); _RC=$?
+if [ "$_RC" = "1" ] && echo "$_OUT" | grep -q 'supervision-summary-without-dispatch' \
+   && ! grep -q 'supervision-not-applicable' "$_T/.claude/memory/guard-audit.log" 2>/dev/null; then
+    pass "CC runtime + summary + absent ledger → BLOCK (tightened fabrication, runtime-scoped)"; PASSES=$((PASSES + 1))
+else
+    fail "CC fabrication tightening broken or codex carve-out leaked (rc=$_RC)"; FAILS=$((FAILS + 1))
 fi
 rm -rf "$_T"
 
@@ -10557,6 +10680,105 @@ printf 'zz-dead|watching||%s|999999\n' "$(date +%s)" > "$SS_TMP/zz-dead.state"
 bash "$SS_BIN" >/dev/null 2>&1
 if [ ! -f "$SS_TMP/zz-dead.state" ]; then pass "stall-status prunes dead-pid state"; PASSES=$((PASSES + 1)); else fail "stall-status did not prune dead state"; FAILS=$((FAILS + 1)); fi
 rm -f "$SS_TMP/zz-stalltest.state" "$SS_TMP/zz-dead.state"
+
+# -----------------------------------------------------------
+# 98. v6.33 — git-remote-resolve: push-remote discovery (no origin assumption)
+#     Finish flow used to hardcode `git push -u origin`, which fails on repos
+#     whose remote is `esir` (real 2026-07-13 Codex incident). Read-only resolver:
+#     config pin -> upstream -> single remote -> origin -> alias-shortest ->
+#     ambiguous (exit 1). Push stays orchestrator-driven (APD_ORCHESTRATOR_COMMIT).
+# -----------------------------------------------------------
+section "98. git-remote-resolve (v6.33)"
+
+GR_BIN="$APD_PLUGIN_ROOT/bin/core/git-remote-resolve"
+
+# Static A: exists + executable
+_check "git-remote-resolve exists and is executable" test -x "$GR_BIN"
+
+# Static B: dispatcher routes git-remote
+if grep -qF 'git-remote|gitremote)' "$APD_PLUGIN_ROOT/bin/apd"; then
+    pass "apd dispatcher routes git-remote"; PASSES=$((PASSES + 1))
+else
+    fail "apd dispatcher missing git-remote route"; FAILS=$((FAILS + 1))
+fi
+
+# Static C: read-only — no EXECUTED push/add/commit (exclude comments + echo/printf
+# display lines; the resolver legitimately PRINTS an example push command). Live J
+# below is the behavioural read-only proof (HEAD unchanged).
+if grep -vE '^[[:space:]]*#' "$GR_BIN" | grep -vE 'echo|printf' | grep -qE 'git( -C [^ ]+)? (push|commit|add|reset|checkout|merge|rebase)'; then
+    fail "git-remote-resolve must be read-only (found push/add/commit)"; FAILS=$((FAILS + 1))
+else
+    pass "git-remote-resolve is read-only (no push/add/commit)"; PASSES=$((PASSES + 1))
+fi
+
+# Static D: finish guidance resolves the remote (no hardcoded origin) — CC + Codex
+if grep -q 'apd git-remote' "$APD_PLUGIN_ROOT/skills/apd-finish/SKILL.md" \
+   && ! grep -q 'push -u origin' "$APD_PLUGIN_ROOT/skills/apd-finish/SKILL.md"; then
+    pass "apd-finish CC skill resolves remote (no hardcoded origin)"; PASSES=$((PASSES + 1))
+else
+    fail "apd-finish CC skill still assumes origin"; FAILS=$((FAILS + 1))
+fi
+if grep -q 'apd git-remote' "$APD_PLUGIN_ROOT/templates/codex/rules/finish.md" \
+   && ! grep -q 'push -u origin' "$APD_PLUGIN_ROOT/templates/codex/rules/finish.md"; then
+    pass "codex finish.md resolves remote (no hardcoded origin)"; PASSES=$((PASSES + 1))
+else
+    fail "codex finish.md still assumes origin"; FAILS=$((FAILS + 1))
+fi
+
+# Live setup
+GR_MK() {
+    _d="$1"; mkdir -p "$_d"
+    git -C "$_d" init -q
+    git -C "$_d" config user.email t@t; git -C "$_d" config user.name t
+    echo x > "$_d/f"; git -C "$_d" add f; git -C "$_d" commit -qm init
+}
+GR_ROOT="$(mktemp -d -t apd-v633.XXXXXX)"
+
+# Live E: single non-origin remote (the esir incident) -> resolves to esir
+GR_MK "$GR_ROOT/one"; git -C "$GR_ROOT/one" remote add esir https://x/esir.git
+GR_OUT=$(APD_PROJECT_DIR="$GR_ROOT/one" bash "$GR_BIN" 2>/dev/null); GR_RC=$?
+if [ "$GR_OUT" = "esir" ] && [ "$GR_RC" -eq 0 ]; then
+    pass "single remote 'esir' resolves to esir (incident case)"; PASSES=$((PASSES + 1))
+else
+    fail "single-remote resolve got [$GR_OUT] rc=$GR_RC (want esir/0)"; FAILS=$((FAILS + 1))
+fi
+
+# Live F: origin present among multiple -> prefer origin
+GR_MK "$GR_ROOT/two"; git -C "$GR_ROOT/two" remote add esir https://x/e.git; git -C "$GR_ROOT/two" remote add origin https://x/o.git
+GR_OUT=$(APD_PROJECT_DIR="$GR_ROOT/two" bash "$GR_BIN" 2>/dev/null)
+if [ "$GR_OUT" = "origin" ]; then pass "origin preferred among multiple remotes"; PASSES=$((PASSES + 1)); else fail "origin-preference got [$GR_OUT]"; FAILS=$((FAILS + 1)); fi
+
+# Live G: two distinct remotes, no origin -> ambiguous, exit 1, empty stdout
+GR_MK "$GR_ROOT/amb"; git -C "$GR_ROOT/amb" remote add esir https://x/a.git; git -C "$GR_ROOT/amb" remote add backup https://x/b.git
+GR_OUT=$(APD_PROJECT_DIR="$GR_ROOT/amb" bash "$GR_BIN" 2>/dev/null); GR_RC=$?
+if [ -z "$GR_OUT" ] && [ "$GR_RC" -eq 1 ]; then
+    pass "ambiguous (distinct, no origin) exits 1 with no stdout"; PASSES=$((PASSES + 1))
+else
+    fail "ambiguous case got [$GR_OUT] rc=$GR_RC (want empty/1)"; FAILS=$((FAILS + 1))
+fi
+
+# Live H: config pin APD_GIT_REMOTE wins over ambiguity
+mkdir -p "$GR_ROOT/amb/.apd"; printf 'APD_GIT_REMOTE=backup\n' > "$GR_ROOT/amb/.apd/config"
+GR_OUT=$(APD_PROJECT_DIR="$GR_ROOT/amb" bash "$GR_BIN" 2>/dev/null)
+if [ "$GR_OUT" = "backup" ]; then pass "config APD_GIT_REMOTE pin wins over ambiguity"; PASSES=$((PASSES + 1)); else fail "config pin got [$GR_OUT]"; FAILS=$((FAILS + 1)); fi
+
+# Live I: --set-remote rejects nonexistent (exit 1), pins valid to config
+APD_PROJECT_DIR="$GR_ROOT/one" bash "$GR_BIN" --set-remote nope >/dev/null 2>&1; GR_RC=$?
+mkdir -p "$GR_ROOT/one/.apd"; : > "$GR_ROOT/one/.apd/config"
+APD_PROJECT_DIR="$GR_ROOT/one" bash "$GR_BIN" --set-remote esir >/dev/null 2>&1
+if [ "$GR_RC" -eq 1 ] && grep -q '^APD_GIT_REMOTE=esir$' "$GR_ROOT/one/.apd/config"; then
+    pass "--set-remote rejects unknown (exit 1) + pins valid to config"; PASSES=$((PASSES + 1))
+else
+    fail "--set-remote behavior wrong (rc=$GR_RC)"; FAILS=$((FAILS + 1))
+fi
+
+# Live J: read-only proof — HEAD unchanged after a resolve
+GR_HEAD_BEFORE=$(git -C "$GR_ROOT/two" rev-parse HEAD)
+APD_PROJECT_DIR="$GR_ROOT/two" bash "$GR_BIN" >/dev/null 2>&1
+GR_HEAD_AFTER=$(git -C "$GR_ROOT/two" rev-parse HEAD)
+if [ "$GR_HEAD_BEFORE" = "$GR_HEAD_AFTER" ]; then pass "resolve is read-only (HEAD unchanged)"; PASSES=$((PASSES + 1)); else fail "resolve mutated git state"; FAILS=$((FAILS + 1)); fi
+
+rm -rf "$GR_ROOT"
 
 # -----------------------------------------------------------
 # Summary

@@ -460,7 +460,7 @@ _render_last_from_metrics() {
     # columns 13+ into agents_x on v6.7.1's 15-col rows, silently suppressing
     # the MaxTurn line (numeric test failed on "0|5|1|0"). Old shorter rows
     # leave the trailing vars empty → zero defaults below.
-    IFS='|' read -r _ts task_name spec_ts builder_ts reviewer_ts verifier_ts status adv_t adv_a adv_d agents_t agents_x adv_do adv_dr adv_w sup_t sup_a sup_d _rest <<< "$last_line"
+    IFS='|' read -r _ts task_name spec_ts builder_ts reviewer_ts verifier_ts status adv_t adv_a adv_d agents_t agents_x adv_do adv_dr adv_w sup_t sup_a sup_d runtime model _rest <<< "$last_line"
 
     spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
     builder_ts=$(echo "$builder_ts" | tr -d '[:space:]')
@@ -475,6 +475,12 @@ _render_last_from_metrics() {
     sup_t=$(echo "${sup_t:-0}" | tr -d '[:space:]')
     sup_a=$(echo "${sup_a:-0}" | tr -d '[:space:]')
     sup_d=$(echo "${sup_d:-0}" | tr -d '[:space:]')
+    # col 19 (v6.33): runtime tag. Empty on pre-column rows → line is skipped
+    # rather than mislabelled "cc" (older rows may well have been Codex).
+    runtime=$(echo "${runtime}" | tr -d '[:space:]')
+    # col 20 (v6.33): per-run orchestrator model (honest transcript source; catches
+    # GLM-on-CC). Empty on pre-column rows → skipped.
+    model=$(echo "${model}" | tr -d '[:space:]')
 
     local dur="N/A"
     if [ "$verifier_ts" -gt 0 ] 2>/dev/null && [ "$spec_ts" -gt 0 ] 2>/dev/null; then
@@ -492,6 +498,11 @@ _render_last_from_metrics() {
     local sc="$GRN"; local si="✓"
     [ "$status" = "partial" ] && sc="$Y" && si="…"
     _box_line "  Status:   ${status}" "  ${D}Status:${R}   ${sc}${status}${R}"
+    if [ -n "$runtime" ]; then
+        local _rtline="$runtime"
+        [ -n "$model" ] && _rtline="${runtime} · ${model}"
+        _box_line "  Runtime:  ${_rtline}" "  ${D}Runtime:${R}  ${V}${runtime}${R}${model:+ ${D}·${R} ${V}${model}${R}}"
+    fi
     _box_line "  Duration: ${dur}" "  ${D}Duration:${R} ${dur}"
 
     # Steps timing
@@ -571,7 +582,7 @@ _render_history() {
     local all_durations=""
     local exhaust_runs=0 exhaust_total_x=0 exhaust_total_t=0 exhaust_tracked=0
 
-    while IFS='|' read -r _ts task_name spec_ts _b _r verifier_ts status adv_t adv_a adv_d agents_t agents_x; do
+    while IFS='|' read -r _ts task_name spec_ts _b _r verifier_ts status adv_t adv_a adv_d agents_t agents_x _rest; do
         [ -z "$_ts" ] && continue
         verifier_ts=$(echo "$verifier_ts" | tr -d '[:space:]')
         spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')
@@ -743,7 +754,7 @@ _render_history() {
     local run_display
     run_display=$(printf '%s\n' "$work_data" | awk '{a[NR]=$0} END {for(i=NR;i>=1;i--) print a[i]}')
 
-    while IFS='|' read -r run_ts task_name spec_ts _b _r verifier_ts status adv_t adv_a adv_d agents_t agents_x; do
+    while IFS='|' read -r run_ts task_name spec_ts _b _r verifier_ts status adv_t adv_a adv_d agents_t agents_x _rest; do
         [ -z "$run_ts" ] && continue
         verifier_ts=$(echo "$verifier_ts" | tr -d '[:space:]')
         spec_ts=$(echo "$spec_ts" | tr -d '[:space:]')

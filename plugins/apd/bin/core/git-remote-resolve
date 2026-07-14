@@ -1,0 +1,141 @@
+#!/bin/bash
+# APD Git Remote Resolve — deterministically pick the push remote (read-only).
+#
+# The finish flow used to hardcode `git push -u origin <branch>`, which fails on
+# any repo whose remote is not named `origin` (e.g. `esir`). This resolver removes
+# the assumption. Resolution order:
+#   1. APD_GIT_REMOTE from .apd config (if that remote exists)
+#   2. the upstream of the current branch (@{upstream})
+#   3. the only remote, if exactly one exists
+#   4. multiple remotes: prefer `origin` if present
+#   5. multiple remotes, all pointing at the same URL (aliases): the shortest name
+#   6. otherwise ambiguous — list candidates and exit 1 (orchestrator asks the user)
+#
+# Read-only: it never runs git push/add/commit and never mutates git state. The
+# push itself is still done by the orchestrator with APD_ORCHESTRATOR_COMMIT=1
+# (guard-git enforces the prefix and blocks --force). Config pins via --set-remote
+# only write one key to the APD config file.
+#
+# Usage:
+#   git-remote-resolve                 print the resolved remote name (stdout), exit 0
+#                                      on ambiguity/none: guidance on stderr, exit 1
+#   git-remote-resolve --report        human-readable remote / branch / upstream (stderr)
+#   git-remote-resolve --set-remote N  pin APD_GIT_REMOTE=N in the APD config (N must exist)
+# Exit: 0 resolved / 1 ambiguous, none, or not a git repo
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+
+case "${1:-}" in
+    --help|-h) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+esac
+
+_cfg_get() {
+    [ -n "${APD_CONFIG_FILE:-}" ] && [ -f "$APD_CONFIG_FILE" ] || return 0
+    grep "^$1=" "$APD_CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r'
+}
+
+_cfg_set() {
+    _key=$1; _val=$2
+    if [ -z "${APD_CONFIG_FILE:-}" ]; then
+        err "No APD config file — is this project initialised (apd-setup)?"; exit 1
+    fi
+    if [ -f "$APD_CONFIG_FILE" ] && grep -q "^$_key=" "$APD_CONFIG_FILE"; then
+        sed "s#^$_key=.*#$_key=$_val#" "$APD_CONFIG_FILE" > "$APD_CONFIG_FILE.apdtmp" \
+            && mv "$APD_CONFIG_FILE.apdtmp" "$APD_CONFIG_FILE"
+    else
+        echo "$_key=$_val" >> "$APD_CONFIG_FILE"
+    fi
+}
+
+_is_git() { git -C "$PROJECT_DIR" rev-parse --git-dir >/dev/null 2>&1; }
+_remotes() { git -C "$PROJECT_DIR" remote 2>/dev/null; }
+_remote_exists() { _remotes | grep -Fxq "$1"; }
+_remote_url() { git -C "$PROJECT_DIR" remote get-url "$1" 2>/dev/null; }
+
+# --- config pins (write) ---
+case "${1:-}" in
+    --set-remote)
+        [ -n "${2:-}" ] || { err "Usage: git-remote-resolve --set-remote <name>"; exit 1; }
+        _is_git || { err "Not a git repository: $PROJECT_DIR"; exit 1; }
+        if ! _remote_exists "$2"; then
+            err "Remote '$2' does not exist. Known remotes:"; _remotes | sed 's/^/  /' >&2; exit 1
+        fi
+        _cfg_set APD_GIT_REMOTE "$2"
+        ok "Pinned APD_GIT_REMOTE=$2 (used by the finish flow's push)."
+        exit 0 ;;
+esac
+
+# --- reject unknown flags (a bare name / --report / no-arg fall through to resolve) ---
+case "${1:-}" in
+    ""|--report) : ;;
+    --*) err "Unknown option: $1  (see: apd git-remote --help)"; exit 1 ;;
+esac
+
+# --- resolve (read-only) ---
+_is_git || { err "Not a git repository: $PROJECT_DIR"; exit 1; }
+
+REMOTE_LIST=$(_remotes)
+REMOTE_COUNT=$(printf '%s\n' "$REMOTE_LIST" | grep -c .)
+
+_resolve() {
+    # 1. config pin
+    _cfg_remote=$(_cfg_get APD_GIT_REMOTE)
+    if [ -n "$_cfg_remote" ]; then
+        if _remote_exists "$_cfg_remote"; then REASON="config APD_GIT_REMOTE"; echo "$_cfg_remote"; return 0; fi
+        warn "Configured APD_GIT_REMOTE='$_cfg_remote' not found — falling through to discovery." >&2
+    fi
+
+    # none
+    if [ "$REMOTE_COUNT" -eq 0 ]; then
+        err "No git remote configured on $PROJECT_DIR."
+        echo "  Add one (e.g. git remote add origin <url>) or pin: apd git-remote --set-remote <name>" >&2
+        return 1
+    fi
+
+    # 2. upstream of current branch
+    _up=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)
+    if [ -n "$_up" ]; then REASON="branch upstream ($_up)"; echo "${_up%%/*}"; return 0; fi
+
+    # 3. exactly one remote
+    if [ "$REMOTE_COUNT" -eq 1 ]; then REASON="the only remote"; printf '%s\n' "$REMOTE_LIST"; return 0; fi
+
+    # 4. multiple: prefer origin
+    if _remote_exists origin; then REASON="origin (preferred among multiple)"; echo origin; return 0; fi
+
+    # 5. multiple, all same URL → aliases → shortest name
+    _unique_urls=$(for _r in $REMOTE_LIST; do _remote_url "$_r"; done | sort -u | grep -c .)
+    if [ "$_unique_urls" -eq 1 ]; then
+        _shortest=$(printf '%s\n' "$REMOTE_LIST" | awk '{ print length, $0 }' | sort -n | head -1 | cut -d' ' -f2-)
+        REASON="alias set (single URL) — shortest name"; echo "$_shortest"; return 0
+    fi
+
+    # 6. ambiguous
+    err "Multiple distinct remotes and no origin/upstream/config — cannot choose:"
+    for _r in $REMOTE_LIST; do echo "  $_r -> $(_remote_url "$_r")" >&2; done
+    echo "  Ask the user, or pin: apd git-remote --set-remote <name>" >&2
+    return 1
+}
+
+if [ "${1:-}" = "--report" ]; then
+    REASON=""
+    _tmp=$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/apd-remote.$$")
+    _resolve > "$_tmp"; RC=$?          # current shell (redirect, not $()) → REASON survives
+    RESOLVED=$(cat "$_tmp" 2>/dev/null); rm -f "$_tmp"
+    _branch=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    _up=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)
+    {
+        echo "${B}Remote resolution${R}"
+        echo "  Branch:   ${_branch:-<none>}"
+        echo "  Upstream: ${_up:-<none>}"
+        if [ "$RC" -eq 0 ]; then
+            echo "  Remote:   ${GRN}$RESOLVED${R}  ${D}($REASON)${R}"
+            echo "  Push:     ${D}APD_ORCHESTRATOR_COMMIT=1 git push -u $RESOLVED ${_branch:-<branch>}${R}"
+        else
+            echo "  Remote:   ${RED}unresolved${R} — see above"
+        fi
+    } >&2
+    exit "$RC"
+fi
+
+_resolve
