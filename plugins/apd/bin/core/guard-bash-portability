@@ -1,0 +1,92 @@
+#!/bin/bash
+# APD Bash Portability Guard — on macOS (Darwin / BSD userland), blocks GNU/Linux-only
+# commands and flags that either do not exist or silently corrupt, each with the
+# macOS-safe alternative in the block message.
+#
+# Root cause (2026-07-14 incident): an orchestrator used `timeout` (absent on macOS)
+# to wrap a verifier re-run; it silently never started (command-not-found swallowed in
+# the background) and the orchestrator believed the re-run had happened. The platform
+# fact ("you are on Darwin") is in context but agents do not act on it — so the reliable
+# lever is a hard guard, not another note.
+#
+# Interface: --command <cmd>
+# Active ONLY when: APD_ACTIVE=true AND uname=Darwin AND not opted out.
+# Opt-out (genuine need, e.g. a wrapper that shims the command): APD_SKIP_PORTABILITY_GUARD=1
+# Guard block: exit 2. Allow: exit 0. Inert on Linux and in non-APD projects.
+#
+# Note: this guard runs on the user's macOS, so its OWN matchers use POSIX ERE only
+# (`[[:space:]]`, no `\s`/`\b`) to stay portable on BSD grep.
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
+[ "${APD_SKIP_PORTABILITY_GUARD:-}" = "1" ] && exit 0
+# OS gate: active on macOS. APD_PORTABILITY_FORCE=1 is a TEST SEAM only — it forces
+# the active path on non-Darwin so the suite can verify blocking on Linux CI (it can
+# only make the guard MORE strict, never bypass it).
+[ "$(uname -s)" = "Darwin" ] || [ "${APD_PORTABILITY_FORCE:-}" = "1" ] || exit 0
+
+COMMAND=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --command) COMMAND="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[ -z "$COMMAND" ] && exit 0
+
+# Command-position anchor: start-of-string, or right after a shell delimiter
+# (; & | ( ` — which also covers && and ||), with an optional wrapper prefix
+# (sudo/command/time timeout …). Keeps `gtimeout`, strings ("timeout"), comments,
+# and substrings (candidate, --date) from false-matching.
+POS='(^|[;&|(`])[[:space:]]*((sudo|command|time)[[:space:]]+)?'
+
+# Heredoc bodies are DATA, not executed commands — a `cat <<EOF … nproc … EOF`
+# that writes a Linux CI script must not trip the guard. Match against the command
+# text with everything from the first heredoc operator stripped (M1).
+CMD_EXEC="${COMMAND%%<<*}"
+
+_block() { # <name> <alt-line>
+  echo "BLOCKED: macOS/BSD portability — \`$1\` is a GNU/Linux-ism that does not work here." >&2
+  echo "" >&2
+  echo "  $2" >&2
+  echo "" >&2
+  echo "  You are on Darwin/BSD userland, not Linux. Run 'apd env' for the full table." >&2
+  echo "  Genuinely need it (e.g. a coreutils shim)? Prefix: APD_SKIP_PORTABILITY_GUARD=1 <cmd>" >&2
+  log_block "portability-$1" "$(printf '%s' "$COMMAND" | head -c 120)"
+  exit 2
+}
+
+_match() { printf '%s' "$CMD_EXEC" | grep -qE "$1"; }
+
+# --- Commands that DO NOT EXIST on macOS (unambiguous) ---
+_match "${POS}timeout([[:space:]]|\$)" && \
+  _block timeout 'No `timeout` on macOS. Use `gtimeout` (brew install coreutils), or run in the background and kill: ( cmd & p=\$!; sleep N; kill \$p 2>/dev/null ).'
+_match "${POS}tac([[:space:]]|\$)" && \
+  _block tac 'No `tac` on macOS. Use `tail -r`, or awk "{a[NR]=\$0} END{for(i=NR;i>=1;i--) print a[i]}".'
+_match "${POS}nproc([[:space:]]|\$)" && \
+  _block nproc 'No `nproc` on macOS. Use `sysctl -n hw.ncpu`.'
+
+# --- Commands that EXIST but whose GNU flags are unsupported / different on BSD ---
+_match "${POS}date([^;&|]*[[:space:]])(-d([[:space:]=]|\$)|--date)" && \
+  _block 'date -d' 'GNU `date -d` is unsupported. Relative: `date -v-1d`. Parse a string: `date -j -f "%Y-%m-%d" "2020-01-01"`.'
+_match "${POS}stat([^;&|]*[[:space:]])-c([[:space:]=%'\"]|\$)" && \
+  _block 'stat -c' 'GNU `stat -c` is unsupported. Use `stat -f` (BSD, different specifiers: `%z` size, `%m` mtime).'
+_match "${POS}grep([^;&|]*[[:space:]])(-[a-zA-Z]*P([[:space:]]|\$)|--perl-regexp)" && \
+  _block 'grep -P' 'BSD grep has no `-P` (PCRE). Use `grep -E` for extended regex, or `perl -ne` / `pcre2grep` for PCRE.'
+_match "${POS}readlink([^;&|]*[[:space:]])-[a-zA-Z]*f([[:space:]]|\$)" && \
+  _block 'readlink -f' 'BSD `readlink -f` differs. Use `realpath` (present on modern macOS) or a resolve loop.'
+_match "${POS}find([^;&|]*[[:space:]])-printf([[:space:]]|\$)" && \
+  _block 'find -printf' 'BSD find has no `-printf`. Use `-exec stat -f ...` or `-exec printf ...`.'
+
+# --- sed --in-place (GNU long form): BSD sed has no such flag at all → always breaks ---
+_match "${POS}sed([^;&|]*[[:space:]])--in-place" && \
+  _block 'sed -i' 'BSD sed has no `--in-place`. Use `sed -i "" "s/a/b/"` (empty backup arg) or `sed -i.bak "s/a/b/"`.'
+
+# --- sed -i: BSD REQUIRES a backup-suffix arg; GNU form (script right after -i) breaks ---
+# Block `sed … -i <script>` (nonempty quoted script, or an unquoted s///|y///|<addr>d
+# form directly after -i). PASS the BSD-correct `-i ''` / `-i ""` / `-i.bak`.
+_match "${POS}sed([^;&|]*[[:space:]])-i[[:space:]]+(['\"][^'\"]|[0-9]*[sy]/|[0-9]*[,\$]*[dpg])" && \
+  _block 'sed -i' 'BSD `sed -i` REQUIRES a backup-suffix arg: `sed -i "" "s/a/b/"` (empty) or `sed -i.bak "s/a/b/"`. GNU `sed -i "s/a/b/"` errors/deletes here.'
+
+exit 0

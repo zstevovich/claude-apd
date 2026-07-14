@@ -1,5 +1,23 @@
 # Changelog
 
+## v6.34.0 — 2026-07-14
+
+**macOS portability guard + hybrid-Codex robustness.** An orchestrator on macOS wrapped a verifier re-run in `timeout` (absent on macOS/BSD); it silently never started (command-not-found swallowed in the background), so the orchestrator misdiagnosed a hang and nearly committed on a masked result. The platform fact is in context but agents don't act on it — so the reliable lever is a hard guard. A Codex APD audit separately surfaced two hybrid-Codex setup gaps.
+
+**Added — `guard-bash-portability` (PreToolUse Bash, macOS/BSD only).** On Darwin, hard-blocks (exit 2) GNU/Linux-isms that don't exist or silently corrupt, each with the macOS form in the message: `timeout`, `tac`, `nproc`, `date -d`, `stat -c`, `grep -P`, `readlink -f`, `find -printf`, `sed -i 's/…'` / `sed --in-place` (BSD needs `-i ''`). Precise command-position matcher (POSIX ERE only — the guard runs on BSD grep — with a `sudo`/`command`/`time` wrapper prefix and a heredoc-body strip), so `gtimeout`, `sed -i ''`, quoted strings, heredoc bodies, and substrings (`candidate`, `--date=iso`) all pass — empirically matrix-verified. APD_ACTIVE-gated; opt-out `APD_SKIP_PORTABILITY_GUARD=1`. Wired for both runtimes (CC hooks.json + Codex `.codex/hooks.json` via `install-codex-config`). Fail-open shims. **Added `apd env`** (`bin/core/env-info`) — platform + portability cheat-sheet the guard's block message points at. `workflow.md` + Codex `AGENTS.md` gained a "Platform portability" section including the rule: never pipe the build/verifier through `head`/`tail` (the pipe's exit code is the tail's, masking a real failure — capture to a file and read it, `set -o pipefail`); poll the pipeline's own signal (`.done` / `apd pipeline status`) instead of eyeballing hidden output and re-running blindly.
+
+**Fixed — AGENTS.md Stack row shipped as an unfilled placeholder.** `install-codex-config`, when it writes AGENTS.md (only if missing), now runs `pipeline-stack-detect` and fills the Stack table row with the detected high-confidence stacks (e.g. `.NET, Node/Vite`), leaving the other user-fill rows and keeping the placeholder if nothing is detected — so the Codex orchestrator reads the real stack, not a generic "fill this in" instruction.
+
+**Fixed — `apd cdx agents migrate` silently no-op'd on hybrid CC-first projects.** When `.apd/agents/` is empty but the authoritative agents live in `.claude/agents/` (which Codex already reads via the resolver), migrate now explains that no migration is needed instead of printing a bare "nothing to migrate" that read as a broken command.
+
+### Audit
+
+Independent pre-commit audit (decontextualized agent): SAFE TO BUMP, 0 critical / 0 important. It empirically stress-tested the matcher (false positives + false negatives), verified the user-file mutations (`.codex/hooks.json`, `AGENTS.md`) are idempotent and non-destructive, and confirmed the migrate happy path is intact. All MINOR findings fixed in-session: a heredoc-body false positive (now stripped), wrapper/long-form false negatives (`sudo`/`command`/`time`, `sed --in-place`), and shim fail-open on malformed JSON. A SIGPIPE (exit 141) in the first AGENTS.md-fill draft — `python3 -` reading its program from a heredoc while JSON was piped to the same stdin — was caught and fixed before the audit (JSON passed as argv).
+
+### Tests
+
+`test-codex-adapter` §99 (guard block/pass matrix, opt-out, force seam, both-runtime wiring, `apd env`) + §100 (AGENTS.md Stack fill + migrate clarity) → **876/0**.
+
 ## v6.33.0 — 2026-07-14
 
 **Codex runtime attribution & correctness, plus a push-remote resolver.** This release closes two telemetry blind spots that fooled real pipeline analyses, hardens the v6.30 supervision gate against a Codex false-pass, and removes the finish flow's hardcoded `origin` assumption.

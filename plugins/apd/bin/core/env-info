@@ -1,0 +1,38 @@
+#!/bin/bash
+# APD env — prints the platform (OS + userland) and the portability cheat-sheet so
+# an agent knows, BEFORE it runs a command, which GNU/Linux-isms will fail here and
+# what to use instead. Read-only. Referenced by guard-bash-portability's block message.
+
+source "$(dirname "$0")/../lib/resolve-project.sh" 2>/dev/null || true
+source "$(dirname "$0")/../lib/style.sh" 2>/dev/null || true
+
+OS="$(uname -s)"
+case "$OS" in
+    Darwin) USERLAND="BSD (macOS)"; NOTE="GNU/Linux-isms below are BLOCKED by guard-bash-portability — use the macOS form." ;;
+    Linux)  USERLAND="GNU (Linux)"; NOTE="GNU coreutils present; the portability guard is inert here." ;;
+    *)      USERLAND="unknown ($OS)"; NOTE="Unrecognised OS — treat portability with care." ;;
+esac
+
+echo ""
+echo "APD environment"
+echo "  OS:        $OS"
+echo "  Userland:  $USERLAND"
+echo "  Kernel:    $(uname -r 2>/dev/null)"
+echo "  $NOTE"
+echo ""
+echo "Portability cheat-sheet (GNU/Linux  →  macOS/BSD):"
+echo "  timeout N cmd         →  gtimeout (brew coreutils), or: ( cmd & p=\$!; sleep N; kill \$p 2>/dev/null )"
+echo "  tac                   →  tail -r"
+echo "  nproc                 →  sysctl -n hw.ncpu"
+echo "  date -d STR / --date  →  date -v-1d  (relative)  |  date -j -f FMT STR  (parse)"
+echo "  stat -c '%s'          →  stat -f '%z'   (BSD specifiers differ: %z size, %m mtime)"
+echo "  grep -P (PCRE)        →  grep -E  |  perl -ne  |  pcre2grep"
+echo "  readlink -f PATH      →  realpath PATH"
+echo "  find … -printf        →  find … -exec stat -f … / -exec printf …"
+echo "  sed -i 's/…'          →  sed -i '' 's/…'   (empty backup arg REQUIRED)  |  sed -i.bak 's/…'"
+echo ""
+echo "  Verifier/build output: never pipe through head/tail (masks the tail's exit code,"
+echo "  not the command's — capture to a file and read it, and use 'set -o pipefail')."
+echo ""
+[ "$OS" = "Darwin" ] && echo "  Opt out a single command (genuine coreutils shim): APD_SKIP_PORTABILITY_GUARD=1 <cmd>"
+echo ""

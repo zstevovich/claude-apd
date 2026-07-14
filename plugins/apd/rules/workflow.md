@@ -477,6 +477,21 @@ Before dispatching the builder, the orchestrator MUST write `.apd/pipeline/imple
 - **`**Implements:**` header is mandatory on EVERY `### Section`** (v6.8.0+) — **NO RESERVED NAMES**. Declare which `R*` criteria from spec-card.md the section implements (`**Implements:** R1, R3`), or set to `none` for scaffolding sections. **The rule is uniform** — applies to functional sections (Backend, Frontend, Database, Tests) AND scaffolding (Files to modify, Files to create, Agents, Notes, Documentation). Empirical evidence (v6.8.7): orchestrator-i generalizuju iz format primera asymmetric — naucio za Files-to-mod/create ali zaboravio za Agents/Notes → BLOCK. Treat EVERY `###` section the same way: declare R-ids OR `none`.
 - `verify-plan-spec` enforces bidirectional consistency: every spec `R*` must be referenced by ≥1 section; every section must have a valid `**Implements:**`. Mode is read from spec-card.md `plan_consistency_gate: strict|warn|off`. v6.8.0 default: `warn` (issues emit WARN, no block). v6.8.1+ default: `strict` (BLOCK on missing/unknown R-ids). Opt-out: `plan_consistency_gate: off` in spec-card.md.
 
+## 3d. Platform portability (macOS/BSD vs Linux)
+
+You are most likely on **macOS (Darwin, BSD userland)**, NOT Linux. GNU/Linux-isms fail here — often **silently** (a backgrounded `timeout` that never starts, an empty `sed -i` edit). `guard-bash-portability` hard-blocks the worst on macOS; know them up front. Run `apd env` for the full table.
+
+| GNU/Linux | macOS/BSD |
+|---|---|
+| `timeout N cmd` | `gtimeout` (brew coreutils), or `( cmd & p=$!; sleep N; kill $p 2>/dev/null )` |
+| `tac` / `nproc` | `tail -r` / `sysctl -n hw.ncpu` |
+| `date -d` / `stat -c` | `date -v` or `date -j -f` / `stat -f` |
+| `grep -P` / `readlink -f` | `grep -E` or `perl -ne` / `realpath` |
+| `find … -printf` | `find … -exec stat -f …` |
+| `sed -i 's/…'` | `sed -i '' 's/…'` (empty backup arg REQUIRED) |
+
+**Never pipe the build/verifier through `head`/`tail`.** The pipeline's exit code is the *tail's*, not the command's — a real failure is masked as success — and you lose the output. Capture to a file and read it; use `set -o pipefail`. When something looks stuck, poll the pipeline's own signal (`.done` files / `apd pipeline status`), don't eyeball hidden output and re-run blindly.
+
 ## 4. Verification before "done"
 
 Before EVERY commit:

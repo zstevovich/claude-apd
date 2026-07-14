@@ -51,6 +51,7 @@ CONFIG_FILE="$CODEX_DIR/config.toml"
 HOOKS_FILE="$CODEX_DIR/hooks.json"
 MCP_SERVER="$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
 GUARD_BASH="$APD_PLUGIN_ROOT/bin/adapter/cdx/guard-bash-scope"
+GUARD_PORTABILITY="$APD_PLUGIN_ROOT/bin/adapter/cdx/guard-bash-portability"
 GUARD_FILE_EDIT="$APD_PLUGIN_ROOT/bin/adapter/cdx/guard-file-edit"
 SESSION_START="$APD_PLUGIN_ROOT/bin/adapter/cdx/session-start"
 
@@ -305,7 +306,34 @@ fi
 AGENTS_TEMPLATE="$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"
 if [ ! -f "$PROJECT_DIR/AGENTS.md" ] && [ -f "$AGENTS_TEMPLATE" ]; then
     sed "s/{{PROJECT_NAME}}/$(basename "$PROJECT_DIR")/g" "$AGENTS_TEMPLATE" > "$PROJECT_DIR/AGENTS.md"
-    echo "[wrote] AGENTS.md (APD pipeline rules for Codex orchestrator)"
+    # Fill the Stack table row from detected stacks — the row shipped as an unfilled
+    # "Fill during project setup" placeholder, so the Codex orchestrator read a generic
+    # instruction instead of the real stack (Codex audit 2026-07-14). Detection only;
+    # leaves the placeholder (and the other user-fill rows) untouched if nothing detected.
+    AGENTS_STACK_JSON="$(APD_PROJECT_DIR="$PROJECT_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-stack-detect" --json 2>/dev/null || true)"
+    AGENTS_STACK_FILLED="$(python3 - "$PROJECT_DIR/AGENTS.md" "$AGENTS_STACK_JSON" 2>/dev/null <<'PY'
+import json, sys
+agents, raw = sys.argv[1], sys.argv[2]
+try:
+    d = json.loads(raw)
+    names = [s["name"] for s in d.get("stacks", []) if s.get("confidence") == "high"]
+except Exception:
+    names = []
+if names:
+    det = ", ".join(names)
+    t = open(agents).read()
+    old = "| Stack | Project-specific | Fill during project setup with languages, frameworks, and package managers. |"
+    new = f"| Stack | {det} | Detected stacks — add package managers / key frameworks if useful. |"
+    if old in t:
+        open(agents, "w").write(t.replace(old, new))
+        print(det)
+PY
+)"
+    if [ -n "$AGENTS_STACK_FILLED" ]; then
+        echo "[wrote] AGENTS.md (Stack: $AGENTS_STACK_FILLED)"
+    else
+        echo "[wrote] AGENTS.md (APD pipeline rules for Codex orchestrator)"
+    fi
     CHANGES=$((CHANGES + 1))
 fi
 
@@ -490,6 +518,118 @@ case "$HOOKS_RC" in
     *)
         rm -f "$HOOKS_TMP"
         echo "ERROR: failed to merge APD hook into $HOOKS_FILE" >&2
+        exit 7
+        ;;
+esac
+
+# -----------------------------------------------------------
+# 5b. Repo-level hooks.json — merge PreToolUse Bash → guard-bash-portability
+#     (macOS/BSD portability guard; mirror of block 5, appended alongside
+#     guard-bash-scope in the PreToolUse Bash entry block 5 created/found).
+# -----------------------------------------------------------
+PORT_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-port.XXXXXX")"
+set +e
+PORT_STATUS="$(
+python3 - "$HOOKS_FILE" "$GUARD_PORTABILITY" "$PORT_TMP" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+hooks_path = Path(sys.argv[1])
+guard_bash = sys.argv[2]
+out_path = Path(sys.argv[3])
+
+desired = {
+    "type": "command",
+    "command": f"bash {guard_bash}",
+    "timeout": 5,
+}
+
+if hooks_path.exists():
+    try:
+        data = json.loads(hooks_path.read_text())
+    except json.JSONDecodeError as exc:
+        print(f"invalid JSON in {hooks_path}: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+else:
+    data = {}
+
+if not isinstance(data, dict):
+    print(f"{hooks_path} must contain a JSON object", file=sys.stderr)
+    raise SystemExit(1)
+
+hooks = data.setdefault("hooks", {})
+if not isinstance(hooks, dict):
+    print(f"{hooks_path}: top-level 'hooks' must be an object", file=sys.stderr)
+    raise SystemExit(1)
+
+pre = hooks.setdefault("PreToolUse", [])
+if not isinstance(pre, list):
+    print(f"{hooks_path}: hooks.PreToolUse must be an array", file=sys.stderr)
+    raise SystemExit(1)
+
+apd_marker = "guard-bash-portability"
+bash_entries = [entry for entry in pre if isinstance(entry, dict) and entry.get("matcher") == "Bash"]
+action = "skip"
+desired_present = False
+stale_slot = None
+
+for entry in bash_entries:
+    entry_hooks = entry.setdefault("hooks", [])
+    if not isinstance(entry_hooks, list):
+        print(f"{hooks_path}: Bash hook entry must contain a hooks array", file=sys.stderr)
+        raise SystemExit(1)
+    for idx, hook in enumerate(entry_hooks):
+        if not isinstance(hook, dict):
+            continue
+        command = hook.get("command", "")
+        if hook.get("type") == "command" and command == desired["command"]:
+            desired_present = True
+            if hook.get("timeout") != desired["timeout"]:
+                entry_hooks[idx] = desired
+                action = "updated"
+            break
+        if apd_marker in command:
+            stale_slot = (entry_hooks, idx)
+    if desired_present:
+        break
+
+if not desired_present:
+    if stale_slot is not None:
+        stale_slot[0][stale_slot[1]] = desired
+        action = "updated"
+    elif bash_entries:
+        bash_entries[0]["hooks"].append(desired)
+        action = "updated"
+    else:
+        pre.append({"matcher": "Bash", "hooks": [desired]})
+        action = "wrote"
+
+if action == "skip":
+    print("skip")
+    raise SystemExit(0)
+
+out_path.write_text(json.dumps(data, indent=2) + "\n")
+print(action)
+raise SystemExit(10)
+PY
+)"
+PORT_RC=$?
+set -e
+case "$PORT_RC" in
+    0)
+        rm -f "$PORT_TMP"
+        echo "[skip] PreToolUse guard-bash-portability already wired in $HOOKS_FILE"
+        ;;
+    10)
+        _backup_if_exists "$HOOKS_FILE"
+        mv "$PORT_TMP" "$HOOKS_FILE"
+        echo "[wrote] PreToolUse Bash portability guard → $HOOKS_FILE"
+        CHANGES=$((CHANGES + 1))
+        ;;
+    *)
+        rm -f "$PORT_TMP"
+        echo "ERROR: failed to merge APD portability hook into $HOOKS_FILE" >&2
         exit 7
         ;;
 esac

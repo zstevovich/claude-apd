@@ -10781,6 +10781,92 @@ if [ "$GR_HEAD_BEFORE" = "$GR_HEAD_AFTER" ]; then pass "resolve is read-only (HE
 rm -rf "$GR_ROOT"
 
 # -----------------------------------------------------------
+# 99. v6.34 — guard-bash-portability: macOS/BSD portability guard
+#     Root cause: an orchestrator used `timeout` (absent on macOS) to wrap a verifier
+#     re-run that silently never started. Hard guard blocks GNU/Linux-isms on Darwin.
+# -----------------------------------------------------------
+section "99. guard-bash-portability (v6.34)"
+GP_CORE="$APD_PLUGIN_ROOT/bin/core/guard-bash-portability"
+_check "guard-bash-portability core exists + executable" test -x "$GP_CORE"
+_check "CC shim exists + executable" test -x "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-bash-portability"
+_check "Codex shim exists + executable" test -x "$APD_PLUGIN_ROOT/bin/adapter/cdx/guard-bash-portability"
+_check "env-info exists + executable" test -x "$APD_PLUGIN_ROOT/bin/core/env-info"
+if grep -q 'guard-bash-portability' "$APD_PLUGIN_ROOT/../../hooks/hooks.json"; then
+  pass "hooks.json PreToolUse Bash wires guard-bash-portability"; PASSES=$((PASSES + 1))
+else fail "hooks.json missing portability guard"; FAILS=$((FAILS + 1)); fi
+if grep -qF 'env)' "$APD_PLUGIN_ROOT/bin/apd" && grep -q 'CORE_DIR/env-info' "$APD_PLUGIN_ROOT/bin/apd"; then
+  pass "apd dispatcher routes 'env' → env-info"; PASSES=$((PASSES + 1))
+else fail "apd dispatcher missing env route"; FAILS=$((FAILS + 1)); fi
+if grep -q 'APD_SKIP_PORTABILITY_GUARD' "$GP_CORE" && grep -q 'APD_PORTABILITY_FORCE' "$GP_CORE" && grep -q 'APD_ACTIVE.*false' "$GP_CORE"; then
+  pass "guard has opt-out + test-force seam + APD_ACTIVE gate"; PASSES=$((PASSES + 1))
+else fail "guard missing opt-out/force/APD_ACTIVE"; FAILS=$((FAILS + 1)); fi
+
+# Live matrix — fixture APD project (APD_ACTIVE=true) + APD_PORTABILITY_FORCE=1 so the
+# guard is active regardless of the CI OS (the force seam can only make it stricter).
+GP_T="$(mktemp -d -t apd-port.XXXXXX)"
+mkdir -p "$GP_T/.apd" "$GP_T/.claude/memory"
+printf 'PROJECT_NAME=port\nAPD_VERSION=6.33.0\n' > "$GP_T/.apd/config"
+_gp() { APD_PROJECT_DIR="$GP_T" APD_PORTABILITY_FORCE=1 bash "$GP_CORE" --command "$1" >/dev/null 2>&1; echo $?; }
+GP_BLOCK_OK=1
+for c in "timeout 5 dotnet test" "dotnet build && timeout 3 x" "tac f" "nproc" "date -d '2020-01-01'" "stat -c '%s' f" "grep -P '\\d' f" "readlink -f /a" "find . -printf '%p'" "sed -i 's/a/b/' f"; do
+  [ "$(_gp "$c")" = "2" ] || GP_BLOCK_OK=0
+done
+if [ "$GP_BLOCK_OK" = "1" ]; then pass "blocks all 10 GNU/Linux-isms (timeout/tac/nproc/date-d/stat-c/grep-P/readlink-f/find-printf/sed-i) → exit 2"; PASSES=$((PASSES + 1)); else fail "a Linux-ism was not blocked"; FAILS=$((FAILS + 1)); fi
+GP_PASS_OK=1
+for c in "gtimeout 5 x" "sed -i '' 's/a/b/' f" "sed -i.bak 's/a/b/' f" "date +%Y" "git log --date=iso" "grep -E 'x' f" "echo \"timeout off\"" "dotnet test | tail -5" "candidate=1"; do
+  [ "$(_gp "$c")" = "0" ] || GP_PASS_OK=0
+done
+if [ "$GP_PASS_OK" = "1" ]; then pass "passes gtimeout / sed -i '' / --date=iso / | tail / substrings (no false positives)"; PASSES=$((PASSES + 1)); else fail "false positive on a valid command"; FAILS=$((FAILS + 1)); fi
+if [ "$(APD_PROJECT_DIR="$GP_T" APD_PORTABILITY_FORCE=1 APD_SKIP_PORTABILITY_GUARD=1 bash "$GP_CORE" --command 'timeout 5 x' >/dev/null 2>&1; echo $?)" = "0" ]; then
+  pass "opt-out APD_SKIP_PORTABILITY_GUARD=1 → exit 0"; PASSES=$((PASSES + 1)); else fail "opt-out ignored"; FAILS=$((FAILS + 1)); fi
+GP_T2="$(mktemp -d)"
+if [ "$(APD_PROJECT_DIR="$GP_T2" APD_PORTABILITY_FORCE=1 bash "$GP_CORE" --command 'timeout 5 x' >/dev/null 2>&1; echo $?)" = "0" ]; then
+  pass "inert when APD not active (no config → APD_ACTIVE=false), even with force"; PASSES=$((PASSES + 1)); else fail "guard fired in non-APD project"; FAILS=$((FAILS + 1)); fi
+rm -rf "$GP_T2"
+if [ "$(uname -s)" = "Darwin" ]; then
+  if [ "$(APD_PROJECT_DIR="$GP_T" bash "$GP_CORE" --command 'timeout 5 x' >/dev/null 2>&1; echo $?)" = "2" ]; then
+    pass "real Darwin (no force seam): timeout blocked"; PASSES=$((PASSES + 1)); else fail "real Darwin timeout not blocked"; FAILS=$((FAILS + 1)); fi
+fi
+rm -rf "$GP_T"
+GP_CI="$(mktemp -d)"; mkdir -p "$GP_CI/.codex"
+bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$GP_CI" >/dev/null 2>&1
+if python3 -c "import json,sys; d=json.load(open('$GP_CI/.codex/hooks.json')); cmds=[h.get('command','') for e in d['hooks']['PreToolUse'] if e.get('matcher')=='Bash' for h in e.get('hooks',[])]; sys.exit(0 if any('guard-bash-portability' in c for c in cmds) and any('guard-bash-scope' in c for c in cmds) else 1)" 2>/dev/null; then
+  pass "codex install wires guard-bash-portability + guard-bash-scope in .codex/hooks.json"; PASSES=$((PASSES + 1)); else fail "codex install missing portability guard"; FAILS=$((FAILS + 1)); fi
+rm -rf "$GP_CI"
+if bash "$APD_PLUGIN_ROOT/bin/apd" env 2>&1 | grep -q 'Portability cheat-sheet' && bash "$APD_PLUGIN_ROOT/bin/apd" env 2>&1 | grep -qE 'gtimeout|hw.ncpu'; then
+  pass "apd env prints platform + portability cheat-sheet"; PASSES=$((PASSES + 1)); else fail "apd env missing cheat-sheet"; FAILS=$((FAILS + 1)); fi
+
+# -----------------------------------------------------------
+# 100. v6.34 — hybrid Codex robustness: AGENTS.md Stack fill + migrate clarity
+#     (Codex audit 2026-07-14: AGENTS.md shipped an unfilled Stack placeholder;
+#     `apd cdx agents migrate` silently no-op'd on hybrid CC-first projects.)
+# -----------------------------------------------------------
+section "100. hybrid Codex robustness (v6.34)"
+HC_T="$(mktemp -d -t apd-hc.XXXXXX)"; mkdir -p "$HC_T/.codex" "$HC_T/src"
+echo '<Project Sdk="Microsoft.NET.Sdk"></Project>' > "$HC_T/src/App.csproj"
+bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$HC_T" >/dev/null 2>&1
+if grep -qE '^\| Stack \| [^|]*\.NET' "$HC_T/AGENTS.md" && ! grep -q '| Stack | Project-specific |' "$HC_T/AGENTS.md"; then
+  pass "install fills AGENTS.md Stack row from detection (.NET); placeholder gone"; PASSES=$((PASSES + 1))
+else fail "AGENTS.md Stack row not filled from detection"; FAILS=$((FAILS + 1)); fi
+if grep -q '| Entry points | Project-specific |' "$HC_T/AGENTS.md"; then
+  pass "AGENTS.md leaves Entry points/Test/Conventions as user-fill (only Stack auto-filled)"; PASSES=$((PASSES + 1))
+else fail "install over-filled the user-fill rows"; FAILS=$((FAILS + 1)); fi
+rm -rf "$HC_T"
+HC_E="$(mktemp -d)"; mkdir -p "$HC_E/.codex"
+bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$HC_E" >/dev/null 2>&1
+if grep -q '| Stack | Project-specific |' "$HC_E/AGENTS.md"; then
+  pass "no stacks detected → Stack row keeps placeholder (no false fill)"; PASSES=$((PASSES + 1))
+else fail "empty detection wrongly altered the Stack row"; FAILS=$((FAILS + 1)); fi
+rm -rf "$HC_E"
+HC_H="$(mktemp -d)"; mkdir -p "$HC_H/.claude/agents"
+printf -- '---\nname: r\n---\nx\n' > "$HC_H/.claude/agents/r.md"
+HC_MIG=$(APD_PROJECT_DIR="$HC_H" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/agents-scaffold" migrate --dry-run 2>&1)
+if echo "$HC_MIG" | grep -q 'hybrid CC-first' && echo "$HC_MIG" | grep -q '.claude/agents'; then
+  pass "migrate on hybrid explains agents live in .claude/agents (not a silent no-op)"; PASSES=$((PASSES + 1))
+else fail "migrate hybrid message missing"; FAILS=$((FAILS + 1)); fi
+rm -rf "$HC_H"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""

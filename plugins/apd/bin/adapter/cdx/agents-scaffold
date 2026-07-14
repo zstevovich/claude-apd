@@ -175,16 +175,26 @@ PY
         SOURCE_DIR="$PROJECT_DIR/.apd/agents"
         TARGET_DIR="$PROJECT_DIR/.codex/agents"
 
-        if [ ! -d "$SOURCE_DIR" ]; then
-            echo "  ${D}No .apd/agents/ directory — nothing to migrate.${R}"
-            exit 0
-        fi
-
         shopt -s nullglob
         SOURCE_FILES=("$SOURCE_DIR"/*.md)
         shopt -u nullglob
-        if [ "${#SOURCE_FILES[@]}" -eq 0 ]; then
-            echo "  ${D}.apd/agents/ has no .md files — nothing to migrate.${R}"
+        if [ ! -d "$SOURCE_DIR" ] || [ "${#SOURCE_FILES[@]}" -eq 0 ]; then
+            # Nothing in .apd/agents/. On a hybrid CC-first project the authoritative
+            # agents live in .claude/agents/ and Codex reads them via resolve-project's
+            # registry pick — migration to .codex/agents/*.toml is neither needed nor
+            # possible from here. Say so instead of a bare "nothing to migrate" (Codex
+            # audit 2026-07-14: the old message read as a broken/misleading command).
+            shopt -s nullglob
+            CC_AGENTS=("$PROJECT_DIR/.claude/agents"/*.md)
+            shopt -u nullglob
+            if [ "${#CC_AGENTS[@]}" -gt 0 ]; then
+                echo "  ${D}No .apd/agents/ to migrate — hybrid CC-first project detected:${R}"
+                echo "  ${D}${#CC_AGENTS[@]} agent(s) live in .claude/agents/ and Codex already reads them via${R}"
+                echo "  ${D}the APD resolver — no migration needed. (This command only converts a${R}"
+                echo "  ${D}PURE-Codex .apd/agents/ layout into .codex/agents/*.toml.)${R}"
+            else
+                echo "  ${D}No .apd/agents/*.md — nothing to migrate.${R}"
+            fi
             exit 0
         fi
 

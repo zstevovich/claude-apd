@@ -50,6 +50,17 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-bash-portability"],
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "SendMessage",
         "hooks": [
           {

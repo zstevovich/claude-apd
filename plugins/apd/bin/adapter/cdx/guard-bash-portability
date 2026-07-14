@@ -1,0 +1,18 @@
+#!/bin/bash
+# Codex adapter shim for guard-bash-portability
+# Reads Codex hook stdin JSON, passes the command to the core guard.
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CORE_DIR="$SCRIPT_DIR/../../core"
+
+if ! command -v jq &>/dev/null; then
+  # No jq → cannot parse the hook payload; fail open (never block on infra gap).
+  exit 0
+fi
+
+INPUT=$(cat)
+# Fail open on malformed payload (never block on an infra/parse gap).
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // .toolInput.command // .command // empty' 2>/dev/null || true)
+
+exec "$CORE_DIR/guard-bash-portability" --command "$COMMAND" "$@"

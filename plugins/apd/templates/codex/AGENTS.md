@@ -74,6 +74,12 @@ Ask before broadening scope, skipping adversarial outside the Lean rules,
 pushing to a remote, opening a PR, or discarding work. Destructive git actions
 require explicit user confirmation.
 
+## Platform portability (macOS/BSD vs Linux)
+
+You are most likely on **macOS (Darwin, BSD userland)**, NOT Linux. GNU/Linux-isms fail here — often **silently** (a backgrounded `timeout` that never starts). `guard-bash-portability` hard-blocks the worst on macOS. Run `apd env` for the full table. Key swaps: `timeout`→`gtimeout` (or bg+kill), `tac`→`tail -r`, `nproc`→`sysctl -n hw.ncpu`, `date -d`→`date -v`/`date -j -f`, `stat -c`→`stat -f`, `grep -P`→`grep -E`, `readlink -f`→`realpath`, `sed -i 's/…'`→`sed -i '' 's/…'`.
+
+**Never pipe the build/verifier through `head`/`tail`** — the pipe's exit code is the tail's, not the command's (a failure reads as success). Capture to a file and read it; use `set -o pipefail`. When something looks stuck, poll the pipeline's own signal (`.done` files / `apd pipeline status`), do not eyeball hidden output and re-run blindly.
+
 ## Recon (before the spec card)
 
 Before writing the spec card you need enough context to draft precise
