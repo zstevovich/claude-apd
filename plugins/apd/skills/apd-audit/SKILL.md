@@ -75,7 +75,7 @@ Check that `AGENTS.md` does NOT contain:
 ### 4. MCP registration
 
 Verify `.codex/config.toml` has:
-- `[mcp_servers.apd]` block with `command = "uv"`, relative `mcp/apd_mcp_server.py`, and `cwd` pointing at the APD plugin root
+- `[mcp_servers.apd]` block with `command = "bash"` and `args` pointing at the version-agnostic `.codex/bin/apd-mcp` launcher (v6.35 — NO pinned `cwd`; the launcher resolves the current plugin cache at runtime so the config survives a plugin upgrade). A pinned `cwd = ".../apd/<version>"` is a pre-v6.35 install → run `apd cdx init` to migrate.
 - All eight `[mcp_servers.apd.tools.<name>]` blocks (one per APD MCP tool)
 - Approval modes are appropriate for the project's risk profile
 

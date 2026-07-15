@@ -20,7 +20,10 @@ Run the installer helper from your project directory:
 
 This writes `<project>/.codex/config.toml` with the APD MCP entry and per-tool auto-approval blocks. Idempotent — safe to re-run. Use `uv run --with mcp` so no system-wide Python changes are needed (`brew install uv` is the only prereq).
 
-Manual alternative (if you prefer):
+Manual alternative (if you prefer). Note: `apd cdx init` writes a version-agnostic
+launcher instead (`command = "bash"`, `args = ["<project>/.codex/bin/apd-mcp"]`, no
+`cwd`) so the config survives plugin upgrades; the pinned form below is fine for a
+stable dev-checkout path that never moves:
 
 ```toml
 [mcp_servers.apd]

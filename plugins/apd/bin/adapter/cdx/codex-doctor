@@ -206,12 +206,16 @@ for raw in cfg.read_text().splitlines():
         sections[current].append(line)
 
 server = sections.get("[mcp_servers.apd]", [])
-required = {
-    'command = "uv"',
-    'args = ["run", "--with", "mcp", "--with", "tomli", "python", "mcp/apd_mcp_server.py"]',
-    f'cwd = "{plugin_root}"',
-}
-missing_server = sorted(required - set(server))
+server_txt = "\n".join(server)
+# v6.35: the server runs the version-agnostic .codex/bin/apd-mcp launcher
+# (command = bash, args = [<launcher>]) — NO pinned cwd, so the config survives
+# a plugin upgrade. Validate the shape, not an exact path (the launcher path is
+# project-specific).
+missing_server = []
+if 'command = "bash"' not in server:
+    missing_server.append('command must be "bash" (version-agnostic launcher)')
+if ".codex/bin/apd-mcp" not in server_txt:
+    missing_server.append("args must point at the .codex/bin/apd-mcp launcher")
 missing_tools = [
     t for t in tools
     if 'approval_mode = "approve"' not in sections.get(f"[mcp_servers.apd.tools.{t}]", [])
@@ -256,17 +260,17 @@ PY
         _bad "$HOOKS missing or not wired to guard-file-edit for apply_patch/Edit/Write"
     fi
 
-    if [ -f "$HOOKS" ] && grep -q 'bin/adapter/cdx/session-start' "$HOOKS"; then
-        _ok "hooks.json wires SessionStart → cdx session-start (TUI only; exec mode covered by MCP defaultPrompt)"
+    if [ -f "$HOOKS" ] && grep -q 'apd-hook.*session-start' "$HOOKS"; then
+        _ok "hooks.json wires SessionStart → apd-hook session-start (TUI only; exec mode covered by MCP defaultPrompt)"
     else
         _warn "hooks.json has no SessionStart hook — TUI sessions will not get auto gap-analysis. Run: apd cdx init"
     fi
 
     SHORTCUT="$CODEX_DIR/bin/apd"
-    if [ -x "$SHORTCUT" ] && grep -qF "$APD_PLUGIN_ROOT/bin/apd" "$SHORTCUT" 2>/dev/null; then
-        _ok ".codex/bin/apd shortcut points to plugin entry"
+    if [ -x "$SHORTCUT" ] && grep -q '_apd_home' "$SHORTCUT" 2>/dev/null && grep -q 'APD_RUNTIME=codex' "$SHORTCUT" 2>/dev/null; then
+        _ok ".codex/bin/apd shortcut is the version-agnostic launcher"
     else
-        _warn ".codex/bin/apd shortcut missing or stale — run apd cdx init or restart Codex (MCP bootstrap creates it)"
+        _warn ".codex/bin/apd shortcut missing or pinned (pre-v6.35 form) — run apd cdx init or restart Codex (MCP bootstrap creates it)"
     fi
 fi
 

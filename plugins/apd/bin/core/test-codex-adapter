@@ -103,7 +103,7 @@ echo "$FIRST_OUT" | grep -q "per-agent sandbox profiles skipped" && pass "sandbo
 echo "$FIRST_OUT" | grep -q "PreToolUse Bash hook" && pass "wrote hooks.json" && PASSES=$((PASSES + 1)) || { fail "no hooks.json written"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "PreToolUse file-edit hook" && pass "wrote file-edit hook" && PASSES=$((PASSES + 1)) || { fail "no file-edit hook written"; FAILS=$((FAILS + 1)); }
 echo "$FIRST_OUT" | grep -q "SessionStart hook" && pass "wrote SessionStart hook" && PASSES=$((PASSES + 1)) || { fail "no SessionStart hook written"; FAILS=$((FAILS + 1)); }
-echo "$FIRST_OUT" | grep -q "\.codex/bin/apd shortcut" && pass "wrote .codex/bin/apd shortcut" && PASSES=$((PASSES + 1)) || { fail "no apd shortcut created"; FAILS=$((FAILS + 1)); }
+echo "$FIRST_OUT" | grep -q "version-agnostic launcher" && pass "wrote .codex/bin version-agnostic launchers" && PASSES=$((PASSES + 1)) || { fail "no launchers created"; FAILS=$((FAILS + 1)); }
 _check ".codex/bin/apd is executable" test -x "$SCRATCH/.codex/bin/apd"
 _check ".codex/bin/apd exports APD_RUNTIME=codex (runtime tag for shortcut-driven advances)" \
     grep -q 'export APD_RUNTIME=codex' "$SCRATCH/.codex/bin/apd"
@@ -181,13 +181,15 @@ if [ -f "$PLUGIN_MCP_JSON" ]; then
     done
 fi
 _check_file_contains "config.toml has APD MCP server block" "$CFG" '^\[mcp_servers\.apd\]$'
-_check_file_contains "config.toml APD command uses uv" "$CFG" '^command = "uv"$'
-_check_file_contains "config.toml APD args use relative plugin MCP path" "$CFG" 'args = \["run", "--with", "mcp", "--with", "tomli", "python", "mcp/apd_mcp_server\.py"\]'
-if grep -qF "cwd = \"$APD_PLUGIN_ROOT\"" "$CFG" 2>/dev/null; then
-    pass "config.toml APD cwd points at plugin root"
+_check_file_contains "config.toml APD command is bash (version-agnostic launcher)" "$CFG" '^command = "bash"$'
+_check_file_contains "config.toml APD args point at the apd-mcp launcher" "$CFG" 'args = \[".*/\.codex/bin/apd-mcp"\]'
+# v6.35: no pinned cwd — the .codex/bin/apd-mcp launcher resolves the current
+# cache and cd's into it, so config survives a plugin upgrade.
+if ! grep -q '^cwd = ' "$CFG" 2>/dev/null && [ -x "$(dirname "$CFG")/bin/apd-mcp" ]; then
+    pass "config.toml has no pinned cwd; apd-mcp launcher present (version-agnostic)"
     PASSES=$((PASSES + 1))
 else
-    fail "config.toml APD cwd missing or stale"
+    fail "config.toml still has a pinned cwd, or apd-mcp launcher missing"
     FAILS=$((FAILS + 1))
 fi
 for _t in apd_ping apd_doctor apd_advance_pipeline apd_guard_write \
@@ -207,11 +209,64 @@ _check_file_contains "hooks.json routes to guard-bash-scope" "$HOOKS" 'guard-bas
 _check_file_contains "hooks.json routes file edits to guard-file-edit" "$HOOKS" 'guard-file-edit'
 _check_file_contains "hooks.json matches apply_patch/Edit/Write" "$HOOKS" 'apply_patch\|Edit\|Write'
 _check_file_contains "hooks.json has SessionStart" "$HOOKS" 'SessionStart'
-_check_file_contains "hooks.json routes SessionStart to adapter" "$HOOKS" 'bin/adapter/cdx/session-start'
+_check_file_contains "hooks.json routes SessionStart via apd-hook launcher" "$HOOKS" 'apd-hook.*session-start'
 _check "session-start script is executable" test -x "$APD_PLUGIN_ROOT/bin/adapter/cdx/session-start"
 _check_file_contains "Codex plugin manifest mentions apd_doctor at session start" \
     "$APD_PLUGIN_ROOT/.codex-plugin/plugin.json" 'apd_doctor'
 _check_file_contains ".apd/config has PROJECT_NAME" "$SCRATCH/.apd/config" '^PROJECT_NAME='
+
+# v6.35 — version-agnostic launchers survive a plugin upgrade WITHOUT re-init.
+# Simulate the marketplace layout (install from a VERSIONED cache dir), then rename
+# the cache dir as an upgrade would, and confirm the launcher resolves the NEW
+# version at runtime (root cause of the 2026-07-14 ENOENT: pinned cwd/paths).
+VA_ROOT="$(mktemp -d)"; VA_CACHE="$VA_ROOT/codex-apd/apd"
+mkdir -p "$VA_CACHE/9.9.8"
+for _sub in bin mcp templates rules skills .codex-plugin .mcp.json VERSION; do
+    ln -s "$APD_PLUGIN_ROOT/$_sub" "$VA_CACHE/9.9.8/$_sub" 2>/dev/null
+done
+VA_PROJ="$(mktemp -d)"; mkdir -p "$VA_PROJ/.codex"
+bash "$VA_CACHE/9.9.8/bin/adapter/cdx/install-codex-config" "$VA_PROJ" >/dev/null 2>&1
+if grep -q 'APD_VERSIONED=1' "$VA_PROJ/.codex/bin/apd" 2>/dev/null && grep -q '_apd_home' "$VA_PROJ/.codex/bin/apd" 2>/dev/null; then
+    _va_shape=1; else _va_shape=0; fi
+mv "$VA_CACHE/9.9.8" "$VA_CACHE/9.9.9"   # simulate upgrade: 9.9.8 gone, 9.9.9 present
+# Resolve APD_HOME the way the launcher does (strip the exec line, print APD_HOME).
+VA_RESOLVED=$( { sed '/^exec /d' "$VA_PROJ/.codex/bin/apd"; printf 'printf "%%s" "$APD_HOME"\n'; } | bash 2>/dev/null)
+if [ "$_va_shape" = "1" ] && echo "$VA_RESOLVED" | grep -q '/9\.9\.9$'; then
+    pass "version-agnostic launcher self-resolves the NEW cache after an upgrade (no re-init)"; PASSES=$((PASSES + 1))
+else
+    fail "launcher did not self-resolve after upgrade (shape=$_va_shape resolved='$VA_RESOLVED')"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$VA_ROOT" "$VA_PROJ"
+
+# v6.35 audit IMPORTANT-3 — the resolver must SKIP a non-version sibling dir that
+# sorts on top without a bin/apd, not fall back to the (deleted) baked path.
+VA_S="$(mktemp -d)"; mkdir -p "$VA_S/proj/.codex" "$VA_S/cache/9.9.8/bin" "$VA_S/cache/zzz-notaversion"
+printf '#!/bin/bash\n:\n' > "$VA_S/cache/9.9.8/bin/apd"; chmod +x "$VA_S/cache/9.9.8/bin/apd"
+bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$VA_S/proj" >/dev/null 2>&1
+VA_S_RES=$( { sed -e '/^exec /d' \
+    -e "s#^APD_PARENT=.*#APD_PARENT=$VA_S/cache#" \
+    -e 's#^APD_BAKED=.*#APD_BAKED=/gone#' \
+    -e 's#^APD_VERSIONED=.*#APD_VERSIONED=1#' "$VA_S/proj/.codex/bin/apd"; printf 'printf "%%s" "$APD_HOME"\n'; } | bash 2>/dev/null)
+if echo "$VA_S_RES" | grep -q '/9\.9\.8$'; then
+    pass "resolver skips a non-version sibling and picks the highest valid version (not baked)"; PASSES=$((PASSES + 1))
+else
+    fail "resolver fell back to baked past a sibling (got '$VA_S_RES')"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$VA_S"
+
+# v6.35 audit CRITICAL-1 — session-start must NOT clobber a version-agnostic launcher
+# back to a pinned path (it dropped _apd_home + APD_RUNTIME on every throttled session).
+VA_SS="$(mktemp -d)"; mkdir -p "$VA_SS/.codex" "$VA_SS/.apd/pipeline" "$VA_SS/.claude/memory"
+printf 'PROJECT_NAME=ss\nAPD_VERSION=6.34.0\n' > "$VA_SS/.apd/config"
+bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$VA_SS" >/dev/null 2>&1
+date +%s > "$VA_SS/.apd/pipeline/.last-init-check"   # throttle gap-analysis so session-start is fast
+APD_PROJECT_DIR="$VA_SS" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/session-start" >/dev/null 2>&1 || true
+if grep -q '_apd_home' "$VA_SS/.codex/bin/apd" 2>/dev/null && grep -q 'APD_RUNTIME=codex' "$VA_SS/.codex/bin/apd" 2>/dev/null; then
+    pass "session-start preserves the version-agnostic launcher (no pin-clobber, keeps APD_RUNTIME)"; PASSES=$((PASSES + 1))
+else
+    fail "session-start clobbered the launcher back to a pinned form"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$VA_SS"
 
 if command -v python3 &>/dev/null; then
     if [ -f "$CFG" ]; then
@@ -275,9 +330,9 @@ else
 fi
 
 if grep -q '^\[mcp_servers\.apd\]' "$REPAIR/.codex/config.toml" 2>/dev/null && \
-   grep -qF 'args = ["run", "--with", "mcp", "--with", "tomli", "python", "mcp/apd_mcp_server.py"]' "$REPAIR/.codex/config.toml" 2>/dev/null && \
-   grep -qF "cwd = \"$APD_PLUGIN_ROOT\"" "$REPAIR/.codex/config.toml" 2>/dev/null; then
-    pass "config.toml carries repaired APD MCP block"
+   grep -qE 'args = \[".*/\.codex/bin/apd-mcp"\]' "$REPAIR/.codex/config.toml" 2>/dev/null && \
+   ! grep -q '^cwd = ' "$REPAIR/.codex/config.toml" 2>/dev/null; then
+    pass "config.toml carries repaired APD MCP block (bash launcher, no pinned cwd)"
     PASSES=$((PASSES + 1))
 else
     fail "config.toml APD MCP block was not repaired"
@@ -308,25 +363,25 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-if grep -qF "$APD_PLUGIN_ROOT/bin/adapter/cdx/guard-bash-scope" "$REPAIR/.codex/hooks.json" 2>/dev/null; then
-    pass "APD Bash hook present after merge"
+if grep -q 'apd-hook.*guard-bash-scope' "$REPAIR/.codex/hooks.json" 2>/dev/null; then
+    pass "APD Bash hook present after merge (routed via apd-hook launcher)"
     PASSES=$((PASSES + 1))
 else
     fail "APD Bash hook missing after merge"
     FAILS=$((FAILS + 1))
 fi
 
-if grep -qF "$APD_PLUGIN_ROOT/bin/adapter/cdx/guard-file-edit" "$REPAIR/.codex/hooks.json" 2>/dev/null && \
+if grep -q 'apd-hook.*guard-file-edit' "$REPAIR/.codex/hooks.json" 2>/dev/null && \
    grep -qF 'apply_patch|Edit|Write' "$REPAIR/.codex/hooks.json" 2>/dev/null; then
-    pass "APD file-edit hook present after merge"
+    pass "APD file-edit hook present after merge (routed via apd-hook launcher)"
     PASSES=$((PASSES + 1))
 else
     fail "APD file-edit hook missing after merge"
     FAILS=$((FAILS + 1))
 fi
 
-if grep -qF "$APD_PLUGIN_ROOT/bin/adapter/cdx/session-start" "$REPAIR/.codex/hooks.json" 2>/dev/null; then
-    pass "APD SessionStart hook merged alongside existing PreToolUse/PostToolUse"
+if grep -q 'apd-hook.*session-start' "$REPAIR/.codex/hooks.json" 2>/dev/null; then
+    pass "APD SessionStart hook merged alongside existing PreToolUse/PostToolUse (via apd-hook)"
     PASSES=$((PASSES + 1))
 else
     fail "APD SessionStart hook missing after merge"

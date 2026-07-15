@@ -1,5 +1,19 @@
 # Changelog
 
+## v6.35.0 — 2026-07-15
+
+**Version-agnostic Codex install — `.codex/` survives plugin upgrades.** `install-codex-config` pinned the *versioned* plugin-cache path (`…/codex-apd/apd/<X.Y.Z>/…`) into the project's `.codex/config.toml` (MCP `cwd`), `.codex/bin/apd` shortcut, and `.codex/hooks.json` guard commands. A plugin bump moves the cache dir, so every reference broke at once — the Codex MCP server failed to start with `No such file or directory`, and the shortcut itself was dead so `apd cdx init` recovery was unreachable. (The v6.34.0 bump triggered this live on a hybrid project.)
+
+**Fixed — project-local, version-STABLE launchers that resolve the current cache at runtime.** `install-codex-config` now writes three launchers into `.codex/bin/` (a path that never moves): `apd` (shortcut), `apd-hook` (hook dispatcher, `apd-hook <guard-name>`), and `apd-mcp` (MCP launcher). Each bakes an `_apd_home()` resolver: on a marketplace install (versioned dir) it iterates `<parent>/*/ | sort -V -r` and returns the first dir with an executable `bin/apd`; on a dev checkout it uses the baked path. Then `config.toml` → `command = "bash"`, `args = ["<project>/.codex/bin/apd-mcp"]` (no `cwd`); `hooks.json` → `bash "<project>/.codex/bin/apd-hook" <guard>` (path quoted, so a project path with a space still runs); the shortcut is the self-resolving launcher. All `.codex/` references now point at stable project paths that resolve the volatile cache at runtime, so a plugin upgrade needs no re-init. The same old format was generated/validated in six places (install, the MCP-server `_bootstrap_shortcut`, the `session-start` shortcut drift-guard, and three `codex-doctor` checks) — all moved to the version-agnostic form and kept in lockstep, so nothing re-pins the launcher or false-warns on a healthy project. `codex-doctor` keeps a pinned-`cwd` detector as a migration aid for pre-v6.35 installs (`--fix` regenerates to the new form).
+
+### Audit
+
+Independent pre-commit audit (decontextualized agent) — this touches user projects, so it earned its keep. It found the rule-5 migration was **incomplete**: a CRITICAL (the `session-start` drift-guard clobbered a good version-agnostic launcher back to the pinned form on every throttled session, also dropping `APD_RUNTIME=codex`), two IMPORTANT (`codex-doctor` false-warned on healthy v6.35 projects; the resolver fell back to the deleted baked path when a non-version sibling sorted on top), and two MINOR (unquoted hook path; deferred eval fixtures). All fixed in-session and re-verified — the combined worst case (spaced path + deleted baked + hostile sibling) runs clean.
+
+### Tests
+
+`test-codex-adapter` — 12 format assertions migrated (uv→bash, cwd→none, guard paths→`apd-hook`), an upgrade-simulation test (install from a fake versioned cache, rename it, confirm the launcher self-resolves the new dir), a resolver-sibling-skip test, and a session-start no-clobber test → **879/0**.
+
 ## v6.34.0 — 2026-07-14
 
 **macOS portability guard + hybrid-Codex robustness.** An orchestrator on macOS wrapped a verifier re-run in `timeout` (absent on macOS/BSD); it silently never started (command-not-found swallowed in the background), so the orchestrator misdiagnosed a hang and nearly committed on a masked result. The platform fact is in context but agents don't act on it — so the reliable lever is a hard guard. A Codex APD audit separately surfaced two hybrid-Codex setup gaps.
