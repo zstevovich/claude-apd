@@ -89,18 +89,55 @@ GLOBAL_CFG="$CODEX_HOME/config.toml"
 if [ -f "$GLOBAL_CFG" ]; then
     _ok "global config.toml exists"
     # v6.4 G2 — Codex 0.130 renamed [features].codex_hooks → [features].hooks.
-    # Accept either, prefer new name; warn (or auto-rename under --fix) when only
-    # the deprecated form is present.
-    HAS_HOOKS_NEW=false
-    HAS_HOOKS_OLD=false
-    grep -qE '^\s*hooks\s*=\s*true' "$GLOBAL_CFG" 2>/dev/null && HAS_HOOKS_NEW=true
-    grep -qE '^\s*codex_hooks\s*=\s*true' "$GLOBAL_CFG" 2>/dev/null && HAS_HOOKS_OLD=true
-    if [ "$HAS_HOOKS_NEW" = true ]; then
+    # Parse TOML so same-named keys in another table cannot produce a false
+    # result. Current Codex enables hooks by default: absent means enabled,
+    # while an explicit false disables the lifecycle enforcement APD needs.
+    HOOK_VALUES=$(python3 - "$GLOBAL_CFG" <<'PY'
+import sys
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        print("parser-missing|parser-missing")
+        raise SystemExit(0)
+
+try:
+    with open(sys.argv[1], "rb") as fh:
+        data = tomllib.load(fh)
+except (OSError, tomllib.TOMLDecodeError):
+    print("parse-error|parse-error")
+    raise SystemExit(0)
+
+features = data.get("features")
+if not isinstance(features, dict):
+    features = {}
+
+def value(name):
+    if name not in features:
+        return "absent"
+    raw = features[name]
+    if raw is True:
+        return "true"
+    if raw is False:
+        return "false"
+    return "invalid"
+
+print(f"{value('hooks')}|{value('codex_hooks')}")
+PY
+)
+    IFS='|' read -r HOOKS_NEW HOOKS_OLD <<EOF
+$HOOK_VALUES
+EOF
+    if [ "$HOOKS_NEW" = true ]; then
         _ok "[features].hooks enabled (Codex 0.130+ canonical name)"
-        if [ "$HAS_HOOKS_OLD" = true ]; then
+        if [ "$HOOKS_OLD" != absent ]; then
             _warn "[features].codex_hooks also present (deprecated) — safe to delete; the canonical key wins"
         fi
-    elif [ "$HAS_HOOKS_OLD" = true ]; then
+    elif [ "$HOOKS_NEW" = false ]; then
+        _bad "Codex hooks feature disabled by [features].hooks = false — APD hooks cannot enforce writes"
+    elif [ "$HOOKS_NEW" = absent ] && [ "$HOOKS_OLD" = true ]; then
         _warn "[features].codex_hooks is deprecated (Codex 0.130). Rename to [features].hooks in $GLOBAL_CFG to silence the per-session warning."
         if [ "$FIX_MODE" = "true" ]; then
             # macOS-safe in-place sed (BSD): use -i with empty suffix
@@ -111,8 +148,12 @@ if [ -f "$GLOBAL_CFG" ]; then
                 _bad "[--fix] sed rename failed; edit $GLOBAL_CFG manually"
             fi
         fi
+    elif [ "$HOOKS_NEW" = absent ] && [ "$HOOKS_OLD" = false ]; then
+        _bad "Codex hooks feature disabled by deprecated [features].codex_hooks = false"
+    elif [ "$HOOKS_NEW" = absent ] && [ "$HOOKS_OLD" = absent ]; then
+        _ok "[features].hooks enabled by default (no override)"
     else
-        _bad "Codex hooks feature NOT enabled — run: codex features enable hooks  (older: codex features enable codex_hooks)"
+        _bad "Could not determine [features].hooks from $GLOBAL_CFG ($HOOKS_NEW/$HOOKS_OLD)"
     fi
     # Codex deprecated [features].collab in favor of [features].multi_agent.
     # Surface it so the user can silence the noisy startup warning.

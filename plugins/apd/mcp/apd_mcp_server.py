@@ -397,6 +397,45 @@ def _read_done(done: Path) -> dict:
     return out
 
 
+def _validator_binary() -> Path | None:
+    """Return the platform validator used to sign and verify `.done` files."""
+    import platform
+
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    os_name = {"darwin": "darwin", "linux": "linux"}.get(system)
+    arch_name = {
+        "x86_64": "amd64",
+        "amd64": "amd64",
+        "arm64": "arm64",
+        "aarch64": "arm64",
+    }.get(machine)
+    if not os_name or not arch_name:
+        return None
+    validator = APD_PLUGIN_ROOT / "bin" / "compiled" / f"validate-agent-{os_name}-{arch_name}"
+    return validator if validator.is_file() and os.access(validator, os.X_OK) else None
+
+
+def _done_signature_error(step: str, pipeline_dir: Path) -> str | None:
+    """Return a validator error for an unverifiable marker, or None when valid."""
+    validator = _validator_binary()
+    if validator is None:
+        return f"{step}.done signature validator unavailable"
+    try:
+        result = subprocess.run(
+            [str(validator), "verify", "-step", step, "-pipeline-dir", str(pipeline_dir)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"{step}.done signature validation failed: {exc}"
+    if result.returncode == 0:
+        return None
+    detail = (result.stderr or result.stdout).strip() or "signature verification failed"
+    return detail
+
+
 @mcp.tool()
 def apd_pipeline_state() -> dict:
     """Return structured pipeline state for the active project.
@@ -421,6 +460,8 @@ def apd_pipeline_state() -> dict:
         "adversarial":         {"pending": bool, "total": int, "accepted": int, "dismissed": int} | null,
         "reviewed_files":      int,
         "verified_cache":      {"ts": int, "age": int, "fresh": bool} | null,
+        "consistent":          bool,
+        "errors":              [str, ...],
         "budgets": {
           "spec_criteria":  {"value": int, "budget_green": 4, "budget_yellow": 7, "status": "green"|"yellow"|"red"},
           "reviewed_files": {"value": int, "lean_budget": 4,   "status": "green"|"yellow"|"red"},
@@ -446,6 +487,8 @@ def apd_pipeline_state() -> dict:
         "adversarial": None,
         "reviewed_files": 0,
         "verified_cache": None,
+        "consistent": True,
+        "errors": [],
         "next_step": "spec",
     }
     if not pipeline_dir.is_dir():
@@ -454,6 +497,10 @@ def apd_pipeline_state() -> dict:
     # Step .done files
     for step in ("spec", "builder", "reviewer", "verifier"):
         state["steps"][step] = _read_done(pipeline_dir / f"{step}.done")
+        if state["steps"][step].get("done"):
+            signature_error = _done_signature_error(step, pipeline_dir)
+            if signature_error:
+                state["errors"].append(signature_error)
 
     # Next step to advance — first step that isn't done; "commit" if all done
     order = ("spec", "builder", "reviewer", "verifier")
@@ -486,12 +533,29 @@ def apd_pipeline_state() -> dict:
     if (pipeline_dir / "implementation-plan.md").is_file():
         state["implementation_plan"] = {"exists": True}
 
+    # A later marker without its predecessor is structurally impossible, and
+    # signed phase markers remain unsafe when their frozen authoring artifacts
+    # have disappeared. Never recommend commit from such a partial/stale state.
+    seen_incomplete = False
+    for step in order:
+        if not state["steps"][step].get("done"):
+            seen_incomplete = True
+        elif seen_incomplete:
+            state["errors"].append(f"{step}.done exists before an earlier pipeline step")
+    if state["steps"]["spec"].get("done") and not state["spec_card"]["exists"]:
+        state["errors"].append("spec.done exists but required spec-card.md is missing")
+    elif state["steps"]["spec"].get("done") and not state["spec_card"]["hash_frozen"]:
+        state["errors"].append("spec.done exists but required .spec-hash is missing")
+    if state["steps"]["builder"].get("done") and not state["implementation_plan"]["exists"]:
+        state["errors"].append("builder.done exists but required implementation-plan.md is missing")
+
     # Adversarial
     adv_summary = pipeline_dir / ".adversarial-summary"
     adv_pending = pipeline_dir / ".adversarial-pending"
     if adv_summary.is_file():
         try:
-            line = adv_summary.read_text().strip()
+            lines = adv_summary.read_text().splitlines()
+            line = lines[0].strip() if lines else ""
             parts = line.removeprefix("ADVERSARIAL:").split(":")
             if len(parts) == 3:
                 state["adversarial"] = {
@@ -556,6 +620,11 @@ def apd_pipeline_state() -> dict:
         },
         "verifier_duration_s": verifier_duration,
     }
+
+    if state["errors"]:
+        state["ok"] = False
+        state["consistent"] = False
+        state["next_step"] = None
 
     return state
 

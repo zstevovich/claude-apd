@@ -1700,13 +1700,17 @@ from pathlib import Path
 src = Path("$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py").read_text()
 globs = {
     "Path": Path, "os": os, "subprocess": subprocess, "json": json,
+    "APD_PLUGIN_ROOT": Path(os.environ.get("APD_TEST_PLUGIN_ROOT", "$APD_PLUGIN_ROOT")),
     "_PROJECT_MARKERS": (".codex", "AGENTS.md", ".claude", "CLAUDE.md"),
 }
 def _ex(fn):
     m = re.search(r"(^def " + fn + r"\(.*?)(?=^def |^@mcp|\Z)", src, re.M | re.S)
     return m.group(1) if m else ""
 
-code = "\n".join([_ex(n) for n in ("_budget_status", "_read_done", "_is_project_root", "_project_dir")])
+code = "\n".join([_ex(n) for n in (
+    "_budget_status", "_read_done", "_validator_binary", "_done_signature_error",
+    "_is_project_root", "_project_dir",
+)])
 ps = re.search(r"@mcp\.tool\(\)\n(def apd_pipeline_state.*?)(?=\n@mcp|\nclass |\Z)", src, re.S)
 code += "\n" + ps.group(1)
 exec(compile(code, "<ps>", "exec"), globs)
@@ -1752,6 +1756,22 @@ PY
     else
         fail "adversarial summary wrong: $OUT"; FAILS=$((FAILS + 1))
     fi
+    # Notes are persisted below the ADVERSARIAL header. State parsing must use
+    # only the first line; the `Notes:` colon is not another count delimiter.
+    cat > "$PS/.apd/pipeline/.adversarial-summary" <<'EOF'
+ADVERSARIAL:0:0:0
+
+Notes:
+Reviewed regressions, concurrency, edge cases, contract drift, and security; no actionable issue surfaced.
+EOF
+    OUT_NOTES=$(APD_PROJECT_DIR="$PS" python3 "$HARNESS" 2>&1)
+    if echo "$OUT_NOTES" | grep -q '"total": 0' && echo "$OUT_NOTES" | grep -q '"pending": false'; then
+        pass "adversarial summary with Notes parsed from header line"
+        PASSES=$((PASSES + 1))
+    else
+        fail "adversarial summary with Notes not parsed: $OUT_NOTES"
+        FAILS=$((FAILS + 1))
+    fi
     if echo "$OUT" | grep -q '"reviewed_files": 3'; then
         pass "reviewed_files count = 3"
         PASSES=$((PASSES + 1))
@@ -1777,6 +1797,78 @@ sys.exit(0 if ok else 1)
         PASSES=$((PASSES + 1))
     else
         fail "budgets missing or wrong shape: $OUT"
+        FAILS=$((FAILS + 1))
+    fi
+
+    # A valid fully signed state with all required artifacts remains commit-ready.
+    "$VALIDATOR" advance -step reviewer -pipeline-dir "$PS/.apd/pipeline" >/dev/null 2>&1
+    "$VALIDATOR" advance -step verifier -pipeline-dir "$PS/.apd/pipeline" >/dev/null 2>&1
+    OUT_COMPLETE=$(APD_PROJECT_DIR="$PS" python3 "$HARNESS" 2>&1)
+    if echo "$OUT_COMPLETE" | grep -q '"ok": true' && echo "$OUT_COMPLETE" | grep -q '"next_step": "commit"'; then
+        pass "valid signed completed state remains commit-ready"
+        PASSES=$((PASSES + 1))
+    else
+        fail "valid completed state not commit-ready: $OUT_COMPLETE"
+        FAILS=$((FAILS + 1))
+    fi
+
+    # If the signature validator cannot be loaded, state must fail closed.
+    OUT_NO_VALIDATOR=$(APD_PROJECT_DIR="$PS" APD_TEST_PLUGIN_ROOT="$PS/no-validator" python3 "$HARNESS" 2>&1)
+    if echo "$OUT_NO_VALIDATOR" | grep -q '"ok": false' \
+       && echo "$OUT_NO_VALIDATOR" | grep -q '"next_step": null' \
+       && echo "$OUT_NO_VALIDATOR" | grep -q 'validator unavailable'; then
+        pass "completed state fails closed when signature validator is unavailable"
+        PASSES=$((PASSES + 1))
+    else
+        fail "missing validator still appears commit-ready: $OUT_NO_VALIDATOR"
+        FAILS=$((FAILS + 1))
+    fi
+
+    # Presence alone is not enough: a forged marker must never recommend commit.
+    printf '123|forged\nnot-a-valid-signature\n' > "$PS/.apd/pipeline/verifier.done"
+    OUT_FORGED=$(APD_PROJECT_DIR="$PS" python3 "$HARNESS" 2>&1)
+    if echo "$OUT_FORGED" | grep -q '"ok": false' \
+       && echo "$OUT_FORGED" | grep -q '"next_step": null' \
+       && echo "$OUT_FORGED" | grep -q 'signature'; then
+        pass "forged completed marker returns inconsistent state, never commit"
+        PASSES=$((PASSES + 1))
+    else
+        fail "forged marker still appears commit-ready: $OUT_FORGED"
+        FAILS=$((FAILS + 1))
+    fi
+
+    # Even signed markers are inconsistent if the frozen task artifacts vanished.
+    rm -f "$PS/.apd/pipeline/verifier.done"
+    "$VALIDATOR" advance -step verifier -pipeline-dir "$PS/.apd/pipeline" >/dev/null 2>&1
+    rm -f "$PS/.apd/pipeline/spec-card.md"
+    OUT_MISSING=$(APD_PROJECT_DIR="$PS" python3 "$HARNESS" 2>&1)
+    if echo "$OUT_MISSING" | grep -q '"ok": false' \
+       && echo "$OUT_MISSING" | grep -q '"next_step": null' \
+       && echo "$OUT_MISSING" | grep -q 'spec-card.md'; then
+        pass "missing required artifact returns inconsistent state, never commit"
+        PASSES=$((PASSES + 1))
+    else
+        fail "missing spec artifact still appears commit-ready: $OUT_MISSING"
+        FAILS=$((FAILS + 1))
+    fi
+
+    # The frozen spec hash is also required once spec.done exists.
+    cat > "$PS/.apd/pipeline/spec-card.md" <<'EOF'
+# Test
+**Acceptance criteria:**
+- R1: alpha
+- R2: beta
+- R3: gamma
+EOF
+    rm -f "$PS/.apd/pipeline/.spec-hash"
+    OUT_NO_HASH=$(APD_PROJECT_DIR="$PS" python3 "$HARNESS" 2>&1)
+    if echo "$OUT_NO_HASH" | grep -q '"ok": false' \
+       && echo "$OUT_NO_HASH" | grep -q '"next_step": null' \
+       && echo "$OUT_NO_HASH" | grep -q '.spec-hash'; then
+        pass "missing frozen spec hash returns inconsistent state, never commit"
+        PASSES=$((PASSES + 1))
+    else
+        fail "missing spec hash still appears commit-ready: $OUT_NO_HASH"
         FAILS=$((FAILS + 1))
     fi
 
@@ -4480,17 +4572,48 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# D: neither name → BAD with both-form hint
+# D: neither name → hooks are enabled by default on current Codex
 cat > "$H2_HOME/config.toml" <<EOF
 [features]
 other = true
 EOF
 D_OUT=$(CODEX_HOME="$H2_HOME" APD_PROJECT_DIR="$H2_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/codex-doctor" 2>&1)
-if echo "$D_OUT" | grep -q "Codex hooks feature NOT enabled" && echo "$D_OUT" | grep -q "features enable hooks"; then
-    pass "missing → BAD with new-form enable hint"
+if echo "$D_OUT" | grep -q "hooks enabled by default" && ! echo "$D_OUT" | grep -q "Codex hooks feature NOT enabled"; then
+    pass "missing hooks key → current enabled-by-default behavior"
     PASSES=$((PASSES + 1))
 else
-    fail "missing-feature case wrong"
+    fail "missing hooks key should use enabled default (out: ${D_OUT:0:200})"
+    FAILS=$((FAILS + 1))
+fi
+
+# D2: explicit canonical false → disabled/BAD
+cat > "$H2_HOME/config.toml" <<EOF
+[features]
+hooks = false
+EOF
+D2_OUT=$(CODEX_HOME="$H2_HOME" APD_PROJECT_DIR="$H2_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/codex-doctor" 2>&1)
+if echo "$D2_OUT" | grep -q "Codex hooks feature disabled"; then
+    pass "explicit hooks=false → disabled"
+    PASSES=$((PASSES + 1))
+else
+    fail "explicit hooks=false was not detected (out: ${D2_OUT:0:200})"
+    FAILS=$((FAILS + 1))
+fi
+
+# D3: the same key in another TOML table must not affect [features].hooks.
+cat > "$H2_HOME/config.toml" <<EOF
+[unrelated]
+hooks = false
+
+[features]
+other = true
+EOF
+D3_OUT=$(CODEX_HOME="$H2_HOME" APD_PROJECT_DIR="$H2_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/codex-doctor" 2>&1)
+if echo "$D3_OUT" | grep -q "hooks enabled by default" && ! echo "$D3_OUT" | grep -q "feature disabled"; then
+    pass "hooks key outside [features] does not affect doctor"
+    PASSES=$((PASSES + 1))
+else
+    fail "doctor read hooks key from wrong TOML table (out: ${D3_OUT:0:200})"
     FAILS=$((FAILS + 1))
 fi
 
@@ -4508,13 +4631,13 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# F: install-codex-config hint mentions both new and legacy form
-F_HINT=$(grep -B1 -A2 "Enable Codex hooks feature flag" "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" 2>&1)
-if echo "$F_HINT" | grep -q "codex features enable hooks" && echo "$F_HINT" | grep -q "0.121"; then
-    pass "install-codex-config hint names new form + legacy fallback"
+# F: installer guidance reflects the current enabled-by-default behavior
+F_HINT=$(grep -B1 -A2 "Codex hooks" "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" 2>&1)
+if echo "$F_HINT" | grep -q "enabled by default"; then
+    pass "install-codex-config guidance reflects hooks default"
     PASSES=$((PASSES + 1))
 else
-    fail "install hint missing one form"
+    fail "install guidance still treats hooks opt-in as mandatory"
     FAILS=$((FAILS + 1))
 fi
 

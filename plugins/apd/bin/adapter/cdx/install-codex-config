@@ -11,7 +11,8 @@
 #   2. .codex/bin/apd      → shortcut to plugin entry point
 #   3. .codex/hooks.json   → PreToolUse Bash → guard-bash-scope
 #                            PreToolUse apply_patch/Edit/Write → guard-file-edit
-#   4. Prints reminder to enable `codex_hooks` feature flag
+#   4. Notes that Codex hooks are enabled by default and how to re-enable them
+#      if the user explicitly disabled the feature
 #
 # Per-agent filesystem isolation is handled at runtime by the MCP
 # `apd_guard_write` tool, not by generated TOML blocks (see block 2 below).
@@ -956,9 +957,8 @@ if [ ! -d "$PROJECT_DIR/.claude" ]; then
     echo "  ${STEP}. Fill in AGENTS.md with your project context (stack, tests, conventions)."
     STEP=$((STEP + 1))
 fi
-echo "  ${STEP}. Enable Codex hooks feature flag (one-time, global):"
+echo "  ${STEP}. Codex hooks are enabled by default. If you explicitly disabled them, re-enable with:"
 echo "       codex features enable hooks"
-echo "       (older Codex 0.121–0.125: codex features enable codex_hooks)"
 STEP=$((STEP + 1))
 echo "  ${STEP}. Start Codex from project root:"
 echo "       cd \"$PROJECT_DIR\" && codex"
