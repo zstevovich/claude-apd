@@ -1,5 +1,15 @@
 # Changelog
 
+## v6.36.1 — 2026-07-16
+
+**`apd-init` generates Edit-only permission rules — silences the CC 2.1.208 "use Edit(path)" startup warnings.** Claude Code 2.1.208 unified file-permission matching: `Edit(path)` now covers ALL file-editing tools (Write, Edit, MultiEdit, NotebookEdit), and a `Write(path)` rule is inert for file-permission checks. Every APD project's `.claude/settings.json` carried `Write(...)` allow twins alongside their `Edit(...)` equivalents (memory + pipeline paths), so on 2.1.208+ each one printed a startup warning ("Write(...) is not matched by file permission checks — use Edit(path)"). The rules still worked via the Edit twin, but the wall of warnings was alarming.
+
+**Fixed.** `apd-init` now emits **Edit-only** allow rules for its managed paths (create mode) and, on repair, **strips** any legacy `Write(...)` allow twin for those paths (`Write(.claude/memory/**)`, `Write(**/.claude/memory/**)`, `Write(.apd/pipeline/*)`, `Write(**/.apd/pipeline/*)`) while leaving every other allow entry — including the user's own rules — untouched. The re-init probe sentinels moved to `Edit(...)`, and a residual APD `Write(...)` allow twin now re-triggers the merge, so existing projects self-heal on the next session-start init (no manual edit needed). The legacy `.pipeline/`→`.apd/pipeline/` path migration also maps to `Edit(...)`. Requires CC ≥ 2.1.208 for the write-allow (where `Edit` covers `Write`) — CC's own recommended form. Deny rules are unchanged (APD's deny set is the `Bash(mkdir …)` guards; secret-file protection lives in the `guard-secrets` hook, not settings.json).
+
+### Tests
+
+`test-codex-adapter` — §30 asserts create mode is Edit-only (no `Write(...)` twins); the update/drift fixture (Live F2) asserts repair strips the twins to Edit-only while preserving user rules and merging deny 4→8; red-green verified against the pre-fix `apd-init` → **901 → 903/0**. SPEC.md `init` row gains the Edit-only (D) note.
+
 ## v6.36.0 — 2026-07-16
 
 **Native Codex subagent dispatch — the Codex runtime now enforces real builder/reviewer/adversarial subagents instead of inline self-attestation.** Previously the pipeline special-cased Codex: with no subagent-dispatch signal, the builder and reviewer gates synthesized `BUILDER_RAN="codex-orchestrator"` / `REVIEWER_RAN=...` and passed, and the adversarial recording trusted a Codex-written summary with no dispatch behind it. That inline carve-out is removed. Codex now produces the same validator-checked, hook-written `.agents` dispatch evidence as CC.

@@ -202,18 +202,10 @@ FOOTER
   "permissions": {
     "allow": [
       "Edit(.claude/memory/**)",
-      "Write(.claude/memory/**)",
       "Edit(**/.claude/memory/**)",
-      "Write(**/.claude/memory/**)",
-      "Write(.apd/pipeline/spec-card.md)",
-      "Write(.apd/pipeline/implementation-plan.md)",
-      "Write(.apd/pipeline/.adversarial-summary)",
       "Edit(.apd/pipeline/spec-card.md)",
       "Edit(.apd/pipeline/implementation-plan.md)",
       "Edit(.apd/pipeline/.adversarial-summary)",
-      "Write(**/.apd/pipeline/spec-card.md)",
-      "Write(**/.apd/pipeline/implementation-plan.md)",
-      "Write(**/.apd/pipeline/.adversarial-summary)",
       "Edit(**/.apd/pipeline/spec-card.md)",
       "Edit(**/.apd/pipeline/implementation-plan.md)",
       "Edit(**/.apd/pipeline/.adversarial-summary)",
@@ -555,13 +547,22 @@ sys.exit(1)
         # checked allow-side only, so projects that already had the allow entries
         # (any pre-v6.10 install) never re-entered the merge and stayed at 4/8
         # deny patterns forever ("re-run setup" recovery was a no-op for them).
+        # v6.36.1: sentinels are Edit(...) — on CC 2.1.208+ Edit(path) covers ALL
+        # file-editing tools (Write/Edit/MultiEdit/NotebookEdit), so APD emits
+        # Edit-only. A legacy APD Write(...) allow twin present also triggers
+        # repair: the merge strips it (inert on 2.1.208+ → startup "use Edit"
+        # warnings). See CC permissions min-version 2.1.208.
         PERMS_MISSING=false
-        for perm in "Write(.apd/pipeline/spec-card.md)" "Bash(bash .claude/bin/apd *)" "Write(**/.apd/pipeline/spec-card.md)" "Bash(mkdir .apd/pipeline)"; do
+        for perm in "Edit(.apd/pipeline/spec-card.md)" "Bash(bash .claude/bin/apd *)" "Edit(**/.apd/pipeline/spec-card.md)" "Bash(mkdir .apd/pipeline)"; do
             if ! grep -qF "$perm" "$CLAUDE_DIR/settings.json" 2>/dev/null; then
                 PERMS_MISSING=true
                 break
             fi
         done
+        if [ "$PERMS_MISSING" = false ] \
+           && grep -qE 'Write\((\*\*/)?\.(claude/memory|apd/pipeline)' "$CLAUDE_DIR/settings.json" 2>/dev/null; then
+            PERMS_MISSING=true
+        fi
         if [ "$PERMS_MISSING" = true ]; then
             # Rebuild permissions array with all required entries
             python3 -c "
@@ -569,12 +570,7 @@ import json, sys
 with open('$CLAUDE_DIR/settings.json') as f:
     s = json.load(f)
 required_allow = [
-    'Edit(.claude/memory/**)', 'Write(.claude/memory/**)',
-    'Edit(**/.claude/memory/**)', 'Write(**/.claude/memory/**)',
-    'Write(.apd/pipeline/spec-card.md)', 'Write(.apd/pipeline/implementation-plan.md)',
-    'Write(.apd/pipeline/.adversarial-summary)',
-    'Write(**/.apd/pipeline/spec-card.md)', 'Write(**/.apd/pipeline/implementation-plan.md)',
-    'Write(**/.apd/pipeline/.adversarial-summary)',
+    'Edit(.claude/memory/**)', 'Edit(**/.claude/memory/**)',
     'Edit(.apd/pipeline/spec-card.md)', 'Edit(.apd/pipeline/implementation-plan.md)',
     'Edit(.apd/pipeline/.adversarial-summary)',
     'Edit(**/.apd/pipeline/spec-card.md)', 'Edit(**/.apd/pipeline/implementation-plan.md)',
@@ -592,7 +588,16 @@ required_deny = [
     'Bash(mkdir .apd/pipeline/*)', 'Bash(mkdir -p .apd/pipeline/*)',
     'Bash(mkdir .apd/pipeline)', 'Bash(mkdir -p .apd/pipeline)'
 ]
-existing_allow = s.get('permissions', {}).get('allow', [])
+apd_write_twins = {
+    'Write(.claude/memory/**)', 'Write(**/.claude/memory/**)',
+    'Write(.apd/pipeline/spec-card.md)', 'Write(.apd/pipeline/implementation-plan.md)',
+    'Write(.apd/pipeline/.adversarial-summary)',
+    'Write(**/.apd/pipeline/spec-card.md)', 'Write(**/.apd/pipeline/implementation-plan.md)',
+    'Write(**/.apd/pipeline/.adversarial-summary)',
+}
+# CC 2.1.208+: Edit(path) covers all file-editing tools, so strip legacy APD
+# Write(...) allow twins — otherwise they emit startup 'use Edit(path)' warnings.
+existing_allow = [x for x in s.get('permissions', {}).get('allow', []) if x not in apd_write_twins]
 existing_deny = s.get('permissions', {}).get('deny', [])
 s.setdefault('permissions', {})['allow'] = list(dict.fromkeys(existing_allow + required_allow))
 s.setdefault('permissions', {})['deny'] = list(dict.fromkeys(existing_deny + required_deny))
@@ -657,7 +662,7 @@ with open('$CLAUDE_DIR/settings.json', 'w') as f:
 
     # Update old permission patterns in settings.json
     if [ -f "$CLAUDE_DIR/settings.json" ] && grep -qF '.pipeline/' "$CLAUDE_DIR/settings.json" 2>/dev/null; then
-        sed -i.bak 's|\.claude/\.pipeline/|.apd/pipeline/|g; s|\*\*/\.pipeline/|**/.apd/pipeline/|g; s|mkdir \*/\.pipeline|mkdir */.apd/pipeline|g; s|Write(\.pipeline/|Write(.apd/pipeline/|g; s|Edit(\.pipeline/|Edit(.apd/pipeline/|g' "$CLAUDE_DIR/settings.json" && rm -f "$CLAUDE_DIR/settings.json.bak"
+        sed -i.bak 's|\.claude/\.pipeline/|.apd/pipeline/|g; s|\*\*/\.pipeline/|**/.apd/pipeline/|g; s|mkdir \*/\.pipeline|mkdir */.apd/pipeline|g; s|Write(\.pipeline/|Edit(.apd/pipeline/|g; s|Edit(\.pipeline/|Edit(.apd/pipeline/|g' "$CLAUDE_DIR/settings.json" && rm -f "$CLAUDE_DIR/settings.json.bak"
         fix "Updated permission patterns in settings.json"
         FIXES=$((FIXES + 1))
     fi

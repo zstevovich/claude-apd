@@ -3268,22 +3268,35 @@ for pattern in \
     fi
 done
 
-# Worktree memory writes: the **/-prefixed forms are REQUIRED or a memory
-# Edit/Write in a linked worktree (absolute path) misses the bare
+# Worktree memory writes: the **/-prefixed Edit form is REQUIRED or a memory
+# edit in a linked worktree (absolute path) misses the bare
 # `Edit(.claude/memory/**)` glob, hits a CC permission PROMPT, and — if the
 # user is away — hangs the whole pipeline (74-min hang observed 2026-07-11 on
-# a backend-work worktree). Lock in the **/ memory allow rules.
+# a backend-work worktree). Lock in the **/ memory allow rule. On CC 2.1.208+
+# Edit(path) covers ALL file-editing tools (Write/Edit/MultiEdit/NotebookEdit),
+# so APD emits Edit-only — the Write(...) twins are gone (asserted below).
 for pattern in \
-    'Edit(**/.claude/memory/**)' \
-    'Write(**/.claude/memory/**)'; do
+    'Edit(.claude/memory/**)' \
+    'Edit(**/.claude/memory/**)'; do
     if grep -qF "$pattern" "$SETTINGS" 2>/dev/null; then
-        pass "worktree memory allow rule present: $pattern"
+        pass "memory allow rule present: $pattern"
         PASSES=$((PASSES + 1))
     else
-        fail "worktree memory allow rule MISSING: $pattern"
+        fail "memory allow rule MISSING: $pattern"
         FAILS=$((FAILS + 1))
     fi
 done
+
+# Edit-only (v6.36.1): apd-init must NOT emit Write(...) allow twins for its
+# managed paths — inert on CC 2.1.208+ and they emit "use Edit(path)" startup
+# warnings (Edit covers Write). Lock the create-mode output to Edit-only.
+if grep -qE 'Write\((\*\*/)?\.(claude/memory|apd/pipeline)' "$SETTINGS" 2>/dev/null; then
+    fail "apd-init still emits legacy Write(...) allow twins (should be Edit-only)"
+    FAILS=$((FAILS + 1))
+else
+    pass "apd-init create emits Edit-only allow rules (no Write twins)"
+    PASSES=$((PASSES + 1))
+fi
 
 rm -rf "$INIT_DIR"
 
@@ -9017,6 +9030,20 @@ if [ "$IN_DENY" = "8" ]; then
     PASSES=$((PASSES + 1))
 else
     fail "deny patterns not merged: $IN_DENY/8"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live F2 (v6.36.1): repair strips legacy APD Write(...) allow twins and leaves
+# Edit-only (CC 2.1.208+ self-heal — the fixture starts with Write twins).
+IN_ALLOW_WRITE=$(python3 -c "
+import json, re
+d = json.load(open('$IN_PROJ/.claude/settings.json'))
+print(len([p for p in d['permissions']['allow'] if re.match(r'Write\((\*\*/)?\.(claude/memory|apd/pipeline)', p)]))")
+if [ "$IN_ALLOW_WRITE" = "0" ] && grep -qF 'Edit(.apd/pipeline/spec-card.md)' "$IN_PROJ/.claude/settings.json"; then
+    pass "repair strips APD Write(...) allow twins -> Edit-only (CC 2.1.208+ self-heal)"
+    PASSES=$((PASSES + 1))
+else
+    fail "repair did not convert Write twins to Edit-only ($IN_ALLOW_WRITE twins remain)"
     FAILS=$((FAILS + 1))
 fi
 
