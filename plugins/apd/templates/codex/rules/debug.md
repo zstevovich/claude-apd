@@ -1,9 +1,9 @@
 # APD Systematic Debugging (Codex)
 
 **Read this file when:** a test fails, a build fails, the verifier step
-blocks the pipeline, or the reviewer raises a critical finding. On Codex
-the orchestrator IS the debugger — do this BEFORE re-running any pipeline
-step.
+blocks the pipeline, or the reviewer raises a critical finding. On Codex the
+orchestrator coordinates root-cause investigation and dispatches any source
+fix back to a builder subagent. Do this BEFORE re-running a pipeline step.
 
 ## The Iron Law
 

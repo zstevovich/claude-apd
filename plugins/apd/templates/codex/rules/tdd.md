@@ -1,9 +1,9 @@
 # APD Test-Driven Development (Codex)
 
 **Read this file when:** you are implementing a feature or fixing a bug
-inside the builder phase. On Codex the orchestrator IS the builder — this
-applies to every implementation you do between `apd_advance_pipeline('spec', ...)`
-and `apd_advance_pipeline('builder')`.
+inside the builder phase. On Codex this applies to the native builder subagent
+dispatched between `apd_advance_pipeline('spec', ...)` and
+`apd_advance_pipeline('builder')`; the orchestrator only coordinates the phase.
 
 ## The Iron Law
 

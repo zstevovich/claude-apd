@@ -234,6 +234,7 @@ plugin_root = sys.argv[2]
 tools = (
     "apd_ping", "apd_doctor", "apd_advance_pipeline", "apd_guard_write",
     "apd_verify_step", "apd_adversarial_pass", "apd_list_agents", "apd_pipeline_state",
+    "apd_pipeline_metrics", "apd_prepare_dispatch",
 )
 
 sections = {}
@@ -272,7 +273,7 @@ if missing_server or missing_tools:
 PY
         )"
         if [ $? -eq 0 ]; then
-            _ok "config.toml registers APD MCP server + 8 auto-approved tools"
+            _ok "config.toml registers APD MCP server + 10 auto-approved tools"
         else
             _bad "config.toml APD MCP block incomplete or stale — run \`apd cdx init\` (${MCP_CFG_STATUS:-unknown mismatch})"
         fi
@@ -305,6 +306,13 @@ PY
         _ok "hooks.json wires SessionStart → apd-hook session-start (TUI only; exec mode covered by MCP defaultPrompt)"
     else
         _warn "hooks.json has no SessionStart hook — TUI sessions will not get auto gap-analysis. Run: apd cdx init"
+    fi
+
+    if [ -f "$HOOKS" ] && grep -q '"SubagentStart"' "$HOOKS" \
+       && grep -q '"SubagentStop"' "$HOOKS" && grep -q 'track-subagent' "$HOOKS"; then
+        _ok "hooks.json wires native SubagentStart/Stop → APD dispatch ledger"
+    else
+        _bad "$HOOKS missing native SubagentStart/Stop lifecycle tracking — run: apd cdx init"
     fi
 
     SHORTCUT="$CODEX_DIR/bin/apd"
@@ -355,7 +363,9 @@ else
     _warn "$APD_AGENTS_DIR missing — run: apd cdx init"
 fi
 
-# C2 migration availability hint (since v6.1.x Phase 2a/2b)
+# Codex TOML profiles are optional. Native APD dispatch binds the canonical
+# .apd role through apd_prepare_dispatch + lifecycle hooks; task_name alone
+# does not select a .codex/agents profile in the current Codex tool surface.
 CODEX_AGENTS_DIR="$PROJECT_DIR/.codex/agents"
 if [ -d "$APD_AGENTS_DIR" ]; then
     APD_MD_COUNT=$(find "$APD_AGENTS_DIR" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' ')
@@ -364,7 +374,7 @@ if [ -d "$APD_AGENTS_DIR" ]; then
         CODEX_TOML_COUNT=$(find "$CODEX_AGENTS_DIR" -maxdepth 1 -name '*.toml' -type f 2>/dev/null | wc -l | tr -d ' ')
     fi
     if [ "$APD_MD_COUNT" -gt 0 ] && [ "$CODEX_TOML_COUNT" -eq 0 ]; then
-        _warn ".apd/agents/ has $APD_MD_COUNT .md agent(s) but .codex/agents/ is empty — run: apd cdx agents migrate"
+        _ok ".apd/agents/ is the canonical dispatch registry ($APD_MD_COUNT role(s)); .codex/agents/ profiles are optional"
     fi
 fi
 
@@ -419,7 +429,7 @@ if [ -f "$MCP_PY" ]; then
     fi
 
     MISSING=""
-    EXPECTED_TOOLS="apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state apd_pipeline_metrics"
+    EXPECTED_TOOLS="apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state apd_pipeline_metrics apd_prepare_dispatch"
     TOOL_COUNT=0
     for tool in $EXPECTED_TOOLS; do
         TOOL_COUNT=$((TOOL_COUNT + 1))

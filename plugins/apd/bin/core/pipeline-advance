@@ -321,8 +321,8 @@ verify_done() {
 }
 
 # --- Agent-evidence helpers — hook-non-delivery robustness (v6.x) -------------
-# The .agents ledger is written by the CC SubagentStart/Stop hooks. Those can
-# silently fail to fire (background dispatch, harness quirk, CC bug — observed
+# The .agents ledger is written by the runtime SubagentStart/Stop hooks. CC
+# hooks can silently fail to fire (background dispatch, harness quirk — observed
 # 2026-06-04 and 2026-06-29), leaving .agents empty even though real agents ran
 # → the builder/reviewer gates false-BLOCK. _reconstruct_from_transcripts
 # rebuilds .agents from the CC subagent transcripts on disk (ground truth — the
@@ -378,6 +378,11 @@ _reconstruct_from_transcripts() {
 # Sets BUILDER_RAN + diagnostics (BLOCKED_AGENTS / SUSPICIOUS / STALE_DISPATCH).
 # Reads AGENTS_LOG, SPEC_TS_HUMAN, APD_AGENTS_DIR. Factored so the gate can
 # re-scan after a fallback reconstruct.
+_agent_definition_exists() {
+    local agent_name="$1"
+    [ -f "$APD_AGENTS_DIR/${agent_name}.md" ] || [ -f "$APD_AGENTS_DIR/${agent_name}.toml" ]
+}
+
 _scan_builder_ran() {
     BUILDER_RAN=""; BLOCKED_AGENTS=""; SUSPICIOUS=""; STALE_DISPATCH=""
     local REJECTED_PREFIXES="superpowers:" _ts _evt agent_type _id
@@ -388,10 +393,10 @@ _scan_builder_ran() {
             BLOCKED_AGENTS="${BLOCKED_AGENTS}${agent_type}, "; continue
         fi
         if [ -n "$_ts" ] && [ -n "$SPEC_TS_HUMAN" ] && [ "$_ts" \< "$SPEC_TS_HUMAN" ]; then
-            [ -f "$APD_AGENTS_DIR/${agent_type}.md" ] && STALE_DISPATCH="${STALE_DISPATCH}${agent_type}, "
+            _agent_definition_exists "$agent_type" && STALE_DISPATCH="${STALE_DISPATCH}${agent_type}, "
             continue
         fi
-        if [ -f "$APD_AGENTS_DIR/${agent_type}.md" ]; then
+        if _agent_definition_exists "$agent_type"; then
             if validate_agent_entry "stop" "$agent_type" "$AGENTS_LOG"; then BUILDER_RAN="$agent_type"
             else SUSPICIOUS="${SUSPICIOUS}${agent_type}, "; fi
         fi
@@ -411,7 +416,7 @@ _scan_reviewer_ran() {
         if echo "$agent_type" | grep -qE "^(${REJECTED_PREFIXES})"; then
             BLOCKED_AGENTS="${BLOCKED_AGENTS}${agent_type}, "; continue
         fi
-        if [ -f "$APD_AGENTS_DIR/${agent_type}.md" ] && echo "$agent_type" | grep -qiE 'review'; then
+        if _agent_definition_exists "$agent_type" && echo "$agent_type" | grep -qiE 'review'; then
             if validate_agent_entry "stop" "$agent_type" "$AGENTS_LOG"; then REVIEWER_RAN="$agent_type"
             else SUSPICIOUS="${SUSPICIOUS}${agent_type}, "; fi
         fi
@@ -598,7 +603,8 @@ case "$STEP" in
         # v6.3 audit fix: also wipe .builder-count / .reviewer-count so a new
         # task doesn't inherit cycle counts from a prior task (would block first
         # dispatch with a misleading "task X has hit its budget" message).
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings" "$PIPELINE_DIR/.dispatch-pending.json" "$PIPELINE_DIR"/.dispatch-agent-*.json
+        rmdir "$PIPELINE_DIR/.dispatch-prepare.lock" "$PIPELINE_DIR/.dispatch-hook.lock" 2>/dev/null || true
         create_done "spec" "$ARG"
         # Freeze spec-card.md — hash for tamper detection
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
@@ -742,13 +748,6 @@ case "$STEP" in
         # hook-non-delivery fallback reconstruct (below). Sets BUILDER_RAN +
         # BLOCKED_AGENTS / SUSPICIOUS / STALE_DISPATCH.
         _scan_builder_ran
-        # Codex runtime defaults to inline orchestration for APD builder work.
-        # Subagents may exist, but APD cannot require them without an explicit
-        # user delegation request. Skip the legacy CC agent-presence check when
-        # the caller is Codex; verifier still enforces build + tests.
-        if [ -z "${BUILDER_RAN:-}" ] && [ "${APD_RUNTIME:-}" = "codex" ]; then
-            BUILDER_RAN="codex-orchestrator"
-        fi
         if [ -z "${BUILDER_RAN:-}" ]; then
             echo "BLOCKED: No project Builder agent was dispatched!" >&2
             echo "" >&2
@@ -789,8 +788,14 @@ case "$STEP" in
                 echo "  These are plugin agents, NOT project agents." >&2
                 echo "" >&2
             fi
-            echo "  Dispatch project builders using the Agent tool:" >&2
-            echo "    Agent({ subagent_type: \"backend-api\", prompt: \"...\" })" >&2
+            if [ "${APD_RUNTIME:-}" = "codex" ]; then
+                echo "  Prepare and dispatch a native Codex builder:" >&2
+                echo "    1. apd_prepare_dispatch(apd_role=\"backend-builder\")" >&2
+                echo "    2. spawn_agent(task_name=<returned task_name>, message=<role instructions>)" >&2
+            else
+                echo "  Dispatch project builders using the Agent tool:" >&2
+                echo "    Agent({ subagent_type: \"backend-api\", prompt: \"...\" })" >&2
+            fi
             echo "" >&2
             echo "  NEVER use superpowers: or feature-dev: agents — pipeline will BLOCK." >&2
             echo "" >&2
@@ -901,11 +906,6 @@ case "$STEP" in
         # Scan factored into _scan_reviewer_ran so the gate can re-scan after a
         # hook-non-delivery fallback reconstruct (below).
         _scan_reviewer_ran
-        # Codex runtime: orchestrator performs the review inline unless the
-        # user explicitly requested delegated subagent review.
-        if [ -z "${REVIEWER_RAN:-}" ] && [ "${APD_RUNTIME:-}" = "codex" ]; then
-            REVIEWER_RAN="codex-orchestrator"
-        fi
         if [ -z "${REVIEWER_RAN:-}" ]; then
             echo "BLOCKED: No project Reviewer agent was dispatched!" >&2
             echo "" >&2
@@ -934,8 +934,14 @@ case "$STEP" in
                 echo "  These are plugin agents, NOT project agents." >&2
                 echo "" >&2
             fi
-            echo "  Dispatch the project code-reviewer using the Agent tool:" >&2
-            echo "    Agent({ subagent_type: \"code-reviewer\", prompt: \"Review...\" })" >&2
+            if [ "${APD_RUNTIME:-}" = "codex" ]; then
+                echo "  Prepare and dispatch the native Codex reviewer:" >&2
+                echo "    1. apd_prepare_dispatch(apd_role=\"code-reviewer\")" >&2
+                echo "    2. spawn_agent(task_name=<returned task_name>, message=<role instructions>)" >&2
+            else
+                echo "  Dispatch the project code-reviewer using the Agent tool:" >&2
+                echo "    Agent({ subagent_type: \"code-reviewer\", prompt: \"Review...\" })" >&2
+            fi
             echo "" >&2
             echo "  NEVER use superpowers:code-reviewer or feature-dev:code-reviewer." >&2
             echo "  If reviewer step fails, do NOT rollback code — fix the dispatch and retry." >&2
@@ -1002,7 +1008,7 @@ case "$STEP" in
         fi
 
         # Mark adversarial review as pending if agent exists
-        if [ -f "$APD_AGENTS_DIR/adversarial-reviewer.md" ]; then
+        if _agent_definition_exists "adversarial-reviewer"; then
             # Check for opt-out in spec-card — only allowed for small tasks (<=2 criteria)
             ADV_OPT_OUT=false
             # v6.1.2: tolerate markdown bold/italic/list-item prefixes around
@@ -1116,14 +1122,43 @@ case "$STEP" in
             exit 1
         fi
 
-        # Hard gate: adversarial summary must be backed by actual dispatch
+        # Hard gate: adversarial summary must be backed by a COMPLETE dispatch —
+        # both a start AND a paired stop event for adversarial-reviewer. A start
+        # with no stop is the documented hook-non-delivery mode (SubagentStop
+        # silently not firing, observed 2026-06-04 / 2026-06-29): the agent DID
+        # run, so route to recovery rather than "re-dispatch from scratch".
+        # Runtime-specific hints mirror the builder/reviewer gates above.
         if [ -f "$PIPELINE_DIR/.adversarial-pending" ] && [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
-            if [ -f "$AGENTS_LOG" ] && ! grep -q "|start|adversarial-reviewer|" "$AGENTS_LOG" 2>/dev/null; then
-                echo "BLOCKED: Adversarial summary written but agent was never dispatched!" >&2
+            ADV_HAS_START=false; ADV_HAS_STOP=false
+            grep -q "|start|adversarial-reviewer|" "$AGENTS_LOG" 2>/dev/null && ADV_HAS_START=true
+            grep -q "|stop|adversarial-reviewer|" "$AGENTS_LOG" 2>/dev/null && ADV_HAS_STOP=true
+            if [ "$ADV_HAS_START" = false ] || [ "$ADV_HAS_STOP" = false ]; then
+                echo "BLOCKED: Adversarial summary is not backed by a complete dispatch!" >&2
                 echo "" >&2
-                echo "  .adversarial-summary exists but no adversarial-reviewer in agent log." >&2
-                echo "  You must dispatch the adversarial-reviewer agent before writing results." >&2
-                echo "  Dispatch: Agent({ subagent_type: \"adversarial-reviewer\", prompt: \"...\" })" >&2
+                if [ "$ADV_HAS_START" = true ]; then
+                    # Dispatched, but no matching stop — hook non-delivery, not a fake pass.
+                    echo "  adversarial-reviewer STARTED but no matching stop event was recorded." >&2
+                    if [ "${APD_RUNTIME:-}" != "codex" ]; then
+                        echo "  The SubagentStop hook likely did not fire (background dispatch / harness)." >&2
+                        echo "  If the adversarial-reviewer DID finish, recover explicitly:" >&2
+                        echo "    bash $APD_SHORTCUT_DISPLAY pipeline reconstruct-agents   # rebuild .agents from transcripts" >&2
+                        echo "    bash $APD_SHORTCUT_DISPLAY pipeline verifier              # then re-run" >&2
+                    else
+                        echo "  Wait for the adversarial-reviewer child to finish — SubagentStop closes the" >&2
+                        echo "  role/agent_id pair — then re-run the verifier step." >&2
+                    fi
+                else
+                    # No start at all — nothing was dispatched.
+                    echo "  .adversarial-summary exists but no adversarial-reviewer start event is in the agent log." >&2
+                    echo "  You must dispatch the adversarial-reviewer agent before writing results." >&2
+                    if [ "${APD_RUNTIME:-}" = "codex" ]; then
+                        echo "  Prepare and dispatch the native Codex adversarial reviewer:" >&2
+                        echo "    1. apd_prepare_dispatch(apd_role=\"adversarial-reviewer\")" >&2
+                        echo "    2. spawn_agent(task_name=<returned task_name>, message=<role instructions>)" >&2
+                    else
+                        echo "  Dispatch: Agent({ subagent_type: \"adversarial-reviewer\", prompt: \"...\" })" >&2
+                    fi
+                fi
                 log_block "adversarial-summary-without-dispatch" "adversarial-reviewer"
                 exit 1
             fi
@@ -1762,13 +1797,16 @@ EOF
         # .agents was already archived above (before metrics write).
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings"
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings" "$PIPELINE_DIR/.dispatch-pending.json" "$PIPELINE_DIR"/.dispatch-agent-*.json
+        rmdir "$PIPELINE_DIR/.dispatch-prepare.lock" "$PIPELINE_DIR/.dispatch-hook.lock" 2>/dev/null || true
         # Reset completed cleanly — drop the in-progress marker.
         rm -f "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
         echo "Pipeline reset. Ready for new task."
         ;;
 
     rollback)
+        rm -f "$PIPELINE_DIR/.dispatch-pending.json" "$PIPELINE_DIR"/.dispatch-agent-*.json
+        rmdir "$PIPELINE_DIR/.dispatch-prepare.lock" "$PIPELINE_DIR/.dispatch-hook.lock" 2>/dev/null || true
         # Find the last completed step and remove it
         ROLLED_BACK=false
         for step in verifier reviewer builder spec; do

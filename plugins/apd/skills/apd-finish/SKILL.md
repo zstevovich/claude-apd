@@ -88,8 +88,8 @@ gh pr create --title "<feature>" --body "$(cat <<'EOF'
 ## APD Pipeline
 - Runtime: Codex
 - Spec: approved by user
-- Builder: orchestrator (Codex inline)
-- Reviewer: orchestrator (Codex inline)
+- Builder: native Codex subagent (`<APD role>`)
+- Reviewer: native Codex subagent (`<APD role>`)
 - Adversarial: <total>/<accepted>/<dismissed> or "skipped"
 - Verifier: all tests pass
 - Duration: <time>
@@ -185,8 +185,8 @@ Add idempotent POST /orders/:id/refund with audit log.
 ## APD Pipeline
 - Runtime: Codex
 - Spec: approved by user
-- Builder: orchestrator (Codex inline)
-- Reviewer: orchestrator (Codex inline)
+- Builder: native Codex subagent (`backend-builder`)
+- Reviewer: native Codex subagent (`code-reviewer`)
 - Adversarial: 5/3/2 (total/accepted/dismissed)
 - Verifier: all tests pass
 - Duration: 11m 32s

@@ -73,7 +73,7 @@ section "1. MCP server"
 _check "apd_mcp_server.py exists" test -f "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
 _check "Python syntax valid" python3 -m py_compile "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
 
-EXPECTED_TOOLS=(apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state)
+EXPECTED_TOOLS=(apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state apd_pipeline_metrics apd_prepare_dispatch)
 for tool in "${EXPECTED_TOOLS[@]}"; do
     _check_file_contains "tool '$tool' registered" "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py" "^def $tool\b"
 done
@@ -176,7 +176,8 @@ if [ -f "$PLUGIN_MCP_JSON" ]; then
     # Per-tool auto-approval — Codex has no server-wide default, every tool
     # must be listed explicitly. v6.0 carries this in plugin .mcp.json.
     for _t in apd_ping apd_doctor apd_advance_pipeline apd_guard_write \
-             apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state; do
+             apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state \
+             apd_pipeline_metrics apd_prepare_dispatch; do
         _check_file_contains "plugin .mcp.json auto-approves $_t" "$PLUGIN_MCP_JSON" "\"$_t\""
     done
 fi
@@ -194,14 +195,14 @@ else
 fi
 for _t in apd_ping apd_doctor apd_advance_pipeline apd_guard_write \
          apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state \
-         apd_pipeline_metrics; do
+         apd_pipeline_metrics apd_prepare_dispatch; do
     _check_file_contains "config.toml auto-approves $_t" "$CFG" "^\\[mcp_servers\\.apd\\.tools\\.$_t\\]$"
 done
-if [ "$(grep -c '^approval_mode = "approve"$' "$CFG" 2>/dev/null | tr -d ' ')" = "9" ]; then
-    pass "config.toml has exactly 9 APD approval_mode entries"
+if [ "$(grep -c '^approval_mode = "approve"$' "$CFG" 2>/dev/null | tr -d ' ')" = "10" ]; then
+    pass "config.toml has exactly 10 APD approval_mode entries"
     PASSES=$((PASSES + 1))
 else
-    fail "config.toml approval_mode entry count is not 9"
+    fail "config.toml approval_mode entry count is not 10"
     FAILS=$((FAILS + 1))
 fi
 _check_file_contains "hooks.json has PreToolUse" "$HOOKS" 'PreToolUse'
@@ -985,9 +986,9 @@ else
 fi
 
 # -----------------------------------------------------------
-# 10. Pipeline builder advances on pure-Codex (no sub-agents)
+# 10. Pipeline builder requires a real prepared Codex subagent
 # -----------------------------------------------------------
-section "10. Pipeline builder on pure-Codex"
+section "10. Pipeline builder requires Codex dispatch evidence"
 
 _os=$(uname -s | tr '[:upper:]' '[:lower:]')
 _arch=$(uname -m | tr '[:upper:]' '[:lower:]')
@@ -997,32 +998,55 @@ VALIDATOR="$APD_PLUGIN_ROOT/bin/compiled/validate-agent-${_os}-${_arch}"
 
 if [ -x "$VALIDATOR" ]; then
     PC="$(mktemp -d -t apd-pc-pipe.XXXXXX)"
-    mkdir -p "$PC/.codex/bin" "$PC/.apd/pipeline"
+    mkdir -p "$PC/.codex/bin" "$PC/.apd/pipeline" "$PC/.apd/agents"
     cat > "$PC/.apd/config" <<EOF
 PROJECT_NAME=pc-pipe
 APD_VERSION=test
 STACK=test
 EOF
     ln -sf "$APD_PLUGIN_ROOT/bin/apd" "$PC/.codex/bin/apd"
+    cat > "$PC/.apd/agents/backend-builder.md" <<'EOF'
+---
+name: backend-builder
+scope:
+  - src/
+---
+Builder.
+EOF
 
     # Seed a signed spec.done straight through the validator so the pipeline
     # sees a valid spec step without having to craft a full spec-card.md.
     "$VALIDATOR" advance -step spec -task pc-smoke -pipeline-dir "$PC/.apd/pipeline" >/dev/null 2>&1
     echo "# plan" > "$PC/.apd/pipeline/implementation-plan.md"
 
-    PC_BUILDER_OUT="$(APD_PROJECT_DIR="$PC" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder 2>&1)"
-    PC_BUILDER_EXIT=$?
+    PC_NO_AGENT_OUT="$(APD_PROJECT_DIR="$PC" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder 2>&1)"
+    PC_NO_AGENT_EXIT=$?
 
-    if [ "$PC_BUILDER_EXIT" -eq 0 ] && [ -f "$PC/.apd/pipeline/builder.done" ]; then
-        pass "builder advances without sub-agent dispatch on pure-Codex"
+    if [ "$PC_NO_AGENT_EXIT" -ne 0 ] && echo "$PC_NO_AGENT_OUT" | grep -q "No project Builder agent was dispatched"; then
+        pass "Codex builder blocks without real subagent dispatch evidence"
         PASSES=$((PASSES + 1))
     else
-        fail "builder did not advance (exit=$PC_BUILDER_EXIT)"
+        fail "Codex builder bypassed missing subagent evidence (exit=$PC_NO_AGENT_EXIT)"
+        FAILS=$((FAILS + 1))
+    fi
+
+    PC_AGENT_START=$(date '+%Y-%m-%d %H:%M:%S')
+    sleep 3
+    PC_AGENT_STOP=$(date '+%Y-%m-%d %H:%M:%S')
+    printf '%s|start|backend-builder|019f680cfb407142940d15a21a1238f7\n' "$PC_AGENT_START" > "$PC/.apd/pipeline/.agents"
+    printf '%s|stop|backend-builder|019f680cfb407142940d15a21a1238f7\n' "$PC_AGENT_STOP" >> "$PC/.apd/pipeline/.agents"
+    PC_BUILDER_OUT="$(APD_PROJECT_DIR="$PC" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder 2>&1)"
+    PC_BUILDER_EXIT=$?
+    if [ "$PC_BUILDER_EXIT" -eq 0 ] && [ -f "$PC/.apd/pipeline/builder.done" ]; then
+        pass "Codex builder advances with validated native subagent start/stop evidence"
+        PASSES=$((PASSES + 1))
+    else
+        fail "Codex builder rejected valid native dispatch evidence (exit=$PC_BUILDER_EXIT)"
         echo "    last line: $(echo "$PC_BUILDER_OUT" | tail -1)" >&2
         FAILS=$((FAILS + 1))
     fi
 
-    if echo "$PC_BUILDER_OUT" | grep -q "\.claude/"; then
+    if echo "$PC_NO_AGENT_OUT$PC_BUILDER_OUT" | grep -q "\.claude/"; then
         fail "builder output leaked .claude/ path to Codex user"
         FAILS=$((FAILS + 1))
     else
@@ -1876,9 +1900,7 @@ EOF
 fi
 
 # -----------------------------------------------------------
-# 20b. apd_adversarial_pass — close the empty-pass loophole on Codex
-#      Without sub-agent dispatch logs, ADVERSARIAL:0:0:0 was a free
-#      escape hatch. Server now requires substantive notes when total=0.
+# 20b. apd_adversarial_pass — require native dispatch + substantive empty notes
 # -----------------------------------------------------------
 section "20b. apd_adversarial_pass empty-pass guard"
 
@@ -1892,6 +1914,7 @@ EOF
 # testing only the empty-pass loophole guard.
 echo "$(date +%s)" > "$ADV_DIR/.apd/pipeline/reviewer.done"
 echo "$(date +%s)" > "$ADV_DIR/.apd/pipeline/.adversarial-pending"
+printf '2026-07-16 01:00:00|start|adversarial-reviewer|019f680cfb407142940d15a21a1238f7\n' > "$ADV_DIR/.apd/pipeline/.agents"
 
 ADV_OUT="$(cd "$ADV_DIR" && python3 - <<PY
 import sys, types, json
@@ -2615,6 +2638,7 @@ r2 = m.apd_adversarial_pass(0, 0, 0, LONG)
 
 # Case 3: both markers → accepted
 (p / ".adversarial-pending").write_text("456\\n")
+(p / ".agents").write_text("2026-07-16 01:00:00|start|adversarial-reviewer|019f680cfb407142940d15a21a1238f7\\n")
 r3 = m.apd_adversarial_pass(0, 0, 0, LONG)
 
 print(json.dumps({"no_markers": r1, "only_reviewer": r2, "both_markers": r3}))
@@ -3695,12 +3719,11 @@ fi
 rm -rf "$MIG_DIR"
 
 # -----------------------------------------------------------
-# 37. codex-doctor C2 migrate hint
-#     Doctor warns when .apd/agents/*.md exist and .codex/agents/
-#     has no .toml files yet, suggesting `apd cdx agents migrate`.
-#     The hint disappears after migration completes.
+# 37. codex-doctor canonical APD registry guidance
+#     Native dispatch binds .apd roles through prepare_dispatch + hooks.
+#     Optional .codex TOML profiles are not required for this tool surface.
 # -----------------------------------------------------------
-section "37. codex-doctor C2 migrate hint"
+section "37. codex-doctor canonical APD registry"
 
 CD_DIR="$(mktemp -d -t apd-cdmig.XXXXXX)"
 mkdir -p "$CD_DIR/.codex" "$CD_DIR/.apd/agents"
@@ -3716,11 +3739,12 @@ scope:
 EOF
 
 CD_OUT=$(APD_PROJECT_DIR="$CD_DIR" bash "$APD_PLUGIN_ROOT/bin/apd" cdx doctor 2>&1)
-if echo "$CD_OUT" | grep -q "apd cdx agents migrate"; then
-    pass "doctor surfaces migrate hint when .apd/agents has .md and .codex/agents empty"
+if echo "$CD_OUT" | grep -q "canonical dispatch registry" \
+   && ! echo "$CD_OUT" | grep -q "apd cdx agents migrate"; then
+    pass "doctor recognizes .apd/agents as canonical without requiring TOML migration"
     PASSES=$((PASSES + 1))
 else
-    fail "doctor missing migrate hint"
+    fail "doctor did not report the canonical APD role registry"
     FAILS=$((FAILS + 1))
 fi
 
@@ -3728,10 +3752,10 @@ fi
 APD_PROJECT_DIR="$CD_DIR" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/agents-scaffold" migrate >/dev/null 2>&1
 CD_OUT2=$(APD_PROJECT_DIR="$CD_DIR" bash "$APD_PLUGIN_ROOT/bin/apd" cdx doctor 2>&1)
 if echo "$CD_OUT2" | grep -q "apd cdx agents migrate"; then
-    fail "doctor still suggests migrate after migration"
+    fail "doctor incorrectly requires migration after optional profiles exist"
     FAILS=$((FAILS + 1))
 else
-    pass "doctor migrate hint clears after migration completes"
+    pass "optional TOML profiles do not introduce a migration requirement"
     PASSES=$((PASSES + 1))
 fi
 
@@ -4028,9 +4052,27 @@ rm -rf "$Z_DIR"
 # -----------------------------------------------------------
 section "41. Builder cycle cap (v6.3 C)"
 
+_codex_test_ts() {
+    local off=$1
+    date -v+${off}S +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
+        || date -d "+${off} seconds" +"%Y-%m-%d %H:%M:%S"
+}
+
+_seed_codex_pair() {
+    local dir=$1 role=$2 agent_id=$3 start_off=${4:-1} stop_off=${5:-11}
+    printf '%s|start|%s|%s\n' "$(_codex_test_ts "$start_off")" "$role" "$agent_id" >> "$dir/.apd/pipeline/.agents"
+    printf '%s|stop|%s|%s\n' "$(_codex_test_ts "$stop_off")" "$role" "$agent_id" >> "$dir/.apd/pipeline/.agents"
+}
+
 C_DIR="$(mktemp -d -t apd-c.XXXXXX)"
-mkdir -p "$C_DIR/.apd/pipeline"
+mkdir -p "$C_DIR/.apd/pipeline" "$C_DIR/.apd/agents"
 echo "PROJECT_NAME=c-test" > "$C_DIR/.apd/config"
+cat > "$C_DIR/.apd/agents/backend-builder.md" <<'EOF'
+---
+name: backend-builder
+scope: [src/]
+---
+EOF
 
 _c_write_spec() {
     local field=""
@@ -4061,6 +4103,7 @@ _c_advance_builder() {
 _c_write_spec ""
 _guide_marker "$C_DIR" "cycle-task"
 APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
+_seed_codex_pair "$C_DIR" backend-builder aabbccddeeff4101
 OUT_A=$(_c_advance_builder)
 RC=$?
 CNT=$(cat "$C_DIR/.apd/pipeline/.builder-count" 2>/dev/null)
@@ -4110,6 +4153,7 @@ fi
 _c_write_spec 4
 _guide_marker "$C_DIR" "cycle-task"
 APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
+_seed_codex_pair "$C_DIR" backend-builder aabbccddeeff4102
 if [ ! -f "$C_DIR/.apd/pipeline/.builder-count" ]; then
     pass "spec re-advance wipes .builder-count (audit fix)"
     PASSES=$((PASSES + 1))
@@ -4136,6 +4180,7 @@ fi
 _c_write_spec unlimited
 _guide_marker "$C_DIR" "cycle-task"
 APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
+_seed_codex_pair "$C_DIR" backend-builder aabbccddeeff4103
 # After spec re-advance, counter is wiped → 0
 for _ in 1 2 3 4 5; do
     _c_advance_builder >/dev/null 2>&1
@@ -4169,8 +4214,21 @@ rm -rf "$C_DIR"
 section "42. Reviewer cycle cap + polish mode (v6.3 B)"
 
 R_DIR="$(mktemp -d -t apd-b.XXXXXX)"
-mkdir -p "$R_DIR/.apd/pipeline"
+mkdir -p "$R_DIR/.apd/pipeline" "$R_DIR/.apd/agents"
 echo "PROJECT_NAME=b-test" > "$R_DIR/.apd/config"
+cat > "$R_DIR/.apd/agents/backend-builder.md" <<'EOF'
+---
+name: backend-builder
+scope: [src/]
+---
+EOF
+cat > "$R_DIR/.apd/agents/code-reviewer.md" <<'EOF'
+---
+name: code-reviewer
+readonly: true
+scope: []
+---
+EOF
 
 _b_write_spec() {
     # $1 = pipeline_mode (or empty), $2 = reviewer max_cycles (or empty)
@@ -4205,6 +4263,8 @@ _b_advance() {
 _b_write_spec "" ""
 _guide_marker "$R_DIR" "b-task"
 _b_advance spec "b-task" >/dev/null 2>&1   # writes spec.done
+_seed_codex_pair "$R_DIR" backend-builder aabbccddeeff4201 1 11
+_seed_codex_pair "$R_DIR" code-reviewer aabbccddeeff4202 13 23
 _b_advance builder >/dev/null 2>&1 # writes builder.done, counter B=1
 OUT_A=$(_b_advance reviewer)
 RC_A=$?
@@ -4263,6 +4323,8 @@ fi
 _b_write_spec "polish" ""
 _guide_marker "$R_DIR" "b-task"
 _b_advance spec "b-task" >/dev/null 2>&1
+_seed_codex_pair "$R_DIR" backend-builder aabbccddeeff4203 1 11
+_seed_codex_pair "$R_DIR" code-reviewer aabbccddeeff4204 13 23
 _b_advance builder >/dev/null 2>&1  # counter B=1
 OUT_D=$(_b_advance builder)
 RC_D=$?
@@ -4291,6 +4353,8 @@ APD_PROJECT_DIR="$R_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset
 _b_write_spec "polish" "3"
 _guide_marker "$R_DIR" "b-task"
 _b_advance spec "b-task" >/dev/null 2>&1
+_seed_codex_pair "$R_DIR" backend-builder aabbccddeeff4205 1 11
+_seed_codex_pair "$R_DIR" code-reviewer aabbccddeeff4206 13 23
 _b_advance builder >/dev/null 2>&1   # builder still capped at 1 — single dispatch needed for reviewer to run
 _b_advance reviewer >/dev/null 2>&1  # R=1
 _b_advance reviewer >/dev/null 2>&1  # R=2
@@ -4392,8 +4456,21 @@ rm -rf "$GBS_DIR"
 section "45. reviewer rollback clears adversarial-summary (audit fix #7)"
 
 RB_DIR="$(mktemp -d -t apd-rb.XXXXXX)"
-mkdir -p "$RB_DIR/.apd/pipeline"
+mkdir -p "$RB_DIR/.apd/pipeline" "$RB_DIR/.apd/agents"
 echo "PROJECT_NAME=rb-test" > "$RB_DIR/.apd/config"
+cat > "$RB_DIR/.apd/agents/backend-builder.md" <<'EOF'
+---
+name: backend-builder
+scope: [src/]
+---
+EOF
+cat > "$RB_DIR/.apd/agents/code-reviewer.md" <<'EOF'
+---
+name: code-reviewer
+readonly: true
+scope: []
+---
+EOF
 cat > "$RB_DIR/.apd/pipeline/spec-card.md" <<'EOF'
 # Rollback test
 plan_consistency_gate: off
@@ -4403,6 +4480,8 @@ EOF
 echo "implementation plan" > "$RB_DIR/.apd/pipeline/implementation-plan.md"
 _guide_marker "$RB_DIR" "rb-task"
 APD_PROJECT_DIR="$RB_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "rb-task" >/dev/null 2>&1
+_seed_codex_pair "$RB_DIR" backend-builder aabbccddeeff4501 1 11
+_seed_codex_pair "$RB_DIR" code-reviewer aabbccddeeff4502 13 23
 APD_PROJECT_DIR="$RB_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder >/dev/null 2>&1
 APD_PROJECT_DIR="$RB_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reviewer >/dev/null 2>&1
 echo "ADVERSARIAL:5:3:2" > "$RB_DIR/.apd/pipeline/.adversarial-summary"
@@ -10655,13 +10734,11 @@ rm -rf "$_T"
 # has no real supervisor behind it. The gate must NOT trust it as a pass and must NOT
 # block even under strict — it logs supervision-not-applicable|runtime=codex. Repro of
 # 2026-07-14 efiskalizacija: supervision-pass model=claude-fable-5 with no fable dispatch.
-# Faithful Codex shape: .agents ABSENT (CC SubagentStart/Stop hooks never fire on
-# Codex) — this is the exact condition under which the old gate false-passed
-# (fabrication/churn/finality all skip on a missing ledger).
+# Faithful Codex shape now includes native builder/reviewer/adversarial events,
+# but no CC-only frontier supervisor dispatch.
 _T="$(mktemp -d -t apd-v95cx1.XXXXXX)"
 _v67_make_state "$_T" "ADVERSARIAL:0:0:0"
 echo "MODEL_PROFILE=eco" >> "$_T/.apd/config"
-rm -f "$_T/.apd/pipeline/.agents"
 printf 'SUPERVISION:0:0:0\nNotes: codex-written verdict, no CC supervisor dispatch possible\n' > "$_T/.apd/pipeline/.supervision-summary"
 _OUT=$(APD_PROJECT_DIR="$_T" APD_RUNTIME=codex APD_SUPERVISION_GATE=strict bash "$SV_ADVANCE" verifier 2>&1); _RC=$?
 if [ "$_RC" = "0" ] \
@@ -10675,14 +10752,11 @@ else
 fi
 rm -rf "$_T"
 
-# Live CX2: CC runtime, SAME faithful shape (summary present, .agents ABSENT) → the
-# fabrication tightening (rule 5: absence of ledger is absence of proof, not "no
-# problem") must now BLOCK under strict, where the old `[ -f AGENTS_LOG ]`-guarded
-# check silently passed. Proves the tightening + that the codex carve-out is runtime-scoped.
+# Live CX2: CC runtime, same summary but no supervisor event in the otherwise
+# valid agent ledger → fabrication tightening must BLOCK under strict.
 _T="$(mktemp -d -t apd-v95cx2.XXXXXX)"
 _v67_make_state "$_T" "ADVERSARIAL:0:0:0"
 echo "MODEL_PROFILE=eco" >> "$_T/.apd/config"
-rm -f "$_T/.apd/pipeline/.agents"
 printf 'SUPERVISION:0:0:0\nNotes: same summary, but this is a CC run with no ledger\n' > "$_T/.apd/pipeline/.supervision-summary"
 _OUT=$(APD_PROJECT_DIR="$_T" APD_SUPERVISION_GATE=strict bash "$SV_ADVANCE" verifier 2>&1); _RC=$?
 if [ "$_RC" = "1" ] && echo "$_OUT" | grep -q 'supervision-summary-without-dispatch' \
@@ -11043,6 +11117,155 @@ if echo "$HC_MIG" | grep -q 'hybrid CC-first' && echo "$HC_MIG" | grep -q '.clau
   pass "migrate on hybrid explains agents live in .claude/agents (not a silent no-op)"; PASSES=$((PASSES + 1))
 else fail "migrate hybrid message missing"; FAILS=$((FAILS + 1)); fi
 rm -rf "$HC_H"
+
+# -----------------------------------------------------------
+# 101. Codex native multi-agent lifecycle
+# -----------------------------------------------------------
+section "101. Codex native multi-agent lifecycle"
+
+_check "Codex SubagentStart/Stop adapter exists + executable" test -x "$APD_PLUGIN_ROOT/bin/adapter/cdx/track-subagent"
+_check_file_contains "MCP prepare-dispatch tool registered" "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py" '^def apd_prepare_dispatch\b'
+
+MA_T="$(mktemp -d -t apd-native-agents.XXXXXX)"
+mkdir -p "$MA_T/.codex" "$MA_T/.apd/agents" "$MA_T/.apd/pipeline"
+printf 'PROJECT_NAME=native-agents\nAPD_VERSION=test\n' > "$MA_T/.apd/config"
+cat > "$MA_T/.apd/agents/backend-builder.md" <<'EOF'
+---
+name: backend-builder
+scope:
+  - src/
+---
+Native builder.
+EOF
+cat > "$MA_T/.apd/agents/code-reviewer.md" <<'EOF'
+---
+name: code-reviewer
+readonly: true
+---
+Native reviewer.
+EOF
+touch "$MA_T/.apd/pipeline/spec.done"
+
+MA_PREP="$(APD_PROJECT_DIR="$MA_T" python3 - <<PY
+import json, sys, types
+mcp_mod = types.ModuleType("mcp")
+server_mod = types.ModuleType("mcp.server")
+fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+class DummyFastMCP:
+    def __init__(self,*_a,**_kw): pass
+    def tool(self,*_a,**_kw):
+        def d(fn): return fn
+        return d
+    def run(self): return None
+fastmcp_mod.FastMCP = DummyFastMCP
+server_mod.fastmcp = fastmcp_mod
+mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod
+sys.modules["mcp.server"] = server_mod
+sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
+import apd_mcp_server as m
+print(json.dumps(m.apd_prepare_dispatch("backend-builder")))
+PY
+)"
+if echo "$MA_PREP" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("ok") and d.get("task_name")=="backend_builder" else 1)' \
+   && [ -f "$MA_T/.apd/pipeline/.dispatch-pending.json" ]; then
+    pass "prepare-dispatch validates APD role and returns Codex-safe task_name"
+    PASSES=$((PASSES + 1))
+else
+    fail "prepare-dispatch did not create pending native dispatch: $MA_PREP"
+    FAILS=$((FAILS + 1))
+fi
+
+MA_ID="019f680c-fb40-7142-940d-15a21a1238f7"
+MA_START=$(printf '%s' "{\"hook_event_name\":\"SubagentStart\",\"agent_id\":\"$MA_ID\",\"agent_type\":\"default\",\"cwd\":\"$MA_T\"}" \
+    | APD_PROJECT_DIR="$MA_T" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/track-subagent" 2>&1)
+MA_STOP=$(printf '%s' "{\"hook_event_name\":\"SubagentStop\",\"agent_id\":\"$MA_ID\",\"agent_type\":\"default\",\"cwd\":\"$MA_T\",\"last_assistant_message\":\"done\"}" \
+    | APD_PROJECT_DIR="$MA_T" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/track-subagent" 2>&1)
+MA_COMPACT="019f680cfb407142940d15a21a1238f7"
+if grep -q "|start|backend-builder|$MA_COMPACT$" "$MA_T/.apd/pipeline/.agents" 2>/dev/null \
+   && grep -q "|stop|backend-builder|$MA_COMPACT$" "$MA_T/.apd/pipeline/.agents" 2>/dev/null; then
+    pass "Codex lifecycle hooks pair real UUID agent_id with prepared APD role"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex lifecycle adapter did not record paired role evidence (start=$MA_START stop=$MA_STOP)"
+    FAILS=$((FAILS + 1))
+fi
+
+MA_INSTALL="$(mktemp -d -t apd-native-install.XXXXXX)"; mkdir -p "$MA_INSTALL/.codex"
+bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" "$MA_INSTALL" >/dev/null 2>&1
+if python3 - "$MA_INSTALL/.codex/hooks.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))["hooks"]
+ok = all(any("track-subagent" in h.get("command", "") for e in d.get(event, []) for h in e.get("hooks", [])) for event in ("SubagentStart", "SubagentStop"))
+raise SystemExit(0 if ok else 1)
+PY
+then
+    pass "Codex init wires SubagentStart and SubagentStop lifecycle hooks"
+    PASSES=$((PASSES + 1))
+else
+    fail "Codex init did not wire both native subagent lifecycle hooks"
+    FAILS=$((FAILS + 1))
+fi
+
+if ! grep -q 'Codex has no sub-agent dispatch\|orchestrator plays every role' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md" \
+   && ! grep -q 'BUILDER_RAN="codex-orchestrator"\|REVIEWER_RAN="codex-orchestrator"' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && ! grep -R -q 'orchestrator (Codex inline)\|orchestrator IS the builder' "$APD_PLUGIN_ROOT/skills" "$APD_PLUGIN_ROOT/templates/codex/rules"; then
+    pass "Codex templates and gates no longer claim or synthesize inline-only roles"
+    PASSES=$((PASSES + 1))
+else
+    fail "stale inline-only Codex bypass or documentation remains"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$MA_T" "$MA_INSTALL"
+
+# -----------------------------------------------------------
+# 102. Adversarial dispatch gate — hook-non-delivery messaging (v6.36 audit #1)
+#      The gate requires start AND stop for adversarial-reviewer. A present
+#      start with a dropped stop (SubagentStop non-delivery) must NOT be
+#      reported as "never dispatched" — it routes to recovery, runtime-aware.
+# -----------------------------------------------------------
+section "102. Adversarial gate hook-non-delivery messaging"
+
+if [ -x "$VALIDATOR" ]; then
+    # CC: start present, stop dropped → BLOCK that points at reconstruct-agents
+    # and never claims the agent was "never dispatched".
+    AG_CC="$(mktemp -d -t apd-advmsg-cc.XXXXXX)"
+    _v67_make_state "$AG_CC" "ADVERSARIAL:0:0:0"
+    grep -v '|stop|adversarial-reviewer|' "$AG_CC/.apd/pipeline/.agents" > "$AG_CC/.apd/pipeline/.agents.tmp"
+    mv "$AG_CC/.apd/pipeline/.agents.tmp" "$AG_CC/.apd/pipeline/.agents"
+    AG_CC_OUT=$(_v67_run_verifier "$AG_CC"); AG_CC_RC=$?
+    if [ "$AG_CC_RC" -ne 0 ] \
+       && echo "$AG_CC_OUT" | grep -q 'STARTED but no matching stop' \
+       && echo "$AG_CC_OUT" | grep -q 'reconstruct-agents' \
+       && ! echo "$AG_CC_OUT" | grep -q 'never dispatched'; then
+        pass "adversarial gate: start-without-stop routes to reconstruct-agents (CC), not 'never dispatched'"
+        PASSES=$((PASSES + 1))
+    else
+        fail "adversarial gate CC start-without-stop message wrong (rc=$AG_CC_RC): $(echo "$AG_CC_OUT" | tail -3)"
+        FAILS=$((FAILS + 1))
+    fi
+    rm -rf "$AG_CC"
+
+    # Codex: no adversarial start at all → BLOCK with apd_prepare_dispatch
+    # guidance, never the CC-only Agent({ subagent_type: ... }) form.
+    AG_CX="$(mktemp -d -t apd-advmsg-cx.XXXXXX)"
+    _v67_make_state "$AG_CX" "ADVERSARIAL:0:0:0"
+    grep -v '|adversarial-reviewer|' "$AG_CX/.apd/pipeline/.agents" > "$AG_CX/.apd/pipeline/.agents.tmp"
+    mv "$AG_CX/.apd/pipeline/.agents.tmp" "$AG_CX/.apd/pipeline/.agents"
+    AG_CX_OUT=$(APD_PROJECT_DIR="$AG_CX" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" verifier 2>&1); AG_CX_RC=$?
+    if [ "$AG_CX_RC" -ne 0 ] \
+       && echo "$AG_CX_OUT" | grep -q 'apd_prepare_dispatch(apd_role="adversarial-reviewer")' \
+       && ! echo "$AG_CX_OUT" | grep -q 'subagent_type'; then
+        pass "adversarial gate: no-start on Codex points at apd_prepare_dispatch, not CC Agent()"
+        PASSES=$((PASSES + 1))
+    else
+        fail "adversarial gate Codex no-start message wrong (rc=$AG_CX_RC): $(echo "$AG_CX_OUT" | tail -3)"
+        FAILS=$((FAILS + 1))
+    fi
+    rm -rf "$AG_CX"
+fi
 
 # -----------------------------------------------------------
 # Summary

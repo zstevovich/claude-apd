@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import time
@@ -220,18 +221,18 @@ def _agents_dir(project: Path) -> Path | None:
 
     Priority:
       1. .claude/agents/ — CC source of truth on hybrid projects
-      2. .codex/agents/ — Codex-canonical (TOML loader, since C2 Phase 2a)
-      3. .apd/agents/ — APD-internal fallback (legacy + current default)
+      2. .apd/agents/ — canonical APD role registry on pure-Codex projects
+      3. .codex/agents/ — optional Codex TOML fallback
     """
     cc = project / ".claude" / "agents"
     if cc.is_dir():
         return cc
-    codex = project / ".codex" / "agents"
-    if codex.is_dir():
-        return codex
     neutral = project / ".apd" / "agents"
     if neutral.is_dir():
         return neutral
+    codex = project / ".codex" / "agents"
+    if codex.is_dir():
+        return codex
     return None
 
 
@@ -260,6 +261,28 @@ def _parse_agent(path: Path) -> dict:
     if path.suffix == ".toml":
         return _parse_agent_toml(path)
     return _parse_agent_frontmatter(path)
+
+
+def _agent_file_for_role(project: Path, apd_role: str) -> Path | None:
+    """Return the registry file for a validated APD role name."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", apd_role) or apd_role in (".", ".."):
+        return None
+    agents_dir = _agents_dir(project)
+    if agents_dir is None:
+        return None
+    try:
+        agents_root = agents_dir.resolve()
+    except OSError:
+        return None
+    for extension in (".toml", ".md"):
+        candidate = agents_dir / f"{apd_role}{extension}"
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if resolved.parent == agents_root and resolved.is_file():
+            return resolved
+    return None
 
 
 def _parse_agent_frontmatter(path: Path) -> dict:
@@ -708,6 +731,129 @@ def apd_advance_pipeline(step: str, arg: str = "") -> dict:
     return _run_core("pipeline-advance", *args, timeout=30)
 
 
+_DISPATCH_TTL_SECONDS = 120
+
+
+@mcp.tool()
+def apd_prepare_dispatch(apd_role: str) -> dict:
+    """Prepare one native Codex subagent dispatch for an APD role.
+
+    Current Codex collaboration calls expose a task name but do not select a
+    project custom-agent profile: lifecycle hooks report `agent_type=default`.
+    This tool creates a short-lived, single-use role binding immediately before
+    `spawn_agent`. The Codex SubagentStart hook consumes it and binds the real
+    runtime `agent_id` to the canonical APD role; SubagentStop closes the pair.
+
+    Call sequence:
+      1. apd_prepare_dispatch(apd_role="backend-builder")
+      2. spawn_agent(task_name=<returned task_name>, message=<role instructions>)
+      3. wait for the child to finish before advancing the pipeline phase
+
+    Dispatches are intentionally serialized until Codex exposes the selected
+    custom role directly in the hook payload.
+    """
+    if not apd_role:
+        return {"ok": False, "error": "apd_role is required"}
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", apd_role) or apd_role in (".", ".."):
+        return {
+            "ok": False,
+            "error": f"invalid apd_role '{apd_role}' — must match [A-Za-z0-9_.-]+",
+        }
+
+    project = _project_dir()
+    agent_file = _agent_file_for_role(project, apd_role)
+    if agent_file is None:
+        return {"ok": False, "error": f"unknown apd_role '{apd_role}'"}
+    agent = _parse_agent(agent_file)
+    if not agent:
+        return {"ok": False, "error": f"could not parse agent definition at {agent_file}"}
+
+    pipeline_dir = project / ".apd" / "pipeline"
+    spec_done = (pipeline_dir / "spec.done").is_file()
+    builder_done = (pipeline_dir / "builder.done").is_file()
+    reviewer_done = (pipeline_dir / "reviewer.done").is_file()
+    adversarial_pending = (pipeline_dir / ".adversarial-pending").is_file()
+    adversarial_done = (pipeline_dir / ".adversarial-summary").is_file()
+    if spec_done and not builder_done:
+        phase = "builder"
+    elif builder_done and not reviewer_done:
+        phase = "reviewer"
+    elif reviewer_done and adversarial_pending and not adversarial_done:
+        phase = "adversarial"
+    else:
+        return {
+            "ok": False,
+            "error": "no APD phase is currently accepting a subagent dispatch",
+        }
+
+    readonly = agent.get("readonly", False)
+    if isinstance(readonly, str):
+        readonly = readonly.lower() in ("true", "yes", "1")
+    name_lower = apd_role.lower()
+    if phase == "builder" and (readonly or "review" in name_lower):
+        return {"ok": False, "error": f"role '{apd_role}' is not a writable builder"}
+    if phase == "reviewer" and (not readonly or "review" not in name_lower or "adversarial" in name_lower):
+        return {"ok": False, "error": f"role '{apd_role}' is not the read-only primary reviewer"}
+    if phase == "adversarial" and (not readonly or "adversarial" not in name_lower):
+        return {
+            "ok": False,
+            "error": f"role '{apd_role}' is not the read-only adversarial reviewer",
+        }
+
+    pipeline_dir.mkdir(parents=True, exist_ok=True)
+    pending = pipeline_dir / ".dispatch-pending.json"
+    lock = pipeline_dir / ".dispatch-prepare.lock"
+    try:
+        lock.mkdir()
+    except FileExistsError:
+        return {"ok": False, "error": "another dispatch preparation is in progress"}
+    try:
+        now = int(time.time())
+        if pending.is_file():
+            try:
+                previous = json.loads(pending.read_text())
+                age = now - int(previous.get("created_at", 0))
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                return {"ok": False, "error": "existing dispatch binding is malformed; reset the pipeline"}
+            if age <= _DISPATCH_TTL_SECONDS:
+                return {
+                    "ok": False,
+                    "error": f"dispatch already pending for role '{previous.get('apd_role', '?')}'",
+                }
+            pending.unlink(missing_ok=True)
+
+        task_name = re.sub(r"[^a-z0-9_]", "_", apd_role.lower()).strip("_") or "apd_agent"
+        record = {
+            "schema": 1,
+            "created_at": now,
+            "expires_at": now + _DISPATCH_TTL_SECONDS,
+            "apd_role": apd_role,
+            "task_name": task_name,
+            "phase": phase,
+            "nonce": secrets.token_hex(16),
+        }
+        temp = pipeline_dir / f".dispatch-pending.{os.getpid()}.tmp"
+        temp.write_text(json.dumps(record, sort_keys=True) + "\n")
+        os.replace(temp, pending)
+    except OSError as exc:
+        return {"ok": False, "error": f"could not prepare dispatch: {exc}"}
+    finally:
+        try:
+            lock.rmdir()
+        except OSError:
+            pass
+
+    return {
+        "ok": True,
+        "apd_role": apd_role,
+        "task_name": task_name,
+        "phase": phase,
+        "agent_file": str(agent_file),
+        "expires_in_seconds": _DISPATCH_TTL_SECONDS,
+        "next": "spawn exactly one subagent with task_name above and include the APD role instructions in its message",
+    }
+
+
 @mcp.tool()
 def apd_guard_write(apd_role: str, file_path: str) -> dict:
     """Check whether a Write/Edit target falls inside `apd_role`'s configured scope.
@@ -887,9 +1033,9 @@ def apd_adversarial_pass(total: int, accepted: int, dismissed: int, notes: str =
                 concurrency, edge cases, contract drift, security) and why
                 nothing was flagged. For total > 0 notes is informational.
 
-    On Codex there is no sub-agent dispatch log to verify the reviewer
-    actually ran, so the empty-pass loophole — writing ADVERSARIAL:0:0:0
-    without any review — is closed here at the recording step instead.
+    Native Codex SubagentStart/Stop hooks maintain the APD dispatch ledger.
+    This recording step requires an actual adversarial-reviewer start event;
+    the verifier gate later requires its paired stop event as well.
 
     Pre-flight gate (v6.1 B1): refuses when `reviewer.done` is absent or
     `.adversarial-pending` is missing. The order must be
@@ -943,6 +1089,22 @@ def apd_adversarial_pass(total: int, accepted: int, dismissed: int, notes: str =
                 "(small spec — see spec-card.md `adversarial: skip`) or it "
                 "has already been recorded. Inspect .adversarial-summary "
                 "to confirm."
+            ),
+        }
+
+    agents_log = pipeline_dir / ".agents"
+    try:
+        agent_evidence = agents_log.read_text()
+    except OSError:
+        agent_evidence = ""
+    if "|start|adversarial-reviewer|" not in agent_evidence:
+        return {
+            "ok": False,
+            "error": (
+                "adversarial pass refused: no native adversarial-reviewer "
+                "SubagentStart evidence. Call apd_prepare_dispatch for the "
+                "adversarial-reviewer, spawn it, and record the pass from "
+                "that running child agent."
             ),
         }
 

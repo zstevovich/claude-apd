@@ -5,9 +5,10 @@ description: MANDATORY during the APD builder phase on Codex (between apd:apd_ad
 
 # APD Test-Driven Development (Codex)
 
-On Codex the orchestrator IS the builder — this skill applies to every
-implementation between `apd:apd_advance_pipeline('spec', ...)` and
-`apd:apd_advance_pipeline('builder')`.
+On Codex this skill applies to the native builder subagent dispatched between
+`apd:apd_advance_pipeline('spec', ...)` and
+`apd:apd_advance_pipeline('builder')`. The orchestrator coordinates the phase
+and must not implement source changes itself.
 
 ## When to use / When to skip
 
@@ -97,7 +98,7 @@ You're done when:
 ## Hand-off
 
 - After this skill completes → call `apd:apd_advance_pipeline('builder')`
-- Then run the inline review and call `apd:apd_advance_pipeline('reviewer')` — that step writes `.adversarial-pending` as the green light for `apd:apd_adversarial_pass`
+- Then return control to the orchestrator, which dispatches the primary reviewer and calls `apd:apd_advance_pipeline('reviewer')` — that step writes `.adversarial-pending` as the green light for the adversarial subagent
 - Do NOT call `apd:apd_adversarial_pass` before `reviewer.done` exists; the pre-flight gate refuses the call
 - If a test goes red unexpectedly → switch to `apd-debug` (Phase 4 of debug uses this skill again)
 - Never skip — even for "trivial" changes. Especially for trivial changes.

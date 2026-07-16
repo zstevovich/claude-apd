@@ -1,0 +1,101 @@
+#!/bin/bash
+# Codex native subagent lifecycle adapter.
+#
+# Codex currently reports `agent_type=default` even when spawn_agent's
+# task_name matches a project custom-agent file. APD therefore prepares one
+# short-lived canonical role binding through apd_prepare_dispatch(); this hook
+# consumes it at SubagentStart and closes the same role/agent_id pair at
+# SubagentStop.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CORE_DIR="$SCRIPT_DIR/../../core"
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "APD Subagent hook: jq is required" >&2
+    exit 1
+fi
+
+INPUT=$(cat)
+EVENT=$(printf '%s' "$INPUT" | jq -r '.hook_event_name // empty')
+RAW_AGENT_ID=$(printf '%s' "$INPUT" | jq -r '.agent_id // empty')
+HOOK_CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty')
+
+case "$EVENT" in
+    SubagentStart|SubagentStop) ;;
+    *) exit 0 ;;
+esac
+
+# Codex 0.144 emits UUID-shaped ids. The existing compiled APD validator
+# accepts hexadecimal ids, so retain all entropy while removing UUID dashes.
+AGENT_ID=$(printf '%s' "$RAW_AGENT_ID" | tr -d '-')
+case "$AGENT_ID" in
+    ''|*[!0-9a-fA-F]*) exit 0 ;;
+esac
+
+if [ -n "$HOOK_CWD" ]; then
+    export APD_PROJECT_DIR="$HOOK_CWD"
+fi
+source "$CORE_DIR/../lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
+
+mkdir -p "$PIPELINE_DIR"
+PENDING="$PIPELINE_DIR/.dispatch-pending.json"
+ACTIVE="$PIPELINE_DIR/.dispatch-agent-${AGENT_ID}.json"
+LOCK="$PIPELINE_DIR/.dispatch-hook.lock"
+
+_lock_dispatch() {
+    local attempts=0
+    while ! mkdir "$LOCK" 2>/dev/null; do
+        attempts=$((attempts + 1))
+        [ "$attempts" -ge 40 ] && return 1
+        sleep 0.05
+    done
+}
+
+_unlock_dispatch() {
+    rmdir "$LOCK" 2>/dev/null || true
+}
+
+if [ "$EVENT" = "SubagentStart" ]; then
+    _lock_dispatch || exit 0
+    trap _unlock_dispatch EXIT
+    [ -f "$PENDING" ] || exit 0
+
+    # A `jq` failure on a malformed binding must not abort under `set -e` before
+    # the cleanup below — treat an unparseable pending as empty so it is removed,
+    # otherwise every subsequent SubagentStart would wedge on the same bad file.
+    ROLE=$(jq -r '.apd_role // empty' "$PENDING" 2>/dev/null) || ROLE=""
+    EXPIRES_AT=$(jq -r '.expires_at // 0' "$PENDING" 2>/dev/null) || EXPIRES_AT=0
+    case "$EXPIRES_AT" in *[!0-9]*) EXPIRES_AT=0 ;; esac
+    if [ -z "$ROLE" ] || [ "$EXPIRES_AT" -lt "$(date +%s)" ]; then
+        rm -f "$PENDING"
+        exit 0
+    fi
+
+    mv "$PENDING" "$ACTIVE"
+    _unlock_dispatch
+    trap - EXIT
+    if ! APD_RUNTIME=codex bash "$CORE_DIR/track-agent" \
+        --event SubagentStart --agent-type "$ROLE" --agent-id "$AGENT_ID" \
+        --raw-payload "$INPUT"; then
+        # Do not leave a consumed binding that can never produce a valid pair.
+        mv "$ACTIVE" "$PENDING" 2>/dev/null || true
+        exit 1
+    fi
+    exit 0
+fi
+
+_lock_dispatch || exit 0
+trap _unlock_dispatch EXIT
+[ -f "$ACTIVE" ] || exit 0
+ROLE=$(jq -r '.apd_role // empty' "$ACTIVE" 2>/dev/null) || ROLE=""
+[ -n "$ROLE" ] || exit 0
+_unlock_dispatch
+trap - EXIT
+
+APD_RUNTIME=codex bash "$CORE_DIR/track-agent" \
+    --event SubagentStop --agent-type "$ROLE" --agent-id "$AGENT_ID" \
+    --raw-payload "$INPUT"
+rm -f "$ACTIVE"

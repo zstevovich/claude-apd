@@ -16,8 +16,9 @@ session — it defines the enforced workflow you must follow.
 ## APD
 
 Codex is the APD orchestrator for this project. It owns the pipeline state,
-calls the APD MCP tools, performs the inline builder/reviewer work unless the
-user explicitly asks for subagents, and never bypasses the mechanical gates.
+calls the APD MCP tools, dispatches builder and reviewer work to native Codex
+subagents, and never bypasses the mechanical gates. The orchestrator coordinates
+the work; it does not implement or review source changes itself.
 
 ### Communication discipline
 
@@ -45,6 +46,7 @@ these tools:
 | `apd_verify_step(scope="full")` | Run project `.codex/bin/verify-all.sh` (or framework fallback). `scope="fast"` exposes `APD_VERIFY_SCOPE=fast` to the verifier so a customised verify-all.sh can run build + targeted tests only — use during builder REFACTOR iteration. Default `"full"` runs the complete suite and is what the pre-commit gate uses |
 | `apd_adversarial_pass(total, accepted, dismissed, notes="")` | Record adversarial review outcome — `notes` is REQUIRED when `total=0` (>= 80 chars) so the server can tell a real "0 findings" pass from a rubber-stamp. When `total>0`, you MUST also write `.apd/pipeline/.adversarial-rationale.md` with one block per finding (Severity / Status / Rationale fields) — the verifier hard-blocks otherwise (v6.7 rationale gate). Treat reviewer-self-dismissed entries as `**Status:** reviewer-self-dismissed` to avoid false-triggering the 100%-orchestrator-dismiss gate (T≥3 && A==0 && Do≥1) |
 | `apd_list_agents()` | List every agent definition in `.apd/agents/` with scope, model, maxTurns — call once to discover which roles exist; scope is enforced by `apd_guard_write` itself, not by re-sending it |
+| `apd_prepare_dispatch(apd_role)` | Reserve the next pipeline role for one native Codex subagent and return its safe `task_name`, role file, and dispatch instructions. Call immediately before `spawn_agent`; dispatches are intentionally serialized until Codex exposes the selected custom role in hook payloads |
 | `apd_pipeline_state()` | Structured snapshot of the current pipeline: which `.done` files exist, spec-card criteria count + freeze hash, implementation-plan presence, adversarial summary, reviewed-files count, verifier cache age, the next step to advance, and a `budgets` field (spec criteria, reviewed files, verifier duration) with advisory green/yellow/red status to inform the Lean vs Full choice |
 
 ### Guardrails
@@ -173,18 +175,22 @@ substantial enough that the adversarial gate stays on regardless — the
    notes). Write headers FROM THE START — `verify-plan-spec` strict mode
    (v6.8.1+ default) hard-BLOCKS `apd_advance_pipeline("builder")` otherwise.
    Override via `plan_consistency_gate: strict|warn|off` in spec-card.md.
-4. **Implement.** By default the Codex orchestrator acts as the builder.
-   Use Codex subagents only when the user explicitly asks for delegated work,
-   and keep APD scope enforcement on every file they touch. Before every write, call
-   `apd_guard_write(apd_role="<role-name>", file_path="<path>")`. The server
-   reads scope from `.apd/agents/<role-name>.md` frontmatter; you cannot
-   widen it from the call.
+4. **Dispatch the builder.** Choose the matching writable role from
+   `apd_list_agents()`, call `apd_prepare_dispatch(apd_role="<role-name>")`,
+   then immediately call native `spawn_agent` with the returned `task_name`.
+   Give the child the returned role file and full task instructions, then wait
+   for it to finish. Before every write the child calls
+   `apd_guard_write(apd_role="<role-name>", file_path="<path>")`; the server
+   reads scope from the canonical role definition and cannot be widened by the
+   prompt. Do not prepare a second dispatch before the first child starts.
 5. **Advance the builder gate:** `apd_advance_pipeline("builder")`.
-6. **Review the diff inline.** Walk the diff like a hostile reviewer.
-   Advance: `apd_advance_pipeline("reviewer")`.
-7. **Adversarial pass (Full mode only):** consider regressions,
-   concurrency, edge cases, contract drift, security surface. Record the
-   outcome with `apd_adversarial_pass(total, accepted, dismissed, notes)`.
+6. **Dispatch the primary reviewer.** Prepare a read-only review role with
+   `apd_prepare_dispatch`, spawn it with the returned safe task name, and wait
+   for its report. Then advance: `apd_advance_pipeline("reviewer")`.
+7. **Adversarial pass (Full mode only):** prepare and spawn the adversarial
+   reviewer. That read-only child examines regressions, concurrency, edge
+   cases, contract drift, and security, then records its own outcome with
+   `apd_adversarial_pass(total, accepted, dismissed, notes)` before stopping.
    If you genuinely find nothing (`total=0`), `notes` becomes mandatory
    (>= 80 chars) — write what categories you actually examined and why
    they came up clean. The server rejects empty 0/0/0 records. In Lean
@@ -226,8 +232,9 @@ substantial enough that the adversarial gate stays on regardless — the
 
 ### Phase-specific rules (read when entering each phase)
 
-On Codex the orchestrator plays every role, so it must pull in the rule
-file for the phase it is in. These always live under `.apd/rules/`:
+The orchestrator loads the phase rule needed to prepare each dispatch, and the
+dispatched agent receives that rule in its instructions. These always live
+under `.apd/rules/`:
 
 | Phase trigger | Read this |
 |---------------|-----------|
@@ -252,11 +259,12 @@ it exists, otherwise `.apd/memory/`:
 
 ## Agent scope
 
-Even though Codex has no sub-agent dispatch, APD's agent definitions in
-`.apd/agents/` define the **scope each role may write to**. When you act as
-a builder, your writes must stay inside the scope declared for the matching
-role. When you act as a reviewer or adversarial-reviewer, do not write at
-all — those roles are read-only.
+APD's agent definitions in `.apd/agents/` are the canonical role registry and
+define the **scope each dispatched role may write to**. Builder writes must
+stay inside the matching role's declared scope. Reviewer and adversarial roles
+must not write at all — those roles are read-only. The APD role may contain
+hyphens; always use the underscore-safe `task_name` returned by
+`apd_prepare_dispatch` when spawning the Codex child.
 
 Scope lives in the YAML frontmatter:
 

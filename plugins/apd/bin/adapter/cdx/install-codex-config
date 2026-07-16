@@ -173,7 +173,7 @@ HOOK_LAUNCHER_Q="\"$HOOK_LAUNCHER\""
 # 1. MCP server registration / repair
 #
 # Writes [mcp_servers.apd] (command/args/cwd pointing at this plugin
-# install) plus 8 per-tool [mcp_servers.apd.tools.<name>] approval
+# install) plus per-tool [mcp_servers.apd.tools.<name>] approval
 # blocks. v6.0 moved the server into the Codex plugin payload and ships a
 # plugin .mcp.json for self-registration, but live Codex 0.125 testing
 # showed plugin-shipped approval_mode is ignored by the TUI approval gate.
@@ -197,7 +197,7 @@ text = cfg_path.read_text() if cfg_path.exists() else ""
 _APD_TOOLS = (
     "apd_ping", "apd_doctor", "apd_advance_pipeline", "apd_guard_write",
     "apd_verify_step", "apd_adversarial_pass", "apd_list_agents", "apd_pipeline_state",
-    "apd_pipeline_metrics",
+    "apd_pipeline_metrics", "apd_prepare_dispatch",
 )
 # Each sub-list is one TOML section. The server block is intentionally
 # complete so Codex does not synthesize an invalid implicit parent from
@@ -812,6 +812,106 @@ case "$FE_RC" in
         rm -f "$FE_TMP"
         echo "ERROR: failed to merge APD file-edit hook into $HOOKS_FILE" >&2
         exit 8
+        ;;
+esac
+
+# -----------------------------------------------------------
+# 5c. Native Codex subagent lifecycle → APD role evidence
+#
+# Codex hook payloads currently expose the runtime agent as `default`, not the
+# spawn task_name/custom APD role. apd_prepare_dispatch writes a short-lived
+# role binding; track-subagent consumes it on SubagentStart and closes the
+# same real agent_id on SubagentStop.
+# -----------------------------------------------------------
+SA_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-subagent.XXXXXX")"
+set +e
+SA_STATUS="$(
+python3 - "$HOOKS_FILE" "$HOOK_LAUNCHER_Q track-subagent" "$SA_TMP" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+hooks_path = Path(sys.argv[1])
+command = sys.argv[2]
+out_path = Path(sys.argv[3])
+
+if hooks_path.exists():
+    try:
+        data = json.loads(hooks_path.read_text())
+    except json.JSONDecodeError as exc:
+        print(f"invalid JSON in {hooks_path}: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+else:
+    data = {}
+if not isinstance(data, dict):
+    raise SystemExit(1)
+hooks = data.setdefault("hooks", {})
+if not isinstance(hooks, dict):
+    raise SystemExit(1)
+
+desired = {"type": "command", "command": f"bash {command}", "timeout": 15}
+changed = False
+for event in ("SubagentStart", "SubagentStop"):
+    entries = hooks.setdefault(event, [])
+    if not isinstance(entries, list):
+        print(f"{hooks_path}: hooks.{event} must be an array", file=sys.stderr)
+        raise SystemExit(1)
+    found = False
+    stale = None
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        entry_hooks = entry.setdefault("hooks", [])
+        if not isinstance(entry_hooks, list):
+            raise SystemExit(1)
+        for index, hook in enumerate(entry_hooks):
+            if not isinstance(hook, dict):
+                continue
+            existing = hook.get("command", "")
+            if existing == desired["command"]:
+                found = True
+                if hook != desired or entry.get("matcher") != "*":
+                    entry_hooks[index] = desired
+                    entry["matcher"] = "*"
+                    changed = True
+                break
+            if "track-subagent" in existing:
+                stale = (entry, entry_hooks, index)
+        if found:
+            break
+    if not found:
+        if stale is not None:
+            stale[1][stale[2]] = desired
+            stale[0]["matcher"] = "*"
+        else:
+            entries.append({"matcher": "*", "hooks": [desired]})
+        changed = True
+
+if not changed:
+    print("skip")
+    raise SystemExit(0)
+out_path.write_text(json.dumps(data, indent=2) + "\n")
+print("updated")
+raise SystemExit(10)
+PY
+)"
+SA_RC=$?
+set -e
+case "$SA_RC" in
+    0)
+        rm -f "$SA_TMP"
+        echo "[skip] SubagentStart/Stop lifecycle hooks already wired in $HOOKS_FILE"
+        ;;
+    10)
+        _backup_if_exists "$HOOKS_FILE"
+        mv "$SA_TMP" "$HOOKS_FILE"
+        echo "[wrote] SubagentStart/Stop lifecycle hooks → $HOOKS_FILE"
+        CHANGES=$((CHANGES + 1))
+        ;;
+    *)
+        rm -f "$SA_TMP"
+        echo "ERROR: failed to merge APD native subagent hooks into $HOOKS_FILE" >&2
+        exit 9
         ;;
 esac
 

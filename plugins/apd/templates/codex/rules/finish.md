@@ -87,8 +87,8 @@ gh pr create --title "<feature>" --body "$(cat <<'EOF'
 ## APD Pipeline
 - Runtime: Codex
 - Spec: approved by user
-- Builder: orchestrator (Codex inline)
-- Reviewer: orchestrator (Codex inline)
+- Builder: native Codex subagent (`<APD role>`)
+- Reviewer: native Codex subagent (`<APD role>`)
 - Adversarial: <total>/<accepted>/<dismissed> or "skipped"
 - Verifier: all tests pass
 - Duration: <time>
