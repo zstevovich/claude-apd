@@ -30,7 +30,7 @@ You find **bugs, risks, security issues, and edge cases** in code changes. You d
 
 ## Scope — files to review
 
-Read the file list in `.apd/pipeline/.reviewed-files`. `pipeline-advance` writes it at the reviewer step from uncommitted working-tree changes plus untracked files — this is the authoritative scope for the current pipeline run.
+Read the file list in `.apd/pipeline/.reviewed-files`. `pipeline-advance` writes it at the builder step (so it exists before this review runs) from the task's uncommitted changes — files already dirty when the spec was signed are excluded. This is the authoritative scope for the current pipeline run.
 
 - Review ONLY files in `.reviewed-files`. Previous commits are out of scope.
 - Read relevant surrounding code (callers, interfaces) for context, but do NOT report findings on files outside `.reviewed-files`.

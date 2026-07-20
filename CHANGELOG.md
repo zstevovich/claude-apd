@@ -1,5 +1,24 @@
 # Changelog
 
+## v6.37.0 — 2026-07-20
+
+**Codex hybrid-project hardening — seven fixes from a live Codex bug report (efiskalizacija, a hybrid CC-first project run under Codex).** The report was verified finding-by-finding against source; most were real, several stemmed from the v6.36.0 native-dispatch feature.
+
+- **Scope enforcement was fail-OPEN for writable Codex agents (CRITICAL class).** On a hybrid CC-first project, CC agents declare their writable scope in the `guard-scope` HOOK command, not YAML `scope:`. `apd_guard_write` read only YAML → empty scope → `guard-scope` with no paths → `exit 0` (allow-all): a writable Codex agent could write ANYWHERE. Fixed: `_scope_from_hook_command()` reads the scope from the agent's `guard-scope` hook command when YAML scope is absent; a writable agent with NO scope declared anywhere now BLOCKS (fail-closed, was silent allow-all). Codex-path only; CC (which enforces via the hook) is unchanged.
+- **Re-dispatch deadlock.** `apd_prepare_dispatch` derived `task_name` from the role alone, so re-dispatching a role produced an identical Codex task name; Codex refuses to recreate it, nesting sub-agents until "agent thread limit". Fixed: a short unique nonce suffix (the `track-subagent` hook binds by the pending file, not the task_name).
+- **Raising a cycle cap destroyed valid agent evidence.** Editing `max_cycles` needs a spec re-sign, which wipes `.agents` (and on Codex forces a redundant re-dispatch). New `apd pipeline raise-cap <builder|reviewer> <N|unlimited> "<reason>"` lifts the budget in place via a `.<phase>-cap-override` — no spec re-sign, evidence preserved. Raises only (never lowers a cap); reason required + sanitized; logged `INFO|cap-raise`; cleared on spec re-advance / reset.
+- **Reviewer scope: circular + un-scoped.** `.reviewed-files` was generated at the reviewer step, but the reviewer instruction reads it → circular dependency; and it was the whole dirty worktree. Fixed: generated at the BUILDER step (exists before the reviewer runs), scoped to the task by subtracting a spec-time `.task-baseline` snapshot. The subtraction is **content-aware** (git blob hashes, not filenames) so a task edit to a file that was already dirty at spec time is still reviewed — never under-scopes.
+- **codex-doctor:** the "canonical registry" line reported `.apd/agents/` even when the real registry is `.claude/agents/` (hybrid) — now names the resolved dir. New warning that `MODEL_PROFILE` (an `apd profile` value) is CC-only and INERT under Codex — a Claude model in the config (e.g. the `claude-fable-5` supervisor) is not something Codex can run.
+- **Test hygiene:** the `stall-status` test now uses an isolated `HOME` so a real stalled pipeline in the shared `~/.claude/run/stall/` no longer masks it.
+
+### Audit
+
+Independent pre-bump audit (decontextualized agent) — found **1 CRITICAL that the green suite passed**: the reviewed-files task-scoping was name-only, so a task edit to a pre-existing-dirty file was silently dropped from the reviewer's list (a net regression — the reviewer would skip a changed file). Fixed to content-aware (hash comparison) + a red-green lock-in test. Two MINORs also fixed (raise-cap `reason` was unsanitized → guard-audit.log line-injection; the success message over-claimed "Raised" when the value didn't exceed the cap). Independently re-verified by execution across the full path matrix (spaces, git-quoted/unicode, deleted files, no-net-change) — SAFE.
+
+### Tests
+
+`test-codex-adapter` — §6b (hook-command scope + fail-closed), §101 (unique task_name), §41 (raise-cap), §103 (reviewed-files timing + content-aware task scope), §37 (MODEL_PROFILE warn), plus the stall-status isolation → **903 → 917/0**. SPEC + reviewer templates + `apd` help updated.
+
 ## v6.36.1 — 2026-07-16
 
 **`apd-init` generates Edit-only permission rules — silences the CC 2.1.208 "use Edit(path)" startup warnings.** Claude Code 2.1.208 unified file-permission matching: `Edit(path)` now covers ALL file-editing tools (Write, Edit, MultiEdit, NotebookEdit), and a `Write(path)` rule is inert for file-permission checks. Every APD project's `.claude/settings.json` carried `Write(...)` allow twins alongside their `Edit(...)` equivalents (memory + pipeline paths), so on 2.1.208+ each one printed a startup warning ("Write(...) is not matched by file permission checks — use Edit(path)"). The rules still worked via the Edit twin, but the wall of warnings was alarming.

@@ -342,6 +342,19 @@ else
     _bad "no APD activation marker — run: apd cdx init"
 fi
 
+# v6.37: MODEL_PROFILE (`apd profile`) is CC-only — it rewrites .claude/agents/*.md
+# Claude models and NEVER touches Codex (gpt-* namespace). Under Codex the profile
+# is inert (Codex uses the model from its own config) and the supervision layer
+# (pinned to a Claude frontier model) does not run. Surface it so a Claude model
+# name like claude-fable-5 in the config isn't mistaken for something Codex uses.
+_DOC_MP_CFG="$APD_CFG"; [ -f "$_DOC_MP_CFG" ] || _DOC_MP_CFG="$CLAUDE_DIR/.apd-config"
+if [ -f "$_DOC_MP_CFG" ]; then
+    _DOC_MP=$(grep '^MODEL_PROFILE=' "$_DOC_MP_CFG" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')
+    if [ -n "$_DOC_MP" ]; then
+        _warn "MODEL_PROFILE=$_DOC_MP pins Claude models — 'apd profile' is CC-only and INERT under Codex. Codex uses the model from its own config; the supervision layer (a Claude frontier model, e.g. claude-fable-5) does NOT run on Codex. Harmless, but a Claude model name here is not what Codex will use."
+    fi
+fi
+
 [ -f "$APD_RULES_DIR/workflow.md" ] && _ok "$APD_RULES_DIR/workflow.md" || _warn "$APD_RULES_DIR/workflow.md missing"
 
 for f in MEMORY.md status.md session-log.md; do
@@ -374,7 +387,7 @@ if [ -d "$APD_AGENTS_DIR" ]; then
         CODEX_TOML_COUNT=$(find "$CODEX_AGENTS_DIR" -maxdepth 1 -name '*.toml' -type f 2>/dev/null | wc -l | tr -d ' ')
     fi
     if [ "$APD_MD_COUNT" -gt 0 ] && [ "$CODEX_TOML_COUNT" -eq 0 ]; then
-        _ok ".apd/agents/ is the canonical dispatch registry ($APD_MD_COUNT role(s)); .codex/agents/ profiles are optional"
+        _ok "${APD_AGENTS_DIR#$PROJECT_DIR/} is the canonical dispatch registry ($APD_MD_COUNT role(s)); .codex/agents/ profiles are optional"
     fi
 fi
 

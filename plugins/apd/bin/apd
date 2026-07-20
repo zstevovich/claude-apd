@@ -200,7 +200,7 @@ case "$CMD" in
         echo "  Usage: apd <command> [args]"
         echo ""
         echo "  Commands:"
-        echo "    pipeline <step>   Pipeline advance (spec/builder/reviewer/verifier/status/show/reset)"
+        echo "    pipeline <step>   Pipeline advance (spec/builder/reviewer/verifier/status/show/reset/raise-cap)"
         echo "    doctor            Pipeline diagnostics"
         echo "    init [--quick]    Initialize or update APD in a project"
         echo "    update [project]  Pull latest plugin + reinit project (--check-only to dry-run)"

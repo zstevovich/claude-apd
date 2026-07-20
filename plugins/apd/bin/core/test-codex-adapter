@@ -532,6 +532,32 @@ readonly: true
 ---
 Reviewer role body.
 EOF
+# CC-first writable agent: scope lives in the guard-scope HOOK command, NOT in
+# YAML (this is how the CC agent-template generates agents). Codex must read it
+# from there or the role looks unscoped and fails OPEN (v6.37 fix).
+cat > "$GUARD_SCRATCH/.apd/agents/cc-builder.md" <<'EOF'
+---
+name: cc-builder
+description: CC-first agent, scope in hook command
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit"
+      hooks:
+        - type: command
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-scope src/ config/"
+        - type: command
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-bash-scope src/ config/"
+---
+CC-first builder body.
+EOF
+# Writable agent with NO scope anywhere → must fail CLOSED (was silent allow-all).
+cat > "$GUARD_SCRATCH/.apd/agents/bare-builder.md" <<'EOF'
+---
+name: bare-builder
+description: writable, no scope declared
+---
+Bare builder body.
+EOF
 
 GUARD_OUT="$(cd "$GUARD_SCRATCH" && python3 - <<PY
 import sys, types, json
@@ -558,8 +584,11 @@ out = {
     "readonly_blocks":  m.apd_guard_write("code-reviewer", "src/api/users.py"),
     "unknown_role":     m.apd_guard_write("does-not-exist", "src/foo.py"),
     "missing_role":     m.apd_guard_write("", "src/foo.py"),
+    "cc_hook_in":       m.apd_guard_write("cc-builder", "src/x.php"),
+    "cc_hook_out":      m.apd_guard_write("cc-builder", "/etc/passwd"),
+    "bare_failclosed":  m.apd_guard_write("bare-builder", "anything.php"),
 }
-print(json.dumps({k: {"ok": v.get("ok"), "exit_code": v.get("exit_code"), "error": v.get("error")} for k,v in out.items()}))
+print(json.dumps({k: {"ok": v.get("ok"), "exit_code": v.get("exit_code"), "error": v.get("error"), "stderr": v.get("stderr")} for k,v in out.items()}))
 PY
 )"
 
@@ -600,6 +629,30 @@ if echo "$GUARD_OUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read(
     PASSES=$((PASSES + 1))
 else
     fail "empty apd_role did not return required error"
+    FAILS=$((FAILS + 1))
+fi
+
+# v6.37 #1: CC-first agent scope comes from the guard-scope hook command, not YAML
+if echo "$GUARD_OUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); sys.exit(0 if d['cc_hook_in']['ok'] is True else 1)"; then
+    pass "hook-command scope ALLOW: in-scope target cleared (scope read from guard-scope hook)"
+    PASSES=$((PASSES + 1))
+else
+    fail "hook-command scope did not ALLOW in-scope target (scope not parsed from hook)"
+    FAILS=$((FAILS + 1))
+fi
+if echo "$GUARD_OUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); sys.exit(0 if d['cc_hook_out'].get('exit_code') == 2 else 1)"; then
+    pass "hook-command scope BLOCK: out-of-scope target rejected (fail-open closed for CC-first)"
+    PASSES=$((PASSES + 1))
+else
+    fail "hook-command scope allowed an out-of-scope write (fail-open)"
+    FAILS=$((FAILS + 1))
+fi
+# v6.37 #1: writable agent with no scope anywhere → fail-closed (was silent allow-all)
+if echo "$GUARD_OUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); sys.exit(0 if d['bare_failclosed'].get('exit_code') == 2 and 'no scope' in (d['bare_failclosed'].get('stderr') or '') else 1)"; then
+    pass "scopeless writable agent fails CLOSED (no scope → BLOCK, not allow-all)"
+    PASSES=$((PASSES + 1))
+else
+    fail "scopeless writable agent did not fail closed (still allow-all fail-open)"
     FAILS=$((FAILS + 1))
 fi
 
@@ -3772,6 +3825,19 @@ else
     PASSES=$((PASSES + 1))
 fi
 
+# v6.37: doctor flags MODEL_PROFILE as CC-only / inert under Codex so a Claude
+# model in the config (e.g. claude-fable-5 supervisor) isn't mistaken for a
+# model Codex will use.
+printf 'PROJECT_NAME=cd\nMODEL_PROFILE=eco\n' > "$CD_DIR/.apd/config"
+CD_MP=$(APD_PROJECT_DIR="$CD_DIR" bash "$APD_PLUGIN_ROOT/bin/apd" cdx doctor 2>&1)
+if echo "$CD_MP" | grep -q 'MODEL_PROFILE=eco' && echo "$CD_MP" | grep -qiE 'CC-only|INERT under Codex'; then
+    pass "doctor flags MODEL_PROFILE as CC-only/inert under Codex (Claude-model confusion)"
+    PASSES=$((PASSES + 1))
+else
+    fail "doctor did not warn that MODEL_PROFILE is inert under Codex"
+    FAILS=$((FAILS + 1))
+fi
+
 rm -rf "$CD_DIR"
 
 # -----------------------------------------------------------
@@ -4161,12 +4227,45 @@ else
     FAILS=$((FAILS + 1))
 fi
 
+# F: raise-cap lifts the budget IN PLACE — no spec re-sign, .agents preserved (v6.37 #5)
+_RC_NR_OUT=$(APD_PROJECT_DIR="$C_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" raise-cap builder 3 2>&1); _RC_NR=$?
+if [ "$_RC_NR" = "1" ] && echo "$_RC_NR_OUT" | grep -q "requires a reason"; then
+    pass "raise-cap without a reason is BLOCKED"; PASSES=$((PASSES + 1))
+else fail "raise-cap should require a reason (rc=$_RC_NR out: ${_RC_NR_OUT:0:120})"; FAILS=$((FAILS + 1)); fi
+
+_RC_BP_OUT=$(APD_PROJECT_DIR="$C_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" raise-cap frontend 3 "x" 2>&1); _RC_BP=$?
+if [ "$_RC_BP" = "1" ] && echo "$_RC_BP_OUT" | grep -q "usage: apd pipeline raise-cap"; then
+    pass "raise-cap rejects an unknown phase"; PASSES=$((PASSES + 1))
+else fail "raise-cap should reject bad phase (rc=$_RC_BP)"; FAILS=$((FAILS + 1)); fi
+
+_RC_OUT=$(APD_PROJECT_DIR="$C_DIR" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" raise-cap builder 3 "adversarial found a real extra bug" 2>&1); _RC_OK=$?
+if [ "$_RC_OK" = "0" ] && [ "$(cat "$C_DIR/.apd/pipeline/.builder-cap-override" 2>/dev/null)" = "3" ]; then
+    pass "raise-cap writes .builder-cap-override (no spec re-sign)"; PASSES=$((PASSES + 1))
+else fail "raise-cap did not write override (rc=$_RC_OK out: ${_RC_OUT:0:120})"; FAILS=$((FAILS + 1)); fi
+
+if grep -q "backend-builder" "$C_DIR/.apd/pipeline/.agents" 2>/dev/null; then
+    pass "raise-cap preserves .agents evidence (not wiped like a spec re-sign)"; PASSES=$((PASSES + 1))
+else fail "raise-cap wiped .agents evidence"; FAILS=$((FAILS + 1)); fi
+
+OUT_F=$(_c_advance_builder); _RCF=$?
+CNT=$(cat "$C_DIR/.apd/pipeline/.builder-count" 2>/dev/null)
+if [ "$_RCF" = "0" ] && [ "$CNT" = "3" ]; then
+    pass "raised cap: builder dispatch #3 now ALLOWED (counter=3, evidence preserved)"; PASSES=$((PASSES + 1))
+else fail "raised cap should allow #3 (rc=$_RCF count='$CNT' out: ${OUT_F:0:160})"; FAILS=$((FAILS + 1)); fi
+
 # E: spec re-advance wipes the counter (v6.3 audit fix: prevents counter
 # from carrying over into a new task and blocking its first dispatch).
 _c_write_spec 4
 _guide_marker "$C_DIR" "cycle-task"
 APD_PROJECT_DIR="$C_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "cycle-task" >/dev/null 2>&1
 _seed_codex_pair "$C_DIR" backend-builder aabbccddeeff4102
+if [ ! -f "$C_DIR/.apd/pipeline/.builder-cap-override" ]; then
+    pass "spec re-advance also wipes .builder-cap-override (fresh task, fresh cap)"
+    PASSES=$((PASSES + 1))
+else
+    fail "spec re-advance did not wipe .builder-cap-override"
+    FAILS=$((FAILS + 1))
+fi
 if [ ! -f "$C_DIR/.apd/pipeline/.builder-count" ]; then
     pass "spec re-advance wipes .builder-count (audit fix)"
     PASSES=$((PASSES + 1))
@@ -10949,16 +11048,20 @@ else fail "pipeline-advance stall-watch launch not wired"; FAILS=$((FAILS + 1));
 if grep -qF 'SPEC_CARD' "$SW_BIN"; then pass "stall-watch self-exit gated on spec-card"; PASSES=$((PASSES + 1)); else fail "stall-watch spec-card gate missing"; FAILS=$((FAILS + 1)); fi
 if grep -qF 'main_mt' "$SW_BIN"; then pass "stall-watch main-newer false-positive guard"; PASSES=$((PASSES + 1)); else fail "stall-watch main-newer guard missing"; FAILS=$((FAILS + 1)); fi
 
-# stall-status live: stalled headline, watching indicator, dead-pid pruning
-SS_TMP="$HOME/.claude/run/stall"; mkdir -p "$SS_TMP"
+# stall-status live: stalled headline, watching indicator, dead-pid pruning.
+# Isolated HOME so the shared ~/.claude/run/stall/ dir (real runs + prior-test
+# leftovers) cannot mask output — stall-status shows 👁 only when NO pipeline is
+# stalled, so any real stalled entry there would fail the watching check.
+SS_HOME="$(mktemp -d -t apd-stall.XXXXXX)"
+SS_TMP="$SS_HOME/.claude/run/stall"; mkdir -p "$SS_TMP"
 printf 'zz-stalltest|stalled|adversarial-reviewer|%s|%s\n' "$(( $(date +%s) - 180 ))" "$$" > "$SS_TMP/zz-stalltest.state"
-if bash "$SS_BIN" | grep -q 'STALL: zz-stalltest'; then pass "stall-status shows firing stall"; PASSES=$((PASSES + 1)); else fail "stall-status did not show stall"; FAILS=$((FAILS + 1)); fi
+if HOME="$SS_HOME" bash "$SS_BIN" | grep -q 'STALL: zz-stalltest'; then pass "stall-status shows firing stall"; PASSES=$((PASSES + 1)); else fail "stall-status did not show stall"; FAILS=$((FAILS + 1)); fi
 printf 'zz-stalltest|watching||%s|%s\n' "$(date +%s)" "$$" > "$SS_TMP/zz-stalltest.state"
-if bash "$SS_BIN" | grep -qF '👁'; then pass "stall-status shows watching indicator"; PASSES=$((PASSES + 1)); else fail "stall-status watching indicator missing"; FAILS=$((FAILS + 1)); fi
+if HOME="$SS_HOME" bash "$SS_BIN" | grep -qF '👁'; then pass "stall-status shows watching indicator"; PASSES=$((PASSES + 1)); else fail "stall-status watching indicator missing"; FAILS=$((FAILS + 1)); fi
 printf 'zz-dead|watching||%s|999999\n' "$(date +%s)" > "$SS_TMP/zz-dead.state"
-bash "$SS_BIN" >/dev/null 2>&1
+HOME="$SS_HOME" bash "$SS_BIN" >/dev/null 2>&1
 if [ ! -f "$SS_TMP/zz-dead.state" ]; then pass "stall-status prunes dead-pid state"; PASSES=$((PASSES + 1)); else fail "stall-status did not prune dead state"; FAILS=$((FAILS + 1)); fi
-rm -f "$SS_TMP/zz-stalltest.state" "$SS_TMP/zz-dead.state"
+rm -rf "$SS_HOME"
 
 # -----------------------------------------------------------
 # 98. v6.33 — git-remote-resolve: push-remote discovery (no origin assumption)
@@ -11195,9 +11298,9 @@ import apd_mcp_server as m
 print(json.dumps(m.apd_prepare_dispatch("backend-builder")))
 PY
 )"
-if echo "$MA_PREP" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("ok") and d.get("task_name")=="backend_builder" else 1)' \
+if echo "$MA_PREP" | python3 -c 'import json,sys,re; d=json.load(sys.stdin); sys.exit(0 if d.get("ok") and re.match(r"^backend_builder_[0-9a-f]{6}$", d.get("task_name","")) else 1)' \
    && [ -f "$MA_T/.apd/pipeline/.dispatch-pending.json" ]; then
-    pass "prepare-dispatch validates APD role and returns Codex-safe task_name"
+    pass "prepare-dispatch validates APD role and returns UNIQUE Codex-safe task_name (role + nonce suffix)"
     PASSES=$((PASSES + 1))
 else
     fail "prepare-dispatch did not create pending native dispatch: $MA_PREP"
@@ -11292,6 +11395,81 @@ if [ -x "$VALIDATOR" ]; then
         FAILS=$((FAILS + 1))
     fi
     rm -rf "$AG_CX"
+fi
+
+# -----------------------------------------------------------
+# 103. Reviewed-files: ready before reviewer + task-scoped (v6.37 #2/#4)
+# -----------------------------------------------------------
+section "103. Reviewed-files task scope + timing"
+
+if [ -x "$VALIDATOR" ] && command -v git >/dev/null 2>&1; then
+    RF="$(mktemp -d -t apd-rf.XXXXXX)"
+    (
+        cd "$RF" && git init -q && git config user.email t@t.io && git config user.name t \
+            && printf '.apd/\n' > .gitignore && mkdir -p src && echo base > src/committed.txt \
+            && git add -A && git commit -qm base
+    )
+    mkdir -p "$RF/.apd/agents" "$RF/.apd/pipeline"
+    printf 'PROJECT_NAME=rf\nAPD_VERSION=test\n' > "$RF/.apd/config"
+    printf -- '---\nname: backend-builder\nscope: [src/]\n---\nBuilder.\n' > "$RF/.apd/agents/backend-builder.md"
+    cat > "$RF/.apd/pipeline/spec-card.md" <<'EOF'
+# RF task
+plan_consistency_gate: off
+## Criteria
+- R1: does a thing
+EOF
+    echo "plan" > "$RF/.apd/pipeline/implementation-plan.md"
+    # Pre-existing dirty state BEFORE the task (must be excluded from review scope)
+    echo "unrelated" >> "$RF/src/committed.txt"
+    echo "stray" > "$RF/src/preexisting.txt"
+    _guide_marker "$RF" "rf-task"
+    APD_PROJECT_DIR="$RF" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "rf-task" >/dev/null 2>&1
+
+    # .task-baseline lines are "<content-hash>TAB<path>" (v6.37 content-aware)
+    if grep -qE '	src/committed\.txt$' "$RF/.apd/pipeline/.task-baseline" 2>/dev/null \
+       && grep -qE '	src/preexisting\.txt$' "$RF/.apd/pipeline/.task-baseline" 2>/dev/null; then
+        pass "spec step snapshots pre-existing dirty files (hash+path) into .task-baseline (#4)"
+        PASSES=$((PASSES + 1))
+    else
+        fail "spec step did not snapshot .task-baseline"
+        FAILS=$((FAILS + 1))
+    fi
+
+    # The task's builder: creates a NEW file AND edits a file that was ALREADY
+    # dirty at spec time (committed.txt). Then advance the builder step.
+    echo "task work" > "$RF/src/taskfile.php"
+    echo "TASK EDIT to a pre-existing-dirty file" >> "$RF/src/committed.txt"
+    _seed_codex_pair "$RF" backend-builder aabbccddeeff1030
+    APD_PROJECT_DIR="$RF" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder >/dev/null 2>&1
+
+    if [ -f "$RF/.apd/pipeline/.reviewed-files" ]; then
+        pass "reviewed-files generated at BUILDER step — exists before reviewer dispatch (#2)"
+        PASSES=$((PASSES + 1))
+    else
+        fail "reviewed-files not generated at builder step (#2 circular dependency)"
+        FAILS=$((FAILS + 1))
+    fi
+
+    # #4 task scope: new task file IN, pre-existing UNTOUCHED file OUT.
+    if grep -q '^src/taskfile.php$' "$RF/.apd/pipeline/.reviewed-files" 2>/dev/null \
+       && ! grep -q '^src/preexisting.txt$' "$RF/.apd/pipeline/.reviewed-files" 2>/dev/null; then
+        pass "reviewed-files task-scoped: task file IN, pre-existing UNTOUCHED file OUT (#4)"
+        PASSES=$((PASSES + 1))
+    else
+        fail "reviewed-files not task-scoped: $(tr '\n' ' ' < "$RF/.apd/pipeline/.reviewed-files" 2>/dev/null)"
+        FAILS=$((FAILS + 1))
+    fi
+
+    # CRITICAL (audit 2026-07-20): a pre-existing-dirty file the TASK EDITED must
+    # still be reviewed — content-aware, not name-only. Name subtraction dropped it.
+    if grep -q '^src/committed.txt$' "$RF/.apd/pipeline/.reviewed-files" 2>/dev/null; then
+        pass "reviewed-files keeps a task-EDITED pre-existing-dirty file (content-aware, no under-scope)"
+        PASSES=$((PASSES + 1))
+    else
+        fail "reviewed-files UNDER-SCOPED: task edit to pre-existing-dirty file dropped (audit CRITICAL regressed)"
+        FAILS=$((FAILS + 1))
+    fi
+    rm -rf "$RF"
 fi
 
 # -----------------------------------------------------------

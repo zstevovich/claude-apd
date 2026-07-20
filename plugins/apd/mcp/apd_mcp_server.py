@@ -822,7 +822,15 @@ def apd_prepare_dispatch(apd_role: str) -> dict:
                 }
             pending.unlink(missing_ok=True)
 
-        task_name = re.sub(r"[^a-z0-9_]", "_", apd_role.lower()).strip("_") or "apd_agent"
+        # Append a short unique suffix so a RE-dispatch of the same role gets a
+        # DISTINCT Codex task_name. Codex refuses to recreate an identical
+        # canonical task name in place, which forced repeated builder/reviewer
+        # rounds to nest ever deeper as sub-agents until the agent-thread limit
+        # was hit (v6.36.0 deadlock). The track-subagent hook binds by the pending
+        # file, not the task_name, so this uniqueness is free for APD's ledger.
+        base = re.sub(r"[^a-z0-9_]", "_", apd_role.lower()).strip("_") or "apd_agent"
+        dispatch_nonce = secrets.token_hex(16)
+        task_name = f"{base}_{dispatch_nonce[:6]}"
         record = {
             "schema": 1,
             "created_at": now,
@@ -830,7 +838,7 @@ def apd_prepare_dispatch(apd_role: str) -> dict:
             "apd_role": apd_role,
             "task_name": task_name,
             "phase": phase,
-            "nonce": secrets.token_hex(16),
+            "nonce": dispatch_nonce,
         }
         temp = pipeline_dir / f".dispatch-pending.{os.getpid()}.tmp"
         temp.write_text(json.dumps(record, sort_keys=True) + "\n")
@@ -854,6 +862,28 @@ def apd_prepare_dispatch(apd_role: str) -> dict:
     }
 
 
+def _scope_from_hook_command(path: Path) -> list:
+    """Extract scope paths from a CC agent's `guard-scope` hook command.
+
+    CC agents declare their writable scope in the PreToolUse hook command
+    (`… guard-scope <path> <path> …`), not in YAML `scope:`. The Codex MCP path
+    reads YAML, so a hybrid CC-first writable agent would otherwise look
+    unscoped. This reads the same paths the CC hook enforces. `guard-bash-scope`
+    is a different token and is not matched by the `guard-scope` anchor.
+    """
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return []
+    m = re.search(r'guard-scope((?:\s+[^\s"\']+)+)', text)
+    if not m:
+        return []
+    return [
+        tok for tok in m.group(1).split()
+        if tok and not tok.startswith("-") and "{{" not in tok
+    ]
+
+
 @mcp.tool()
 def apd_guard_write(apd_role: str, file_path: str) -> dict:
     """Check whether a Write/Edit target falls inside `apd_role`'s configured scope.
@@ -871,7 +901,10 @@ def apd_guard_write(apd_role: str, file_path: str) -> dict:
 
     - apd_role is required and must match a file in the agent registry.
     - readonly agents (frontmatter `readonly: true`) always BLOCK.
-    - Agents with no `scope` list ALLOW all writes (unscoped role).
+    - Scope resolves from YAML `scope:`; if absent, from the CC `guard-scope`
+      hook command (CC-first agents carry scope there, not in YAML). A writable
+      agent with NO declared scope anywhere BLOCKS (fail-closed) — an unbounded
+      writable role was a silent fail-open on hybrid Codex projects.
 
     Wraps bin/core/guard-scope. Exit 2 = BLOCK, exit 0 = ALLOW.
     """
@@ -942,6 +975,25 @@ def apd_guard_write(apd_role: str, file_path: str) -> dict:
     scope = fm.get("scope", [])
     if not isinstance(scope, list):
         scope = []
+    scope = [s for s in scope if isinstance(s, str) and s.strip()]
+    if not scope:
+        # CC-first agents declare scope in the guard-scope hook command, not
+        # YAML. Codex reads YAML, so without this fallback a hybrid CC-first
+        # writable agent would look unscoped and pass every write (fail-open).
+        scope = _scope_from_hook_command(agent_file)
+    if not scope:
+        # Writable role with no scope anywhere → fail-closed. Previously an empty
+        # scope meant "allow all writes", which silently disabled enforcement.
+        return {
+            "ok": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": (
+                f"apd_role '{apd_role}' has no scope declared (YAML `scope:` or a "
+                f"guard-scope hook command) — refusing unbounded writes. Add a scope "
+                f"to {agent_file.name}."
+            ),
+        }
 
     result = _run_core("guard-scope", "--file-path", file_path, *scope, timeout=5)
     if result.get("ok") is True:

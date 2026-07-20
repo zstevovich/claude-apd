@@ -73,6 +73,7 @@ done
 STEP="${_positional_args[0]:-}"
 ARG="${_positional_args[1]:-}"
 ARG2="${_positional_args[2]:-}"
+ARG3="${_positional_args[3]:-}"
 if [ "$_legacy_skip_flag" = true ]; then
     echo "BLOCKED: --skip-brainstorm was removed in v6.15." >&2
     echo "" >&2
@@ -383,6 +384,53 @@ _agent_definition_exists() {
     [ -f "$APD_AGENTS_DIR/${agent_name}.md" ] || [ -f "$APD_AGENTS_DIR/${agent_name}.toml" ]
 }
 
+# v6.37 #4: snapshot the files already dirty when the spec is signed — as
+# `<content-hash>TAB<path>` so the builder-step scope can tell a pre-existing
+# change the task did NOT touch (hash unchanged → exclude) from one the task
+# DID edit (hash changed → keep). Name-only subtraction would wrongly drop a
+# task edit to a pre-existing-dirty file (independent-audit CRITICAL 2026-07-20).
+_write_task_baseline() {
+    command -v git >/dev/null 2>&1 || return 0
+    git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+    : > "$PIPELINE_DIR/.task-baseline"
+    local _f _h
+    { git -C "$PROJECT_DIR" diff --name-only HEAD 2>/dev/null
+      git -C "$PROJECT_DIR" ls-files --others --exclude-standard 2>/dev/null; } | sort -u | sed '/^$/d' \
+    | while IFS= read -r _f; do
+        _h=$(git -C "$PROJECT_DIR" hash-object -- "$_f" 2>/dev/null || echo none)
+        printf '%s\t%s\n' "$_h" "$_f" >> "$PIPELINE_DIR/.task-baseline"
+    done
+}
+
+# Authoritative review scope (code-reviewer + adversarial-reviewer). Generated
+# at the BUILDER step so it EXISTS before the reviewer agent is dispatched
+# (v6.37 #2 — generating it only at the reviewer step created a circular
+# dependency: the reviewer instruction reads a file that did not exist yet).
+# Task-scoped (v6.37 #4): a currently-dirty file is included UNLESS it was dirty
+# at spec time AND its content is byte-identical to the spec-time snapshot. So a
+# pre-existing unrelated change is excluded, but a task edit to a file that was
+# already dirty is KEPT (content-aware — never under-scopes the reviewer).
+_write_reviewed_files() {
+    command -v git >/dev/null 2>&1 || return 0
+    git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+    : > "$PIPELINE_DIR/.reviewed-files"
+    local _f _h _base_h
+    { git -C "$PROJECT_DIR" diff --name-only HEAD 2>/dev/null
+      git -C "$PROJECT_DIR" ls-files --others --exclude-standard 2>/dev/null; } | sort -u | sed '/^$/d' \
+    | while IFS= read -r _f; do
+        if [ -f "$PIPELINE_DIR/.task-baseline" ]; then
+            _base_h=$(awk -F'\t' -v p="$_f" '$2==p {print $1; exit}' "$PIPELINE_DIR/.task-baseline")
+            if [ -n "$_base_h" ]; then
+                _h=$(git -C "$PROJECT_DIR" hash-object -- "$_f" 2>/dev/null || echo cur)
+                [ "$_h" = "$_base_h" ] && continue   # pre-existing dirty, untouched by the task
+            fi
+        fi
+        printf '%s\n' "$_f" >> "$PIPELINE_DIR/.reviewed-files"
+    done
+    REVIEWED_COUNT=$(grep -c . "$PIPELINE_DIR/.reviewed-files" 2>/dev/null || echo 0)
+    [ "$REVIEWED_COUNT" -gt 0 ] && ok "Reviewed files scope: $REVIEWED_COUNT files → .apd/pipeline/.reviewed-files"
+}
+
 _scan_builder_ran() {
     BUILDER_RAN=""; BLOCKED_AGENTS=""; SUSPICIOUS=""; STALE_DISPATCH=""
     local REJECTED_PREFIXES="superpowers:" _ts _evt agent_type _id
@@ -603,9 +651,10 @@ case "$STEP" in
         # v6.3 audit fix: also wipe .builder-count / .reviewer-count so a new
         # task doesn't inherit cycle counts from a prior task (would block first
         # dispatch with a misleading "task X has hit its budget" message).
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings" "$PIPELINE_DIR/.dispatch-pending.json" "$PIPELINE_DIR"/.dispatch-agent-*.json
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings" "$PIPELINE_DIR/.builder-cap-override" "$PIPELINE_DIR/.reviewer-cap-override" "$PIPELINE_DIR/.task-baseline" "$PIPELINE_DIR/.dispatch-pending.json" "$PIPELINE_DIR"/.dispatch-agent-*.json
         rmdir "$PIPELINE_DIR/.dispatch-prepare.lock" "$PIPELINE_DIR/.dispatch-hook.lock" 2>/dev/null || true
         create_done "spec" "$ARG"
+        _write_task_baseline   # v6.37 #4: snapshot pre-existing dirty files for reviewer scoping
         # Freeze spec-card.md — hash for tamper detection
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
         # v6.3 D — snapshot max_defects for next spec advance to compare against
@@ -862,6 +911,16 @@ case "$STEP" in
             | awk '{print $1}' \
             | head -1)
         BUILDER_MAX_CYCLES="${BUILDER_MAX_CYCLES_RAW:-$DEFAULT_BUILDER_CAP}"
+        # v6.37 #5: a raise-cap override lifts the budget WITHOUT re-signing spec
+        # (a re-sign wipes .agents — the evidence loss this path avoids). Raises only.
+        if [ -f "$PIPELINE_DIR/.builder-cap-override" ]; then
+            _bovr=$(tr -d '[:space:]' < "$PIPELINE_DIR/.builder-cap-override" 2>/dev/null)
+            if [ "$_bovr" = "unlimited" ]; then
+                BUILDER_MAX_CYCLES="unlimited"
+            elif [ "$BUILDER_MAX_CYCLES" != "unlimited" ] && printf '%s' "$_bovr" | grep -qE '^[0-9]+$' && [ "$_bovr" -gt "$BUILDER_MAX_CYCLES" ] 2>/dev/null; then
+                BUILDER_MAX_CYCLES="$_bovr"
+            fi
+        fi
         CURRENT_BUILDER_COUNT=$(cat "$BUILDER_COUNTER_FILE" 2>/dev/null || echo 0)
         case "$CURRENT_BUILDER_COUNT" in *[!0-9]*) CURRENT_BUILDER_COUNT=0 ;; esac
         NEW_BUILDER_COUNT=$((CURRENT_BUILDER_COUNT + 1))
@@ -877,8 +936,9 @@ case "$STEP" in
             echo "    (a) STOP and review — is implementation-plan.md complete?" >&2
             echo "        Spec ambiguous? Adversarial flagging the same issue twice?" >&2
             echo "    (b) Decompose — split the spec into 2 smaller tasks, reset, restart." >&2
-            echo "    (c) Raise cap — edit spec-card.md 'builder: max_cycles=N' with" >&2
-            echo "        rationale, rollback to spec, re-advance." >&2
+            echo "    (c) Raise the cap WITHOUT losing evidence (no spec re-sign):" >&2
+            echo "        apd pipeline raise-cap builder <N> \"<reason>\"" >&2
+            echo "        (lifts the budget in place — .agents / builder work preserved)." >&2
             log_block "max_builder_cycles-exceeded" "task=$CURRENT_TASK count=$NEW_BUILDER_COUNT cap=$BUILDER_MAX_CYCLES"
             exit 1
         fi
@@ -886,6 +946,7 @@ case "$STEP" in
 
         ELAPSED=$(format_duration $((NOW - SPEC_TS)))
         create_done "builder"
+        _write_reviewed_files   # v6.37 #2/#4: task-scoped review list, ready BEFORE reviewer dispatch
         apd_header "Builder Complete" "+$ELAPSED"
         show_pipeline "reviewer"
         # GitHub sync (best-effort)
@@ -969,6 +1030,15 @@ case "$STEP" in
             | awk '{print $1}' \
             | head -1)
         REVIEWER_MAX_CYCLES="${REVIEWER_MAX_CYCLES_RAW:-$DEFAULT_REVIEWER_CAP}"
+        # v6.37 #5: raise-cap override (see builder gate). Raises only, no spec re-sign.
+        if [ -f "$PIPELINE_DIR/.reviewer-cap-override" ]; then
+            _rovr=$(tr -d '[:space:]' < "$PIPELINE_DIR/.reviewer-cap-override" 2>/dev/null)
+            if [ "$_rovr" = "unlimited" ]; then
+                REVIEWER_MAX_CYCLES="unlimited"
+            elif [ "$REVIEWER_MAX_CYCLES" != "unlimited" ] && printf '%s' "$_rovr" | grep -qE '^[0-9]+$' && [ "$_rovr" -gt "$REVIEWER_MAX_CYCLES" ] 2>/dev/null; then
+                REVIEWER_MAX_CYCLES="$_rovr"
+            fi
+        fi
         CURRENT_REVIEWER_COUNT=$(cat "$REVIEWER_COUNTER_FILE" 2>/dev/null || echo 0)
         case "$CURRENT_REVIEWER_COUNT" in *[!0-9]*) CURRENT_REVIEWER_COUNT=0 ;; esac
         NEW_REVIEWER_COUNT=$((CURRENT_REVIEWER_COUNT + 1))
@@ -983,8 +1053,9 @@ case "$STEP" in
             echo "    (a) STOP and review — is the reviewer flagging real bugs the" >&2
             echo "        builder isn't fixing? Or scope drift from the spec?" >&2
             echo "    (b) Decompose — reset, split into smaller tasks." >&2
-            echo "    (c) Raise cap — edit spec-card.md 'reviewer: max_cycles=N'" >&2
-            echo "        with rationale, rollback to builder, re-advance." >&2
+            echo "    (c) Raise the cap WITHOUT losing evidence (no spec re-sign):" >&2
+            echo "        apd pipeline raise-cap reviewer <N> \"<reason>\"" >&2
+            echo "        (lifts the budget in place — .agents / review evidence preserved)." >&2
             log_block "max_reviewer_cycles-exceeded" "task=$CURRENT_TASK count=$NEW_REVIEWER_COUNT cap=$REVIEWER_MAX_CYCLES"
             exit 1
         fi
@@ -994,18 +1065,10 @@ case "$STEP" in
         ELAPSED=$(format_duration $((NOW - BUILDER_TS)))
         create_done "reviewer"
 
-        # Capture authoritative file scope for reviewers (code-reviewer + adversarial-reviewer)
-        # Uncommitted tracked changes + untracked files belonging to current pipeline work.
-        # Prevents reviewers from drifting into previous commits when orchestrator
-        # mis-computes the diff base (e.g. `git diff HEAD~1` instead of `git diff HEAD`).
-        if command -v git >/dev/null 2>&1 && git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-            {
-                git -C "$PROJECT_DIR" diff --name-only HEAD 2>/dev/null
-                git -C "$PROJECT_DIR" ls-files --others --exclude-standard 2>/dev/null
-            } | sort -u > "$PIPELINE_DIR/.reviewed-files"
-            REVIEWED_COUNT=$(wc -l < "$PIPELINE_DIR/.reviewed-files" | tr -d ' ')
-            [ "$REVIEWED_COUNT" -gt 0 ] && ok "Reviewed files scope: $REVIEWED_COUNT files → .apd/pipeline/.reviewed-files"
-        fi
+        # Refresh the task-scoped review list. The primary scope was already
+        # written at the builder step (so it existed BEFORE the reviewer ran —
+        # v6.37 #2); this refresh keeps it current for the adversarial pass.
+        _write_reviewed_files
 
         # Mark adversarial review as pending if agent exists
         if _agent_definition_exists "adversarial-reviewer"; then
@@ -1797,11 +1860,52 @@ EOF
         # .agents was already archived above (before metrics write).
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings" "$PIPELINE_DIR/.dispatch-pending.json" "$PIPELINE_DIR"/.dispatch-agent-*.json
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings" "$PIPELINE_DIR/.builder-cap-override" "$PIPELINE_DIR/.reviewer-cap-override" "$PIPELINE_DIR/.task-baseline" "$PIPELINE_DIR/.dispatch-pending.json" "$PIPELINE_DIR"/.dispatch-agent-*.json
         rmdir "$PIPELINE_DIR/.dispatch-prepare.lock" "$PIPELINE_DIR/.dispatch-hook.lock" 2>/dev/null || true
         # Reset completed cleanly — drop the in-progress marker.
         rm -f "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
         echo "Pipeline reset. Ready for new task."
+        ;;
+
+    raise-cap)
+        # apd pipeline raise-cap <builder|reviewer> <N|unlimited> "<reason>"
+        # v6.37 #5: lifts a cycle-cap budget IN PLACE via .<phase>-cap-override,
+        # WITHOUT re-signing spec. Editing max_cycles in spec-card breaks the
+        # frozen hash → forces a spec re-advance → wipes .agents (destroys the
+        # completed builder/reviewer evidence and, on Codex, forces a redundant
+        # re-dispatch). This path preserves that evidence. Raises only; needs a
+        # reason; logged INFO. Cleared on spec re-advance / reset (new task).
+        _rc_phase="$ARG"; _rc_val="$ARG2"
+        # Sanitize the reason — it is written into the pipe-delimited guard-audit
+        # log, so a newline / CR / `|` could forge audit lines (telemetry honesty;
+        # mirrors toggle-apd's --force reason handling).
+        _rc_reason="${ARG3//$'\n'/ }"; _rc_reason="${_rc_reason//$'\r'/ }"; _rc_reason="${_rc_reason//|/ }"
+        if [ ! -f "$PIPELINE_DIR/spec.done" ]; then
+            echo "BLOCKED: no active pipeline — raise-cap needs a signed spec (run 'apd pipeline spec' first)." >&2
+            exit 1
+        fi
+        case "$_rc_phase" in
+            builder|reviewer) ;;
+            *) echo "usage: apd pipeline raise-cap <builder|reviewer> <N|unlimited> \"<reason>\"" >&2; exit 1 ;;
+        esac
+        case "$_rc_val" in
+            unlimited) ;;
+            ''|*[!0-9]*) echo "raise-cap: <N> must be a positive integer or 'unlimited' (got '$_rc_val')." >&2; exit 1 ;;
+            *) [ "$_rc_val" -ge 1 ] 2>/dev/null || { echo "raise-cap: N must be >= 1." >&2; exit 1; } ;;
+        esac
+        if [ -z "$_rc_reason" ]; then
+            echo "BLOCKED: raise-cap requires a reason." >&2
+            echo "  apd pipeline raise-cap $_rc_phase $_rc_val \"why the extra cycles are warranted\"" >&2
+            exit 1
+        fi
+        echo "$_rc_val" > "$PIPELINE_DIR/.${_rc_phase}-cap-override"
+        if [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ]; then
+            _ts=$(date +"%Y-%m-%d %H:%M:%S")
+            echo "${_ts}|$(_audit_type INFO)|orchestrator|cap-raise|phase=$_rc_phase new=$_rc_val reason=$_rc_reason" >> "$MEMORY_DIR/guard-audit.log"
+        fi
+        echo "Set $_rc_phase cap override = $_rc_val — evidence preserved (no spec re-sign)."
+        echo "  Effective cap = the higher of spec-card max_cycles and this; the gate never lowers a cap."
+        echo "  Reason: $_rc_reason"
         ;;
 
     rollback)

@@ -30,7 +30,7 @@ You review code changes with **zero context** about the task or specification. Y
 
 ## What you receive
 
-Read ONLY files listed in `.apd/pipeline/.reviewed-files`. This file is the authoritative scope for the current pipeline run — `pipeline-advance` writes it at the reviewer step from uncommitted working-tree changes plus untracked files.
+Read ONLY files listed in `.apd/pipeline/.reviewed-files`. This file is the authoritative scope for the current pipeline run — `pipeline-advance` writes it at the builder step from the task's uncommitted changes (files already dirty when the spec was signed are excluded).
 
 - Do NOT read files outside this list, even if they seem relevant or the orchestrator mentions them.
 - Previous commits are explicitly out of scope. Findings that reference files not in `.reviewed-files` will be dismissed as out-of-scope.
