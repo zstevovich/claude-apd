@@ -1,5 +1,18 @@
 # Changelog
 
+## v6.37.1 — 2026-07-22
+
+**guard-scope: two false-BLOCK fixes (live report — "APD treats Dockerfile as the directory Dockerfile/").** Both fixes only remove false blocks; every existing BLOCK case still blocks (proven by the test matrix).
+
+- **A scope entry can now be a single FILE, not only a directory.** The matcher normalized every entry to a `dir/` prefix and compared the raw file path, so a scope entry like `Dockerfile` became the prefix `Dockerfile/` which the file itself could never match — a file-scoped agent was structurally impossible (its own file always BLOCKed as out-of-scope). Fixed with the same both-sides-slash idiom the codebase's other two matchers (guard-bash-scope, pipeline-gate) already used: `"$REL_PATH/"` vs `"entry/"`. `Dockerfile` now matches scope `Dockerfile`; `Dockerfile.evil` and `src-evil/` under scope `src` still fail the prefix — the collision defence is intact.
+- **PROJECT_DIR is canonicalized before the prefix strip (latent, exposed by the new test).** `ABS_PATH` is physical (realpath / `pwd -P`) but `PROJECT_DIR` could be a logical symlinked form (macOS `/var` → `/private/var`, `/tmp` → `/private/tmp`, user-symlinked checkouts) — the prefix strip failed, `REL_PATH` stayed absolute, and an EXISTING in-project file was false-BLOCKed as "outside the project directory". PROJECT_DIR is now canonicalized the same way before stripping; files genuinely outside the project still block.
+
+Both runtimes covered by one fix — the CC shim and Codex `apd_guard_write` both wrap `bin/core/guard-scope`.
+
+### Tests
+
+Red-green proven: the file-scope assert FAILS on the pre-fix script (919/1) and passes after (920/0). New §6 asserts: file scope entry matches its own file; `Dockerfile.evil` under scope `Dockerfile` blocks; `src-evil/x.ts` under scope `src` blocks. **917 → 920/0.**
+
 ## v6.37.0 — 2026-07-20
 
 **Codex hybrid-project hardening — seven fixes from a live Codex bug report (efiskalizacija, a hybrid CC-first project run under Codex).** The report was verified finding-by-finding against source; most were real, several stemmed from the v6.36.0 native-dispatch feature.

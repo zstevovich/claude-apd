@@ -495,6 +495,31 @@ case $? in
     *) fail "BLOCK test did not return exit 2 (got $?)"; FAILS=$((FAILS + 1)) ;;
 esac
 
+# v6.37.1: a scope entry may be a single FILE, not only a directory — the
+# pre-fix matcher turned "Dockerfile" into the prefix "Dockerfile/" which the
+# file itself could never match (live false-BLOCK report, 2026-07-22).
+touch "$SCRATCH/Dockerfile" "$SCRATCH/Dockerfile.evil"
+if (cd "$SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/guard-scope" --file-path "Dockerfile" "Dockerfile" >/dev/null 2>&1); then
+    pass "ALLOW: file scope entry matches the file itself (Dockerfile)"
+    PASSES=$((PASSES + 1))
+else
+    fail "file scope entry blocked its own file (v6.37 dir-prefix bug regressed)"
+    FAILS=$((FAILS + 1))
+fi
+
+(cd "$SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/guard-scope" --file-path "Dockerfile.evil" "Dockerfile" >/dev/null 2>&1)
+case $? in
+    2) pass "BLOCK: Dockerfile.evil rejected under file scope entry (exit 2)" ; PASSES=$((PASSES + 1)) ;;
+    *) fail "Dockerfile.evil should not match scope 'Dockerfile' (got $?)"; FAILS=$((FAILS + 1)) ;;
+esac
+
+mkdir -p "$SCRATCH/src-evil"; touch "$SCRATCH/src-evil/x.ts"
+(cd "$SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/guard-scope" --file-path "src-evil/x.ts" "src" >/dev/null 2>&1)
+case $? in
+    2) pass "BLOCK: src-evil/x.ts rejected under scope 'src' (prefix-collision defence intact)" ; PASSES=$((PASSES + 1)) ;;
+    *) fail "src-evil/ should not match scope 'src' (got $?)"; FAILS=$((FAILS + 1)) ;;
+esac
+
 (cd "$SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --command 'python3 -c "open(\".apd/pipeline/.guarded-writes\", \"w\").write(\"forged\")"' >/dev/null 2>&1)
 case $? in
     2) pass "BLOCK: runtime write to .apd/pipeline rejected (exit 2)" ; PASSES=$((PASSES + 1)) ;;

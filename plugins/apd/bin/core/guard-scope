@@ -40,7 +40,18 @@ if [ -z "$ABS_PATH" ]; then
 fi
 [ -z "$ABS_PATH" ] && ABS_PATH="$FILE_PATH"
 
-REL_PATH="${ABS_PATH#"$PROJECT_DIR"/}"
+# Canonicalize PROJECT_DIR the same way as ABS_PATH before stripping the
+# prefix: ABS_PATH above is PHYSICAL (realpath / pwd -P) while PROJECT_DIR may
+# be a LOGICAL, symlinked form (macOS /tmp → /private/tmp, /var → /private/var,
+# user-symlinked project roots). A mismatched prefix left REL_PATH absolute and
+# false-BLOCKed existing in-project files as "outside the project directory".
+PROJ_CANON=""
+if command -v realpath >/dev/null 2>&1; then
+  PROJ_CANON=$(realpath "$PROJECT_DIR" 2>/dev/null || true)
+fi
+[ -z "$PROJ_CANON" ] && PROJ_CANON="$(cd "$PROJECT_DIR" 2>/dev/null && pwd -P)"
+[ -z "$PROJ_CANON" ] && PROJ_CANON="$PROJECT_DIR"
+REL_PATH="${ABS_PATH#"$PROJ_CANON"/}"
 
 # Defense in depth: even if normalization failed, reject any path segment
 # that still contains `..` (unresolved traversal means we can't trust the
@@ -62,7 +73,11 @@ fi
 
 for allowed in "${ALLOWED_PATHS[@]}"; do
   allowed="${allowed%/}/"
-  if [[ "$REL_PATH" == "$allowed"* ]]; then
+  # Slash on BOTH sides (same idiom as guard-bash-scope / pipeline-gate):
+  # a scope entry may be a single FILE (Dockerfile) — "Dockerfile/" must match
+  # "Dockerfile/" exactly — while "Dockerfile.evil/" and "src-evil/" still
+  # fail the prefix, keeping the collision defence intact.
+  if [[ "$REL_PATH/" == "$allowed"* ]]; then
     exit 0
   fi
 done
