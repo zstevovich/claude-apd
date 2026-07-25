@@ -2,7 +2,7 @@
 name: code-reviewer
 description: Reviews code changes for bugs, security issues, edge cases, and cross-layer mismatches
 tools: Read, Glob, Grep, Bash
-model: opus
+model: claude-opus-5
 effort: max
 color: orange
 permissionMode: plan

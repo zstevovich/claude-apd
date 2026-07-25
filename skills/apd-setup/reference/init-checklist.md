@@ -9,7 +9,7 @@ When CLAUDE.md or `.claude/` already exists, run these checks. Generate ONLY mis
 | Check | File | If missing |
 |---|---|---|
 | Reviewer agent | `.claude/agents/code-reviewer.md` | Generate from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/reviewer-template.md` |
-| Reviewer model | `code-reviewer.md` frontmatter | Must be `model: opus`, `effort: max`, `permissionMode: plan` |
+| Reviewer model | `code-reviewer.md` frontmatter | Must be `model: claude-opus-5`, `effort: max`, `permissionMode: plan` |
 | Workflow rules | `.claude/rules/workflow.md` | Copy from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/rules/workflow.md` |
 | Principles | `.claude/rules/principles.md` | Generate from template |
 | Memory files | `.claude/memory/` (4 files) | Generate the missing ones only |

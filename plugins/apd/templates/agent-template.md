@@ -2,7 +2,7 @@
 name: {{agent-name}}
 description: {{Short description — domain and responsibility}}
 tools: Read, Write, Edit, Glob, Grep, Bash
-model: sonnet
+model: claude-sonnet-5
 effort: xhigh
 color: {{AGENT_COLOR}}
 permissionMode: bypassPermissions

@@ -9333,9 +9333,12 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Live H: no profile declared -> legacy model repair still applies
-if grep -q '^model: opus' "$IN_PROJ/.claude/agents/code-reviewer.md"; then
-    pass "no profile: code-reviewer model repair still applies (opus)"
+# Live H: no profile declared -> legacy model repair still applies.
+# The repair must write a FULL model id. It used to write the bare alias `opus`,
+# which is how a project stayed pinned to "whatever opus means today" across
+# re-inits — measured: that alias silently moved 4.8 -> 5 on 2026-07-24.
+if grep -q '^model: claude-opus-5' "$IN_PROJ/.claude/agents/code-reviewer.md"; then
+    pass "no profile: code-reviewer repaired to a pinned model id"
     PASSES=$((PASSES + 1))
 else
     fail "legacy model repair regressed: $(grep '^model:' "$IN_PROJ/.claude/agents/code-reviewer.md")"
@@ -11213,6 +11216,25 @@ else
     fail "model-profiles.conf carries a bare alias: $BARE"; FAILS=$((FAILS + 1))
 fi
 
+# The conf is not the only place APD names a model. Every CC agent template
+# SHIPS a `model:` line, and apd-init REPAIRS agents back to one — that repair
+# is how a project stays pinned to an alias across re-inits, which is exactly
+# how Bambi's agents rode `opus` from 4.8 to 5 without anyone choosing it.
+# Codex templates use the gpt-* namespace and are out of scope here.
+BARE_T=$(grep -rn '^model: \(opus\|sonnet\|haiku\|fable\)$' \
+    "$APD_PLUGIN_ROOT/templates" 2>/dev/null | grep -v '/codex/' || true)
+if [ -z "$BARE_T" ]; then
+    pass "shipped CC agent templates pin full model ids"; PASSES=$((PASSES + 1))
+else
+    fail "a shipped template carries a bare alias: $BARE_T"; FAILS=$((FAILS + 1))
+fi
+BARE_I=$(grep -nE "model: (opus|sonnet|haiku|fable)/" "$APD_PLUGIN_ROOT/bin/core/apd-init" 2>/dev/null || true)
+if [ -z "$BARE_I" ]; then
+    pass "apd-init repairs agents to full model ids, not aliases"; PASSES=$((PASSES + 1))
+else
+    fail "apd-init writes a bare alias back into agents: $BARE_I"; FAILS=$((FAILS + 1))
+fi
+
 if echo "$TR_OUT" | grep -q "served model"; then
     pass "pipeline-report-turns shows a served-model column"; PASSES=$((PASSES + 1))
 else
@@ -12615,7 +12637,7 @@ mkdir -p "$SBI/.claude/agents" "$SBI/.apd/pipeline"
 touch "$SBI/CLAUDE.md"
 printf 'APD_ACTIVE=true\nMODEL_PROFILE=burn\n' > "$SBI/.apd/config"
 # A pre-v6.38 agent: scope directive present, spec-blind absent, model set by profile.
-sed 's/^model: sonnet/model: claude-opus-5/; s/^effort: max/effort: high/' "$ADV_TMPL" \
+sed 's/^model: .*/model: claude-opus-5/; s/^effort: .*/effort: high/' "$ADV_TMPL" \
     | grep -v 'guard-spec-blind' | grep -v 'Read|Glob|Grep' \
     > "$SBI/.claude/agents/adversarial-reviewer.md"
 APD_PROJECT_DIR="$SBI" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick >/dev/null 2>&1 || true

@@ -311,10 +311,10 @@ if [ "$MODE" = "update" ]; then
         # Check model (skipped when a model profile is declared — profile owns it)
         if [ -n "$DECLARED_PROFILE" ]; then
             ok "code-reviewer (model managed by profile '$DECLARED_PROFILE')"
-        elif grep -q 'model: opus' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null; then
+        elif grep -q 'model: claude-opus-5' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null; then
             ok "code-reviewer (opus/max)"
         else
-            sed -i.bak 's/model:.*/model: opus/' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null && rm -f "$CLAUDE_DIR/agents/code-reviewer.md.bak"
+            sed -i.bak 's/model:.*/model: claude-opus-5/' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null && rm -f "$CLAUDE_DIR/agents/code-reviewer.md.bak"
             fix "code-reviewer: fixed model to opus"
             FIXES=$((FIXES + 1))
         fi
@@ -344,10 +344,10 @@ if [ "$MODE" = "update" ]; then
             else
                 warn "adversarial-reviewer: missing 'memory: none' (decontextualization contract)"
             fi
-        elif grep -q 'model: sonnet' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null && grep -q 'memory: none' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null; then
+        elif grep -q 'model: claude-sonnet-5' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null && grep -q 'memory: none' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null; then
             ok "adversarial-reviewer (sonnet/max, memory: none)"
         else
-            sed -i.bak 's/model:.*/model: sonnet/' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null && rm -f "$CLAUDE_DIR/agents/adversarial-reviewer.md.bak"
+            sed -i.bak 's/model:.*/model: claude-sonnet-5/' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null && rm -f "$CLAUDE_DIR/agents/adversarial-reviewer.md.bak"
             fix "adversarial-reviewer: fixed model to sonnet"
             FIXES=$((FIXES + 1))
         fi

@@ -38,7 +38,11 @@ Applies the standing rule — a test that cannot go red proves nothing — retro
 
 - **`apd report turns` now reports the SERVED model per agent, and warns when one agent ran under several.** A profile sets what an agent should run; only the transcript records what it actually got. Measured on this corpus: agents pinned to the bare alias `opus` were served `claude-opus-4-8` through 2026-07-23 and `claude-opus-5` from 2026-07-25 — same config, different model, nothing recorded anywhere. The per-run metrics row already carried a `model` column, but that is the ORCHESTRATOR's model; profiles set the AGENTS' models, so the telemetry recorded the one model that could not answer the question. Turn and duration comparisons across such a window are unsound, and the report now says so instead of averaging silently.
 
-- **Model ids in `model-profiles.conf` are pinned; bare aliases are rejected by a test.** `cruise|default` and `burn|adversarial` moved from `opus` to `claude-opus-5`. The file already declared that models are DATA to be updated when a generation lands; an alias quietly did that update instead, which is how a profile can change under a project with no diff to point at. A static check now fails on any model column without a full id.
+- **Opus 5 is introduced explicitly, and every model APD ships or repairs is pinned to a full id.** `model-profiles.conf` moved `cruise|default` and `burn|adversarial` from `opus` to `claude-opus-5`; the CC agent templates (reviewer, generic builder, adversarial, the three .NET stack builders) moved off `opus`/`sonnet` to `claude-opus-5`/`claude-sonnet-5`.
+
+  The important one was `apd-init`, which REPAIRED agents back to a bare alias on every run — that is how a project stays pinned to "whatever opus means today" across re-inits, and it was locked in by a test that required the alias. Measured on this corpus: agents carrying `model: opus` were served `claude-opus-4-8` through 2026-07-23 and `claude-opus-5` from 2026-07-25, with no config change and nothing recorded anywhere; over the same boundary the median completed run went from 63 to 104 minutes. Nobody chose that, and no APD artefact could show it.
+
+  Existing projects re-pin on their next session-start init. Three static checks now fail on any bare alias — in the conf, in a shipped template, or written back by `apd-init` — because pinning once without a guard just defers the next silent move. Codex templates keep the gpt-* namespace, untouched.
 
 ### Fixed
 
