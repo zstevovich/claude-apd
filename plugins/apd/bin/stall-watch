@@ -14,6 +14,7 @@
 #
 # Tunables (env): SW_THRESH=150  SW_POLL=10  SW_REPING=30  SW_IDLE_EXIT=900
 #                 SW_ORPHAN=3600  SW_NAME=<label>  SW_MAX_ITERS=0
+#                 SW_MAX_LIFE=86400
 set -u
 
 PROJ="${1:-$PWD}"
@@ -23,6 +24,8 @@ REPING="${SW_REPING:-30}"         # re-alarm interval while still stalled (s)
 IDLE_EXIT="${SW_IDLE_EXIT:-900}"  # self-exit after this many s idle AND no spec-card (0=never)
 ORPHAN="${SW_ORPHAN:-3600}"       # exit if the whole session is dead this long (abandoned pipeline)
 MAX_ITERS="${SW_MAX_ITERS:-0}"    # 0 = run forever (test hook)
+MAX_LIFE="${SW_MAX_LIFE:-86400}"  # absolute ceiling on one watcher's lifetime (0=never)
+START_TS=$(date +%s)
 
 SLUG=$(printf '%s' "$PROJ" | sed 's/[^A-Za-z0-9]/-/g')
 PROJ_NAME="${SW_NAME:-$(basename "$PROJ")}"
@@ -74,7 +77,13 @@ if [ -f "$PIDF" ]; then
   fi
 fi
 echo "$$" > "$PIDF"
-trap cleanup EXIT INT TERM
+# `cleanup` does NOT exit, so trapping INT/TERM on it alone made the handler run
+# and the loop resume — the watcher was unkillable by anything but SIGKILL
+# (measured 2026-07-24: TERM to 9 daemons, 9 survivors). The signal handlers now
+# exit; the EXIT trap still does the cleaning, so it happens exactly once.
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 line "stall-watch armed — $PROJ_NAME (threshold=${THRESH}s)"
 state watching ""
@@ -131,9 +140,22 @@ while :; do
   if [ -n "$newest_any" ]; then
     nmt=$(stat -f %m "$newest_any" 2>/dev/null || stat -c %Y "$newest_any" 2>/dev/null || echo "$now")
     [ $(( now - nmt )) -ge "$ORPHAN" ] && session_dead=1
+  elif [ $(( now - START_TS )) -ge "$ORPHAN" ]; then
+    # No transcripts under $BASE at all — CC never opened a session for this dir
+    # (a test fixture, a deleted project). Before 2026-07-25 this branch did not
+    # exist, so session_dead stayed 0 forever; combined with a spec-card holding
+    # idle_since at 0, BOTH exits were dead and the watcher was immortal. Absence
+    # can't be told apart from "session not started yet", hence the ORPHAN grace.
+    session_dead=1
   fi
   if [ "$session_dead" = 1 ]; then
     line "session abandoned (${ORPHAN}s dead) — exiting"; break
+  fi
+
+  # Absolute backstop, independent of every condition above: no watcher outlives
+  # this. The 2026-07-24 leak was invisible precisely because nothing bounded it.
+  if [ "$MAX_LIFE" != 0 ] && [ $(( now - START_TS )) -ge "$MAX_LIFE" ]; then
+    line "max lifetime reached (${MAX_LIFE}s) — exiting"; break
   fi
   if [ "$is_idle" = 1 ] && [ ! -f "$SPEC_CARD" ]; then
     [ "$idle_since" = 0 ] && idle_since="$now"

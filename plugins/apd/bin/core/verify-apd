@@ -17,6 +17,12 @@ source "$(dirname "$0")/../lib/style.sh"
 # processes inherit this and route through _audit_type() in style.sh.
 export APD_AUDIT_SYNTHETIC=1
 
+# Section 8's synthetic pipeline advances spec, which launches a detached
+# stall-watch against the project. A self-test must not leave a daemon running
+# in the user's project — one poll then exit. (2026-07-25; before the same-day
+# fix those daemons could neither be TERMed nor self-exit.)
+export SW_MAX_ITERS=1
+
 
 # Summary data — collected during checks
 SUM_PROJECT=""

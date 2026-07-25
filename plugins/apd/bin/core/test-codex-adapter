@@ -29,6 +29,13 @@ apd_header "Codex Adapter E2E Test"
 SCRATCH="$(mktemp -d -t apd-cdx-test.XXXXXX)"
 trap 'rm -rf "$SCRATCH"' EXIT
 
+# Every fixture that advances `pipeline-advance spec` makes it launch a detached
+# stall-watch. Those pointed at throwaway dirs used to be unkillable AND unable
+# to self-exit (fixed 2026-07-25) — 387 stale pid files and 3603 log files had
+# piled up in ~/.claude before anyone noticed. One poll then exit keeps the suite
+# from leaving daemons behind; `env` in the launcher passes this through.
+export SW_MAX_ITERS=1
+
 FAILS=0
 PASSES=0
 
@@ -5336,6 +5343,7 @@ _v67_make_state() {
     # .agents so the compiled validator (validate-agent) accepts each phase.
     local dir=$1
     local adv_summary=$2  # "ADVERSARIAL:T:A:D"
+    local extra_spec="${3:-}"  # extra spec-card lines, e.g. "adversarial: max_defects=1"
     mkdir -p "$dir/.apd/pipeline" "$dir/.claude/agents" "$dir/.claude/memory"
     echo "PROJECT_NAME=v67-test" > "$dir/.apd/config"
     cat > "$dir/.apd/pipeline/spec-card.md" <<'EOF_SPEC'
@@ -5344,6 +5352,10 @@ plan_consistency_gate: off
 **Acceptance criteria:**
 - R1: x
 EOF_SPEC
+    # Must land BEFORE the spec advance: the spec-card is HMAC-signed there, and
+    # editing it afterwards trips spec-hash immutability instead of the gate
+    # under test.
+    [ -n "$extra_spec" ] && printf '%s\n' "$extra_spec" >> "$dir/.apd/pipeline/spec-card.md"
     cat > "$dir/.apd/pipeline/implementation-plan.md" <<'EOF_PLAN'
 # Plan
 ### Agents
@@ -5630,6 +5642,135 @@ else
     FAILS=$((FAILS + 1))
 fi
 rm -rf "$_T"
+
+# --- Live L–P: gates the 2026-07-25 mutation audit found UNPROVEN ------------
+# E/F/G above cover rationale-missing, count-mismatch and the 100%-dismiss
+# heuristic. Neutering any of the remaining exit sites left the suite green on
+# BOTH surfaces — so the gate proved "a rationale exists with the right count"
+# and did NOT prove "it is well-formed and agrees with the summary", which is
+# the anti-rubber-stamp half.
+_v67_block_case() {   # $1 label, $2 expected message, $3 summary, $4 rationale body, $5 extra spec
+    local label="$1" want="$2" summary="$3" body="$4" extra="${5:-}"
+    local d out rc
+    d="$(mktemp -d -t apd-v67x.XXXXXX)"
+    _v67_make_state "$d" "$summary" "$extra"
+    [ -n "$body" ] && printf '%s\n' "$body" > "$d/.apd/pipeline/.adversarial-rationale.md"
+    out=$(_v67_run_verifier "$d"); rc=$?
+    if [ "$rc" -ne 0 ] && echo "$out" | grep -q "$want"; then
+        pass "$label"; PASSES=$((PASSES + 1))
+    else
+        fail "$label — expected BLOCK matching '$want' (rc=$rc, out=$(echo "$out" | grep -m1 BLOCKED))"
+        FAILS=$((FAILS + 1))
+    fi
+    rm -rf "$d"
+}
+
+# Live L: 3 findings, one Severity value invalid → malformed-fields
+_v67_block_case "3:1:2 with an invalid Severity value → BLOCK (malformed fields)" \
+    'malformed Finding blocks' "ADVERSARIAL:3:1:2" \
+'## Finding 1 — a
+**Severity:** important
+**Status:** accepted
+**Rationale:** real defect, fixed in the builder pass
+
+## Finding 2 — b
+**Severity:** blocker
+**Status:** dismissed
+**Rationale:** out of scope per APD diff-only rule, not in changeset
+
+## Finding 3 — c
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** out of scope per APD diff-only rule, not in changeset'
+
+# Live M: rationale says 1 accepted, summary says 2 → accepted-mismatch
+_v67_block_case "3:2:1 with 1 accepted in rationale → BLOCK (accepted mismatch)" \
+    "accepted count doesn't match summary" "ADVERSARIAL:3:2:1" \
+'## Finding 1 — a
+**Severity:** important
+**Status:** accepted
+**Rationale:** real defect, fixed in the builder pass
+
+## Finding 2 — b
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** out of scope per APD diff-only rule, not in changeset
+
+## Finding 3 — c
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** out of scope per APD diff-only rule, not in changeset'
+
+# Live N: accepted agrees, dismissed sum does not (summary A+D < T) → status-mismatch
+_v67_block_case "3:1:1 with 2 dismissed in rationale → BLOCK (status mismatch)" \
+    "statuses don't match summary dismissed count" "ADVERSARIAL:3:1:1" \
+'## Finding 1 — a
+**Severity:** important
+**Status:** accepted
+**Rationale:** real defect, fixed in the builder pass
+
+## Finding 2 — b
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** out of scope per APD diff-only rule, not in changeset
+
+## Finding 3 — c
+**Severity:** minor
+**Status:** reviewer-self-dismissed
+**Rationale:** the adversarial reviewer withdrew this inline, cited source'
+
+# Live O: adversarial stop timestamp unparseable → fail-closed BLOCK.
+# Ordering cannot be verified against a corrupted ledger, so the gate must
+# refuse rather than silently skip enforcement.
+_TO="$(mktemp -d -t apd-v67o.XXXXXX)"
+_v67_make_state "$_TO" "ADVERSARIAL:1:1:0"
+printf '## Finding 1 — a\n**Severity:** minor\n**Status:** accepted\n**Rationale:** real defect, fixed in the builder pass\n' \
+    > "$_TO/.apd/pipeline/.adversarial-rationale.md"
+# corrupt ONLY the adversarial stop timestamp
+awk -F'|' 'BEGIN{OFS="|"} $2=="stop" && $3=="adversarial-reviewer" { $1="not-a-timestamp" } { print }' \
+    "$_TO/.apd/pipeline/.agents" > "$_TO/.apd/pipeline/.agents.m" && mv "$_TO/.apd/pipeline/.agents.m" "$_TO/.apd/pipeline/.agents"
+_OUT=$(_v67_run_verifier "$_TO"); _RC=$?
+if [ "$_RC" -ne 0 ] && echo "$_OUT" | grep -q 'timestamp unparseable'; then
+    pass "corrupted adversarial timestamp → BLOCK (fail-closed, ordering unverifiable)"
+    PASSES=$((PASSES + 1))
+else
+    fail "corrupted adversarial timestamp should BLOCK (rc=$_RC, out=$(echo "$_OUT" | grep -m1 BLOCKED))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_TO"
+
+# Live P: max_defects — over the declared threshold blocks, at/under it passes.
+_v67_block_case "D=3 over spec-card max_defects=1 → BLOCK" \
+    'max_defects=1' "ADVERSARIAL:3:0:3" \
+'## Finding 1 — a
+**Severity:** minor
+**Status:** reviewer-self-dismissed
+**Rationale:** the adversarial reviewer withdrew this inline, cited source
+
+## Finding 2 — b
+**Severity:** minor
+**Status:** reviewer-self-dismissed
+**Rationale:** the adversarial reviewer withdrew this inline, cited source
+
+## Finding 3 — c
+**Severity:** minor
+**Status:** reviewer-self-dismissed
+**Rationale:** the adversarial reviewer withdrew this inline, cited source' \
+    "adversarial: max_defects=1"
+
+_TP="$(mktemp -d -t apd-v67p.XXXXXX)"
+_v67_make_state "$_TP" "ADVERSARIAL:1:0:1" "adversarial: max_defects=1"
+printf '## Finding 1 — a\n**Severity:** minor\n**Status:** reviewer-self-dismissed\n**Rationale:** the adversarial reviewer withdrew this inline, cited source\n' \
+    > "$_TP/.apd/pipeline/.adversarial-rationale.md"
+_OUT=$(_v67_run_verifier "$_TP"); _RC=$?
+if [ "$_RC" -eq 0 ]; then
+    pass "D=1 at spec-card max_defects=1 → SIGN (threshold is not off-by-one)"
+    PASSES=$((PASSES + 1))
+else
+    fail "D=1 at max_defects=1 should pass (rc=$_RC, out=$(echo "$_OUT" | grep -m1 BLOCKED))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_TP"
 
 # -----------------------------------------------------------
 # 53. v6.7.1 — pipeline-metrics Do/Dr/Warns columns (Phase 4)
@@ -6860,11 +7001,16 @@ V686_SCRATCH="$(mktemp -d -t apd-v686.XXXXXX)"
 mkdir -p "$V686_SCRATCH/.apd/pipeline" "$V686_SCRATCH/.codex"
 touch "$V686_SCRATCH/.apd/config"
 TYPO_OUT=$(cd "$V686_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/guard-pipeline-state" --file-path ".apd/pipeline/.adversarial-rationale" 2>&1)
-if echo "$TYPO_OUT" | grep -qE "Did you mean.*\.adversarial-rationale\.md"; then
-    pass "live: .adversarial-rationale (no .md) → BLOCK + 'Did you mean .adversarial-rationale.md?' hint"
+TYPO_RC=$?
+# The exit code is half the claim. Until 2026-07-25 this check asserted only on
+# the hint TEXT, so a guard-pipeline-state that had stopped blocking altogether
+# still printed the hint and still passed a check named "→ BLOCK" — which is how
+# the guard reached v6.37.1 with no red-green proof (mutation audit). Assert both.
+if [ "$TYPO_RC" = 2 ] && echo "$TYPO_OUT" | grep -qE "Did you mean.*\.adversarial-rationale\.md"; then
+    pass "live: .adversarial-rationale (no .md) → BLOCK (exit 2) + 'Did you mean .adversarial-rationale.md?' hint"
     PASSES=$((PASSES + 1))
 else
-    fail "live typo BLOCK missing hint: $TYPO_OUT"
+    fail "live typo BLOCK — expected exit 2 + hint, got exit $TYPO_RC: $TYPO_OUT"
     FAILS=$((FAILS + 1))
 fi
 rm -rf "$V686_SCRATCH"
@@ -11088,6 +11234,72 @@ HOME="$SS_HOME" bash "$SS_BIN" >/dev/null 2>&1
 if [ ! -f "$SS_TMP/zz-dead.state" ]; then pass "stall-status prunes dead-pid state"; PASSES=$((PASSES + 1)); else fail "stall-status did not prune dead state"; FAILS=$((FAILS + 1)); fi
 rm -rf "$SS_HOME"
 
+# --- stall-watch LIFECYCLE (live) -----------------------------------------
+# Everything above this line is a grep. That is how both 2026-07-24 bugs shipped:
+# `grep -qF 'SPEC_CARD'` passed as "self-exit gated on spec-card" while the
+# self-exit was provably dead, and nothing ever started the daemon to find out.
+# These checks RUN it and require it to actually stop.
+#
+# Each launches with an isolated HOME (so $BASE = $HOME/.claude/projects/<slug>
+# is genuinely absent, and no pid/state file lands in the user's ~/.claude) and
+# with a spec-card present, which pins idle_since at 0 — that is the exact state
+# in which the watcher used to be immortal. Knobs are set so that in each case
+# only ONE exit path can fire.
+_sw_launch() {   # $1 = project dir, $2 = isolated HOME, $3.. = extra SW_* env; echoes the pid
+    local proj="$1" home="$2"
+    mkdir -p "$proj/.apd/pipeline" "$proj/.claude"
+    touch "$proj/.apd/config" "$proj/.apd/pipeline/spec-card.md"
+    # `env` is required: words that arrive by expansion are NOT re-parsed as
+    # assignments. SW_MAX_ITERS=0 overrides the suite-wide cap set at the top —
+    # with the cap in force the watcher would exit on its own and these checks
+    # would pass without proving anything.
+    HOME="$home" env SW_POLL=1 SW_IDLE_EXIT=0 SW_MAX_ITERS=0 "${@:3}" \
+        bash "$SW_BIN" "$proj" >/dev/null 2>&1 &
+    echo $!
+}
+_sw_gone() {     # $1 = pid, $2 = seconds to wait; 0 if it exited in time
+    local pid="$1" limit="$2" i=0
+    while [ "$i" -lt "$limit" ]; do
+        kill -0 "$pid" 2>/dev/null || return 0
+        sleep 1; i=$((i + 1))
+    done
+    return 1
+}
+_sw_verdict() {  # $1 = label, $2 = pid, $3 = seconds
+    if _sw_gone "$2" "$3"; then
+        pass "$1"; PASSES=$((PASSES + 1))
+    else
+        fail "$1 — still running after $3s"; FAILS=$((FAILS + 1)); kill -9 "$2" 2>/dev/null
+    fi
+}
+
+SW_HOME="$(mktemp -d -t apd-swlife.XXXXXX)"
+
+# (a) SIGTERM must stop it. ORPHAN huge + MAX_LIFE off => only the signal can.
+SW_P1=$(_sw_launch "$SCRATCH/swterm" "$SW_HOME" SW_ORPHAN=99999 SW_MAX_LIFE=0)
+sleep 2
+kill -TERM "$SW_P1" 2>/dev/null
+_sw_verdict "stall-watch stops on SIGTERM (trap handler exits)" "$SW_P1" 6
+
+# (b) No transcripts under $BASE => self-exit after the ORPHAN grace.
+SW_P2=$(_sw_launch "$SCRATCH/sworphan" "$SW_HOME" SW_ORPHAN=1 SW_MAX_LIFE=0)
+_sw_verdict "stall-watch self-exits when the session has no transcripts" "$SW_P2" 8
+
+# (c) Absolute lifetime cap. ORPHAN huge so only MAX_LIFE can end it.
+SW_P3=$(_sw_launch "$SCRATCH/swlife" "$SW_HOME" SW_ORPHAN=99999 SW_MAX_LIFE=1)
+_sw_verdict "stall-watch honours the SW_MAX_LIFE ceiling" "$SW_P3" 8
+
+rm -rf "$SW_HOME"
+
+# Fixture hygiene: the suites must not leave detached watchers in the user's
+# projects. Both E2E surfaces drive `pipeline-advance spec`, which launches one.
+if grep -qF 'export SW_MAX_ITERS=1' "$APD_PLUGIN_ROOT/bin/core/test-codex-adapter"; then
+    pass "test-codex-adapter caps fixture-spawned stall-watch"; PASSES=$((PASSES + 1))
+else fail "test-codex-adapter does not cap fixture stall-watch"; FAILS=$((FAILS + 1)); fi
+if grep -qF 'export SW_MAX_ITERS=1' "$APD_PLUGIN_ROOT/bin/core/verify-apd"; then
+    pass "verify-apd caps fixture-spawned stall-watch"; PASSES=$((PASSES + 1))
+else fail "verify-apd does not cap fixture stall-watch"; FAILS=$((FAILS + 1)); fi
+
 # -----------------------------------------------------------
 # 98. v6.33 — git-remote-resolve: push-remote discovery (no origin assumption)
 #     Finish flow used to hardcode `git push -u origin`, which fails on repos
@@ -11496,6 +11708,242 @@ EOF
     fi
     rm -rf "$RF"
 fi
+
+# -----------------------------------------------------------
+# 104. Guard red-green — BLOCK and ALLOW exit codes
+# -----------------------------------------------------------
+# Added after the 2026-07-25 mutation audit: neutering each guard with
+# `trap 'exit 0' EXIT` left the suite GREEN for guard-pipeline-state,
+# guard-orchestrator, guard-send-message and guard-compact — all four are wired
+# live in hooks/hooks.json yet no test proved they block. The one execution that
+# existed (guard-pipeline-state, §68 typo hint) asserted on STDOUT TEXT only, so
+# a guard that had stopped blocking entirely still passed it.
+#
+# These checks assert the EXIT CODE, and cover both directions: the forbidden
+# action must exit 2 AND the legitimate variant must exit 0 (a guard that blocks
+# everything would otherwise "pass" a one-sided test).
+section "104. Guard red-green — BLOCK + ALLOW exit codes"
+
+# Guards short-circuit on APD_ACTIVE=false, which is what the framework repo is,
+# so each check needs its own APD-active project dir.
+#
+# The marker dir is load-bearing, not decoration: resolve-project.sh walks UPWARD
+# looking for CLAUDE.md/.claude/.codex/AGENTS.md, and earlier sections leave such
+# markers directly under $SCRATCH. Without a marker of its own a fixture resolves
+# to $SCRATCH instead of itself — PIPELINE_DIR then points at the wrong tree and
+# every state-dependent guard silently reports "nothing to block" (exit 0).
+_rg_proj() {
+    local d="$1"
+    mkdir -p "$d/.apd/pipeline" "$d/.claude"
+    touch "$d/.apd/config"
+}
+
+# Assert a guard's exit code. Runs from inside the project dir so
+# resolve-project.sh picks it up as PROJECT_DIR.
+_guard_exit() {
+    local label="$1" expect="$2" proj="$3" guard="$4"; shift 4
+    ( cd "$proj" && bash "$APD_PLUGIN_ROOT/bin/core/$guard" "$@" ) >/dev/null 2>&1
+    local rc=$?
+    if [ "$rc" = "$expect" ]; then
+        pass "$label (exit $rc)"; PASSES=$((PASSES + 1))
+    else
+        fail "$label — expected exit $expect, got $rc"; FAILS=$((FAILS + 1))
+    fi
+}
+
+RG="$SCRATCH/redgreen"
+
+# --- guard-pipeline-state: PreToolUse Write|Edit ---------------------------
+_rg_proj "$RG/pstate"
+_guard_exit "guard-pipeline-state BLOCKS .done state file" 2 \
+    "$RG/pstate" guard-pipeline-state --file-path ".apd/pipeline/spec.done"
+_guard_exit "guard-pipeline-state BLOCKS .agents ledger" 2 \
+    "$RG/pstate" guard-pipeline-state --file-path ".apd/pipeline/.agents"
+_guard_exit "guard-pipeline-state ALLOWS allowlisted spec-card.md" 0 \
+    "$RG/pstate" guard-pipeline-state --file-path ".apd/pipeline/spec-card.md"
+_guard_exit "guard-pipeline-state ALLOWS a file outside .apd/pipeline" 0 \
+    "$RG/pstate" guard-pipeline-state --file-path "src/app.js"
+
+# --- guard-orchestrator: PreToolUse Write|Edit -----------------------------
+_rg_proj "$RG/orch"
+_guard_exit "guard-orchestrator BLOCKS orchestrator writing a code file" 2 \
+    "$RG/orch" guard-orchestrator --file-path "src/app.js"
+_guard_exit "guard-orchestrator ALLOWS an agent (agent-id present)" 0 \
+    "$RG/orch" guard-orchestrator --file-path "src/app.js" --agent-id "a1b2c3d4"
+_guard_exit "guard-orchestrator ALLOWS orchestrator writing docs" 0 \
+    "$RG/orch" guard-orchestrator --file-path "docs/notes.md"
+
+# --- guard-send-message: PreToolUse SendMessage ----------------------------
+_rg_proj "$RG/sendmsg"
+_guard_exit "guard-send-message ALLOWS SendMessage with no active pipeline" 0 \
+    "$RG/sendmsg" guard-send-message
+touch "$RG/sendmsg/.apd/pipeline/spec.done"
+_guard_exit "guard-send-message BLOCKS SendMessage during active pipeline" 2 \
+    "$RG/sendmsg" guard-send-message
+
+# --- guard-compact: PreCompact --------------------------------------------
+_rg_proj "$RG/compact"
+_guard_exit "guard-compact ALLOWS compaction with no pipeline steps" 0 \
+    "$RG/compact" guard-compact
+touch "$RG/compact/.apd/pipeline/spec.done"
+_guard_exit "guard-compact BLOCKS compaction mid-pipeline" 2 \
+    "$RG/compact" guard-compact
+touch "$RG/compact/.apd/pipeline/builder.done" \
+      "$RG/compact/.apd/pipeline/reviewer.done" \
+      "$RG/compact/.apd/pipeline/verifier.done"
+_guard_exit "guard-compact ALLOWS compaction once the pipeline is complete" 0 \
+    "$RG/compact" guard-compact
+
+# --- guard-permission-denied: PermissionDenied -----------------------------
+# This one never blocks (zero `exit 2`) — it is a LOGGER, so an exit-code probe
+# proves nothing about it. Its mechanism is the audit line, and its failure mode
+# is the dangerous kind: if it silently stops logging, nothing breaks and nobody
+# notices — the trail just disappears. So assert the line and its shape.
+_pd_log() {   # $1 = label, $2 = project dir, $3 = stdin JSON, $4 = expected regex ('' = expect NO line)
+    local label="$1" proj="$2" input="$3" want="$4"
+    local logf="$proj/.claude/memory/guard-audit.log"
+    rm -f "$logf"
+    printf '%s' "$input" | ( cd "$proj" && bash "$APD_PLUGIN_ROOT/bin/core/guard-permission-denied" ) >/dev/null 2>&1
+    if [ -z "$want" ]; then
+        if [ ! -s "$logf" ]; then
+            pass "$label"; PASSES=$((PASSES + 1))
+        else
+            fail "$label — expected no audit line, got: $(cat "$logf")"; FAILS=$((FAILS + 1))
+        fi
+    elif grep -qE "$want" "$logf" 2>/dev/null; then
+        pass "$label"; PASSES=$((PASSES + 1))
+    else
+        fail "$label — no line matching /$want/ (got: $(cat "$logf" 2>/dev/null || echo 'no file'))"
+        FAILS=$((FAILS + 1))
+    fi
+}
+
+_rg_proj "$RG/permdenied"
+mkdir -p "$RG/permdenied/.claude/memory"
+_pd_log "guard-permission-denied LOGS a denial with agent id + type" \
+    "$RG/permdenied" '{"tool_name":"Bash","agent_id":"a1b2","agent_type":"backend"}' \
+    '\|PERMISSION_DENIED\|a1b2\(backend\)\|Bash$'
+_pd_log "guard-permission-denied falls back to orchestrator/unknown" \
+    "$RG/permdenied" '{}' \
+    '\|PERMISSION_DENIED\|orchestrator\|unknown$'
+
+# Opposite direction: a non-APD project must produce no audit trail at all.
+mkdir -p "$RG/permdenied-off/.claude/memory"
+_pd_log "guard-permission-denied stays inert when APD is not active" \
+    "$RG/permdenied-off" '{"tool_name":"Bash"}' ''
+
+# -----------------------------------------------------------
+# 105. verify-plan-spec — plan↔spec consistency gate, executed
+# -----------------------------------------------------------
+# Redundant with §59/§60 on the BLOCK side (they DO execute the gate — a
+# 2026-07-25 audit claim to the contrary was a bad grep), but those never
+# covered the ALLOW directions: warn, off, `none` scaffolding, and a spec with
+# no R-criteria at all.
+section "105. verify-plan-spec executed (BLOCK + ALLOW)"
+
+VPS_BIN="$APD_PLUGIN_ROOT/bin/core/verify-plan-spec"
+
+_vps_case() {   # $1 label, $2 expected exit, $3 spec-card body, $4 plan body
+    local label="$1" expect="$2" spec="$3" plan="$4"
+    local d rc
+    d="$(mktemp -d -t apd-vps.XXXXXX)"
+    mkdir -p "$d/.apd/pipeline" "$d/.claude"
+    echo "PROJECT_NAME=vps-test" > "$d/.apd/config"
+    printf '%s\n' "$spec" > "$d/.apd/pipeline/spec-card.md"
+    printf '%s\n' "$plan" > "$d/.apd/pipeline/implementation-plan.md"
+    APD_PROJECT_DIR="$d" bash "$VPS_BIN" >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" = "$expect" ]; then
+        pass "$label (exit $rc)"; PASSES=$((PASSES + 1))
+    else
+        fail "$label — expected exit $expect, got $rc"; FAILS=$((FAILS + 1))
+    fi
+    rm -rf "$d"
+}
+
+VPS_SPEC='# task
+**Acceptance criteria:**
+- R1: alpha
+- R2: beta'
+
+# ALLOW — every section declares Implements, every spec R-id is covered
+_vps_case "consistent plan passes" 0 "$VPS_SPEC" \
+'# Plan
+### Backend
+**Implements:** R1, R2
+- work'
+
+# BLOCK — a section with no **Implements:** header at all
+_vps_case "section without **Implements:** blocks" 1 "$VPS_SPEC" \
+'# Plan
+### Backend
+**Implements:** R1, R2
+- work
+
+### Frontend
+- work'
+
+# BLOCK — forward check: plan cites an R-id the spec does not define
+_vps_case "unknown R-id in plan blocks (forward check)" 1 "$VPS_SPEC" \
+'# Plan
+### Backend
+**Implements:** R1, R2, R9
+- work'
+
+# BLOCK — reverse check: a spec R-id no section implements
+_vps_case "uncovered spec R-id blocks (reverse check)" 1 "$VPS_SPEC" \
+'# Plan
+### Backend
+**Implements:** R1
+- work'
+
+# BLOCK — Implements value is neither R-ids nor "none"
+_vps_case "malformed **Implements:** value blocks" 1 "$VPS_SPEC" \
+'# Plan
+### Backend
+**Implements:** R1, R2
+- work
+
+### Scaffolding
+**Implements:** whatever
+- work'
+
+# ALLOW — "none" is the sanctioned escape for scaffolding sections
+_vps_case "**Implements:** none is accepted for scaffolding" 0 "$VPS_SPEC" \
+'# Plan
+### Backend
+**Implements:** R1, R2
+- work
+
+### Scaffolding
+**Implements:** none
+- chores'
+
+# ALLOW — same defect, demoted by mode. warn must not block...
+_vps_case "warn mode reports but does not block" 0 \
+"$VPS_SPEC
+plan_consistency_gate: warn" \
+'# Plan
+### Backend
+**Implements:** R1
+- work'
+
+# ...and off must not block either.
+_vps_case "off mode opts out" 0 \
+"$VPS_SPEC
+plan_consistency_gate: off" \
+'# Plan
+### Backend
+**Implements:** R1
+- work'
+
+# ALLOW — a spec with no R-criteria at all is out of scope (backward compat)
+_vps_case "spec without R-criteria is a no-op" 0 \
+'# task
+no criteria here' \
+'# Plan
+### Backend
+- work'
 
 # -----------------------------------------------------------
 # Summary
