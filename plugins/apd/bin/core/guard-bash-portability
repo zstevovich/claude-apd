@@ -1,7 +1,14 @@
 #!/bin/bash
-# APD Bash Portability Guard — on macOS (Darwin / BSD userland), blocks GNU/Linux-only
-# commands and flags that either do not exist or silently corrupt, each with the
-# macOS-safe alternative in the block message.
+# APD Bash Portability Guard — blocks commands that do not exist, or silently mean
+# something else, on the platform you are actually running. SYMMETRIC since v6.38:
+# on macOS it blocks GNU/Linux-isms, on Linux it blocks BSD/macOS-isms. Each block
+# names the local equivalent.
+#
+# The Linux direction was missing until v6.38, and the gap was not academic: the
+# framework is developed on macOS, so a BSD-ism reaches a Linux user unchallenged
+# while the reverse is caught immediately. The worst of them is `sed -i ""` —
+# valid and required on BSD, but on GNU the empty string is consumed as the
+# SCRIPT, so the command succeeds and edits nothing. No error, wrong result.
 #
 # Root cause (2026-07-14 incident): an orchestrator used `timeout` (absent on macOS)
 # to wrap a verifier re-run; it silently never started (command-not-found swallowed in
@@ -10,9 +17,9 @@
 # lever is a hard guard, not another note.
 #
 # Interface: --command <cmd>
-# Active ONLY when: APD_ACTIVE=true AND uname=Darwin AND not opted out.
+# Active when: APD_ACTIVE=true AND the platform is Darwin or Linux AND not opted out.
 # Opt-out (genuine need, e.g. a wrapper that shims the command): APD_SKIP_PORTABILITY_GUARD=1
-# Guard block: exit 2. Allow: exit 0. Inert on Linux and in non-APD projects.
+# Guard block: exit 2. Allow: exit 0. Inert on other platforms and non-APD projects.
 #
 # Note: this guard runs on the user's macOS, so its OWN matchers use POSIX ERE only
 # (`[[:space:]]`, no `\s`/`\b`) to stay portable on BSD grep.
@@ -21,10 +28,18 @@ source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 [ "${APD_SKIP_PORTABILITY_GUARD:-}" = "1" ] && exit 0
-# OS gate: active on macOS. APD_PORTABILITY_FORCE=1 is a TEST SEAM only — it forces
-# the active path on non-Darwin so the suite can verify blocking on Linux CI (it can
-# only make the guard MORE strict, never bypass it).
-[ "$(uname -s)" = "Darwin" ] || [ "${APD_PORTABILITY_FORCE:-}" = "1" ] || exit 0
+# OS gate. APD_PORTABILITY_FORCE is a TEST SEAM only: `darwin` / `linux` pick a
+# direction so either side can be verified from either host (`1` = darwin, kept for
+# compatibility with pre-v6.38 callers). It can only make the guard MORE strict.
+case "${APD_PORTABILITY_FORCE:-}" in
+  1|darwin) PLATFORM=Darwin ;;
+  linux)    PLATFORM=Linux ;;
+  *)        PLATFORM="$(uname -s)" ;;
+esac
+case "$PLATFORM" in
+  Darwin|Linux) : ;;
+  *) exit 0 ;;
+esac
 
 COMMAND=""
 while [[ $# -gt 0 ]]; do
@@ -46,18 +61,26 @@ POS='(^|[;&|(`])[[:space:]]*((sudo|command|time)[[:space:]]+)?'
 # text with everything from the first heredoc operator stripped (M1).
 CMD_EXEC="${COMMAND%%<<*}"
 
+if [ "$PLATFORM" = "Darwin" ]; then
+  _FOREIGN="a GNU/Linux-ism"; _HERE="Darwin/BSD userland, not Linux"
+else
+  _FOREIGN="a BSD/macOS-ism"; _HERE="Linux/GNU userland, not macOS"
+fi
+
 _block() { # <name> <alt-line>
-  echo "BLOCKED: macOS/BSD portability — \`$1\` is a GNU/Linux-ism that does not work here." >&2
+  echo "BLOCKED: portability — \`$1\` is $_FOREIGN that does not work here." >&2
   echo "" >&2
   echo "  $2" >&2
   echo "" >&2
-  echo "  You are on Darwin/BSD userland, not Linux. Run 'apd env' for the full table." >&2
+  echo "  You are on $_HERE. Run 'apd env' for the full table." >&2
   echo "  Genuinely need it (e.g. a coreutils shim)? Prefix: APD_SKIP_PORTABILITY_GUARD=1 <cmd>" >&2
   log_block "portability-$1" "$(printf '%s' "$COMMAND" | head -c 120)"
   exit 2
 }
 
 _match() { printf '%s' "$CMD_EXEC" | grep -qE "$1"; }
+
+if [ "$PLATFORM" = "Darwin" ]; then
 
 # --- Commands that DO NOT EXIST on macOS (unambiguous) ---
 _match "${POS}timeout([[:space:]]|\$)" && \
@@ -88,5 +111,42 @@ _match "${POS}sed([^;&|]*[[:space:]])--in-place" && \
 # form directly after -i). PASS the BSD-correct `-i ''` / `-i ""` / `-i.bak`.
 _match "${POS}sed([^;&|]*[[:space:]])-i[[:space:]]+(['\"][^'\"]|[0-9]*[sy]/|[0-9]*[,\$]*[dpg])" && \
   _block 'sed -i' 'BSD `sed -i` REQUIRES a backup-suffix arg: `sed -i "" "s/a/b/"` (empty) or `sed -i.bak "s/a/b/"`. GNU `sed -i "s/a/b/"` errors/deletes here.'
+
+else
+
+# ===== Linux / GNU userland: block BSD-only forms =====
+
+# The mirror of the macOS `sed -i <script>` check, and the most dangerous entry
+# in either direction: on GNU the empty string is consumed as the SCRIPT, so the
+# command exits 0 and edits nothing. Silent no-op, not an error.
+_match "${POS}sed([^;&|]*[[:space:]])-i[[:space:]]+(''|\"\")([[:space:]]|\$)" && \
+  _block 'sed -i ""' 'GNU `sed -i` takes NO separate backup arg — the empty string is read as the script and your edit silently does nothing. Use `sed -i "s/a/b/"`, or `sed -i.bak "s/a/b/"` which works on both.'
+
+# GNU `stat -f` is --file-system: it prints filesystem stats and exits 0, so a
+# `stat -f %m file` reads as success and returns the wrong thing.
+_match "${POS}stat([^;&|]*[[:space:]])-f([[:space:]=%'\"]|\$)" && \
+  _block 'stat -f' 'On GNU, `stat -f` means --file-system (not a format string) — it succeeds and returns the wrong data. Use `stat -c` (`%Y` mtime, `%s` size).'
+
+_match "${POS}date([^;&|]*[[:space:]])-v([[:space:]+-]|\$)" && \
+  _block 'date -v' 'GNU date has no `-v`. Relative dates: `date -d "-1 day"`.'
+_match "${POS}date([^;&|]*[[:space:]])-j([[:space:]]|\$)" && \
+  _block 'date -j' 'GNU date has no `-j`. Parse a string with `date -d "2020-01-01"`.'
+# BSD `date -r 1700000000` = epoch; GNU `-r` = reference FILE, so this fails or
+# reads an unrelated file's mtime.
+_match "${POS}date([^;&|]*[[:space:]])-r[[:space:]]*[0-9]" && \
+  _block 'date -r <epoch>' 'On GNU, `date -r` takes a FILE, not an epoch. Use `date -d "@1700000000"`.'
+
+_match "${POS}tail([^;&|]*[[:space:]])-[a-zA-Z]*r([[:space:]]|\$)" && \
+  _block 'tail -r' 'GNU tail has no `-r`. Use `tac`.'
+_match "${POS}md5([[:space:]]|\$)" && \
+  _block md5 'No `md5` on Linux. Use `md5sum` (note: it prints "<hash>  <file>").'
+_match "${POS}base64([^;&|]*[[:space:]])-D([[:space:]]|\$)" && \
+  _block 'base64 -D' 'GNU base64 decodes with `-d`, not `-D`.'
+_match "${POS}sysctl([^;&|]*[[:space:]])-n[[:space:]]+hw\." && \
+  _block 'sysctl hw.*' 'Darwin-only sysctl MIB. CPU count on Linux: `nproc`.'
+_match "${POS}find([^;&|]*[[:space:]])-E([[:space:]]|\$)" && \
+  _block 'find -E' 'BSD `find -E` (extended regex) does not exist on GNU. Use `find -regextype posix-extended`.'
+
+fi
 
 exit 0

@@ -1,0 +1,97 @@
+name: test
+
+# The suite has always run on the maintainer's macOS and nowhere else, while the
+# framework ships Linux binaries and claims Linux support. Portability was held
+# by discipline alone — every platform-specific call does carry a fallback, but
+# nothing executed them on Linux to prove it. This runs both.
+#
+# fail-fast is off on purpose: when one platform breaks, the other's result is
+# the more interesting half of the answer.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  suite:
+    name: suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Environment
+        run: |
+          echo "uname: $(uname -s) $(uname -m)"
+          echo "bash:  $BASH_VERSION"
+          for t in jq python3 git realpath; do
+            printf '%-10s %s\n' "$t" "$(command -v "$t" || echo 'MISSING')"
+          done
+
+      # Fixtures run `git init` and commit; a runner with no identity fails
+      # there for a reason that has nothing to do with the code under test.
+      - name: Git identity for fixtures
+        run: |
+          git config --global user.email "ci@apd.invalid"
+          git config --global user.name "APD CI"
+          git config --global init.defaultBranch main
+
+      - name: test-codex-adapter
+        env:
+          SW_MAX_ITERS: 1      # fixtures advancing `spec` launch a stall watcher
+        run: bash plugins/apd/bin/core/test-codex-adapter
+
+  # The guard is symmetric but each host can only prove one direction natively.
+  # The force seam drives both from both, so a matcher that silently stops
+  # matching on the other platform's grep still shows up here.
+  portability-both-directions:
+    name: portability guard (${{ matrix.os }}, both directions)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Block and allow, on both sides
+        run: |
+          set -u
+          P="$(mktemp -d)"; mkdir -p "$P/.apd"
+          : > "$P/CLAUDE.md"; printf 'APD_ACTIVE=true\n' > "$P/.apd/config"
+          export APD_PROJECT_DIR="$P"
+          G=plugins/apd/bin/core/guard-bash-portability
+          rc=0
+          check() { # <platform> <expected> <command>
+            APD_PORTABILITY_FORCE="$1" bash "$G" --command "$3" >/dev/null 2>&1
+            local got=$?
+            if [ "$got" != "$2" ]; then
+              echo "FAIL [$1] expected $2, got $got: $3"; rc=1
+            else
+              echo "ok   [$1] $3"
+            fi
+          }
+          # Linux host semantics: BSD-isms must block, GNU forms must pass
+          check linux  2 "sed -i '' 's/a/b/' f"
+          check linux  2 'stat -f %m f'
+          check linux  2 'date -v-1d'
+          check linux  2 'tail -r f'
+          check linux  0 "sed -i 's/a/b/' f"
+          check linux  0 'stat -c %Y f'
+          check linux  0 'tac f'
+          # macOS host semantics: the mirror
+          check darwin 2 'timeout 5 cmd'
+          check darwin 2 'date -d "-1 day"'
+          check darwin 2 'stat -c %Y f'
+          check darwin 0 "sed -i '' 's/a/b/' f"
+          check darwin 0 'date -v-1d'
+          check darwin 0 'gtimeout 5 cmd'
+          exit $rc

@@ -11593,6 +11593,11 @@ GP_T="$(mktemp -d -t apd-port.XXXXXX)"
 mkdir -p "$GP_T/.apd" "$GP_T/.claude/memory"
 printf 'PROJECT_NAME=port\nAPD_VERSION=6.33.0\n' > "$GP_T/.apd/config"
 _gp() { APD_PROJECT_DIR="$GP_T" APD_PORTABILITY_FORCE=1 bash "$GP_CORE" --command "$1" >/dev/null 2>&1; echo $?; }
+# v6.38 — the guard is symmetric, so the Linux direction needs its own probe.
+# `FORCE=1` still means darwin (pre-v6.38 callers), `FORCE=linux` drives the
+# other half. Without this the whole BSD-ism matcher set ships untested: the
+# suite stayed green through its addition because it never looked at it.
+
 GP_BLOCK_OK=1
 for c in "timeout 5 dotnet test" "dotnet build && timeout 3 x" "tac f" "nproc" "date -d '2020-01-01'" "stat -c '%s' f" "grep -P '\\d' f" "readlink -f /a" "find . -printf '%p'" "sed -i 's/a/b/' f"; do
   [ "$(_gp "$c")" = "2" ] || GP_BLOCK_OK=0
@@ -11627,6 +11632,61 @@ if bash "$APD_PLUGIN_ROOT/bin/apd" env 2>&1 | grep -q 'Portability cheat-sheet' 
 #     (Codex audit 2026-07-14: AGENTS.md shipped an unfilled Stack placeholder;
 #     `apd cdx agents migrate` silently no-op'd on hybrid CC-first projects.)
 # -----------------------------------------------------------
+
+# --- Linux direction: BSD-isms must block, GNU forms must pass ---------------
+# Own fixture, deliberately: the darwin matrix above tears "$GP_T" down before
+# this point, and pointing APD_PROJECT_DIR at a deleted directory makes the
+# guard resolve APD_ACTIVE=false and exit 0 — every check then "passes" against
+# nothing. That is how this block first shipped green. A self-contained fixture
+# is also immune to the next person moving code around.
+GP_LT="$(mktemp -d -t apd-portlin.XXXXXX)"
+mkdir -p "$GP_LT/.apd" "$GP_LT/.claude/memory"
+printf 'PROJECT_NAME=portlin\nAPD_VERSION=6.38.0\n' > "$GP_LT/.apd/config"
+_gpl() { APD_PROJECT_DIR="$GP_LT" APD_PORTABILITY_FORCE=linux bash "$GP_CORE" --command "$1" >/dev/null 2>&1; echo $?; }
+_gpd() { APD_PROJECT_DIR="$GP_LT" APD_PORTABILITY_FORCE=1     bash "$GP_CORE" --command "$1" >/dev/null 2>&1; echo $?; }
+# Fixture sanity: if the guard is inert here, every assertion below is vacuous.
+if [ "$(_gpl 'stat -f %m f')" = "2" ]; then
+    pass "portability fixture is live (guard active, not silently inert)"; PASSES=$((PASSES + 1))
+else
+    fail "portability fixture inert — the Linux checks below would pass against nothing"; FAILS=$((FAILS + 1))
+fi
+# The two entries that matter most do not fail loudly on GNU, they LIE:
+# `sed -i ""` consumes the empty string as the script (exit 0, file unchanged),
+# and `stat -f` means --file-system (exit 0, wrong data). A guard that only
+# caught the noisy ones would miss exactly the dangerous half.
+GP_L_BLOCK_OK=1
+GP_L_BLOCK_BAD=""
+for c in "sed -i '' 's/a/b/' f" "stat -f %m f" "date -v-1d" "date -j -f '%Y' '2020'" \
+         "date -r 1700000000" "tail -r f" "base64 -D x" "sysctl -n hw.ncpu" "find -E . -regex x"; do
+  [ "$(_gpl "$c")" = "2" ] || { GP_L_BLOCK_OK=0; GP_L_BLOCK_BAD="$GP_L_BLOCK_BAD | $c"; }
+done
+if [ "$GP_L_BLOCK_OK" = "1" ]; then
+    pass "portability guard blocks BSD-isms on Linux (9 forms)"; PASSES=$((PASSES + 1))
+else
+    fail "BSD-ism not blocked on Linux:$GP_L_BLOCK_BAD"; FAILS=$((FAILS + 1))
+fi
+
+GP_L_PASS_OK=1
+GP_L_PASS_BAD=""
+for c in "sed -i 's/a/b/' f" "sed -i.bak 's/a/b/' f" "stat -c %Y f" "date -d '-1 day'" \
+         "tac f" "nproc" "timeout 5 cmd" "git diff" "grep -P '\\d' f"; do
+  [ "$(_gpl "$c")" = "0" ] || { GP_L_PASS_OK=0; GP_L_PASS_BAD="$GP_L_PASS_BAD | $c"; }
+done
+if [ "$GP_L_PASS_OK" = "1" ]; then
+    pass "portability guard leaves GNU forms alone on Linux (no over-block)"; PASSES=$((PASSES + 1))
+else
+    fail "GNU form wrongly blocked on Linux:$GP_L_PASS_BAD"; FAILS=$((FAILS + 1))
+fi
+
+# Symmetry is the point: the same command must be judged oppositely by platform.
+# `sed -i ''` is REQUIRED on BSD and a silent no-op on GNU.
+if [ "$(_gpd "sed -i '' 's/a/b/' f")" = "0" ] && [ "$(_gpl "sed -i '' 's/a/b/' f")" = "2" ]; then
+    pass "same command, opposite verdict per platform (sed -i '')"; PASSES=$((PASSES + 1))
+else
+    fail "guard is not symmetric on sed -i ''"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$GP_LT"
+
 section "100. hybrid Codex robustness (v6.34)"
 HC_T="$(mktemp -d -t apd-hc.XXXXXX)"; mkdir -p "$HC_T/.codex" "$HC_T/src"
 echo '<Project Sdk="Microsoft.NET.Sdk"></Project>' > "$HC_T/src/App.csproj"
