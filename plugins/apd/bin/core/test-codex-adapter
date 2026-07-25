@@ -12311,6 +12311,97 @@ fi
 rm -rf "$_SG_F"
 
 # -----------------------------------------------------------
+# 110. Remaining preconditions — caps, recovery, spinoff, re-init
+# -----------------------------------------------------------
+# The last group from the 2026-07-25 audit that survived both surfaces.
+# Two of them guard the anti-fabrication boundary: reconstruct-agents refuses
+# to invent a ledger without CC transcripts, and raise-cap refuses to lift a
+# cycle cap without a signed spec.
+section "110. Remaining preconditions"
+
+_pc_blocks() {  # $1 label, $2 dir, $3 expected message, $4.. = pipeline-advance args
+    local label="$1" d="$2" want="$3"; shift 3
+    local out rc
+    out=$(APD_PROJECT_DIR="$d" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" "$@" 2>&1)
+    rc=$?
+    if [ "$rc" -ne 0 ] && echo "$out" | grep -qF "$want"; then
+        pass "$label"; PASSES=$((PASSES + 1))
+    else
+        fail "$label — expected '$want' (rc=$rc, got=$(echo "$out" | grep -m1 BLOCKED))"
+        FAILS=$((FAILS + 1))
+    fi
+}
+
+# --- criteria cap: a task too big for one cycle ----------------------------
+_PC_A="$(mktemp -d -t apd-pc-a.XXXXXX)"
+mkdir -p "$_PC_A/.apd/pipeline" "$_PC_A/.claude"
+echo "PROJECT_NAME=pc" > "$_PC_A/.apd/config"
+{ echo '# t'; echo '**Acceptance criteria:**'; for i in 1 2 3 4 5 6 7 8; do echo "- R$i: x"; done; } \
+    > "$_PC_A/.apd/pipeline/spec-card.md"
+_guide_marker "$_PC_A" "pc-task"
+_pc_blocks "8 criteria exceed the per-cycle cap" "$_PC_A" \
+    "BLOCKED: spec-card.md has 8 criteria (max 7)." spec "pc-task"
+# ALLOW: exactly at the cap
+{ echo '# t'; echo '**Acceptance criteria:**'; for i in 1 2 3 4 5 6 7; do echo "- R$i: x"; done; } \
+    > "$_PC_A/.apd/pipeline/spec-card.md"
+_guide_marker "$_PC_A" "pc-task"
+_PC_OUT=$(APD_PROJECT_DIR="$_PC_A" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "pc-task" 2>&1)
+if echo "$_PC_OUT" | grep -q 'criteria (max 7)'; then
+    fail "7 criteria wrongly rejected (off-by-one at the cap)"; FAILS=$((FAILS + 1))
+else
+    pass "7 criteria — exactly at the cap — are accepted"; PASSES=$((PASSES + 1))
+fi
+rm -rf "$_PC_A"
+
+# --- raise-cap needs a signed spec -----------------------------------------
+_PC_B="$(mktemp -d -t apd-pc-b.XXXXXX)"
+mkdir -p "$_PC_B/.apd/pipeline" "$_PC_B/.claude"
+echo "PROJECT_NAME=pc" > "$_PC_B/.apd/config"
+_pc_blocks "raise-cap without a signed spec BLOCKS" "$_PC_B" \
+    "BLOCKED: no active pipeline — raise-cap needs a signed spec" \
+    raise-cap builder 5 "need more cycles"
+rm -rf "$_PC_B"
+
+# --- reconstruct-agents: scope, then ground truth --------------------------
+_PC_C="$(mktemp -d -t apd-pc-c.XXXXXX)"
+mkdir -p "$_PC_C/.apd/pipeline" "$_PC_C/.claude"
+echo "PROJECT_NAME=pc" > "$_PC_C/.apd/config"
+_pc_blocks "reconstruct-agents without an active pipeline BLOCKS" "$_PC_C" \
+    "BLOCKED: no active pipeline (spec.done missing)" reconstruct-agents
+rm -rf "$_PC_C"
+
+# With a real spec but no CC transcripts, reconstruction must refuse rather than
+# invent a ledger — this is the line between recovery and fabrication.
+_PC_D="$(mktemp -d -t apd-pc-d.XXXXXX)"
+_int_proj "$_PC_D"
+_pc_blocks "reconstruct-agents without CC transcripts BLOCKS (no fabrication)" "$_PC_D" \
+    "BLOCKED: CC transcript dir not found" reconstruct-agents
+rm -rf "$_PC_D"
+
+# --- spinoff-finding needs somewhere to persist the seed -------------------
+_PC_E="$(mktemp -d -t apd-pc-e.XXXXXX)"
+mkdir -p "$_PC_E/.apd/pipeline" "$_PC_E/.claude"   # deliberately no memory dir
+echo "PROJECT_NAME=pc" > "$_PC_E/.apd/config"
+echo "ADVERSARIAL:1:1:0" > "$_PC_E/.apd/pipeline/.adversarial-summary"
+_pc_blocks "spinoff-finding with no memory dir BLOCKS" "$_PC_E" \
+    "BLOCKED: no memory dir resolved" spinoff-finding 1 "out of scope, follow up"
+rm -rf "$_PC_E"
+
+# --- init is first-setup only ----------------------------------------------
+_PC_F="$(mktemp -d -t apd-pc-f.XXXXXX)"
+mkdir -p "$_PC_F/.apd/pipeline" "$_PC_F/.claude"
+echo "PROJECT_NAME=pc" > "$_PC_F/.apd/config"
+( cd "$_PC_F" && git init -q 2>/dev/null
+  for i in 1 2 3; do
+      echo "$i" > ".claude/marker$i"
+      git add -A >/dev/null 2>&1
+      git -c user.email=t@t -c user.name=t commit -qm "apd $i" >/dev/null 2>&1
+  done ) 2>/dev/null
+_pc_blocks "init on a project with APD history BLOCKS" "$_PC_F" \
+    "BLOCKED: Init is only for first project setup." init "re-init attempt"
+rm -rf "$_PC_F"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
