@@ -1,0 +1,33 @@
+#!/bin/bash
+# CC adapter shim for guard-spec-blind
+# Reads Claude Code hook stdin JSON, passes normalized args to core
+#
+# WHY agent_type MATTERS HERE
+# This guard applies to ONE role, so it needs to know who is calling. The
+# obvious place for a per-role guard is the agent's own frontmatter `hooks:`
+# block — but that block DOES NOT FIRE (measured on CC 2.1.220: a logging hook
+# wired there never ran, in either schema form, while the identical hook in
+# settings.json fired and blocked). So the guard is wired session-level in
+# hooks/hooks.json and identifies the caller from the payload instead.
+#
+# The PreToolUse payload carries `agent_type` (the agent's name) and `agent_id`
+# for any tool call made from inside a subagent, and neither field for the
+# orchestrator's own calls. That is exactly the discriminator this guard needs.
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CORE_DIR="$SCRIPT_DIR/../../core"
+
+if ! command -v jq &>/dev/null; then
+  echo "ERROR: jq is not installed." >&2
+  exit 2
+fi
+
+INPUT=$(cat)
+# Glob/Grep name their directory `path`, Read names its target `file_path`.
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // empty' 2>/dev/null)
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
+AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
+
+exec "$CORE_DIR/guard-spec-blind" \
+  --agent-type "$AGENT_TYPE" --file-path "$FILE_PATH" --command "$COMMAND" "$@"

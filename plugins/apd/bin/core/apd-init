@@ -351,11 +351,35 @@ if [ "$MODE" = "update" ]; then
             fix "adversarial-reviewer: fixed model to sonnet"
             FIXES=$((FIXES + 1))
         fi
-        # Check scope directive (v4.7.10+) — regenerate if missing
-        if ! grep -q 'reviewed-files' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null; then
+        # Content markers that mean "this agent predates a contract it must carry".
+        # Each refresh rewrites the file from the template, so the markers are
+        # checked together and the file is regenerated at most once.
+        #   reviewed-files    — scope directive (v4.7.10+)
+        #   guard-spec-blind  — spec-blindness enforcement (v6.38+); without it
+        #                       the decontextualisation contract is intent only
+        MISSING_MARKER=""
+        grep -q 'reviewed-files' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null \
+            || MISSING_MARKER=".reviewed-files scope directive"
+        grep -q 'guard-spec-blind' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null \
+            || MISSING_MARKER="${MISSING_MARKER:+$MISSING_MARKER + }spec-blind guard"
+        if [ -n "$MISSING_MARKER" ]; then
             if [ -f "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" ]; then
+                # The template carries the DEFAULT model/effort. When a profile is
+                # declared, the profile owns those lines — refreshing blind would
+                # silently revert a burn/eco project to sonnet on the next
+                # session-start init (the v6.16.1 no-revert contract).
+                PREV_MODEL=$(grep -m1 '^model:' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null || true)
+                PREV_EFFORT=$(grep -m1 '^effort:' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null || true)
+
                 sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" > "$CLAUDE_DIR/agents/adversarial-reviewer.md"
-                fix "adversarial-reviewer: refreshed from template (added .reviewed-files scope directive)"
+
+                if [ -n "$DECLARED_PROFILE" ]; then
+                    [ -n "$PREV_MODEL" ] && sed -i.bak "s|^model:.*|$PREV_MODEL|" "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null
+                    [ -n "$PREV_EFFORT" ] && sed -i.bak "s|^effort:.*|$PREV_EFFORT|" "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null
+                    rm -f "$CLAUDE_DIR/agents/adversarial-reviewer.md.bak"
+                fi
+
+                fix "adversarial-reviewer: refreshed from template (added $MISSING_MARKER)"
                 FIXES=$((FIXES + 1))
             fi
         fi

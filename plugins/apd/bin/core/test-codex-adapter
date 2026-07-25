@@ -12405,6 +12405,343 @@ rm -rf "$_PC_F"
 # Summary
 # -----------------------------------------------------------
 echo ""
+section "111. Spec-blind guard — adversarial decontextualisation enforced"
+
+# Until v6.38 the adversarial reviewer's blindness was INTENT ONLY: the template
+# never mentions the spec, but the agent carries Read/Glob/Grep/Bash, its Read
+# hook is guard-secrets (env files, keys) and guard-pipeline-state is Write|Edit.
+# Measured on a fixture, EVERY channel returned exit 0 for `cat spec-card.md`.
+# These checks assert exit codes, never messages — a guard that prints "BLOCKED"
+# and exits 0 is exactly the defect this suite already shipped once (:6862).
+
+GSB="$APD_PLUGIN_ROOT/bin/core/guard-spec-blind"
+GSB_SHIM="$APD_PLUGIN_ROOT/bin/adapter/cc/guard-spec-blind"
+ADV_TMPL="$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md"
+
+# --- Static: the guard exists on both runtime paths ------------------------
+if [ -f "$GSB" ] && [ -x "$GSB" ]; then
+    pass "guard-spec-blind core exists and is executable"; PASSES=$((PASSES + 1))
+else
+    fail "guard-spec-blind core missing or not executable"; FAILS=$((FAILS + 1))
+fi
+if [ -f "$GSB_SHIM" ] && [ -x "$GSB_SHIM" ]; then
+    pass "guard-spec-blind CC shim exists and is executable"; PASSES=$((PASSES + 1))
+else
+    fail "guard-spec-blind CC shim missing or not executable"; FAILS=$((FAILS + 1))
+fi
+
+# --- Static: wiring lives session-level, NOT in the agent's frontmatter ----
+# Per-agent frontmatter hooks do not fire (measured, CC 2.1.220): a logging hook
+# wired there never ran in either schema form, while the identical hook in
+# settings.json fired and blocked. Wiring a guard there is decoration, so this
+# asserts the SESSION-level wiring exists and that the frontmatter one does not
+# come back — a regression would be silent, which is exactly how it got shipped.
+# Parsed, not grepped: the claim is that a specific MATCHER is bound to this
+# guard, and a line-window grep cannot express that (the first draft used -B4
+# where the matcher sits 5 lines up — it failed for a formatting reason, not a
+# wiring one, which is the kind of false red that teaches people to ignore reds).
+HJ="$REPO_ROOT/hooks/hooks.json"
+SB_MATCHERS=$(python3 -c "
+import json,sys
+d=json.load(open('$HJ'))
+out=[]
+for e in d['hooks'].get('PreToolUse',[]):
+    for h in e.get('hooks',[]):
+        if any('guard-spec-blind' in a for a in h.get('args',[])):
+            out.append(e['matcher'])
+print(' '.join(sorted(out)))
+" 2>/dev/null)
+if [ "$SB_MATCHERS" = "Bash Read|Glob|Grep" ]; then
+    pass "hooks.json wires spec-blind session-level on both channels"; PASSES=$((PASSES + 1))
+else
+    fail "hooks.json spec-blind wiring is [$SB_MATCHERS], expected both channels"; FAILS=$((FAILS + 1))
+fi
+if grep -qE '^\s+command: .*guard-spec-blind' "$ADV_TMPL"; then
+    fail "adversarial template re-wires spec-blind in frontmatter (that block never fires)"
+    FAILS=$((FAILS + 1))
+else
+    pass "adversarial template does NOT wire spec-blind in frontmatter (inert there)"
+    PASSES=$((PASSES + 1))
+fi
+if grep -q 'agent_type' "$GSB_SHIM" && grep -q 'agent-type' "$GSB"; then
+    pass "spec-blind identifies its caller from the payload agent_type"; PASSES=$((PASSES + 1))
+else
+    fail "spec-blind has no agent_type discriminator"; FAILS=$((FAILS + 1))
+fi
+if grep -q 'NEVER read the task.s intent' "$ADV_TMPL"; then
+    pass "adversarial template states the blindness boundary in prose"; PASSES=$((PASSES + 1))
+else
+    fail "adversarial template does not state the blindness boundary"; FAILS=$((FAILS + 1))
+fi
+
+# --- Live fixture ----------------------------------------------------------
+SB="$SCRATCH/specblind"
+_rg_proj "$SB"
+mkdir -p "$SB/.claude/memory" "$SB/src"
+printf '# Spec\nR1: retry\n'        > "$SB/.apd/pipeline/spec-card.md"
+printf '## S1\n**Implements:** R1\n' > "$SB/.apd/pipeline/implementation-plan.md"
+printf 'F1 dismissed\n'             > "$SB/.apd/pipeline/.adversarial-rationale.md"
+printf 'src/a.go\n'                 > "$SB/.apd/pipeline/.reviewed-files"
+printf '# status\n'                 > "$SB/.claude/memory/status.md"
+printf 'package main\n'             > "$SB/src/a.go"
+
+# BLOCK — the path channel
+_guard_exit "spec-blind BLOCKS Read of spec-card.md" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --file-path ".apd/pipeline/spec-card.md"
+_guard_exit "spec-blind BLOCKS Read of implementation-plan.md" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --file-path ".apd/pipeline/implementation-plan.md"
+_guard_exit "spec-blind BLOCKS Read of a prior .adversarial-rationale.md" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --file-path ".apd/pipeline/.adversarial-rationale.md"
+_guard_exit "spec-blind BLOCKS Read of project memory" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --file-path ".claude/memory/status.md"
+_guard_exit "spec-blind BLOCKS Glob of the pipeline directory" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --file-path ".apd/pipeline"
+# Traversal: the canonicalisation is the mechanism, not the literal string.
+_guard_exit "spec-blind BLOCKS a traversal path onto the spec" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --file-path ".apd/pipeline/../pipeline/spec-card.md"
+
+# BLOCK — the Bash channel. A path matcher cannot scope a command string, which
+# is why this channel has its own matcher rather than reusing the path one.
+_guard_exit "spec-blind BLOCKS bash cat of the spec" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --command "cat .apd/pipeline/spec-card.md"
+_guard_exit "spec-blind BLOCKS a glob over the pipeline dir (name never appears)" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --command "cat .apd/pipeline/*"
+_guard_exit "spec-blind BLOCKS recursive grep of the pipeline dir" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --command "grep -r 'Human gate' .apd/pipeline/"
+_guard_exit "spec-blind BLOCKS the sanctioned read path (apd pipeline show)" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --command "bash .claude/bin/apd pipeline show spec"
+_guard_exit "spec-blind BLOCKS apd report (leaks adversarial counts)" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --command "bash .claude/bin/apd report"
+_guard_exit "spec-blind BLOCKS git show of the spec blob" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --command "git show HEAD:.apd/pipeline/spec-card.md"
+_guard_exit "spec-blind BLOCKS a leak appended to a legitimate command" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --command "git diff; cat .apd/pipeline/spec-card.md"
+_guard_exit "spec-blind BLOCKS bash read of project memory" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --command "cat .claude/memory/status.md"
+
+# ALLOW — the role must stay able to do its job. Over-blocking here breaks the
+# reviewer entirely: .reviewed-files IS its scope and the template says to read it.
+_guard_exit "spec-blind ALLOWS Read of .reviewed-files (the review scope)" 0 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --file-path ".apd/pipeline/.reviewed-files"
+_guard_exit "spec-blind ALLOWS bash read of .reviewed-files" 0 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --command "cat .apd/pipeline/.reviewed-files"
+_guard_exit "spec-blind ALLOWS Read of a reviewed source file" 0 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --file-path "src/a.go"
+_guard_exit "spec-blind ALLOWS git diff" 0 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --command "git diff"
+_guard_exit "spec-blind ALLOWS grep in project source" 0 \
+    "$SB" guard-spec-blind --agent-type adversarial-reviewer --command "grep -n foo src/a.go"
+
+# ALLOW — every other caller. The guard now runs session-level for EVERYONE, so
+# the discrimination is the load-bearing part: blinding the orchestrator would
+# deadlock the pipeline, and blinding the supervisor would break the layer whose
+# whole job is to read the spec against the final diff.
+_guard_exit "spec-blind lets the ORCHESTRATOR read the spec (no agent_type)" 0 \
+    "$SB" guard-spec-blind --file-path ".apd/pipeline/spec-card.md"
+_guard_exit "spec-blind lets code-reviewer read the spec" 0 \
+    "$SB" guard-spec-blind --agent-type code-reviewer --file-path ".apd/pipeline/spec-card.md"
+_guard_exit "spec-blind lets the supervisor read the spec" 0 \
+    "$SB" guard-spec-blind --agent-type supervisor --file-path ".apd/pipeline/spec-card.md"
+_guard_exit "spec-blind lets a builder read the spec" 0 \
+    "$SB" guard-spec-blind --agent-type backend-builder --file-path ".apd/pipeline/spec-card.md"
+# A renamed adversarial role must not silently lose its blindness.
+_guard_exit "spec-blind still blinds a renamed adversarial role" 2 \
+    "$SB" guard-spec-blind --agent-type adversarial-hostile --file-path ".apd/pipeline/spec-card.md"
+
+( cd "$SB" && APD_SKIP_SPEC_BLIND_GUARD=1 bash "$GSB" --agent-type adversarial-reviewer --file-path ".apd/pipeline/spec-card.md" ) >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+    pass "spec-blind honours APD_SKIP_SPEC_BLIND_GUARD opt-out (exit 0)"; PASSES=$((PASSES + 1))
+else
+    fail "spec-blind opt-out did not take effect"; FAILS=$((FAILS + 1))
+fi
+
+# --- Rollout to existing projects -----------------------------------------
+# apd-init refreshes the agent on a missing content marker, so installed
+# projects self-heal on the next session-start. The trap: the template carries
+# the DEFAULT model, so a blind refresh would silently revert a burn/eco project
+# to sonnet — the v6.16.1 no-revert contract, re-broken by every new marker.
+if grep -q "guard-spec-blind" "$APD_PLUGIN_ROOT/bin/core/apd-init" \
+   && grep -q 'PREV_MODEL' "$APD_PLUGIN_ROOT/bin/core/apd-init"; then
+    pass "apd-init carries the spec-blind marker and preserves the profile model"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-init missing spec-blind marker or model preservation"
+    FAILS=$((FAILS + 1))
+fi
+
+SBI="$SCRATCH/specblind-init"
+mkdir -p "$SBI/.claude/agents" "$SBI/.apd/pipeline"
+touch "$SBI/CLAUDE.md"
+printf 'APD_ACTIVE=true\nMODEL_PROFILE=burn\n' > "$SBI/.apd/config"
+# A pre-v6.38 agent: scope directive present, spec-blind absent, model set by profile.
+sed 's/^model: sonnet/model: claude-opus-5/; s/^effort: max/effort: high/' "$ADV_TMPL" \
+    | grep -v 'guard-spec-blind' | grep -v 'Read|Glob|Grep' \
+    > "$SBI/.claude/agents/adversarial-reviewer.md"
+APD_PROJECT_DIR="$SBI" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick >/dev/null 2>&1 || true
+
+if grep -q 'guard-spec-blind' "$SBI/.claude/agents/adversarial-reviewer.md"; then
+    pass "apd-init adds spec-blind to a pre-v6.38 agent"; PASSES=$((PASSES + 1))
+else
+    fail "apd-init did not roll spec-blind out to an existing agent"; FAILS=$((FAILS + 1))
+fi
+if grep -q '^model: claude-opus-5' "$SBI/.claude/agents/adversarial-reviewer.md" \
+   && grep -q '^effort: high' "$SBI/.claude/agents/adversarial-reviewer.md"; then
+    pass "apd-init refresh preserves the profile-managed model and effort"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-init refresh reverted the profile-managed model/effort"
+    FAILS=$((FAILS + 1))
+fi
+# Second run must be a no-op: a refresh that re-fires every session churns the
+# agent file and would re-log a fix forever.
+SBI_HASH_1=$(shasum "$SBI/.claude/agents/adversarial-reviewer.md" | awk '{print $1}')
+APD_PROJECT_DIR="$SBI" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick >/dev/null 2>&1 || true
+SBI_HASH_2=$(shasum "$SBI/.claude/agents/adversarial-reviewer.md" | awk '{print $1}')
+if [ "$SBI_HASH_1" = "$SBI_HASH_2" ]; then
+    pass "apd-init spec-blind rollout is idempotent"; PASSES=$((PASSES + 1))
+else
+    fail "apd-init rewrites the agent on every run"; FAILS=$((FAILS + 1))
+fi
+
+section "112. Agent scope + secrets enforced session-level (per-agent hooks never fire)"
+
+# Per-agent frontmatter `hooks:` blocks DO NOT EXECUTE on CC 2.1.220. Measured:
+# a logging hook wired there never ran, in either schema form, while the same
+# hook in settings.json fired and blocked. `guard-scope` (carrying the agent's
+# {{SCOPE_PATHS}}) and `guard-secrets` appeared NOWHERE ELSE — so on CC, agent
+# write-scope was never enforced and the secrets guard never ran. Codex was
+# better protected: its writes go through apd_guard_write → bin/core/guard-scope.
+#
+# The frontmatter hook command keeps its role as the scope DECLARATION; these
+# checks cover the enforcement path that replaced it.
+
+HJ112="$REPO_ROOT/hooks/hooks.json"
+WIRED=$(python3 -c "
+import json
+d=json.load(open('$HJ112'))
+out=[]
+for e in d['hooks'].get('PreToolUse',[]):
+    for h in e.get('hooks',[]):
+        for a in h.get('args',[]):
+            for g in ('guard-scope','guard-secrets'):
+                if a.endswith('/'+g): out.append(g+'@'+e['matcher'])
+print(' '.join(sorted(out)))
+" 2>/dev/null)
+case "$WIRED" in
+    *"guard-scope@Write|Edit"*) pass "hooks.json enforces guard-scope on Write|Edit"; PASSES=$((PASSES + 1)) ;;
+    *) fail "hooks.json does not enforce guard-scope session-level [$WIRED]"; FAILS=$((FAILS + 1)) ;;
+esac
+case "$WIRED" in
+    *"guard-secrets@Read|Write|Edit|Bash"*) pass "hooks.json enforces guard-secrets on every channel"; PASSES=$((PASSES + 1)) ;;
+    *) fail "hooks.json does not enforce guard-secrets session-level [$WIRED]"; FAILS=$((FAILS + 1)) ;;
+esac
+for sh in guard-scope guard-bash-scope; do
+    if grep -q 'agent_type' "$APD_PLUGIN_ROOT/bin/adapter/cc/$sh"; then
+        pass "$sh shim identifies the caller from agent_type"; PASSES=$((PASSES + 1))
+    else
+        fail "$sh shim has no agent_type discriminator"; FAILS=$((FAILS + 1))
+    fi
+done
+
+# --- Fixture: one agent per declaration form ------------------------------
+AS="$SCRATCH/agentscope"
+_rg_proj "$AS"
+mkdir -p "$AS/.claude/agents" "$AS/src" "$AS/outside"
+# CC form — scope lives in the guard-scope hook command
+cat > "$AS/.claude/agents/scoped-builder.md" <<'ASEOF'
+---
+name: scoped-builder
+tools: Read, Write, Edit
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit"
+      hooks:
+        - type: command
+          command: "bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-scope src/"
+          timeout: 5
+---
+body
+ASEOF
+# Codex form — YAML scope
+printf -- '---\nname: cdx-builder\nscope: [api/, lib/]\n---\nbody\n' > "$AS/.claude/agents/cdx-builder.md"
+# writable but undeclared — an unfilled template
+printf -- '---\nname: noscope\ntools: Read, Write\n---\nbody\n' > "$AS/.claude/agents/noscope.md"
+# read-only role — no scope by design, must still be able to run bash
+printf -- '---\nname: reviewer-ro\ntools: Read, Bash\nreadonly: true\n---\nbody\n' > "$AS/.claude/agents/reviewer-ro.md"
+
+# Resolver, exercised THE WAY ITS CALLER DOES: under `set -euo pipefail`, in a
+# subshell. Run without it, a grep that finds nothing exits 1 and `set -e` kills
+# the function mid-way — which is precisely how this shipped broken once: the
+# resolver returned `src/` by hand and NOTHING through the shim, so every write
+# by every agent fail-closed. Testing it in a friendlier shell is testing a
+# different program.
+_scope_of() {
+    ( set -euo pipefail
+      cd "$AS"
+      # shellcheck source=/dev/null
+      source "$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh"
+      # shellcheck source=/dev/null
+      source "$APD_PLUGIN_ROOT/bin/lib/agent-scope.sh"
+      f="$(_agent_def_file "$1" || true)"
+      [ -n "$f" ] || { echo "NODEF"; exit 0; }
+      _agent_scope_paths "$f" | tr '\n' ' ' ) 2>/dev/null
+}
+_scope_is() {
+    local label="$1" agent="$2" want="$3" got
+    got="$(_scope_of "$agent")"
+    if [ "$got" = "$want" ]; then
+        pass "$label"; PASSES=$((PASSES + 1))
+    else
+        fail "$label — expected [$want], got [$got]"; FAILS=$((FAILS + 1))
+    fi
+}
+_scope_is "scope resolves from the CC hook command under set -e" scoped-builder "src/ "
+_scope_is "scope resolves from Codex YAML under set -e" cdx-builder "api/ lib/ "
+_scope_is "an unfilled template declares NO scope (not the placeholder)" noscope ""
+_scope_is "an unknown agent has no definition" nosuchagent "NODEF"
+_scope_is "a traversal agent_type is refused" "../../etc/passwd" "NODEF"
+
+# --- The shim, driven by a real hook payload ------------------------------
+_shim_exit() {
+    local label="$1" expect="$2" shim="$3" json="$4"
+    ( cd "$AS" && printf '%s' "$json" | bash "$APD_PLUGIN_ROOT/bin/adapter/cc/$shim" ) >/dev/null 2>&1
+    local rc=$?
+    if [ "$rc" = "$expect" ]; then
+        pass "$label (exit $rc)"; PASSES=$((PASSES + 1))
+    else
+        fail "$label — expected exit $expect, got $rc"; FAILS=$((FAILS + 1))
+    fi
+}
+
+# The PAIR is the point. A guard that blocks everything also blocks the
+# out-of-scope write, so the in-scope ALLOW is what proves it discriminates
+# rather than merely failing closed.
+_shim_exit "guard-scope ALLOWS an in-scope write" 0 guard-scope \
+    '{"agent_type":"scoped-builder","tool_input":{"file_path":"src/b.go"}}'
+_shim_exit "guard-scope BLOCKS an out-of-scope write" 2 guard-scope \
+    '{"agent_type":"scoped-builder","tool_input":{"file_path":"outside/evil.txt"}}'
+_shim_exit "guard-scope BLOCKS a traversal out of scope" 2 guard-scope \
+    '{"agent_type":"scoped-builder","tool_input":{"file_path":"src/../outside/evil.txt"}}'
+_shim_exit "guard-scope ALLOWS the orchestrator (no agent_type)" 0 guard-scope \
+    '{"tool_input":{"file_path":"outside/evil.txt"}}'
+_shim_exit "guard-scope ALLOWS an agent outside the APD registry" 0 guard-scope \
+    '{"agent_type":"Explore","tool_input":{"file_path":"outside/evil.txt"}}'
+_shim_exit "guard-scope BLOCKS a writable agent with no declared scope" 2 guard-scope \
+    '{"agent_type":"noscope","tool_input":{"file_path":"src/b.go"}}'
+_shim_exit "guard-scope BLOCKS a readonly agent outright" 2 guard-scope \
+    '{"agent_type":"reviewer-ro","tool_input":{"file_path":"src/b.go"}}'
+
+# Bash side must NOT fail closed on a missing scope: read-only roles legitimately
+# run `git diff` and test commands and have no scope by design.
+_shim_exit "guard-bash-scope ALLOWS a scopeless role to run bash" 0 guard-bash-scope \
+    '{"agent_type":"reviewer-ro","tool_input":{"command":"git diff"}}'
+_shim_exit "guard-bash-scope still BLOCKS a write to pipeline state" 2 guard-bash-scope \
+    '{"agent_type":"reviewer-ro","tool_input":{"command":"echo x > .apd/pipeline/spec.done"}}'
+_shim_exit "guard-bash-scope BLOCKS an out-of-scope bash write" 2 guard-bash-scope \
+    '{"agent_type":"scoped-builder","tool_input":{"command":"cp src/a.go outside/evil.txt"}}'
+_shim_exit "guard-bash-scope ALLOWS an in-scope bash write" 0 guard-bash-scope \
+    '{"agent_type":"scoped-builder","tool_input":{"command":"cp src/a.go src/b.go"}}'
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"

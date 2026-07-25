@@ -1,10 +1,21 @@
 #!/bin/bash
 # CC adapter shim for guard-bash-scope
 # Reads Claude Code hook stdin JSON, passes normalized args to core
+#
+# The session-level hook has always been wired WITHOUT scope paths, so the core
+# short-circuits (`ALLOWED_PATHS` empty → exit 0) right after its protected-path
+# checks: the pipeline dir and the plugin cache were guarded, the agent's own
+# write scope was not. The per-agent frontmatter hook that carried the paths
+# never fired (measured, CC 2.1.220 — see bin/lib/agent-scope.sh), so bash
+# writes outside an agent's scope went unchecked.
+#
+# Resolution mirrors bin/adapter/cc/guard-scope: caller identified by
+# `agent_type`, scope read from the registry, never from arguments.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CORE_DIR="$SCRIPT_DIR/../../core"
+LIB_DIR="$SCRIPT_DIR/../../lib"
 
 if ! command -v jq &>/dev/null; then
   echo "ERROR: jq is not installed." >&2
@@ -13,5 +24,42 @@ fi
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
+AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
 
-exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" "$@"
+# Legacy form: paths supplied by the caller (per-agent frontmatter).
+if [ "$#" -gt 0 ]; then
+  exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" "$@"
+fi
+
+# Orchestrator call, or a subagent APD does not own: run the core anyway so the
+# protected-path checks (pipeline state, plugin cache) still apply — they are
+# unconditional and do not depend on a scope list.
+if [ -z "$AGENT_TYPE" ]; then
+  exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND"
+fi
+
+# shellcheck source=/dev/null
+source "$LIB_DIR/resolve-project.sh"
+[ "${APD_ACTIVE:-false}" = false ] && exit 0
+# shellcheck source=/dev/null
+source "$LIB_DIR/agent-scope.sh"
+
+AGENT_FILE="$(_agent_def_file "$AGENT_TYPE" || true)"
+if [ -z "$AGENT_FILE" ]; then
+  exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND"
+fi
+
+SCOPE_PATHS=()
+while IFS= read -r p; do
+  [ -n "$p" ] && SCOPE_PATHS+=("$p")
+done < <(_agent_scope_paths "$AGENT_FILE")
+
+# No declared scope: fall through to the protected-path checks only. Unlike the
+# Write/Edit path this does NOT fail closed — read-only roles legitimately run
+# bash (`git diff`, test commands) and have no scope by design, so blocking
+# every command from them would break the review steps.
+if [ ${#SCOPE_PATHS[@]} -eq 0 ]; then
+  exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND"
+fi
+
+exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" "${SCOPE_PATHS[@]}"

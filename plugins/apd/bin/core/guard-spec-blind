@@ -1,0 +1,164 @@
+#!/bin/bash
+# APD Spec-Blind Guard — enforces the adversarial reviewer's decontextualisation
+#
+# WHY THIS EXISTS
+# The adversarial reviewer's value is positional: it judges the diff without
+# knowing the intent behind it. Until v6.38 that was INTENT ONLY. Measured
+# 2026-07-25 on a fixture, every channel returned exit 0:
+#
+#   guard-bash-scope  cat .apd/pipeline/spec-card.md   -> 0  (blocks WRITES only)
+#   guard-secrets     Read .apd/pipeline/spec-card.md  -> 0  (env files + keys)
+#   guard-pipeline-state                               -> 0  (PreToolUse Write|Edit)
+#
+# The template never mentions the spec, but the agent carries Read/Glob/Grep/
+# Bash and reading the spec is the most natural thing an agent does when it
+# wants to understand a task. Nothing stopped it, so "blind" was a claim.
+#
+# HOW THE CALLER IS IDENTIFIED
+# The obvious home for a per-role guard is the agent's own frontmatter `hooks:`
+# block. That block DOES NOT FIRE — measured on CC 2.1.220: a logging hook wired
+# there never ran, in either schema form, while the identical hook in
+# settings.json fired and blocked. Wiring it there would have been decoration.
+#
+# So the guard runs session-level from hooks/hooks.json, for every caller, and
+# gates on `--agent-type` (the payload's `agent_type`, which CC sets to the
+# agent's name for any tool call made inside a subagent and omits for the
+# orchestrator's own calls). Anything that is not the adversarial reviewer
+# leaves immediately: the orchestrator, the builders and the supervisor all need
+# the spec, and blinding them would deadlock the pipeline.
+#
+# TWO CHANNELS, TWO MATCHERS
+# A path matcher alone cannot scope Bash: its target is a command string, not a
+# path. So the Read channel compares canonicalised paths, and the Bash channel
+# scans tokens plus the sanctioned read commands. Both must hold.
+#
+# Interface: --agent-type <name> --file-path <path> --command <cmd>
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/style.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
+[ "${APD_SKIP_SPEC_BLIND_GUARD:-}" = "1" ] && exit 0
+
+FILE_PATH=""
+COMMAND=""
+AGENT_TYPE=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --agent-type) AGENT_TYPE="$2"; shift 2 ;;
+    --file-path)  FILE_PATH="$2"; shift 2 ;;
+    --command)    COMMAND="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+# --- Whose calls this guard governs ---------------------------------------
+# Empty agent_type = the orchestrator's own call. It writes the spec card;
+# blinding it would deadlock the pipeline.
+[ -z "$AGENT_TYPE" ] && exit 0
+# Match the canonical name, and any renamed variant that still says what it is.
+# A project that renames the role should not silently lose its blindness.
+case "$AGENT_TYPE" in
+  adversarial-reviewer|*adversarial*) : ;;
+  *) exit 0 ;;
+esac
+
+# --- What is blinded -------------------------------------------------------
+# The whole pipeline directory (spec-card, implementation-plan, the adversarial
+# and supervision rationales — a prior pass's triage contaminates a fresh one)
+# and the APD memory directory (status.md and the rationale archive carry the
+# running task narrative). Blinding directories rather than a file list means a
+# new state file is covered the day it is introduced, not the day someone
+# remembers to add it here.
+#
+# ONE exception: .reviewed-files IS the reviewer's scope and the template tells
+# it to read that file. Blinding it would break the role it is meant to protect.
+ALLOWED_BASENAME=".reviewed-files"
+
+PIPE_REL="${PIPELINE_DIR#"$PROJECT_DIR"/}"
+MEM_REL="${APD_MEMORY_DIR#"$PROJECT_DIR"/}"
+
+# Sanctioned read paths are still leaks for THIS role: `apd pipeline show spec`
+# prints the spec-card, and `apd report` prints adversarial counts.
+BLIND_COMMANDS=("pipeline show" "pipeline status" "pipeline metrics" "pipeline report" "apd report")
+
+# Canonicalise PROJECT_DIR once — ABS_PATH below is physical (realpath/pwd -P)
+# while PROJECT_DIR may be a logical, symlinked form (macOS /var, /tmp). The
+# mismatch left REL_PATH absolute and silently missed every match (v6.37.1).
+PROJ_CANON=""
+if command -v realpath >/dev/null 2>&1; then
+  PROJ_CANON=$(realpath "$PROJECT_DIR" 2>/dev/null || true)
+fi
+[ -z "$PROJ_CANON" ] && PROJ_CANON="$(cd "$PROJECT_DIR" 2>/dev/null && pwd -P)"
+[ -z "$PROJ_CANON" ] && PROJ_CANON="$PROJECT_DIR"
+
+_rel_path() {
+  local p="$1" abs="" d
+  [ -z "$p" ] && return 0
+  if command -v realpath >/dev/null 2>&1; then
+    abs=$(realpath "$p" 2>/dev/null || true)
+  fi
+  if [ -z "$abs" ]; then
+    d=$(dirname "$p")
+    [ -d "$d" ] && abs="$(cd "$d" 2>/dev/null && pwd -P)/$(basename "$p")"
+  fi
+  [ -z "$abs" ] && abs="$p"
+  printf '%s' "${abs#"$PROJ_CANON"/}"
+}
+
+_deny() {
+  echo "BLOCKED: adversarial-reviewer may not read $1" >&2
+  echo "" >&2
+  echo "  Your review is decontextualised BY DESIGN — you judge the diff on its" >&2
+  echo "  own merit, without the spec, the plan or a previous pass's triage." >&2
+  echo "  That blindness is the whole reason this role exists; reading intent" >&2
+  echo "  would make your findings the same ones a contextual reviewer already" >&2
+  echo "  produced." >&2
+  echo "" >&2
+  echo "  Your scope is $PIPE_REL/$ALLOWED_BASENAME — read the files it lists," >&2
+  echo "  in full, and nothing else. If it is empty or missing, say so and stop." >&2
+  log_block "spec-blind" "$2"
+  exit 2
+}
+
+# --- Channel 1: Read / Glob / Grep target ----------------------------------
+if [ -n "$FILE_PATH" ]; then
+  REL=$(_rel_path "$FILE_PATH")
+
+  # Unresolved traversal means the prefix comparison below cannot be trusted.
+  # Fail closed: an unverifiable path is never allowed through.
+  case "/$REL/" in
+    */../*|*/..|../*) _deny "a path with unresolved traversal ($REL)" "$REL" ;;
+  esac
+
+  case "$REL" in
+    "$PIPE_REL/$ALLOWED_BASENAME") : ;;                      # the review scope — allowed
+    "$PIPE_REL"|"$PIPE_REL"/*) _deny "pipeline state ($REL)" "$REL" ;;
+    "$MEM_REL"|"$MEM_REL"/*)   _deny "project memory ($REL)" "$REL" ;;
+  esac
+fi
+
+# --- Channel 2: Bash command -----------------------------------------------
+if [ -n "$COMMAND" ]; then
+  for bc in "${BLIND_COMMANDS[@]}"; do
+    if [[ "$COMMAND" == *"$bc"* ]]; then
+      _deny "pipeline state via \`$bc\`" "cmd:$bc"
+    fi
+  done
+
+  # Word-split without globbing: an unquoted expansion would let `cat
+  # .apd/pipeline/*` expand against the CWD and the token we meant to inspect
+  # would never appear.
+  set -f
+  for tok in $COMMAND; do
+    tok="${tok//\"/}"
+    tok="${tok//\'/}"
+    case "$tok" in
+      *"$PIPE_REL/$ALLOWED_BASENAME") continue ;;            # the review scope — allowed
+      *"$PIPE_REL"*) set +f; _deny "pipeline state ($tok)" "cmd:$tok" ;;
+      *"$MEM_REL"*)  set +f; _deny "project memory ($tok)" "cmd:$tok" ;;
+    esac
+  done
+  set +f
+fi
+
+exit 0

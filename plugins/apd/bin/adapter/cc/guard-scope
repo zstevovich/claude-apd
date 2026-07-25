@@ -1,10 +1,25 @@
 #!/bin/bash
 # CC adapter shim for guard-scope
 # Reads Claude Code hook stdin JSON, passes normalized args to core
+#
+# TWO INVOCATION SHAPES
+#   with positional paths — the historical per-agent frontmatter form
+#     (`… guard-scope src/ tests/`). Kept working, but that block does NOT
+#     execute on CC 2.1.220: per-agent frontmatter hooks never fire (measured —
+#     a logging hook wired there never ran, in either schema form, while the
+#     identical hook in settings.json fired and blocked).
+#   with no positional paths — the session-level form wired in hooks/hooks.json.
+#     The caller is identified from the payload's `agent_type` and the scope is
+#     read from the agent REGISTRY, never from arguments, so an agent cannot
+#     widen its own scope. Same rule the Codex MCP path already enforces.
+#
+# The frontmatter hook command therefore remains the scope DECLARATION; this
+# shim is the enforcement.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CORE_DIR="$SCRIPT_DIR/../../core"
+LIB_DIR="$SCRIPT_DIR/../../lib"
 
 # Fail-closed: enforcement guard — jq is required to parse hook input
 if ! command -v jq &>/dev/null; then
@@ -14,5 +29,54 @@ fi
 
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
 
-exec "$CORE_DIR/guard-scope" --file-path "$FILE_PATH" "$@"
+# Legacy form: paths supplied by the caller.
+if [ "$#" -gt 0 ]; then
+  exec "$CORE_DIR/guard-scope" --file-path "$FILE_PATH" "$@"
+fi
+
+# No agent_type means the orchestrator's own tool call. Its write boundary is
+# guard-orchestrator's job, not this guard's — an unscoped BLOCK here would
+# stop the orchestrator writing the spec card.
+[ -z "$AGENT_TYPE" ] && exit 0
+
+# shellcheck source=/dev/null
+source "$LIB_DIR/resolve-project.sh"
+# shellcheck source=/dev/null
+source "$LIB_DIR/style.sh"
+[ "${APD_ACTIVE:-false}" = false ] && exit 0
+# shellcheck source=/dev/null
+source "$LIB_DIR/agent-scope.sh"
+
+# An agent that is not in the APD registry is not APD's to bound — users run
+# their own subagents (Explore, plan agents) in APD projects and blocking them
+# would make the plugin unusable.
+AGENT_FILE="$(_agent_def_file "$AGENT_TYPE" || true)"
+[ -z "$AGENT_FILE" ] && exit 0
+
+if _agent_is_readonly "$AGENT_FILE"; then
+  echo "BLOCKED: agent '$AGENT_TYPE' is declared readonly and may not write files." >&2
+  log_block "out-of-scope-write" "readonly:$AGENT_TYPE:$FILE_PATH"
+  exit 2
+fi
+
+SCOPE_PATHS=()
+while IFS= read -r p; do
+  [ -n "$p" ] && SCOPE_PATHS+=("$p")
+done < <(_agent_scope_paths "$AGENT_FILE")
+
+# Fail-closed. A writable agent with no declared scope used to be a silent
+# allow-all (guard-scope exits 0 on an empty path list) — the same fail-open
+# that v6.37.0 closed on the Codex side. Every APD template that carries
+# Write/Edit declares a scope; a missing one means an unfilled placeholder.
+if [ ${#SCOPE_PATHS[@]} -eq 0 ]; then
+  echo "BLOCKED: agent '$AGENT_TYPE' has no declared scope." >&2
+  echo "  A writable agent must declare the paths it may modify. Check the" >&2
+  echo "  guard-scope hook command in $AGENT_FILE — an unfilled {{SCOPE_PATHS}}" >&2
+  echo "  placeholder reads as 'no scope', and no scope means no writes." >&2
+  log_block "out-of-scope-write" "no-scope:$AGENT_TYPE:$FILE_PATH"
+  exit 2
+fi
+
+exec "$CORE_DIR/guard-scope" --file-path "$FILE_PATH" "${SCOPE_PATHS[@]}"
