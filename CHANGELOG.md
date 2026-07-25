@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+**Mutation audit: every guard and gate now has a test that fails when the mechanism is removed.**
+
+Applies the standing rule — a test that cannot go red proves nothing — retroactively. Each mechanism was neutered in a throwaway copy of the repo and the full suite re-run; anything that stayed green had no proof. Both E2E surfaces were probed, since `verify-apd` is inert in the framework repo (`APD_ACTIVE=false`) and needs an installed-project fixture.
+
+**Findings.** Of 13 guards, 5 had proof. Of 18 log_block gates, 12. Of the remaining 34 exit sites in `pipeline-advance`, 9. `stall-watch` had none — its 7 assertions were all greps. The sharpest case: `guard-pipeline-state` was named in 20 assertions and executed in exactly one, which matched the hint TEXT and never the exit code, so a guard that had stopped blocking still passed a check called "→ BLOCK".
+
+**Tests added** (`test-codex-adapter` 920 → 983): §104 guard BLOCK+ALLOW exit codes incl. the `guard-permission-denied` logger, §105 `verify-plan-spec` executed with its ALLOW directions, §52 L–P rationale field/status consistency and `max_defects`, §106 forged `.done` files and the frozen spec, §97 stall-watch lifecycle run rather than grepped, §107 pipeline lock, §108 phase ordering, §109 sub-gate translation, §110 remaining preconditions. `:6862` now asserts exit 2 as well as the hint.
+
+### Fixed
+
+- **`stall-watch` could not be stopped and could not stop itself.** `INT`/`TERM` were trapped onto a handler that never exits, so the loop resumed — only `SIGKILL` worked (measured: TERM to 9 daemons, 9 survivors). Separately, `session_dead` was computed only when transcripts existed, so a watcher pointed at a directory CC never opened could never conclude the session was gone; with a spec-card holding `idle_since` at 0, both exits were dead. Adds `SW_MAX_LIFE` (default 24h) as an unconditional ceiling.
+- **Both test surfaces leaked watchers.** Every fixture advancing `spec` launched one; 387 stale pid files and 3603 logs had accumulated. `test-codex-adapter` and `verify-apd` now cap them with `SW_MAX_ITERS=1`.
+
 ## v6.37.1 — 2026-07-22
 
 **guard-scope: two false-BLOCK fixes (live report — "APD treats Dockerfile as the directory Dockerfile/").** Both fixes only remove false blocks; every existing BLOCK case still blocks (proven by the test matrix).
