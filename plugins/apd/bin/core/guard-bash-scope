@@ -118,9 +118,11 @@ for ppath in "${PROTECTED_PIPELINE[@]}"; do
     # v6.15 — allow .guide-marker writes (apd-pipeline-guide skill writes it as
     # final exit action before pipeline-advance spec; without this exception the
     # printf > .apd/pipeline/.guide-marker would BLOCK at this guard).
-    # .brainstorm-marker kept as legacy allowlist entry until v7.0 (mid-flight
-    # tasks during the v6.15 upgrade window).
-    if [[ "$COMMAND" == *".guide-marker"* ]] || [[ "$COMMAND" == *".brainstorm-marker"* ]]; then
+    # v7.0 — the `.brainstorm-marker` legacy entry is gone. It was kept through
+    # the v6.15 upgrade window so a task mid-flight at the switch could still
+    # write its marker; nothing has written one since, and an allowlisted path
+    # nothing produces is surface without a purpose.
+    if [[ "$COMMAND" == *".guide-marker"* ]]; then
       break
     fi
     # Check non-redirect write operations

@@ -122,19 +122,16 @@
      with one `## Finding N` block per adversarial finding? If not, go back to
      step 6 — verifier will BLOCK otherwise (v7.1).
    → bash .claude/bin/apd pipeline verifier
-   → SEVERITY GATE (v6.1 B2) — **DEPRECATED as of v6.9, will be removed in v7.0.**
-     Blocks when adversarial dismissed-defect count (D in ADVERSARIAL:T:A:D)
-     exceeds spec-card.md `adversarial: max_defects=N`. **Default = unlimited
-     (no field).** Field continues to function in v6.9 for graceful transition
-     (verifier gate + immutability check both active), but emits a deprecation
-     warn + INFO entry to guard-audit.log on every spec advance.
-     **DO NOT write `adversarial: max_defects=...` in new specs.** Rationale gate
-     (v6.7) structurally covers misuse pattern (per-finding rationale ≥40 chars
-     + 100%-Do hard-block + bulk-accept rationale validation). Empirical evidence
-     (Test 33-min run 2026-05-22): `max_defects=0` triggered cascade od 3 guard
-     block-a + 2 reset-a. v6.8 chain validated rationale gate as sufficient
-     standalone enforcement — max_defects became redundant. v7.0 will remove
-     the field parser entirely.
+   → SEVERITY GATE (v6.1 B2, `adversarial: max_defects=N`) — **REMOVED in v7.0.**
+     A spec that still carries the field is not blocked; the line is ignored and
+     the spec advance says so once. Nothing replaces it, because the rationale
+     gate below already covered the same misuse and covered it better: a count
+     cap is satisfied by dismissing FEWER findings without justifying any of
+     them, while the rationale gate demands a reason for each one. The field was
+     also gameable in the other direction — `max_defects=0` to look strict, then
+     raised when the run hit it, which is the pattern that forced the v6.3
+     immutability snapshot and produced the v6.8.1 cascade (3 guard blocks +
+     2 resets in one 33-minute run). Deprecated v6.9, removed on schedule.
    → RATIONALE GATE (v6.7): blocks on missing/malformed .adversarial-rationale.md,
      status/A/D drift between summary and rationale, and the 100%-orchestrator
      dismissal pattern. Soft warns on rationale text <40 chars or lazy patterns

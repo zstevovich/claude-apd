@@ -2923,132 +2923,6 @@ else
     fail "eval-mirror Codex count = $CDX_MIRROR (expected 23)"
     FAILS=$((FAILS + 1))
 fi
-
-# -----------------------------------------------------------
-# 25. Severity gate — `adversarial: max_defects=N` (v6.1 B2)
-#     Tests pipeline-advance verifier parse+compare logic without
-#     spawning the full verifier (avoids verify-trace + verify-all.sh
-#     coupling). Replicates the gate's grep/sed/cut pipeline directly.
-# -----------------------------------------------------------
-section "25. Severity gate (max_defects)"
-
-# Helper: extract max_defects value the same way the gate does
-extract_max_defects() {
-    grep -iE '^[-*_ 	]*adversarial[-*_ 	]*:.*max_defects[[:space:]]*[:=][[:space:]]*([0-9]+|unlimited)' "$1" 2>/dev/null \
-        | sed -E 's/.*max_defects[[:space:]]*[:=][[:space:]]*//I' \
-        | tr '[:upper:]' '[:lower:]' \
-        | awk '{print $1}' \
-        | head -1
-}
-
-SEV_DIR="$(mktemp -d -t apd-sev.XXXXXX)"
-
-# Case 1: max_defects=2, D=8 → block expected
-cat > "$SEV_DIR/spec-card-1.md" <<'EOF'
-# Task
-
-adversarial: max_defects=2
-
-**Acceptance criteria:**
-- R1: do x
-- R2: do y
-EOF
-M=$(extract_max_defects "$SEV_DIR/spec-card-1.md")
-if [ "$M" = "2" ]; then
-    pass "parse: 'max_defects=2' extracted as 2"
-    PASSES=$((PASSES + 1))
-else
-    fail "parse: max_defects=2 yielded '$M' (expected '2')"
-    FAILS=$((FAILS + 1))
-fi
-# Comparison: D=8 > max=2 → block
-if [ 8 -gt "$M" ] 2>/dev/null; then
-    pass "decision: D=8 > max=2 → block"
-    PASSES=$((PASSES + 1))
-else
-    fail "decision: D=8 should exceed max=2"
-    FAILS=$((FAILS + 1))
-fi
-
-# Case 2: max_defects=2, D=2 → allow expected
-if [ 2 -gt "$M" ] 2>/dev/null; then
-    fail "decision: D=2 should NOT exceed max=2"
-    FAILS=$((FAILS + 1))
-else
-    pass "decision: D=2 == max=2 → allow"
-    PASSES=$((PASSES + 1))
-fi
-
-# Case 3: no adversarial line → skip gate (default unlimited)
-cat > "$SEV_DIR/spec-card-3.md" <<'EOF'
-# Task
-
-**Acceptance criteria:**
-- R1: do x
-EOF
-M=$(extract_max_defects "$SEV_DIR/spec-card-3.md")
-if [ -z "$M" ]; then
-    pass "parse: missing field → empty (gate skipped, default unlimited)"
-    PASSES=$((PASSES + 1))
-else
-    fail "parse: missing field returned '$M' (expected empty)"
-    FAILS=$((FAILS + 1))
-fi
-
-# Case 4: explicit max_defects=unlimited → gate skipped
-cat > "$SEV_DIR/spec-card-4.md" <<'EOF'
-# Task
-
-adversarial: max_defects=unlimited
-
-**Acceptance criteria:**
-- R1: do x
-EOF
-M=$(extract_max_defects "$SEV_DIR/spec-card-4.md")
-if [ "$M" = "unlimited" ]; then
-    pass "parse: 'max_defects=unlimited' extracted (gate skipped)"
-    PASSES=$((PASSES + 1))
-else
-    fail "parse: max_defects=unlimited yielded '$M'"
-    FAILS=$((FAILS + 1))
-fi
-
-# Case 5: format with colon separator instead of equals: 'max_defects: 3'
-cat > "$SEV_DIR/spec-card-5.md" <<'EOF'
-# Task
-
-adversarial: max_defects: 3
-
-**Acceptance criteria:**
-- R1: do x
-EOF
-M=$(extract_max_defects "$SEV_DIR/spec-card-5.md")
-if [ "$M" = "3" ]; then
-    pass "parse: 'max_defects: 3' (colon variant) extracted as 3"
-    PASSES=$((PASSES + 1))
-else
-    fail "parse: max_defects: 3 yielded '$M' (expected '3')"
-    FAILS=$((FAILS + 1))
-fi
-
-# Case 6: BLOCKED message wording (smoke test on stderr from the gate
-# block in pipeline-advance — extracted by sourcing the relevant lines).
-# Skipping a full pipeline-advance verifier run because the .done files
-# require validate-agent HMAC signatures that test-only setups can't fake.
-GATE_MSG=$(grep -A 8 "spec-card.md sets max_defects" "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
-    | head -8)
-if echo "$GATE_MSG" | grep -q "Address findings via builder fix" \
-   && echo "$GATE_MSG" | grep -q "Raise threshold" \
-   && echo "$GATE_MSG" | grep -q "Opt out for small tasks"; then
-    pass "block message names the three remediation paths (fix / raise / opt-out)"
-    PASSES=$((PASSES + 1))
-else
-    fail "block message missing remediation guidance"
-    FAILS=$((FAILS + 1))
-fi
-
-rm -rf "$SEV_DIR"
-
 # -----------------------------------------------------------
 # 26. Markdown-bold tolerance for spec-card directives (v6.1.2)
 #     pipeline-advance must recognize `**adversarial:** skip` and
@@ -3089,29 +2963,9 @@ EOF
     fi
 done
 
-# 26.2 — max_defects parser tolerates bold prefix
-for variant in "bold-pair:**adversarial:** max_defects=2" \
-               "bold-key:**adversarial**: max_defects=2" \
-               "italic:*adversarial:* max_defects=2"; do
-    label="${variant%%:*}"
-    line="${variant#*:}"
-    f="$BOLD_DIR/md-$label.md"
-    cat > "$f" <<EOF
-# Task
-$line
-
-**Acceptance criteria:**
-- R1: x
-EOF
-    M=$(extract_max_defects "$f")
-    if [ "$M" = "2" ]; then
-        pass "max_defects parser: '$label' variant → 2"
-        PASSES=$((PASSES + 1))
-    else
-        fail "max_defects parser: '$label' yielded '$M' (expected '2')"
-        FAILS=$((FAILS + 1))
-    fi
-done
+# 26.2 — the max_defects bold-tolerance cases are gone with the field (v7.0).
+# The `adversarial: skip` variants above still matter: that opt-out is live, and
+# it is the ONLY sanctioned way past the adversarial pass.
 
 rm -rf "$BOLD_DIR"
 
@@ -3876,126 +3730,6 @@ else
 fi
 
 rm -rf "$CD_DIR"
-
-# -----------------------------------------------------------
-# 38. v6.3 D — spec-card max_defects immutability across re-advance
-#     pipeline-advance blocks raising max_defects within the same
-#     task (closes rollback+re-advance loophole). Reset wipes the
-#     snapshot as the explicit escape valve for a real pivot.
-# -----------------------------------------------------------
-section "38. max_defects immutability (v6.3 D)"
-
-D_DIR="$(mktemp -d -t apd-d.XXXXXX)"
-mkdir -p "$D_DIR/.apd/pipeline"
-echo "PROJECT_NAME=d-test" > "$D_DIR/.apd/config"
-
-_write_spec_d() {
-    local field=""
-    [ -n "$1" ] && field="adversarial: max_defects=$1"
-    cat > "$D_DIR/.apd/pipeline/spec-card.md" <<EOF
-# Test task
-
-**Acceptance criteria:**
-- R1: x
-
-$field
-EOF
-}
-
-# A: first advance with max_defects=1 → snapshot file created with task-A|1
-_write_spec_d 1
-_guide_marker "$D_DIR" "task-A"
-(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" >/dev/null 2>&1)
-RC=$?
-SNAP=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
-if [ "$RC" = "0" ] && [ "$SNAP" = "task-A|1" ]; then
-    pass "first spec advance writes snapshot 'task-A|1'"
-    PASSES=$((PASSES + 1))
-else
-    fail "first spec advance should create snapshot 'task-A|1' (RC=$RC, snap='$SNAP')"
-    FAILS=$((FAILS + 1))
-fi
-
-# B: same task, raise max_defects (1→3) → BLOCK with explanatory message
-_write_spec_d 3
-_guide_marker "$D_DIR" "task-A"
-B_OUT=$(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" 2>&1)
-RC=$?
-if [ "$RC" = "1" ] && echo "$B_OUT" | grep -q "max_defects raised from 1 to 3"; then
-    pass "same task + raise 1→3 → BLOCKED with correct message"
-    PASSES=$((PASSES + 1))
-else
-    fail "raising max_defects 1→3 should block (RC=$RC, out='$B_OUT')"
-    FAILS=$((FAILS + 1))
-fi
-
-# C: same task, raise to unlimited → BLOCK
-_write_spec_d unlimited
-_guide_marker "$D_DIR" "task-A"
-C_OUT=$(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" 2>&1)
-RC=$?
-if [ "$RC" = "1" ] && echo "$C_OUT" | grep -q "max_defects raised from 1 to unlimited"; then
-    pass "same task + raise 1→unlimited → BLOCKED"
-    PASSES=$((PASSES + 1))
-else
-    fail "raising 1→unlimited should block (RC=$RC, out='$C_OUT')"
-    FAILS=$((FAILS + 1))
-fi
-
-# D: same task, lower max_defects (1→0) → allow + snapshot updated
-_write_spec_d 0
-_guide_marker "$D_DIR" "task-A"
-(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" >/dev/null 2>&1)
-RC=$?
-SNAP_D=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
-if [ "$RC" = "0" ] && [ "$SNAP_D" = "task-A|0" ]; then
-    pass "same task + lower 1→0 → allow, snapshot updated to 0"
-    PASSES=$((PASSES + 1))
-else
-    fail "lowering should be allowed (RC=$RC, snap='$SNAP_D')"
-    FAILS=$((FAILS + 1))
-fi
-
-# E: different task name → snapshot replaced freely (no constraint across tasks)
-_write_spec_d 5
-_guide_marker "$D_DIR" "task-B"
-(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-B" >/dev/null 2>&1)
-RC=$?
-SNAP_E=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
-if [ "$RC" = "0" ] && [ "$SNAP_E" = "task-B|5" ]; then
-    pass "different task name + raise 0→5 → allow, snapshot replaced"
-    PASSES=$((PASSES + 1))
-else
-    fail "different task should bypass constraint (RC=$RC, snap='$SNAP_E')"
-    FAILS=$((FAILS + 1))
-fi
-
-# F: reset wipes snapshot — explicit escape valve
-(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1)
-if [ ! -f "$D_DIR/.apd/pipeline/.spec-max-defects-history" ]; then
-    pass "pipeline-advance reset wipes .spec-max-defects-history"
-    PASSES=$((PASSES + 1))
-else
-    fail "reset should wipe snapshot file"
-    FAILS=$((FAILS + 1))
-fi
-
-# G: after reset, same task name can pick any max_defects (snapshot fresh)
-_write_spec_d 9
-_guide_marker "$D_DIR" "task-A"
-(cd "$D_DIR" && APD_PROJECT_DIR="$D_DIR" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "task-A" >/dev/null 2>&1)
-RC=$?
-SNAP_G=$(cat "$D_DIR/.apd/pipeline/.spec-max-defects-history" 2>/dev/null)
-if [ "$RC" = "0" ] && [ "$SNAP_G" = "task-A|9" ]; then
-    pass "after reset, same task name allows any max_defects (fresh snapshot)"
-    PASSES=$((PASSES + 1))
-else
-    fail "post-reset re-spec should start fresh (RC=$RC, snap='$SNAP_G')"
-    FAILS=$((FAILS + 1))
-fi
-
-rm -rf "$D_DIR"
-
 # -----------------------------------------------------------
 # 39. v6.3 E — orchestrator communication discipline rule
 #     Lock-in: workflow.md, CLAUDE.md.reference, and codex/AGENTS.md
@@ -5760,38 +5494,44 @@ else
 fi
 rm -rf "$_TO"
 
-# Live P: max_defects — over the declared threshold blocks, at/under it passes.
-_v67_block_case "D=3 over spec-card max_defects=1 → BLOCK" \
-    'max_defects=1' "ADVERSARIAL:3:0:3" \
-'## Finding 1 — a
-**Severity:** minor
-**Status:** reviewer-self-dismissed
-**Rationale:** the adversarial reviewer withdrew this inline, cited source
-
-## Finding 2 — b
-**Severity:** minor
-**Status:** reviewer-self-dismissed
-**Rationale:** the adversarial reviewer withdrew this inline, cited source
-
-## Finding 3 — c
-**Severity:** minor
-**Status:** reviewer-self-dismissed
-**Rationale:** the adversarial reviewer withdrew this inline, cited source' \
-    "adversarial: max_defects=1"
-
+# Live P (v7.0): `max_defects` is REMOVED, so a spec that still declares it must
+# gate nothing — and the floor must be exactly where it was. Both halves, because
+# "a gate was deleted" and "enforcement was weakened" look identical from one side.
 _TP="$(mktemp -d -t apd-v67p.XXXXXX)"
-_v67_make_state "$_TP" "ADVERSARIAL:1:0:1" "adversarial: max_defects=1"
-printf '## Finding 1 — a\n**Severity:** minor\n**Status:** reviewer-self-dismissed\n**Rationale:** the adversarial reviewer withdrew this inline, cited source\n' \
+_v67_make_state "$_TP" "ADVERSARIAL:3:0:3" "adversarial: max_defects=1"
+printf '## Finding 1 — a\n**Severity:** minor\n**Status:** reviewer-self-dismissed\n**Rationale:** the adversarial reviewer withdrew this inline, cited source\n\n## Finding 2 — b\n**Severity:** minor\n**Status:** reviewer-self-dismissed\n**Rationale:** the adversarial reviewer withdrew this inline, cited source\n\n## Finding 3 — c\n**Severity:** minor\n**Status:** reviewer-self-dismissed\n**Rationale:** the adversarial reviewer withdrew this inline, cited source\n' \
     > "$_TP/.apd/pipeline/.adversarial-rationale.md"
 _OUT=$(_v67_run_verifier "$_TP"); _RC=$?
 if [ "$_RC" -eq 0 ]; then
-    pass "D=1 at spec-card max_defects=1 → SIGN (threshold is not off-by-one)"
+    pass "a stale 'max_defects=1' no longer gates D=3 (field is inert, not enforcing)"
     PASSES=$((PASSES + 1))
 else
-    fail "D=1 at max_defects=1 should pass (rc=$_RC, out=$(echo "$_OUT" | grep -m1 BLOCKED))"
+    fail "removed max_defects still blocks (rc=$_RC, out=$(echo "$_OUT" | grep -m1 BLOCKED))"
     FAILS=$((FAILS + 1))
 fi
 rm -rf "$_TP"
+
+# The half that proves this was cleanup, not loosening: the misuse max_defects
+# existed to catch — dismissing findings wholesale — is still caught, by the
+# gate that always did it better. Same counts as above; only the disposition
+# changes from reviewer-self-dismissed to orchestrator-dismissed.
+_v67_block_case "wholesale dismissal still blocks with max_defects gone" \
+    "100%" "ADVERSARIAL:3:0:3" \
+'## Finding 1 — a
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** not reachable in this code path for a reason stated at length here
+
+## Finding 2 — b
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** not reachable in this code path for a reason stated at length here
+
+## Finding 3 — c
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** not reachable in this code path for a reason stated at length here' \
+    "adversarial: max_defects=99"
 
 # -----------------------------------------------------------
 # 53. v6.7.1 — pipeline-metrics Do/Dr/Warns columns (Phase 4)
@@ -6793,13 +6533,13 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static I: Codex AGENTS.md spec-card step warns against max_defects field
-# (v6.9 generalized warning from `=0` specific to whole-field deprecation)
-if grep -qE 'DO NOT write .adversarial: max_defects' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
-    pass "Codex AGENTS.md spec-card step warns against max_defects field"
+# Static I (v7.0): AGENTS.md must say the field is REMOVED, not merely discouraged.
+# "Do not write it" leaves a reader thinking it still works if someone did.
+if grep -qE 'max_defects.*(REMOVED|removed) in v7\.0' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
+    pass "Codex AGENTS.md states max_defects is removed, not just discouraged"
     PASSES=$((PASSES + 1))
 else
-    fail "Codex AGENTS.md spec-card step missing max_defects warning"
+    fail "Codex AGENTS.md still frames max_defects as a live-but-discouraged field"
     FAILS=$((FAILS + 1))
 fi
 
@@ -6821,13 +6561,17 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static B: --skip-brainstorm survives only as a hard-error shim (no skip path)
-if grep -qE 'skip-brainstorm was removed in v6\.15' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
-   && ! grep -qE 'SKIP_BRAINSTORM_REASON' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance: --skip-brainstorm is a hard-error shim, no reason path left"
+# Static B (v7.0): the --skip-brainstorm shim is GONE, and — the part that
+# matters — no skip path came back with it. The shim only ever supplied a nicer
+# message; the gate is what has no opt-out.
+# Assert the MECHANISM, not the word: a comment explaining what was removed is
+# not handling, and greping the text would fail on its own changelog note.
+if ! grep -qE '=[[:space:]]*"--skip-brainstorm"|_legacy_skip_flag|SKIP_BRAINSTORM_REASON' \
+        "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance: no --skip-brainstorm handling and no skip path"
     PASSES=$((PASSES + 1))
 else
-    fail "pipeline-advance: --skip-brainstorm shim missing or skip path still present"
+    fail "pipeline-advance still acts on skip-brainstorm"
     FAILS=$((FAILS + 1))
 fi
 
@@ -6916,13 +6660,15 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Live J: --skip-brainstorm (with reason) → hard-error shim, NO skip path (v6.15)
+# Live J (v7.0): the old flag is now an ordinary unrecognised argument. What must
+# still hold is the outcome — the guide gate governs, so passing it does NOT get
+# a task past the spec advance. The message changed; the floor did not.
 SKIP_OUT="$(advance_spec_v685 spec "Test task" --skip-brainstorm "Pre-aligned scope + APD config clear")"
-if echo "$SKIP_OUT" | grep -q "EXIT=1" && echo "$SKIP_OUT" | grep -q "removed in v6.15"; then
-    pass "spec advance: --skip-brainstorm → BLOCK with removal shim message"
+if echo "$SKIP_OUT" | grep -q "EXIT=1" && echo "$SKIP_OUT" | grep -q "Guide marker missing"; then
+    pass "spec advance: the retired flag buys nothing — guide gate still BLOCKs"
     PASSES=$((PASSES + 1))
 else
-    fail "--skip-brainstorm shim unexpected: $SKIP_OUT"
+    fail "retired --skip-brainstorm got past the guide gate: $SKIP_OUT"
     FAILS=$((FAILS + 1))
 fi
 
@@ -7121,92 +6867,6 @@ else
     fail "workflow.md §3c missing explicit Agents/Notes scaffolding list"
     FAILS=$((FAILS + 1))
 fi
-
-# -----------------------------------------------------------
-# 67. v6.15 — --skip-brainstorm removal shim
-#     The v6.8.8 reason-gated skip valve is GONE: the guide gate has no
-#     opt-out. The legacy flag survives only as a hard-error shim (drop
-#     in v7.0) that points the orchestrator at /apd-pipeline-guide.
-#     A silent fallback would resurrect the no-education path.
-# -----------------------------------------------------------
-section "67. --skip-brainstorm removal shim (v6.15)"
-
-# Static A: no reason-capture path left in pipeline-advance
-if ! grep -qE 'SKIP_BRAINSTORM_REASON|skip-brainstorm-missing-reason' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance: v6.8.8 reason-capture path fully removed"
-    PASSES=$((PASSES + 1))
-else
-    fail "pipeline-advance still carries SKIP_BRAINSTORM_REASON path (split regression)"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static B: no brainstorm-skipped INFO emitter left (historical log entries stay parseable)
-if ! grep -qE 'brainstorm-skipped\|task' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance: brainstorm-skipped INFO emitter removed"
-    PASSES=$((PASSES + 1))
-else
-    fail "pipeline-advance still emits brainstorm-skipped INFO events"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static C: shim message points to the guide skill
-if grep -qE 'load /apd-pipeline-guide' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "shim BLOCK message points to /apd-pipeline-guide recovery"
-    PASSES=$((PASSES + 1))
-else
-    fail "shim BLOCK message missing /apd-pipeline-guide recovery pointer"
-    FAILS=$((FAILS + 1))
-fi
-
-# Live setup za behavioural tests
-V688_SCRATCH="$(mktemp -d -t apd-v688.XXXXXX)"
-mkdir -p "$V688_SCRATCH/.apd/pipeline" "$V688_SCRATCH/.codex" "$V688_SCRATCH/.apd/memory"
-touch "$V688_SCRATCH/.apd/config"
-
-cat > "$V688_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
-## Test v6.15
-**Acceptance criteria:**
-- R1: first
-- R2: second
-- R3: third
-- R4: fourth
-EOF
-
-advance_v688() {
-    cd "$V688_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" "$@" 2>&1
-    _rc=$?
-    cd - >/dev/null
-    echo "EXIT=$_rc"
-}
-
-# Live D: --skip-brainstorm without reason → BLOCK shim + exit 1
-NO_REASON_OUT="$(advance_v688 spec "Test v6.15" --skip-brainstorm)"
-if echo "$NO_REASON_OUT" | grep -q "EXIT=1" && echo "$NO_REASON_OUT" | grep -q "removed in v6.15"; then
-    pass "spec advance: --skip-brainstorm bez reason → shim BLOCK + exit 1"
-    PASSES=$((PASSES + 1))
-else
-    fail "--skip-brainstorm no-reason shim unexpected: $NO_REASON_OUT"
-    FAILS=$((FAILS + 1))
-fi
-
-# Live E: --skip-brainstorm WITH reason → BLOCK too (no path through the shim)
-WITH_REASON_OUT="$(advance_v688 spec "Test v6.15" --skip-brainstorm "Pre-aligned scope + plan Implements format clear")"
-if echo "$WITH_REASON_OUT" | grep -q "EXIT=1" && echo "$WITH_REASON_OUT" | grep -q "removed in v6.15"; then
-    if [ ! -f "$V688_SCRATCH/.apd/memory/guard-audit.log" ] || \
-       ! grep -qE 'brainstorm-skipped' "$V688_SCRATCH/.apd/memory/guard-audit.log"; then
-        pass "spec advance: --skip-brainstorm sa reason → BLOCK, no INFO skip event logged"
-        PASSES=$((PASSES + 1))
-    else
-        fail "--skip-brainstorm sa reason: shim blocked but still logged a skip event"
-        FAILS=$((FAILS + 1))
-    fi
-else
-    fail "--skip-brainstorm sa reason should hard-error at the shim: $WITH_REASON_OUT"
-    FAILS=$((FAILS + 1))
-fi
-
-rm -rf "$V688_SCRATCH"
-
 # -----------------------------------------------------------
 # 68. v6.8.9 — session-log block counter filter BLOCK-only
 #     Pre-v6.8.9: pipeline-advance reset loop kroz guard-audit.log
@@ -7404,213 +7064,6 @@ else
 fi
 
 rm -rf "$V6811_SCRATCH"
-
-# -----------------------------------------------------------
-# 71. v6.9 — max_defects soft deprecation + verify-apd Section 8 lock-in
-#     Two-part section:
-#     (a) max_defects field deprecation — emits warn + INFO entry to
-#         guard-audit.log on every spec advance where field is present.
-#         Field continues to function (verifier gate + immutability check
-#         active) for graceful transition. v7.0 will remove parser entirely.
-#     (b) verify-apd Section 8 fixtures lock-in — closes #10/#11 blind-spot
-#         where new guards added to pipeline-advance broke `apd verify`
-#         E2E test because synthetic fixtures lacked required content.
-#         Static asserts that pre-marker + pre-plan writes are present.
-# -----------------------------------------------------------
-section "71. v6.9 max_defects deprecation + verify-apd lock-in"
-
-# Static A: pipeline-advance has v6.9 deprecation comment marker
-if grep -qE 'v6\.9.*soft deprecation|DEPRECATED as of v6\.9' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance carries v6.9 deprecation marker"
-    PASSES=$((PASSES + 1))
-else
-    fail "pipeline-advance missing v6.9 deprecation marker"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static B: pipeline-advance tracks MAX_DEFECTS_PRESENT explicitly
-if grep -qE 'MAX_DEFECTS_PRESENT=' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance tracks MAX_DEFECTS_PRESENT for deprecation detection"
-    PASSES=$((PASSES + 1))
-else
-    fail "pipeline-advance missing MAX_DEFECTS_PRESENT explicit-presence flag"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static C: pipeline-advance logs INFO entry for deprecated usage
-if grep -qE 'max-defects-deprecated' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance logs INFO|max-defects-deprecated to guard-audit"
-    PASSES=$((PASSES + 1))
-else
-    fail "pipeline-advance missing max-defects-deprecated INFO log"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static D: workflow.md flags max_defects as DEPRECATED
-if grep -qE 'DEPRECATED as of v6\.9|max_defects.*DEPRECATED' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
-    pass "workflow.md flags max_defects as DEPRECATED v6.9"
-    PASSES=$((PASSES + 1))
-else
-    fail "workflow.md missing max_defects DEPRECATED v6.9 wording"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static E: CC guide SKILL.md flags max_defects as DEPRECATED
-# (v6.15 — the deprecation education moved with the tutor content into the guide)
-if grep -qE 'max_defects.*DEPRECATED|DEPRECATED.*\(v6\.9\)' "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md"; then
-    pass "CC apd-pipeline-guide SKILL.md flags max_defects as DEPRECATED v6.9"
-    PASSES=$((PASSES + 1))
-else
-    fail "CC apd-pipeline-guide SKILL.md missing max_defects DEPRECATED wording"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static F: Codex guide SKILL.md mirror flags DEPRECATED
-if grep -qE 'max_defects.*DEPRECATED|DEPRECATED.*\(v6\.9\)' "$APD_PLUGIN_ROOT/skills/apd-pipeline-guide/SKILL.md"; then
-    pass "Codex apd-pipeline-guide SKILL.md flags max_defects as DEPRECATED v6.9"
-    PASSES=$((PASSES + 1))
-else
-    fail "Codex apd-pipeline-guide SKILL.md missing max_defects DEPRECATED wording"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static G: AGENTS.md template flags DEPRECATED
-if grep -qE 'DEPRECATED as of v6\.9|max_defects.*DEPRECATED' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
-    pass "Codex AGENTS.md template flags max_defects as DEPRECATED v6.9"
-    PASSES=$((PASSES + 1))
-else
-    fail "Codex AGENTS.md template missing max_defects DEPRECATED wording"
-    FAILS=$((FAILS + 1))
-fi
-
-# Live setup for max_defects deprecation behavioural tests
-V69_SCRATCH="$(mktemp -d -t apd-v69.XXXXXX)"
-mkdir -p "$V69_SCRATCH/.apd/pipeline" "$V69_SCRATCH/.codex" "$V69_SCRATCH/.apd/memory"
-touch "$V69_SCRATCH/.apd/config"
-
-advance_spec_v69() {
-    cd "$V69_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" "$@" 2>&1
-    _rc=$?
-    cd - >/dev/null
-    echo "EXIT=$_rc"
-}
-
-# Live H: spec WITH max_defects field → deprecation warn emitted
-cat > "$V69_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
-## Test deprecation
-**Acceptance criteria:**
-- R1: only
-adversarial: max_defects=5
-EOF
-_guide_marker "$V69_SCRATCH" "Test deprecation"
-DEPR_OUT="$(advance_spec_v69 spec "Test deprecation")"
-if echo "$DEPR_OUT" | grep -q "EXIT=0" && echo "$DEPR_OUT" | grep -qE "DEPRECATED as of v6\.9"; then
-    pass "spec advance: max_defects field → deprecation warn emitted"
-    PASSES=$((PASSES + 1))
-else
-    fail "max_defects deprecation warn missing: $DEPR_OUT"
-    FAILS=$((FAILS + 1))
-fi
-
-# Live I: deprecation INFO entry written to guard-audit.log
-if grep -qE 'INFO\|orchestrator\|max-defects-deprecated\|task=Test deprecation value=5' "$V69_SCRATCH/.apd/memory/guard-audit.log"; then
-    pass "guard-audit.log has INFO|max-defects-deprecated entry with value"
-    PASSES=$((PASSES + 1))
-else
-    fail "guard-audit.log missing max-defects-deprecated INFO entry"
-    FAILS=$((FAILS + 1))
-fi
-
-# Reset for next test
-cd "$V69_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
-cd - >/dev/null
-
-# Live J: spec WITHOUT max_defects field → NO deprecation warn, NO INFO entry
-cat > "$V69_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
-## Test clean
-**Acceptance criteria:**
-- R1: only
-EOF
-_guide_marker "$V69_SCRATCH" "Test clean"
-CLEAN_OUT="$(advance_spec_v69 spec "Test clean")"
-if echo "$CLEAN_OUT" | grep -q "EXIT=0" && ! echo "$CLEAN_OUT" | grep -qE "DEPRECATED"; then
-    pass "spec advance: no max_defects field → no deprecation warn"
-    PASSES=$((PASSES + 1))
-else
-    fail "spec without max_defects unexpectedly emitted deprecation warn: $CLEAN_OUT"
-    FAILS=$((FAILS + 1))
-fi
-
-# Live K: verifier gate STILL ACTIVE in v6.9 (graceful transition — not v7.0 removal yet)
-# Field present + ADV_D > max_defects must still BLOCK at verifier.
-# Reset, set up state with max_defects=2, ADV_D=3.
-cd "$V69_SCRATCH" && bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1
-cd - >/dev/null
-cat > "$V69_SCRATCH/.apd/pipeline/spec-card.md" <<'EOF'
-## Test gate-still-active
-plan_consistency_gate: off
-**Acceptance criteria:**
-- R1: only
-adversarial: max_defects=2
-EOF
-_guide_marker "$V69_SCRATCH" "Test gate-still-active"
-advance_spec_v69 spec "Test gate-still-active" >/dev/null 2>&1
-# Verifier gate uses ADV_D from .adversarial-summary; if > max_defects → BLOCK.
-# This live test confirms graceful-transition: deprecation warn + gate active.
-# (Full verifier setup requires builder/reviewer/adversarial — skip full chain,
-# assert max_defects parsing branch in verifier source instead.)
-if grep -qE 'MAX_DEFECTS_RAW.*-gt.*ADV_D|"\$ADV_D" -gt "\$MAX_DEFECTS_RAW"' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "verifier gate STILL ACTIVE in v6.9 (graceful transition — not removed yet)"
-    PASSES=$((PASSES + 1))
-else
-    fail "verifier gate appears prematurely removed (should stay until v7.0)"
-    FAILS=$((FAILS + 1))
-fi
-
-rm -rf "$V69_SCRATCH"
-
-# verify-apd Section 8 lock-in — static asserts that gate-related fixtures
-# exist. Closes blind-spot from #10/#11 where new guard caused E2E cascade.
-
-VERIFY_APD="$APD_PLUGIN_ROOT/bin/core/verify-apd"
-
-# Static L: verify-apd pre-writes .guide-marker for APD-VERIFY-TEST (issue #10 fix, v6.15 marker swap)
-if grep -qE '\.guide-marker.*APD-VERIFY-TEST|APD-VERIFY-TEST.*guide-marker' "$VERIFY_APD"; then
-    pass "verify-apd Section 8 pre-writes .guide-marker for APD-VERIFY-TEST"
-    PASSES=$((PASSES + 1))
-else
-    fail "verify-apd missing .guide-marker pre-write for APD-VERIFY-TEST (regression of #10 fix)"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static M: verify-apd pre-writes .guide-marker for APD-VERIFY-OPT-OUT (issue #10 fix, v6.15 marker swap)
-if grep -qE 'APD-VERIFY-OPT-OUT.*guide-marker|\.guide-marker.*APD-VERIFY-OPT-OUT' "$VERIFY_APD"; then
-    pass "verify-apd Section 8 pre-writes .guide-marker for APD-VERIFY-OPT-OUT"
-    PASSES=$((PASSES + 1))
-else
-    fail "verify-apd missing .guide-marker pre-write for APD-VERIFY-OPT-OUT (regression of #10 fix)"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static N: verify-apd writes valid implementation-plan.md with **Implements:** R1 (issue #11 fix)
-# (single grep covers both PLAN_EOF + PLAN_OPT_EOF heredocs)
-if grep -cE '\*\*Implements:\*\* R1' "$VERIFY_APD" | awk '$1 >= 2 {exit 0} {exit 1}'; then
-    pass "verify-apd Section 8 writes valid plan with **Implements:** R1 (both synthetic tasks)"
-    PASSES=$((PASSES + 1))
-else
-    fail "verify-apd missing valid plan with **Implements:** R1 (regression of #11 fix)"
-    FAILS=$((FAILS + 1))
-fi
-
-# Static O: verify-apd writes synthetic .adversarial-rationale.md (v6.7 rationale gate fixture)
-if grep -qE 'RATIONALE_EOF|adversarial-rationale\.md' "$VERIFY_APD"; then
-    pass "verify-apd Section 8 writes synthetic .adversarial-rationale.md fixture"
-    PASSES=$((PASSES + 1))
-else
-    fail "verify-apd missing .adversarial-rationale.md fixture (rationale gate would BLOCK Section 8)"
-    FAILS=$((FAILS + 1))
-fi
-
 # -----------------------------------------------------------
 # 72. v6.10 — apd-audit drift detection + recommendations
 #     Three drift dimensions: (A) settings.json deny patterns missing

@@ -137,8 +137,9 @@ block per finding:
 - 100% orchestrator-dismiss (T≥3, A=0, Do≥1) → hard BLOCK. Accept at least one
   finding OR reclassify with the adversarial reviewer's own note as
   reviewer-self-dismissed.
-- Do NOT write `adversarial: max_defects=...` in the spec — DEPRECATED (v6.9),
-  removed in v7.0; the rationale gate is the replacement.
+- `adversarial: max_defects=...` was REMOVED in v7.0 and is ignored if present.
+  This gate is its replacement, and always did the stronger job: a count cap could
+  be satisfied by dismissing fewer findings without justifying any of them.
 
 ## Finding dispositions — accept / dismiss / SPINOFF
 
@@ -248,7 +249,7 @@ redirects to `.apd/pipeline/` are blocked by design.
 | `adversarial-agent-missing` | No `adversarial-reviewer` definition and no valid opt-out, so the layer cannot run. Restore the agent (`/apd-setup`) — or, only if the task genuinely qualifies (≤2 R-criteria), declare `adversarial: skip — <reason>`. A missing agent is a setup fault, never an opt-out |
 | `adversarial-unaccounted` | Reached the verifier with no `.adversarial-pending` and no valid opt-out — the layer was dropped rather than run or waived, usually because the agent definition went missing after the reviewer step. Restore it and re-advance the reviewer |
 | `adversarial-summary-without-dispatch` | Summary written with no adversarial start in `.agents` — dispatch the agent for real. (If it DID run and only its stop is missing, that is a dropped hook: `apd pipeline reconstruct-agents`) |
-| `max_defects-*` (DEPRECATED v6.9) | Remove the `max_defects` field from spec-card; do not re-introduce |
+| ~~`max_defects-*`~~ | Gone in v7.0 — the field is ignored and no longer blocks. Drop the line from spec-card; the rationale gate replaces it |
 | `adversarial-timestamp-unparseable` | The `.agents` ledger is corrupt or was hand-edited — the gate fails closed rather than guess an ordering. Inspect it; `apd pipeline reconstruct-agents` rebuilds it from the transcripts |
 | `pipeline-incomplete` | Commit attempted before `verifier.done` — finish the pipeline first |
 | `toggle-off-active-pipeline` | Don't disable APD mid-run to cram an out-of-scope fix — use `apd pipeline spinoff-finding <id> "<reason>"`, or `apd pipeline reset` to end the run |

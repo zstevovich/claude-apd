@@ -160,10 +160,9 @@ substantial enough that the adversarial gate stays on regardless — the
    must be on its own line in the `Acceptance criteria` section as
    `- R1: <short>`, `- R2: ...`. Maximum 7 `R*:` items per task — decompose
    larger work into multiple pipeline cycles.
-   **DO NOT write `adversarial: max_defects=...`** — field is DEPRECATED as
-   of v6.9, will be removed in v7.0. Continues to function in v6.9 (verifier
-   gate + immutability check) but emits a deprecation warn on every spec
-   advance. Rationale gate (v6.7) structurally covers the misuse pattern.
+   **`adversarial: max_defects=...` was REMOVED in v7.0** and is ignored if
+   present (the spec advance says so once). Nothing replaces it: the rationale
+   gate already demanded a reason per dismissal, which a count cap never did.
    **Declare a `**Regression surface:**`** — what the task touches INDIRECTLY
    (shared modules) that must not regress, each `- RS<N>:` with a `**Cover:**`
    value, or `none — <reason>` if self-contained. On a Human-gate path each RS

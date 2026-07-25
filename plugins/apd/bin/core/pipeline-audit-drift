@@ -185,7 +185,7 @@ if [ -f "$WORKFLOW_FILE" ] && [ -f "$FRAMEWORK_WORKFLOW" ]; then
     if [ ${#MISSING_MARKERS[@]} -gt 0 ]; then
         IMPORTANT+=("[.claude/rules/workflow.md] ${#MISSING_MARKERS[@]} v6.7+ guidance markers missing")
         IMPORTANT+=("  Missing: ${MISSING_MARKERS[*]}")
-        IMPORTANT+=("  Effect: orchestrator does not see plan-spec Implements format / rationale gate / v6.9 DEPRECATED markers / v6.15 apd-pipeline-guide gate guidance (stale copies still instruct --skip-brainstorm, removed in v6.15)")
+        IMPORTANT+=("  Effect: orchestrator does not see plan-spec Implements format / rationale gate / v6.15 apd-pipeline-guide gate / v6.30 supervision guidance. A copy this stale still instructs --skip-brainstorm and max_defects, both removed in v7.0 — following it wastes a cycle on flags that no longer do anything")
         IMPORTANT+=("  Recovery: re-run '/apd-setup' to refresh workflow.md from current framework template")
     fi
 fi

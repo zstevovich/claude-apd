@@ -2,7 +2,8 @@
 # APD Pipeline State Guard — blocks direct Write/Edit to .apd/pipeline/ internal files
 #
 # Only pipeline-advance (via Bash) should create .done, .agents, .spec-hash etc.
-# Orchestrator MAY write: spec-card.md, implementation-plan.md, .adversarial-summary, .adversarial-rationale.md, .supervision-summary, .supervision-rationale.md, .guide-marker (.brainstorm-marker legacy until v7.0)
+# Orchestrator MAY write: spec-card.md, implementation-plan.md, .adversarial-summary, .adversarial-rationale.md, .supervision-summary, .supervision-rationale.md, .guide-marker
+# (v7.0 dropped the .brainstorm-marker legacy entry — nothing has written one since v6.15)
 # Orchestrator must NOT write: *.done, .agents, .spec-hash, .trace-summary, verified.timestamp
 # Interface: --file-path <path>
 
@@ -30,7 +31,7 @@ case "$REL_PATH" in
         FILENAME=$(basename "$REL_PATH")
         # Allowed files — orchestrator writes these as part of pipeline workflow
         case "$FILENAME" in
-            spec-card.md|implementation-plan.md|.adversarial-summary|.adversarial-rationale.md|.supervision-summary|.supervision-rationale.md|.guide-marker|.brainstorm-marker)
+            spec-card.md|implementation-plan.md|.adversarial-summary|.adversarial-rationale.md|.supervision-summary|.supervision-rationale.md|.guide-marker)
                 exit 0
                 ;;
             *)

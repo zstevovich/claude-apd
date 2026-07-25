@@ -50,42 +50,20 @@ if [ -f "$PIPELINE_DIR/.reset-in-progress" ]; then
     echo "  If the contents look fine, clear: rm $PIPELINE_DIR/.reset-in-progress" >&2
 fi
 
-# v6.15 — --skip-brainstorm REMOVED (deprecation shim, drop in v7.0).
-# The brainstorm-marker gate + skip valve (v6.8.5/v6.8.8/v6.8.11) were replaced
-# by the unconditional guide-marker gate (apd-pipeline-guide skill). The guide
-# is non-interactive and cheap; there is nothing to skip, so no skip path exists.
-# Strip the legacy flag + its reason from positional args, then hard-error —
-# a silent fallback would resurrect the no-education path.
-_legacy_skip_flag=false
-_positional_args=()
-_capture_reason=false
-for _arg in "$@"; do
-    if [ "$_capture_reason" = true ]; then
-        _capture_reason=false
-        continue
-    fi
-    if [ "$_arg" = "--skip-brainstorm" ]; then
-        _legacy_skip_flag=true
-        _capture_reason=true
-        continue
-    fi
-    _positional_args+=("$_arg")
-done
-STEP="${_positional_args[0]:-}"
-ARG="${_positional_args[1]:-}"
-ARG2="${_positional_args[2]:-}"
-ARG3="${_positional_args[3]:-}"
-if [ "$_legacy_skip_flag" = true ]; then
-    echo "BLOCKED: --skip-brainstorm was removed in v6.15." >&2
-    echo "" >&2
-    echo "  The brainstorm skill no longer gates the pipeline. The spec gate now" >&2
-    echo "  requires /apd-pipeline-guide (the pipeline operating manual) instead —" >&2
-    echo "  it is non-interactive, ~2 minutes, and has NO skip path by design." >&2
-    echo "" >&2
-    echo "  Recovery: load /apd-pipeline-guide, let it write .guide-marker, then" >&2
-    echo "  re-run:  bash $APD_SHORTCUT_DISPLAY pipeline spec \"$ARG\"" >&2
-    exit 1
-fi
+# v7.0 — the `--skip-brainstorm` deprecation shim is GONE.
+#
+# v6.8.5 gated the pipeline on a brainstorm marker with a skip valve; v6.15
+# replaced both with the unconditional guide-marker gate and left a hard-erroring
+# shim so a stale workflow.md would say WHY rather than fail obscurely. That
+# transition is over. The flag is now an ordinary unrecognised argument, and the
+# thing that actually matters still holds: the spec advance requires
+# `.guide-marker`, unconditionally and with no skip path, so a caller that still
+# passes the old flag gets the guide-marker BLOCK — the correct, actionable
+# message rather than a message about a flag that no longer exists.
+STEP="${1:-}"
+ARG="${2:-}"
+ARG2="${3:-}"
+ARG3="${4:-}"
 NOW=$(date +%s)
 NOW_HUMAN=$(date +"%Y-%m-%d %H:%M:%S")
 
@@ -604,65 +582,33 @@ case "$STEP" in
             exit 1
         fi
 
-        # v6.3 D — max_defects immutability across rollback+re-advance for same task.
-        # Existing .spec-hash check at verifier catches direct edits AFTER spec.done.
-        # This check catches the loophole: rollback → edit spec-card.md → re-advance spec.
-        # Reset wipes the snapshot — it is the explicit escape valve for a real pivot.
-        SNAPSHOT_FILE="$PIPELINE_DIR/.spec-max-defects-history"
-        CURRENT_MAX=$(grep -iE '^[-*_ 	]*adversarial[-*_ 	]*:.*max_defects[[:space:]]*[:=][[:space:]]*([0-9]+|unlimited)' "$PIPELINE_DIR/spec-card.md" 2>/dev/null \
-            | sed -E 's/.*max_defects[[:space:]]*[:=][[:space:]]*//I' \
-            | tr '[:upper:]' '[:lower:]' \
-            | awk '{print $1}' \
-            | head -1)
-        # v6.9 — track whether field was explicitly present (before default fill)
-        MAX_DEFECTS_PRESENT=false
-        [ -n "$CURRENT_MAX" ] && MAX_DEFECTS_PRESENT=true
-        [ -z "$CURRENT_MAX" ] && CURRENT_MAX="unlimited"
-
-        # v6.9 — soft deprecation warn for explicit max_defects field.
-        # Will be removed in v7.0. Verifier gate (v6.1 B2) + immutability check
-        # (v6.3 D) STILL ACTIVE in v6.9 — graceful transition window. Rationale
-        # gate (v6.7) structurally covers the misuse pattern that max_defects
-        # was meant to prevent (per-finding rationale ≥40 chars dismissed,
-        # 100%-Do hard-block, bulk-accept rationale validation).
-        if [ "$MAX_DEFECTS_PRESENT" = true ]; then
+        # v7.0 — `adversarial: max_defects=N` is REMOVED (deprecated v6.9).
+        #
+        # The field capped how many findings could be dismissed. The rationale
+        # gate (v6.7) covers the same misuse structurally and better: a ≥40-char
+        # reason per dismissal, an accounting check against the summary, and a
+        # hard block on 100%-orchestrator-dismiss. So this removal takes nothing
+        # off the floor — it removes a SECOND, weaker lever over the same
+        # behaviour, one that was itself gameable (writing `max_defects=0` to
+        # look strict, then raising it when the run hit the cap, is the pattern
+        # that produced the v6.3 immutability check and the v6.8.1 cascade).
+        # With the field gone, its immutability snapshot has nothing to guard.
+        #
+        # A spec that still carries the field is not blocked — the field is dead,
+        # not dangerous — but it is named out loud, because a reader who believes
+        # a cap is in force when nothing enforces it is worse off than one who
+        # knows there is none.
+        if grep -qiE '^[-*_[:blank:]]*adversarial[-*_[:blank:]]*:.*max_defects' "$PIPELINE_DIR/spec-card.md" 2>/dev/null; then
             echo "" >&2
-            echo "WARN: 'adversarial: max_defects=$CURRENT_MAX' is DEPRECATED as of v6.9." >&2
-            echo "  Will be removed in v7.0. Field continues to function in v6.9 for" >&2
-            echo "  graceful transition: verifier gate + immutability check both active." >&2
-            echo "" >&2
-            echo "  Why deprecated: rationale gate (v6.7) structurally covers misuse." >&2
-            echo "  Migration: omit 'adversarial: max_defects=...' from spec-card.md." >&2
-            echo "  Default (= unlimited) + rationale gate is the v7.0 baseline." >&2
+            echo "NOTE: 'adversarial: max_defects=...' was REMOVED in v7.0 and is ignored." >&2
+            echo "  It is not enforcing anything — the rationale gate at the verifier is" >&2
+            echo "  what governs dismissals now (per-finding reason, accounting against" >&2
+            echo "  the summary, hard block on 100% orchestrator-dismiss)." >&2
+            echo "  Drop the line from spec-card.md; nothing replaces it." >&2
             echo "" >&2
             if [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ]; then
                 _ts=$(date +"%Y-%m-%d %H:%M:%S")
-                echo "${_ts}|$(_audit_type INFO)|orchestrator|max-defects-deprecated|task=$ARG value=$CURRENT_MAX" >> "$MEMORY_DIR/guard-audit.log"
-            fi
-        fi
-
-        if [ -f "$SNAPSHOT_FILE" ]; then
-            PREV_TASK=$(cut -d'|' -f1 "$SNAPSHOT_FILE" 2>/dev/null)
-            PREV_MAX=$(cut -d'|' -f2 "$SNAPSHOT_FILE" 2>/dev/null)
-            if [ "$PREV_TASK" = "$ARG" ] && [ -n "$PREV_MAX" ] && [ "$PREV_MAX" != "unlimited" ]; then
-                RAISED=false
-                if [ "$CURRENT_MAX" = "unlimited" ]; then
-                    RAISED=true
-                elif [ "$CURRENT_MAX" -gt "$PREV_MAX" ] 2>/dev/null; then
-                    RAISED=true
-                fi
-                if [ "$RAISED" = true ]; then
-                    echo "BLOCKED: max_defects raised from $PREV_MAX to $CURRENT_MAX for the same task." >&2
-                    echo "" >&2
-                    echo "  Task '$ARG' was previously specced with max_defects=$PREV_MAX." >&2
-                    echo "  Raising mid-pipeline defeats the severity gate (v6.1 B2)." >&2
-                    echo "" >&2
-                    echo "  Two ways forward:" >&2
-                    echo "    (a) Lower (or keep) max_defects in spec-card.md and re-advance." >&2
-                    echo "    (b) Reset the pipeline: pipeline-advance reset '<pivot rationale>'." >&2
-                    log_block "max_defects-raised-mid-pipeline" "task=$ARG prev=$PREV_MAX new=$CURRENT_MAX"
-                    exit 1
-                fi
+                echo "${_ts}|$(_audit_type INFO)|orchestrator|max-defects-removed|task=$ARG" >> "$MEMORY_DIR/guard-audit.log"
             fi
         fi
 
@@ -683,8 +629,8 @@ case "$STEP" in
         _write_task_baseline   # v6.37 #4: snapshot pre-existing dirty files for reviewer scoping
         # Freeze spec-card.md — hash for tamper detection
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
-        # v6.3 D — snapshot max_defects for next spec advance to compare against
-        printf '%s|%s\n' "$ARG" "$CURRENT_MAX" > "$SNAPSHOT_FILE"
+        # (v7.0 removed the max_defects snapshot — the field it guarded is gone,
+        # and the spec-hash above still freezes the card against direct edits.)
         apd_spec_header "$ARG"
         show_pipeline "builder"
         # GitHub sync (best-effort — never blocks pipeline)
@@ -1290,33 +1236,11 @@ case "$STEP" in
             fi
         fi
 
-        # Severity gate (v6.1 B2): block when adversarial dismissed-defect count
-        # exceeds the spec-card's `max_defects` budget.
-        # Format in spec-card.md:  `adversarial: max_defects=N`  or  `=unlimited`
-        # Default (field absent) = unlimited (backward compat with pre-v6.1).
-        if [ -f "$PIPELINE_DIR/.adversarial-summary" ] && [ -f "$PIPELINE_DIR/spec-card.md" ]; then
-            # v6.1.2: same bold/italic tolerance as the reviewer-step skip parser.
-            MAX_DEFECTS_RAW=$(grep -iE '^[-*_ 	]*adversarial[-*_ 	]*:.*max_defects[[:space:]]*[:=][[:space:]]*([0-9]+|unlimited)' "$PIPELINE_DIR/spec-card.md" 2>/dev/null \
-                | sed -E 's/.*max_defects[[:space:]]*[:=][[:space:]]*//I' \
-                | tr '[:upper:]' '[:lower:]' \
-                | awk '{print $1}' \
-                | head -1)
-            if [ -n "$MAX_DEFECTS_RAW" ] && [ "$MAX_DEFECTS_RAW" != "unlimited" ]; then
-                ADV_LINE=$(grep '^ADVERSARIAL:' "$PIPELINE_DIR/.adversarial-summary" 2>/dev/null | head -1)
-                ADV_D=$(echo "$ADV_LINE" | cut -d: -f4)
-                ADV_D=${ADV_D:-0}
-                if [ "$ADV_D" -gt "$MAX_DEFECTS_RAW" ] 2>/dev/null; then
-                    echo "BLOCKED: adversarial summary has D=$ADV_D, spec-card.md sets max_defects=$MAX_DEFECTS_RAW." >&2
-                    echo "" >&2
-                    echo "  Three ways forward:" >&2
-                    echo "    (a) Address findings via builder fix → re-dispatch adversarial-reviewer → re-record." >&2
-                    echo "    (b) Raise threshold: rollback, edit spec-card.md  'adversarial: max_defects=N',  re-run." >&2
-                    echo "    (c) Opt out for small tasks (≤2 R-criteria): 'adversarial: skip — <reason>'." >&2
-                    log_block "max_defects-exceeded" "ADV_D=$ADV_D max_defects=$MAX_DEFECTS_RAW"
-                    exit 1
-                fi
-            fi
-        fi
+        # v7.0 — the severity gate (v6.1 B2, `max_defects`) is GONE; the rationale
+        # gate below is what governs dismissals, and it always did the stronger
+        # job: a reason per dismissal, accounting against the summary, and a hard
+        # block on 100% orchestrator-dismiss. The count-based cap could be
+        # satisfied by dismissing fewer findings without justifying any of them.
 
         # v6.7 — Adversarial rationale gate.
         # Requires .adversarial-rationale.md with one structured block per finding.

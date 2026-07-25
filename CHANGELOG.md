@@ -10,6 +10,18 @@ Applies the standing rule — a test that cannot go red proves nothing — retro
 
 **Tests added** (`test-codex-adapter` 920 → 983): §104 guard BLOCK+ALLOW exit codes incl. the `guard-permission-denied` logger, §105 `verify-plan-spec` executed with its ALLOW directions, §52 L–P rationale field/status consistency and `max_defects`, §106 forged `.done` files and the frozen spec, §97 stall-watch lifecycle run rather than grepped, §107 pipeline lock, §108 phase ordering, §109 sub-gate translation, §110 remaining preconditions. `:6862` now asserts exit 2 as well as the hint.
 
+### Removed — BREAKING
+
+Three deprecations that were promised for this major, removed on schedule. None of them takes anything off the enforcement floor: each was a second, weaker lever over behaviour another gate already governs, and the suite proves the survivor still fires (`wholesale dismissal still blocks with max_defects gone`).
+
+- **`adversarial: max_defects=N` is gone** (deprecated v6.9). It capped how many findings could be dismissed. The rationale gate covers the same misuse and covers it better — a count cap is satisfied by dismissing *fewer* findings without justifying any of them, while the rationale gate demands a reason for each, reconciles the counts against the summary, and hard-blocks 100%-orchestrator-dismiss. The field was also gameable in the other direction: `max_defects=0` to look strict, raised when the run hit it, which is what forced the v6.3 immutability snapshot and produced the v6.8.1 cascade (3 guard blocks and 2 resets in one 33-minute run). That snapshot (`.spec-max-defects-history`) goes with it; `.spec-hash` still freezes the card against direct edits. **A spec that still carries the line is not blocked** — the field is dead, not dangerous — but the spec advance says so once and logs `max-defects-removed`, because a reader who believes a cap is in force when nothing enforces it is worse off than one who knows there is none.
+
+- **The `--skip-brainstorm` shim is gone** (the flag itself went in v6.15). The shim existed to give a stale `workflow.md` a specific message instead of an obscure failure; that window has passed. The flag is now an ordinary unrecognised argument, and the outcome is unchanged where it matters: the spec advance still requires `.guide-marker` unconditionally, so passing it yields the guide-marker BLOCK — the actionable message, rather than one about a flag that no longer exists.
+
+- **`.brainstorm-marker` is no longer writable** through the guards. It was kept on the allowlists through the v6.15 upgrade window so a task mid-flight at the switch could still write its marker; nothing has written one since. The reset wipe keeps it as hygiene for files left behind by pre-v6.15 runs.
+
+**Test surface dropped 1108 → 1071**, which is the point rather than a regression: 539 lines of assertions existed to protect the removed mechanisms, including a test that literally encoded the promise (`verifier gate appears prematurely removed (should stay until v7.0)`). What replaced them is smaller and sharper — most importantly the pair that separates *cleanup* from *loosening*: a stale `max_defects=1` no longer gates D=3, **and** the same three findings dismissed by the orchestrator instead still block.
+
 ### Added
 
 - **`.apd/lessons.md` — the pipeline now keeps the class, not just the fix.** APD enforced the *finding* and dropped the *generalization*. An accepted adversarial finding produced a fix in code and nothing else: the class it belonged to left with the run, and the next task met the same shape from scratch. `adversarial-rationale-archive.md` has accumulated every finding and disposition since v6.13 and nothing ever read it back — the framework was producing knowledge and discarding it.
