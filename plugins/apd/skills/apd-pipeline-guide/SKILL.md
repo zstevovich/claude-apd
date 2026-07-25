@@ -24,21 +24,33 @@ spec → builder → reviewer → adversarial → verifier → commit
 | `apd:apd_advance_pipeline('spec', '<task>')` | spec-card.md exists, ≤7 R-criteria, **`.guide-marker` present (this skill)** |
 | `apd:apd_advance_pipeline('builder')` | implementation-plan.md exists, plan-spec consistency (strict), regression surface (Cover/Evidence), no stale pre-spec dispatch |
 | `apd:apd_advance_pipeline('reviewer')` | builder ran post-spec, builder cycle cap (default 2) |
-| `apd:apd_adversarial_pass(...)` | only AFTER reviewer.done — out-of-order verdict is refused |
+| `apd:apd_adversarial_pass(...)` | only AFTER reviewer.done — out-of-order verdict is refused; and since v6.36 a real native subagent must be on record (`apd_prepare_dispatch` + `spawn_agent`), not an inline verdict |
 | `apd:apd_advance_pipeline('verifier')` | `.adversarial-summary` + `.adversarial-rationale.md` present, rationale gate, spec-hash immutability |
 | commit | guard-git: pipeline complete, commit message prefix, no mass staging |
 
-Mode: `pipeline_mode: polish` in spec-card.md lowers cycle caps to 1 and skips
-adversarial for 1-2 R hotfixes. Lean vs Full is declared in the spec; this guide
-applies to BOTH.
+Two independent spec-card switches, routinely confused:
 
-Note: the v6.30 supervision layer (frontier final review, coupled to CC model
-profiles) is CC-owned — pure-Codex projects never declare `MODEL_PROFILE`, so
-the gate is inert there. **Hybrid CC+Codex projects share the APD config:** if
-CC declared a profile with a supervisor row (v1: eco), the verifier gate is
-active in Codex sessions too. In that case run the supervision pass from the CC
-side (Codex has no supervisor agent); the summary/rationale files are
-Write/Edit-allowlisted on both runtimes.
+- `pipeline_mode: polish` — lowers the builder AND reviewer caps 2 → 1. It does
+  **NOT** skip adversarial: the full builder → reviewer → adversarial → verifier
+  sequence still runs, just once through.
+- `adversarial: skip — <reason>` — the Lean opt-out, and the ONLY way to skip
+  adversarial. Honoured only at **≤2 R-criteria**; at 3+ the opt-out is DENIED
+  (warning) and adversarial stays required at the verifier.
+
+Lean vs Full is declared in the spec; this guide applies to BOTH.
+
+Note: the v6.30 supervision layer (frontier review of the FINAL diff) is
+CC-owned and **honest-inert on the Codex runtime since v6.33** — a Codex run
+structurally cannot dispatch the CC supervisor, so the gate never passes and
+never blocks; it logs `supervision-not-applicable|runtime=codex` and moves on.
+This holds on hybrid CC+Codex projects too, even though they share the APD
+config and a `MODEL_PROFILE` declared from the CC side. Do NOT hand-write
+`.supervision-summary` to satisfy it: before v6.33 that produced a FALSE
+`supervision-pass` with no supervisor on record, which is why the gate now
+keys on the runtime instead of on the file.
+
+**Consequence worth knowing:** on Codex the adversarial pass is the only
+independent review layer this pipeline has. Triage it accordingly.
 
 ## Implementation plan contract
 
@@ -73,6 +85,40 @@ check it (`verify-regression-surface`, in the builder advance).
 - Human gate = Yes escalates: each RS item also needs `**Evidence:**` (≥40 chars)
   attesting the module's tests green before+after. The gate checks presence; you run the tests.
 - Mode `regression_gate: strict|warn|off` (default `warn`; `off` ignored on a Human-gate path).
+
+## Dispatching agents — native subagents only (v6.36)
+
+The orchestrator coordinates; it does not implement or review inline. Every
+builder, reviewer and adversarial pass is a REAL native subagent, and the gates
+now require a matching start AND stop in `.agents` — a self-attested phase is
+rejected.
+
+```
+apd:apd_list_agents()                        # which roles exist
+apd:apd_prepare_dispatch(apd_role="<role>")  # reserve the phase, get a safe task_name
+spawn_agent(<returned task_name>, ...)       # the real dispatch — then WAIT
+```
+
+Prepare immediately before `spawn_agent`, one at a time — a second preparation
+before the first child starts collides (the reservation is single-pending with a
+120s TTL). The child clears every write through `apd:apd_guard_write(apd_role,
+file_path)`, which reads scope from the canonical role definition and **cannot be
+widened by the prompt**; a writable role with no scope anywhere fails CLOSED.
+
+## Dispatching the adversarial reviewer — keep it blind
+
+Its value is positional: it judges the diff without knowing the intent, which is
+how it finds what the contextual reviewer already rationalised away.
+
+**On Codex this is discipline, not enforcement.** The CC-side `guard-spec-blind`
+keys on a per-call role tag that the Codex payload does not carry, so it is inert
+here — nothing stops that child from reading `spec-card.md`. You keep the layer
+honest:
+
+- Do NOT paste the spec, the R-criteria or the design intent into its prompt.
+- Do NOT tell it to read the spec card or the implementation plan.
+- Point it at `.apd/pipeline/.reviewed-files` for scope, nothing more.
+- A finding phrased as "this does not match the spec" means the intent leaked in.
 
 ## Adversarial rationale contract
 
@@ -142,6 +188,8 @@ Edit/apply_patch channel cleared by `apd:apd_guard_write` — shell redirects to
 
 ## Common BLOCKs + recovery
 
+### Gate BLOCKs — fire at a pipeline advance
+
 | BLOCK reason | Quick fix |
 |---|---|
 | `guide-marker-missing` | Load this skill, write the marker (below), re-run spec advance |
@@ -149,9 +197,24 @@ Edit/apply_patch channel cleared by `apd:apd_guard_write` — shell redirects to
 | `regression-surface issues=N` | Add `**Regression surface:**` with `- RS<N>: ... **Cover:** ...` (and `**Evidence:**` on Human-gate paths), or `none — <reason>`; re-run builder |
 | `rationale-missing` | Write `.adversarial-rationale.md` with T entries; re-run verifier |
 | `rationale-100pct-orch-dismiss` | Accept ≥1 finding OR reclassify dismissed → reviewer-self-dismissed |
-| `max_builder_cycles-exceeded` | Decompose into 2+ tasks OR raise cap via spec-card `builder: max_cycles=N` |
-| `adversarial-before-reviewer` | Run code-reviewer first; advance reviewer; THEN adversarial |
+| `rationale-count-mismatch` / `rationale-accepted-mismatch` / `rationale-status-mismatch` | The rationale must RECONCILE with `ADVERSARIAL:T:A:D`: one `## Finding` block per T, blocks with `Status: accepted` = A, `dismissed` + `reviewer-self-dismissed` = D. Fix the file or fix the recorded pass — whichever is wrong |
+| `rationale-malformed-fields` | Every block needs all three of `**Severity:**` / `**Status:**` / `**Rationale:**`, and a dismissal needs ≥40 chars of reasoning |
+| `max_builder_cycles-exceeded` / `max_reviewer_cycles-exceeded` | First ask why: is the plan complete, the spec ambiguous, the same finding coming back? Then either decompose into 2+ tasks, or lift the budget in place: `apd pipeline raise-cap builder\|reviewer <N> "<reason>"`. **Do NOT edit `max_cycles` in the signed spec** — that forces a spec re-advance, which WIPES `.agents`, destroys the evidence already earned and (on Codex) forces a redundant re-dispatch |
+| `adversarial-before-reviewer` | Dispatch code-reviewer first; advance reviewer; THEN adversarial |
+| `adversarial-summary-without-dispatch` | Recorded a pass with no adversarial start in `.agents` — since v6.36 the phase needs a REAL native subagent (`apd_prepare_dispatch` + `spawn_agent`), not an inline verdict |
 | `max_defects-*` (DEPRECATED v6.9) | Remove the `max_defects` field from spec-card; do not re-introduce |
+| `adversarial-timestamp-unparseable` | The `.agents` ledger is corrupt or was hand-edited — the gate fails closed rather than guess an ordering. Inspect it before doing anything else |
+| `pipeline-incomplete` | Commit attempted before `verifier.done` — finish the pipeline first |
+
+### Guard BLOCKs — fire on a tool call, at any point in the run
+
+These are not phase gates. They stop the individual call and the run continues.
+
+| BLOCK reason | What it means |
+|---|---|
+| write not cleared (`guard-file-edit`) | Every implementation write goes through `apd:apd_guard_write(apd_role, file_path)` FIRST. Scope comes from the role definition; a writable role with no scope anywhere fails CLOSED |
+| `out-of-scope-bash-write` | A shell write outside the role's scope. Give the work to the role that owns that path — routing the same write through the shell to dodge the check is the bypass the guard exists for |
+| `portability-<cmd>` | A GNU-ism on macOS, or a BSD-ism on Linux. `apd env` prints the platform and the portable form of each blocked command |
 | `pipeline-state-write` on a read | You used shell `cat`/`ls` on pipeline state — use `apd pipeline show` |
 
 ## Exit — write the marker

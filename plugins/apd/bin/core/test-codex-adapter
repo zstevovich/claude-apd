@@ -13014,6 +13014,143 @@ for _sf in core/test-codex-adapter core/verify-apd; do
     fi
 done
 
+section "114. The pipeline guide must track the framework it documents"
+
+# The guide IS the orchestrator's contract, and a stale contract is worse than a
+# missing one: it directs with full confidence. Measured 2026-07-25, all three
+# on a suite that was green at 1057/0 —
+#   - it recommended editing `max_cycles` in a signed spec to lift a cap, three
+#     releases after `raise-cap` shipped BECAUSE that path wipes `.agents`;
+#   - it claimed `pipeline_mode: polish` skips adversarial (it never did — the
+#     opt-out is a different field with a different precondition);
+#   - it scoped supervision to eco on the same day every profile gained a
+#     supervisor row, i.e. the drift was introduced by the commit next to it.
+# Nothing here is catchable by reading either file alone, so the check is a
+# join: the docs are asserted against what the gate script actually emits.
+
+GD_CC="$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md"
+GD_CDX="$APD_PLUGIN_ROOT/skills/apd-pipeline-guide/SKILL.md"
+GD_ADV="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+
+# --- Coverage: every gate BLOCK the orchestrator can hit must be documented ---
+# This is the part that catches FUTURE drift. Add a `log_block` to a gate and
+# this fails until the guide gains a row (or the reason is exempted on purpose).
+GD_MISSING=""
+GD_SEEN=0
+for _r in $(grep -oE 'log_block "[a-zA-Z0-9_-]+"' "$GD_ADV" | sed 's/log_block "//; s/"//' | sort -u); do
+    GD_SEEN=$((GD_SEEN + 1))
+    # `max_defects-*` is documented as one deprecated glob, on purpose.
+    case "$_r" in
+        max_defects-*) grep -q 'max_defects-\*' "$GD_CC" && continue ;;
+    esac
+    grep -q -- "$_r" "$GD_CC" || GD_MISSING="$GD_MISSING $_r"
+done
+if [ "$GD_SEEN" -lt 10 ]; then
+    fail "gate BLOCK inventory came back at $GD_SEEN — the extractor is broken, not the docs"
+    FAILS=$((FAILS + 1))
+else
+    pass "gate BLOCK inventory extracted ($GD_SEEN reasons)"; PASSES=$((PASSES + 1))
+fi
+if [ -n "$GD_MISSING" ]; then
+    fail "gate BLOCKs the guide never mentions:$GD_MISSING"; FAILS=$((FAILS + 1))
+else
+    pass "every pipeline-advance BLOCK reason is documented in the guide"; PASSES=$((PASSES + 1))
+fi
+
+# --- Claims that were measured wrong, one check each -----------------------
+# Written as "the wrong text must be absent AND the right text present", because
+# deleting a wrong sentence and documenting the real mechanism are not the same
+# repair, and only the second one helps the orchestrator.
+
+if grep -q 'lowers cycle caps to 1 and skips' "$GD_CC" || grep -q 'lowers cycle caps to 1 and skips' "$GD_CDX"; then
+    fail "guide still claims pipeline_mode: polish skips adversarial"; FAILS=$((FAILS + 1))
+else
+    pass "polish mode no longer described as skipping adversarial"; PASSES=$((PASSES + 1))
+fi
+for _pair in "CC:$GD_CC" "Codex:$GD_CDX"; do
+    _lbl="${_pair%%:*}"; _g="${_pair#*:}"
+    if grep -q 'adversarial: skip' "$_g"; then
+        pass "$_lbl guide names the real adversarial opt-out"; PASSES=$((PASSES + 1))
+    else
+        fail "$_lbl guide never names the 'adversarial: skip' opt-out — the only way to skip"; FAILS=$((FAILS + 1))
+    fi
+done
+
+# Supervision is topology, not a price tier (v6.38). The conf is the authority:
+# assert the docs against it rather than against a remembered profile name.
+GD_SUPROWS=$(grep -cE '^[a-z]+\|supervisor\|' "$APD_PLUGIN_ROOT/templates/model-profiles.conf")
+GD_PROFILES=$(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$APD_PLUGIN_ROOT/templates/model-profiles.conf" | cut -d'|' -f1 | sort -u | grep -c .)
+if [ "$GD_SUPROWS" -eq "$GD_PROFILES" ] && [ "$GD_SUPROWS" -gt 1 ]; then
+    pass "every profile carries a supervisor row ($GD_SUPROWS/$GD_PROFILES)"; PASSES=$((PASSES + 1))
+    # ...so no orchestrator-facing doc may scope supervision to one profile.
+    GD_STALE=""
+    for _pair in "CC-guide:$GD_CC" "Codex-guide:$GD_CDX" "workflow.md:$APD_PLUGIN_ROOT/rules/workflow.md" "SPEC.md:$REPO_ROOT/docs/SPEC.md"; do
+        grep -q 'v1: eco\|v1: \*\*eco\*\*' "${_pair#*:}" && GD_STALE="$GD_STALE ${_pair%%:*}"
+    done
+    if [ -n "$GD_STALE" ]; then
+        fail "docs still scope supervision to eco while every profile has the row:$GD_STALE"; FAILS=$((FAILS + 1))
+    else
+        pass "no orchestrator-facing doc scopes supervision to a single profile"; PASSES=$((PASSES + 1))
+    fi
+else
+    fail "supervisor rows ($GD_SUPROWS) != profiles ($GD_PROFILES) — topology changed, re-check the docs"
+    FAILS=$((FAILS + 1))
+fi
+
+# The cap recovery must point at the path that preserves evidence. `raise-cap`
+# exists precisely because editing a signed spec wipes `.agents`.
+if grep -q 'raise-cap' "$GD_ADV"; then
+    for _pair in "CC guide:$GD_CC" "Codex guide:$GD_CDX" "workflow.md:$APD_PLUGIN_ROOT/rules/workflow.md"; do
+        _lbl="${_pair%%:*}"; _d="${_pair#*:}"
+        if grep -q 'raise-cap' "$_d"; then
+            pass "$_lbl teaches raise-cap"; PASSES=$((PASSES + 1))
+        else
+            fail "$_lbl still routes a cap raise through the spec (wipes .agents)"; FAILS=$((FAILS + 1))
+        fi
+    done
+else
+    fail "raise-cap missing from pipeline-advance — this check is testing the wrong thing"
+    FAILS=$((FAILS + 1))
+fi
+
+# --- Guards the orchestrator will actually hit ------------------------------
+# hooks.json is the authority on which guards run; if one is wired and the CC
+# guide never names it, the first BLOCK reads as a framework fault.
+for _g in guard-spec-blind guard-secrets guard-scope guard-orchestrator guard-send-message guard-bash-portability; do
+    grep -q "$_g" "$REPO_ROOT/hooks/hooks.json" || continue
+    case "$_g" in
+        guard-spec-blind)       _tok="spec-blind" ;;
+        guard-secrets)          _tok="secret-access" ;;
+        guard-scope)            _tok="out-of-scope-write" ;;
+        guard-orchestrator)     _tok="orchestrator-code-write" ;;
+        guard-send-message)     _tok="send-message-during-pipeline" ;;
+        guard-bash-portability) _tok="portability" ;;
+    esac
+    if grep -q -- "$_tok" "$GD_CC"; then
+        pass "CC guide documents $_g ($_tok)"; PASSES=$((PASSES + 1))
+    else
+        fail "$_g is wired in hooks.json but the CC guide never mentions $_tok"; FAILS=$((FAILS + 1))
+    fi
+done
+
+# The Codex mirror must teach native dispatch — v6.36 removed the inline path,
+# so a guide that still implies it walks the orchestrator into a rejected phase.
+if grep -q 'apd_prepare_dispatch' "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"; then
+    if grep -q 'apd_prepare_dispatch' "$GD_CDX"; then
+        pass "Codex guide teaches apd_prepare_dispatch"; PASSES=$((PASSES + 1))
+    else
+        fail "Codex guide omits apd_prepare_dispatch — gates require a real subagent since v6.36"
+        FAILS=$((FAILS + 1))
+    fi
+fi
+
+# The guide runs commands; declaring Read-only tools contradicts its own exit step.
+if grep -qE '^allowed-tools:.*Bash' "$GD_CC"; then
+    pass "CC guide declares the Bash it uses to write the marker"; PASSES=$((PASSES + 1))
+else
+    fail "CC guide writes .guide-marker via bash but does not declare Bash"; FAILS=$((FAILS + 1))
+fi
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"

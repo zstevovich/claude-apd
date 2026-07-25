@@ -2,7 +2,7 @@
 name: apd-pipeline-guide
 description: MANDATORY before EVERY pipeline task — load this skill BEFORE writing spec-card.md, on every new task, no exceptions. It is the APD operating manual, NOT a brainstorm — "the task is already clear" is not a reason to skip it. Carries the current gate contract - pipeline phase map, implementation-plan **Implements:** format, adversarial rationale file format, common BLOCKs + recovery, state read rules. The spec gate hard-BLOCKS without the .guide-marker this skill writes on exit. There is no skip flag.
 effort: low
-allowed-tools: Read
+allowed-tools: Read Bash
 ---
 
 # APD Pipeline Guide
@@ -26,13 +26,20 @@ spec → builder → reviewer → adversarial → [supervision] → verifier →
 | `apd pipeline builder` | implementation-plan.md exists, plan-spec consistency (strict), regression surface (Cover/Evidence), no stale pre-spec dispatch |
 | `apd pipeline reviewer` | builder ran post-spec, builder cycle cap (default 2) |
 | adversarial dispatch | only AFTER reviewer.done (out-of-order start is not recorded — re-dispatch) |
-| supervision dispatch | ONLY when the declared model profile carries a `supervisor` row (v1: `eco`) AND adversarial ran (Full mode) — see Supervision contract below |
+| supervision dispatch | **every** profile carries a `supervisor` row (v6.38 — burn, cruise and eco alike), so this applies on whatever profile is declared, once adversarial ran (Full mode) — see Supervision contract below |
 | `apd pipeline verifier` | `.adversarial-summary` + `.adversarial-rationale.md` present, rationale gate, supervision gate (profile-coupled), spec-hash immutability |
 | commit | guard-git: pipeline complete, commit message prefix, no mass staging |
 
-Mode: `pipeline_mode: polish` in spec-card.md lowers cycle caps to 1 and skips
-adversarial for 1-2 R hotfixes. Lean vs Full is declared in the spec; this guide
-applies to BOTH.
+Two independent spec-card switches, routinely confused:
+
+- `pipeline_mode: polish` — lowers the builder AND reviewer caps 2 → 1. It does
+  **NOT** skip adversarial: the full builder → reviewer → adversarial → verifier
+  sequence still runs, just once through.
+- `adversarial: skip — <reason>` — the Lean opt-out, and the ONLY way to skip
+  adversarial. Honoured only at **≤2 R-criteria**; at 3+ the opt-out is DENIED
+  (warning) and adversarial stays required at the verifier.
+
+Lean vs Full is declared in the spec; this guide applies to BOTH.
 
 ## Implementation plan contract
 
@@ -92,6 +99,27 @@ check it (`verify-regression-surface`, in the builder advance).
   attesting the module's tests green before+after. The gate checks presence; you run the tests.
 - Mode `regression_gate: strict|warn|off` (default `warn`; `off` ignored on a Human-gate path).
 
+## Dispatching the adversarial reviewer — it is BLIND
+
+Its value is positional: it judges the diff without knowing the intent, which is
+how it finds what the contextual reviewer already rationalised away. Since v6.38
+that is **mechanically enforced** (`guard-spec-blind`), not just asked for. The
+whole of `.apd/pipeline/` and the APD memory directory are closed to that role —
+spec-card, implementation-plan, any earlier rationale, `apd pipeline show`,
+`apd report`. One exception: `.apd/pipeline/.reviewed-files`, which IS its scope.
+
+What this means for the dispatch you write:
+
+- Do NOT paste the spec, the R-criteria or the design intent into its prompt.
+  Blinding the file and then quoting it in the prompt defeats the entire layer.
+- Do NOT tell it to "read the spec card first" — it will hit `spec-blind`.
+- Point it at `.reviewed-files` for scope and let it find what it finds.
+- Findings that arrive phrased as "this does not match the spec" are a signal the
+  intent leaked in; treat them with suspicion.
+
+The blind guard fires ONLY for that role. Builders, the code reviewer, the
+supervisor and you all read the spec normally — blinding them would deadlock.
+
 ## Adversarial rationale contract
 
 AFTER the adversarial-reviewer dispatch, BEFORE `apd pipeline verifier`, write
@@ -142,12 +170,17 @@ Every adversarial finding gets one of three dispositions:
 list spinoff FIRST and recommend it.** "Expand this task / raise the cap" is only
 right when the finding is genuinely in scope and the cap raise is justified.
 
-## Supervision contract (v6.30 — profile-coupled)
+## Supervision contract (v6.30; topology fixed in v6.38)
 
-When the declared model profile carries a `supervisor` row (v1: **eco**) and the
-run is Full mode (adversarial ran), a **supervision pass over the FINAL diff** is
-expected before the verifier. Rollout: currently a WARN at the verifier; becomes
-a hard BLOCK in a future release — treat it as required now.
+Full mode (adversarial ran) expects a **supervision pass over the FINAL diff**
+before the verifier, on **every** profile. Rollout: currently a WARN at the
+verifier; becomes a hard BLOCK in a future release — treat it as required now.
+
+Supervision is **topology, not a price tier** (v6.38): burn, cruise and eco all
+carry a `supervisor` row, so the layer runs at every price point and the profiles
+stay comparable. Do not read a cheap profile as "supervision does not apply here".
+It is inert on one axis only: `APD_RUNTIME=codex`, where the CC supervisor cannot
+be dispatched at all (the gate logs `supervision-not-applicable`).
 
 Sequence, AFTER all adversarial findings are triaged and fixed:
 
@@ -185,6 +218,8 @@ redirects to `.apd/pipeline/` are blocked by design.
 
 ## Common BLOCKs + recovery
 
+### Gate BLOCKs — fire at a pipeline advance
+
 | BLOCK reason | Quick fix |
 |---|---|
 | `guide-marker-missing` | Load this skill, write the marker (below), re-run spec advance |
@@ -192,15 +227,41 @@ redirects to `.apd/pipeline/` are blocked by design.
 | `regression-surface issues=N` | Add `**Regression surface:**` with `- RS<N>: ... **Cover:** ...` (and `**Evidence:**` on Human-gate paths), or `none — <reason>`; re-run builder |
 | `rationale-missing` | Write `.adversarial-rationale.md` with T entries; re-run verifier |
 | `rationale-100pct-orch-dismiss` | Accept ≥1 finding OR reclassify dismissed → reviewer-self-dismissed |
-| `max_builder_cycles-exceeded` | Decompose into 2+ tasks OR raise cap via spec-card `builder: max_cycles=N` |
+| `rationale-count-mismatch` / `rationale-accepted-mismatch` / `rationale-status-mismatch` | The rationale must RECONCILE with `ADVERSARIAL:T:A:D`: one `## Finding` block per T, blocks with `Status: accepted` = A, `dismissed` + `reviewer-self-dismissed` = D. Fix the file or fix the summary — whichever is wrong |
+| `rationale-malformed-fields` | Every block needs all three of `**Severity:**` / `**Status:**` / `**Rationale:**`, and a dismissal needs ≥40 chars of reasoning |
+| `max_builder_cycles-exceeded` / `max_reviewer_cycles-exceeded` | First ask why: is the plan complete, the spec ambiguous, the same finding coming back? Then either decompose into 2+ tasks, or lift the budget in place: `apd pipeline raise-cap builder\|reviewer <N> "<reason>"`. **Do NOT edit `max_cycles` in the signed spec** — that forces a spec re-advance, which WIPES `.agents` and destroys the builder/reviewer evidence already earned |
 | `adversarial-before-reviewer` | Dispatch code-reviewer first; advance reviewer; THEN adversarial |
+| `adversarial-summary-without-dispatch` | Summary written with no adversarial start in `.agents` — dispatch the agent for real. (If it DID run and only its stop is missing, that is a dropped hook: `apd pipeline reconstruct-agents`) |
 | `max_defects-*` (DEPRECATED v6.9) | Remove the `max_defects` field from spec-card; do not re-introduce |
-| `pipeline-state-write` on a read | You used bash `cat`/`ls` on pipeline state — use `apd pipeline show` |
+| `adversarial-timestamp-unparseable` | The `.agents` ledger is corrupt or was hand-edited — the gate fails closed rather than guess an ordering. Inspect it; `apd pipeline reconstruct-agents` rebuilds it from the transcripts |
+| `pipeline-incomplete` | Commit attempted before `verifier.done` — finish the pipeline first |
 | `toggle-off-active-pipeline` | Don't disable APD mid-run to cram an out-of-scope fix — use `apd pipeline spinoff-finding <id> "<reason>"`, or `apd pipeline reset` to end the run |
-| `supervision-missing` (warn now, BLOCK later) | Profile has a supervisor row: dispatch supervisor on the FINAL diff, record `.supervision-summary` (+ rationale if T>0); re-run verifier |
+| `supervision-missing` (warn now, BLOCK later) | Dispatch the supervisor on the FINAL diff, record `.supervision-summary` (+ rationale if T>0); re-run verifier. Applies on every profile |
 | `supervision-summary-without-dispatch` | Summary written but no supervisor in agent log — actually dispatch the agent first |
 | `supervision-not-final` | Agent activity after the last supervisor stop — re-dispatch supervisor on the FINAL state |
 | `supervision-cycle-cap` | >2 completed supervisor passes — the loop is the problem; reset or finish the fix properly |
+
+### Guard BLOCKs — fire on a tool call, at any point in the run
+
+These are not phase gates. They stop the individual call and the run continues.
+
+| BLOCK reason | What it means |
+|---|---|
+| `orchestrator-code-write` | **You** tried to write a code file. The orchestrator writes spec, plan, docs and config — production code goes through a builder agent. This is the pipeline's whole premise, not a formality |
+| `out-of-scope-write` / `out-of-scope-bash-write` | An agent wrote outside its declared scope. Give the work to the agent that owns that path, or widen that agent's scope deliberately — routing the same write through bash to dodge it is the bypass the guard exists for |
+| `secret-access` | A call touched `.env*`, a key, a cert or a keystore. Nothing in the pipeline needs them |
+| `spec-blind` | The adversarial reviewer reached for the spec / plan / a rationale / the memory dir. Working as intended — see the blind-dispatch section above. Fires for that role only |
+| `portability-<cmd>` | A GNU-ism on macOS, or a BSD-ism on Linux. `apd env` prints the platform and the portable form of each blocked command |
+| `send-message-during-pipeline` | `SendMessage` continues an agent WITHOUT firing SubagentStart/Stop, so the work never reaches `.agents` and the next gate rejects it as "no agent dispatched". Dispatch with `Agent()` instead |
+| `parallel-same-agent` | Two dispatches of the same agent type inside the window — serialize them; concurrent same-role writes are how scope collisions happen |
+| `pipeline-state-write` on a read | You used bash `cat`/`ls` on pipeline state — use `apd pipeline show` |
+| `commit-no-prefix` / `push-no-prefix` | The APD commit prefix is missing. Recurring in practice — check the message shape before every commit |
+| `forged-done-file` | A `.done` file written by hand. Phase files come from `apd pipeline <phase>`, never from an editor |
+
+**Three of these are new in v6.38** — `spec-blind`, `secret-access` and
+`out-of-scope-write` were wired to per-agent frontmatter hooks, which do not
+fire; they now run session-level. If a run of yours hits one of them for the
+first time, that is the guard finally working, not a regression.
 
 ## Exit — write the marker
 

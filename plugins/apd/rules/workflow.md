@@ -57,6 +57,16 @@
      Dispatching adversarial-reviewer earlier is mechanically blocked (CC: track-agent
      hook exits 2; Codex: apd:apd_adversarial_pass refuses).
    → Dispatch adversarial-reviewer agent (sonnet/max, read-only, no spec context)
+   → BLINDNESS IS ENFORCED (v6.38, CC): `guard-spec-blind` closes the whole
+     `.apd/pipeline/` dir and the APD memory dir to that role — spec-card,
+     implementation-plan, any earlier rationale, `apd pipeline show`, `apd report`.
+     Only `.apd/pipeline/.reviewed-files` stays readable: it IS its scope.
+     So do NOT paste the spec, the R-criteria or the design intent into its
+     prompt, and do NOT tell it to read the spec card — blinding the file and
+     then quoting it in the prompt defeats the whole layer. On the Codex runtime
+     the guard is inert (no per-call role tag in the payload): there the same
+     discipline is yours to keep. Fires for that role only — builders, the code
+     reviewer, the supervisor and the orchestrator read the spec normally.
    → Agent sees only git diff + touched files, finds issues blind. Each finding
      gets a `Status:` field — `active` (real defect) or `self-dismissed`
      (reviewer concluded inline it's not actionable, with `Note:` reason).
@@ -94,7 +104,7 @@
    → If accepted findings → fix via builder → re-review
    → Lean mode skips this step — see "Lean vs Full" below
    ↓
-6b. SUPERVISION (v6.30 — ONLY when the model profile has a supervisor row; v1: eco, Full mode)
+6b. SUPERVISION (v6.30 — Full mode, on EVERY profile since v6.38; inert on the Codex runtime)
    → AFTER all adversarial findings are triaged and fixed — the supervisor judges
      the FINAL diff, not the pre-fix state.
    → Dispatch supervisor agent (frontier model, memory: none). Its scope is ONLY:
@@ -130,12 +140,16 @@
      dismissal pattern. Soft warns on rationale text <40 chars or lazy patterns
      (`ok`, `n/a`, `false positive`, etc.). Per-task opt-out:
      `adversarial: rationale_gate=off` in spec-card.md.
-   → SUPERVISION GATE (v6.30): when the declared profile carries a supervisor row
-     (v1: eco) and adversarial ran, the verifier checks .supervision-summary +
-     .supervision-rationale.md (same structural contract as adversarial, plus a
-     dispatch-backed check, a finality check (supervisor stop must be the last
-     agent activity) and a 2-completed-passes churn cap). Currently WARN (rollout);
-     flips to hard BLOCK in a future release. NO spec-card opt-out.
+   → SUPERVISION GATE (v6.30): once adversarial ran, the verifier checks
+     .supervision-summary + .supervision-rationale.md (same structural contract as
+     adversarial, plus a dispatch-backed check, a finality check (supervisor stop
+     must be the last agent activity) and a 2-completed-passes churn cap).
+     Currently WARN (rollout); flips to hard BLOCK in a future release.
+     NO spec-card opt-out. Applies on EVERY profile — supervision is topology,
+     not a price tier (v6.38); a cheap profile does not mean the layer is off.
+     Inert on one axis only: `APD_RUNTIME=codex`, where the CC supervisor cannot
+     be dispatched at all (`supervision-not-applicable`, never a pass, never a
+     block) — on Codex the adversarial pass is the only independent review layer.
    → If verifier FAILS → MANDATORY: /apd-debug before re-dispatching builder
    ↓
 8. ONE COMMIT for the entire feature
@@ -285,7 +299,16 @@ reviewer: max_cycles=3        # same — independent of builder
 builder: max_cycles=unlimited # no cap (use only with strong reason)
 ```
 
-When blocked, ways forward: STOP and review (is the plan complete? scope drift? same issue flagged repeatedly?), decompose into smaller tasks and reset, or raise the cap with explicit rationale via rollback + re-advance. If the blocker is an accepted finding that is genuinely **out of this task's scope**, do NOT raise the cap and do NOT `apd toggle off` — **spin it off** to a follow-up task and continue in scope: `bash .claude/bin/apd pipeline spinoff-finding <id> "<reason>"`. When you surface this choice to the user, spinoff is the first, recommended option.
+Those `max_cycles` lines are a **spec-time** budget — set them before the spec is signed. Once it is signed, editing them forces a spec re-advance, which WIPES `.agents` and destroys the builder/reviewer evidence already earned (and on Codex forces a redundant re-dispatch).
+
+When blocked mid-run, ways forward: STOP and review (is the plan complete? scope drift? same issue flagged repeatedly?), decompose into smaller tasks and reset, or lift the budget IN PLACE — no spec re-sign, evidence preserved (v6.37):
+
+```
+bash .claude/bin/apd pipeline raise-cap builder <N|unlimited> "<reason>"
+bash .claude/bin/apd pipeline raise-cap reviewer <N|unlimited> "<reason>"
+```
+
+Raises only, reason mandatory, logged as `INFO|cap-raise`, cleared on spec re-advance and reset. If the blocker is an accepted finding that is genuinely **out of this task's scope**, do NOT raise the cap and do NOT `apd toggle off` — **spin it off** to a follow-up task and continue in scope: `bash .claude/bin/apd pipeline spinoff-finding <id> "<reason>"`. When you surface this choice to the user, spinoff is the first, recommended option.
 
 ### Polish mode
 
