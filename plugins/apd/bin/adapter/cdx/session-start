@@ -21,8 +21,18 @@ set -u
 
 # Codex sends hook input on stdin as JSON. We do not need any field from it
 # for session-start; just drain to avoid the pipe filling on caller side.
+#
+# `cat` is the wrong tool here and it cost 26 minutes twice: it blocks until
+# EOF, and "not a TTY" is not the same as "will reach EOF". Invoked from a
+# script that inherited an open unix socket on fd 0 — which is what a harness
+# or any automation hands down — nothing ever closes it and this hangs forever
+# with no output and no child process to blame. Under a real hook the payload
+# is written and closed, so the bug never shows there.
+#
+# `read -t` bounds the wait: a real payload drains immediately (EOF ends the
+# loop on the next read), a never-closing stdin costs one second and moves on.
 if [ ! -t 0 ]; then
-    cat >/dev/null 2>&1 || true
+    while IFS= read -r -t 1 _ 2>/dev/null; do :; done
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

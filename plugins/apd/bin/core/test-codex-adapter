@@ -20,6 +20,11 @@
 
 set -u
 
+# No test may block on stdin. The suite is run from harnesses and CI, which
+# hand down whatever fd 0 they had — an open socket that never reaches EOF.
+# A single `cat` deep in a fixture then hangs the whole run with no output.
+exec </dev/null
+
 APD_PLUGIN_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 REPO_ROOT="$(cd "$APD_PLUGIN_ROOT/../.." && pwd)"
 source "$APD_PLUGIN_ROOT/bin/lib/style.sh"
@@ -9125,7 +9130,7 @@ printf -- '---\nname: apd-verify-stub\nmodel: sonnet\n---\n' > "$MP_PROJ/.claude
 APD_PROJECT_DIR="$MP_PROJ" bash "$MP_SCRIPT" burn >/dev/null 2>&1
 MP_B_MODEL=$(awk '/^model:/ {print $2; exit}' "$MP_PROJ/.claude/agents/backend-x.md")
 MP_A_MODEL=$(awk '/^model:/ {print $2; exit}' "$MP_PROJ/.claude/agents/adversarial-reviewer.md")
-if [ "$MP_B_MODEL" = "claude-fable-5" ] && [ "$MP_A_MODEL" = "opus" ]; then
+if [ "$MP_B_MODEL" = "claude-fable-5" ] && [ "$MP_A_MODEL" = "claude-opus-5" ]; then
     pass "apply burn: builder→claude-fable-5, adversarial→opus (role split)"
     PASSES=$((PASSES + 1))
 else
@@ -11163,14 +11168,14 @@ mkdir -p "$TR_SUB"
 # paired transcript: 3 assistant msgs, 3000 out-tokens, ISO timestamps span 60s -> 50 tok/s
 cat > "$TR_SUB/agent-abc123def456.jsonl" <<EOF
 {"type":"user","timestamp":"${TR_DAY}T10:00:00.000Z","message":{"role":"user"}}
-{"type":"assistant","timestamp":"${TR_DAY}T10:00:00.000Z","message":{"role":"assistant","usage":{"output_tokens":1000}}}
-{"type":"assistant","timestamp":"${TR_DAY}T10:00:30.000Z","message":{"role":"assistant","usage":{"output_tokens":1000}}}
-{"type":"assistant","timestamp":"${TR_DAY}T10:01:00.000Z","message":{"role":"assistant","usage":{"output_tokens":1000}}}
+{"type":"assistant","timestamp":"${TR_DAY}T10:00:00.000Z","message":{"role":"assistant","model":"claude-sonnet-5","usage":{"output_tokens":1000}}}
+{"type":"assistant","timestamp":"${TR_DAY}T10:00:30.000Z","message":{"role":"assistant","model":"claude-sonnet-5","usage":{"output_tokens":1000}}}
+{"type":"assistant","timestamp":"${TR_DAY}T10:01:00.000Z","message":{"role":"assistant","model":"claude-sonnet-5","usage":{"output_tokens":1000}}}
 EOF
 # dropped-stop transcript: full transcript, but no stop event in history
 cat > "$TR_SUB/agent-def789ghi012.jsonl" <<EOF
-{"type":"assistant","timestamp":"${TR_DAY}T11:00:00.000Z","message":{"role":"assistant","usage":{"output_tokens":1500}}}
-{"type":"assistant","timestamp":"${TR_DAY}T11:00:30.000Z","message":{"role":"assistant","usage":{"output_tokens":1500}}}
+{"type":"assistant","timestamp":"${TR_DAY}T11:00:00.000Z","message":{"role":"assistant","model":"claude-opus-5","usage":{"output_tokens":1500}}}
+{"type":"assistant","timestamp":"${TR_DAY}T11:00:30.000Z","message":{"role":"assistant","model":"claude-opus-5","usage":{"output_tokens":1500}}}
 EOF
 TR_OUT=$(APD_PROJECT_DIR="$TR_SCRATCH" CLAUDE_CONFIG_DIR="$TR_CFG" bash "$TR_SCRIPT" --days 3 2>&1)
 if echo "$TR_OUT" | grep -q "testbuilder" && echo "$TR_OUT" | grep -qE "Turn & Duration Telemetry"; then
@@ -11189,6 +11194,42 @@ if echo "$TR_OUT" | grep -qE "dropped-stop" && echo "$TR_OUT" | grep -q "reconst
     pass "pipeline-report-turns flags dropped-stop with reconstruct-agents hint"; PASSES=$((PASSES + 1))
 else
     fail "pipeline-report-turns dropped-stop detection failed: $TR_OUT"; FAILS=$((FAILS + 1))
+fi
+# Served model per agent (v6.38). The agent file's `model:` is a REQUEST; a bare
+# alias resolves to whatever the runtime maps it to today. Measured on this
+# corpus, agents pinned to `opus` were served claude-opus-4-8 until 2026-07-23
+# and claude-opus-5 from 2026-07-25 — same config, different model, no record.
+# Only the transcript says what was actually bought.
+# No bare alias may return to the model column. `opus`/`sonnet` resolve to
+# whatever the runtime maps them to TODAY: on this corpus agents pinned to
+# `opus` were served claude-opus-4-8 through 2026-07-23 and claude-opus-5 from
+# 2026-07-25 — same file, different model, nothing recorded anywhere. A profile
+# you cannot name is a profile you cannot compare across runs.
+MPC="$APD_PLUGIN_ROOT/templates/model-profiles.conf"
+BARE=$(grep -vE '^[[:space:]]*(#|$)' "$MPC" | awk -F'|' 'NF>=3 && $3 !~ /-/ {print $1"|"$2"|"$3}')
+if [ -z "$BARE" ]; then
+    pass "model-profiles.conf pins full model ids (no bare aliases)"; PASSES=$((PASSES + 1))
+else
+    fail "model-profiles.conf carries a bare alias: $BARE"; FAILS=$((FAILS + 1))
+fi
+
+if echo "$TR_OUT" | grep -q "served model"; then
+    pass "pipeline-report-turns shows a served-model column"; PASSES=$((PASSES + 1))
+else
+    fail "pipeline-report-turns missing served-model column: $TR_OUT"; FAILS=$((FAILS + 1))
+fi
+if echo "$TR_OUT" | grep -q "claude-sonnet-5"; then
+    pass "pipeline-report-turns reports the served model id from the transcript"; PASSES=$((PASSES + 1))
+else
+    fail "pipeline-report-turns did not surface the served model: $TR_OUT"; FAILS=$((FAILS + 1))
+fi
+# The fixture runs one agent under TWO models — the shape of an alias that moved
+# or a mid-window profile switch. A silent average across them would be unsound.
+if echo "$TR_OUT" | grep -q "more than one model" \
+   && echo "$TR_OUT" | grep -q "claude-opus-5"; then
+    pass "pipeline-report-turns warns when one agent ran under several models"; PASSES=$((PASSES + 1))
+else
+    fail "pipeline-report-turns missed the mixed-model case: $TR_OUT"; FAILS=$((FAILS + 1))
 fi
 rm -rf "$TR_SCRATCH" "$TR_CFG"
 
@@ -12741,6 +12782,51 @@ _shim_exit "guard-bash-scope BLOCKS an out-of-scope bash write" 2 guard-bash-sco
     '{"agent_type":"scoped-builder","tool_input":{"command":"cp src/a.go outside/evil.txt"}}'
 _shim_exit "guard-bash-scope ALLOWS an in-scope bash write" 0 guard-bash-scope \
     '{"agent_type":"scoped-builder","tool_input":{"command":"cp src/a.go src/b.go"}}'
+
+section "113. Hooks must not block on a stdin that never closes"
+
+# A hook that drains stdin with `cat` blocks until EOF, and "not a TTY" is not
+# the same as "will reach EOF". Invoked from a harness or CI that inherited an
+# open socket on fd 0, it hangs forever — no output, no child process to blame.
+# Cost this session: two 26-minute stalls before the cause was found.
+#
+# The suite itself now runs with `exec </dev/null`, which means it can no longer
+# reproduce the condition it is protecting against. So this check builds the
+# condition on purpose: a fifo held open by a writer that never closes it.
+SSH_D="$(mktemp -d -t apd-stdinhang.XXXXXX)"
+mkdir -p "$SSH_D/proj/.apd/pipeline" "$SSH_D/proj/.codex"
+printf 'PROJECT_NAME=x\n' > "$SSH_D/proj/.apd/config"
+date +%s > "$SSH_D/proj/.apd/pipeline/.last-init-check"   # throttle the slow path
+mkfifo "$SSH_D/pipe"
+
+( exec 3>"$SSH_D/pipe"; sleep 12 ) &        # holds the write end open, sends nothing
+SSH_HOLD=$!
+( APD_PROJECT_DIR="$SSH_D/proj" bash "$APD_PLUGIN_ROOT/bin/adapter/cdx/session-start" \
+    < "$SSH_D/pipe" >/dev/null 2>&1 ) &
+SSH_PID=$!
+
+SSH_I=0
+while [ "$SSH_I" -lt 40 ] && kill -0 "$SSH_PID" 2>/dev/null; do
+    sleep 0.25; SSH_I=$((SSH_I + 1))
+done
+if kill -0 "$SSH_PID" 2>/dev/null; then
+    kill -9 "$SSH_PID" 2>/dev/null
+    fail "cdx/session-start hangs on a stdin that never closes (drain must be bounded)"
+    FAILS=$((FAILS + 1))
+else
+    pass "cdx/session-start returns on a stdin that never closes"; PASSES=$((PASSES + 1))
+fi
+kill "$SSH_HOLD" 2>/dev/null; wait "$SSH_HOLD" 2>/dev/null
+rm -rf "$SSH_D"
+
+# Both E2E suites close stdin so no fixture anywhere can inherit an open socket.
+for _sf in core/test-codex-adapter core/verify-apd; do
+    if grep -q 'exec </dev/null' "$APD_PLUGIN_ROOT/bin/$_sf"; then
+        pass "$(basename "$_sf") closes stdin at startup"; PASSES=$((PASSES + 1))
+    else
+        fail "$(basename "$_sf") can inherit a blocking stdin"; FAILS=$((FAILS + 1))
+    fi
+done
 
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"

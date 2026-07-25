@@ -6,6 +6,11 @@
 #   test-hooks  -> static check (files, JSON, placeholders)
 #   verify-apd  -> functional tests (guards block, pipeline works end-to-end)
 
+# No check may block on stdin. This runs from harnesses, CI and session hooks,
+# which hand down whatever fd 0 they had — an open socket that never reaches
+# EOF. A single `cat` deep in a fixture then hangs the whole run with no output.
+exec </dev/null
+
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
 
