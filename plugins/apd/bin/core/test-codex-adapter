@@ -13054,6 +13054,87 @@ for _sf in core/test-codex-adapter core/verify-apd; do
     fi
 done
 
+section "116. Builder charter — the role that writes the code gets taught too"
+
+# Guards are mechanics; the average comes from education. APD had that backwards
+# by role: the orchestrator gets a mandatory operating manual, the supervisor a
+# charter, the adversarial reviewer a template that explains its own blindness —
+# and the agent that actually writes the code got a FORBIDDEN list and a scope.
+#
+# Builder agents are project-authored (their scope is the project's), so init
+# cannot regenerate them from the template. It inserts the block once, keyed on a
+# machine marker rather than on prose, and ONLY into agents that can write: the
+# read-only roles carry their own contracts and would be diluted by this one.
+
+BC_MARK="<!-- apd:builder-charter -->"
+BC_TMPL="$APD_PLUGIN_ROOT/templates/agent-template.md"
+if grep -qF "$BC_MARK" "$BC_TMPL" 2>/dev/null; then
+    pass "agent template carries the builder charter"; PASSES=$((PASSES + 1))
+else
+    fail "agent template lost the builder charter marker"; FAILS=$((FAILS + 1))
+fi
+# The charter is worth its context only if it says what nothing else tells a
+# builder. Assert the load-bearing claims, not the heading.
+BC_MISS=""
+for _c in 'cannot see the spec' 'two or more' 'FAILS before your change' 'Regression surface' 'not route the same write through a shell'; do
+    grep -qF "$_c" "$BC_TMPL" 2>/dev/null || BC_MISS="$BC_MISS [$_c]"
+done
+if [ -z "$BC_MISS" ]; then
+    pass "charter carries the claims only a builder needs"; PASSES=$((PASSES + 1))
+else
+    fail "charter is missing load-bearing content:$BC_MISS"; FAILS=$((FAILS + 1))
+fi
+
+# apd-setup GENERATES builders from its reference table rather than copying the
+# template, which is how the bare aliases got in. Same path, same trap: a
+# generator that does not know about the charter writes agents without it.
+if grep -qF "$BC_MARK" "$REPO_ROOT/skills/apd-setup/reference/agent-templates.md" 2>/dev/null; then
+    pass "apd-setup tells the generator to carry the charter"; PASSES=$((PASSES + 1))
+else
+    fail "apd-setup generates builders with no charter (the alias trap, repeated)"; FAILS=$((FAILS + 1))
+fi
+
+BC_T="$(mktemp -d -t apd-charter.XXXXXX)"
+mkdir -p "$BC_T/proj/.claude/agents" "$BC_T/proj/src"
+printf '# p\n' > "$BC_T/proj/CLAUDE.md"
+printf 'PROJECT_NAME=bc\nAPD_VERSION=0.0.1\n' > "$BC_T/proj/.claude/.apd-config"
+printf -- '---\nname: backend-api\ntools: Read, Write, Edit, Glob, Grep, Bash\nmodel: claude-sonnet-5\n---\n\nYou are the backend builder.\n\n## Stack\n- node\n' \
+    > "$BC_T/proj/.claude/agents/backend-api.md"
+printf -- '---\nname: code-reviewer\ntools: Read, Glob, Grep, Bash\nmodel: claude-opus-5\n---\n\nreviewed-files\n\n## Checklist\n- x\n' \
+    > "$BC_T/proj/.claude/agents/code-reviewer.md"
+APD_PROJECT_DIR="$BC_T/proj" CLAUDE_PLUGIN_OPTION_PROJECT_NAME=bc \
+    bash "$APD_PLUGIN_ROOT/bin/core/apd-init" >/dev/null 2>&1
+
+BC_B="$BC_T/proj/.claude/agents/backend-api.md"
+BC_R="$BC_T/proj/.claude/agents/code-reviewer.md"
+if [ "$(grep -cF "$BC_MARK" "$BC_B" 2>/dev/null)" = "1" ]; then
+    pass "init inserts the charter into a writable agent"; PASSES=$((PASSES + 1))
+else
+    fail "charter not inserted into the builder"; FAILS=$((FAILS + 1))
+fi
+# Read-only roles must be left alone — this is the discriminating half.
+if [ "$(grep -cF "$BC_MARK" "$BC_R" 2>/dev/null)" = "0" ]; then
+    pass "read-only agents are left alone (charter is builder-scoped)"; PASSES=$((PASSES + 1))
+else
+    fail "charter leaked into a read-only agent, diluting its own contract"; FAILS=$((FAILS + 1))
+fi
+# Frontmatter must survive, and the block must land in the BODY.
+if [ "$(head -1 "$BC_B")" = "---" ] && grep -q '^name: backend-api' "$BC_B" \
+   && [ "$(grep -n "$BC_MARK" "$BC_B" | cut -d: -f1)" -gt "$(grep -n '^---$' "$BC_B" | sed -n 2p | cut -d: -f1)" ]; then
+    pass "charter lands in the body, frontmatter intact"; PASSES=$((PASSES + 1))
+else
+    fail "charter insert damaged the frontmatter or landed inside it"; FAILS=$((FAILS + 1))
+fi
+# Idempotent: session-start runs init every session, so a second pass must be a no-op.
+APD_PROJECT_DIR="$BC_T/proj" CLAUDE_PLUGIN_OPTION_PROJECT_NAME=bc \
+    bash "$APD_PLUGIN_ROOT/bin/core/apd-init" >/dev/null 2>&1
+if [ "$(grep -cF "$BC_MARK" "$BC_B" 2>/dev/null)" = "1" ]; then
+    pass "second init run does not duplicate the charter"; PASSES=$((PASSES + 1))
+else
+    fail "charter duplicated on re-init ($(grep -cF "$BC_MARK" "$BC_B") copies)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$BC_T"
+
 section "115. The adversarial layer must not depend on the agent file existing"
 
 # Measured 2026-07-25 as a discriminating pair. The reviewer step only wrote

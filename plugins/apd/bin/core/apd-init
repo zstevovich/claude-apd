@@ -446,6 +446,71 @@ if [ "$MODE" = "update" ]; then
         fi
     fi
 
+    # --- builder charter (v6.38) ---------------------------------------------
+    # Builders are the least-educated role and the most consequential one: the
+    # orchestrator gets a mandatory operating manual, the supervisor a charter,
+    # the adversarial reviewer a template that explains its own blindness — while
+    # the agent that actually writes the code got a FORBIDDEN list and a scope.
+    # The charter carries what only a builder needs and nothing else tells it:
+    # who judges the diff (including a reader that CANNOT see the spec), which
+    # paths raise the bar, that a claim needs an executed red-green proof, that
+    # the regression surface is its obligation, and that the shell is not a way
+    # around scope.
+    #
+    # Builder agents are project-authored (their scope is the project's), so init
+    # cannot regenerate them from the template — it inserts the block instead,
+    # once, keyed on a machine marker rather than on prose. Only agents that can
+    # WRITE get it; the reviewer, adversarial and supervisor roles carry their own
+    # contracts and would be diluted by this one.
+    CHARTER_MARK="<!-- apd:builder-charter -->"
+    CHARTER_SRC="$APD_PLUGIN_ROOT/templates/agent-template.md"
+    if [ -d "$CLAUDE_DIR/agents" ] && [ -f "$CHARTER_SRC" ]; then
+        CHARTER_ADDED=0
+        for _ag in "$CLAUDE_DIR"/agents/*.md; do
+            [ -f "$_ag" ] || continue
+            case "$(basename "$_ag")" in apd-verify-*) continue ;; esac
+            # Writable agents only — `tools:` naming Write is what a builder is.
+            grep -qE '^tools:.*\bWrite\b' "$_ag" 2>/dev/null || continue
+            grep -qF "$CHARTER_MARK" "$_ag" 2>/dev/null && continue
+            python3 - "$_ag" "$CHARTER_SRC" <<'PYCHARTER' || continue
+import sys
+agent_path, tmpl_path = sys.argv[1], sys.argv[2]
+MARK = "<!-- apd:builder-charter -->"
+tmpl = open(tmpl_path, encoding="utf-8").read()
+start = tmpl.find(MARK)
+if start == -1:
+    sys.exit(1)
+# The block runs to the next top-level heading that is not part of the charter.
+rest = tmpl[start:]
+end = rest.find("\n## Stack")
+block = (rest if end == -1 else rest[:end]).rstrip() + "\n\n"
+body = open(agent_path, encoding="utf-8").read()
+# Insert before the first top-level section of the BODY, never inside frontmatter.
+lines = body.split("\n")
+fm_end = 0
+if lines and lines[0].strip() == "---":
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            fm_end = i + 1
+            break
+ins = len(lines)
+for i in range(fm_end, len(lines)):
+    if lines[i].startswith("## "):
+        ins = i
+        break
+out = "\n".join(lines[:ins]).rstrip() + "\n\n" + block + "\n".join(lines[ins:]).lstrip("\n")
+open(agent_path, "w", encoding="utf-8").write(out)
+PYCHARTER
+            if grep -qF "$CHARTER_MARK" "$_ag" 2>/dev/null; then
+                CHARTER_ADDED=$((CHARTER_ADDED + 1))
+            fi
+        done
+        if [ "$CHARTER_ADDED" -gt 0 ]; then
+            fix "Builder charter added to $CHARTER_ADDED agent(s) — how the diff is judged, where the bar rises, red-green proof"
+            FIXES=$((FIXES + 1))
+        fi
+    fi
+
     # --- Clean APD-VERIFY pollution from pipeline-metrics.log (one-time) ---
     if [ -f "$MEMORY_DIR/pipeline-metrics.log" ]; then
         if grep -q '^[0-9]*|APD-VERIFY-' "$MEMORY_DIR/pipeline-metrics.log" 2>/dev/null; then

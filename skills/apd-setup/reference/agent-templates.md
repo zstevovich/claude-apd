@@ -37,7 +37,16 @@ Generated from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/agent-template.md`. 
 
 > **The hook block is DATA, not execution.** Per-agent frontmatter `hooks:` never fire (measured on CC 2.1.220), so enforcement runs session-level from `hooks/hooks.json`. But `bin/lib/agent-scope.sh` resolves each agent's writable scope by reading the `guard-scope` hook command out of this very file when no YAML `scope:` key is present. So the block must still be written, and its SCOPE_PATHS must be exactly right — it is the registry the guard consults, not a formality.
 
-**Body:** role description, stack notes, workflow reference, FORBIDDEN section listing what the builder must NOT do (commit, push, edit out-of-scope files, run destructive commands).
+**Body:** role description, **the builder charter**, stack notes, workflow reference, FORBIDDEN section listing what the builder must NOT do (commit, push, edit out-of-scope files, run destructive commands).
+
+> **Copy the charter block verbatim** from `agent-template.md` — everything from
+> `<!-- apd:builder-charter -->` down to `## Stack`, marker line included. It is the
+> only place a builder is told who judges its diff (including a reader that cannot
+> see the spec), which paths raise the bar, that a claim needs a test which fails
+> before the change, and that the shell is not a way around scope. The marker is
+> what `apd-init` keys on, so an agent generated without it gets the block inserted
+> on the next session-start — losing nothing, but generating it right avoids the
+> churn and keeps the file in the order the template intends.
 
 ## Reviewer agent
 
