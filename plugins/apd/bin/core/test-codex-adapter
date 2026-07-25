@@ -12056,6 +12056,261 @@ fi
 rm -rf "$_INT_E"
 
 # -----------------------------------------------------------
+# 107. Pipeline lock — concurrent sessions
+# -----------------------------------------------------------
+# Both lock exits survived the 2026-07-25 audit on both surfaces. This is a
+# shared-state concurrency path, and it has already failed in the field: a CC
+# session's reset once wiped a Codex run's plan.
+#
+# `mkdir` is the atomic acquire. Three outcomes when it fails: a fresh lock
+# means someone else is working (bail), a stale one (>5 min) is reclaimed, and a
+# stale one that cannot be removed means a third party took it mid-cleanup.
+# The last is reachable in a test because rmdir refuses a NON-EMPTY directory,
+# which is exactly the state the reclaim race would leave behind.
+section "107. Pipeline lock — concurrent sessions"
+
+_lk_proj() {   # $1 = dir
+    mkdir -p "$1/.apd/pipeline" "$1/.claude"
+    echo "PROJECT_NAME=lock-test" > "$1/.apd/config"
+}
+_lk_run() {    # $1 = dir; echoes "<rc>|<output>"
+    local out rc
+    out=$(APD_PROJECT_DIR="$1" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" status 2>&1)
+    rc=$?
+    printf '%s|%s' "$rc" "$out"
+}
+_lk_blocks() {  # $1 = label, $2 = dir, $3 = expected message
+    local res rc out
+    res=$(_lk_run "$2"); rc="${res%%|*}"; out="${res#*|}"
+    if [ "$rc" -ne 0 ] && echo "$out" | grep -qF "$3"; then
+        pass "$1"; PASSES=$((PASSES + 1))
+    else
+        fail "$1 — expected block '$3' (rc=$rc)"; FAILS=$((FAILS + 1))
+    fi
+}
+_lk_free() {    # $1 = label, $2 = dir — the lock must not be what stops us.
+    # Asserted on the message, not the exit code: `status` on a bare fixture can
+    # exit non-zero for unrelated reasons, and conflating the two would let a
+    # broken lock look "allowed".
+    local res out
+    res=$(_lk_run "$2"); out="${res#*|}"
+    if echo "$out" | grep -qF 'locked by another session'; then
+        fail "$1 — lock blocked when it should not have"; FAILS=$((FAILS + 1))
+    else
+        pass "$1"; PASSES=$((PASSES + 1))
+    fi
+}
+
+LK="$SCRATCH/lock"
+
+# (a) no lock at all — nothing to contend with
+_lk_proj "$LK/free"
+_lk_free "no lock present — advance is not lock-blocked" "$LK/free"
+
+# (b) a fresh lock means another session is mid-run
+_lk_proj "$LK/held"
+mkdir "$LK/held/.apd/pipeline/.lock"
+_lk_blocks "fresh lock BLOCKS a second session" "$LK/held" \
+    "BLOCKED: Pipeline is locked by another session."
+
+# (c) a stale lock (>5 min) is reclaimed rather than obeyed forever
+_lk_proj "$LK/stale"
+mkdir "$LK/stale/.apd/pipeline/.lock"
+touch -t 202001010000 "$LK/stale/.apd/pipeline/.lock"
+_lk_free "stale lock is reclaimed, not obeyed" "$LK/stale"
+
+# (d) stale but not removable — a third party holds it through the cleanup
+_lk_proj "$LK/race"
+mkdir "$LK/race/.apd/pipeline/.lock"
+: > "$LK/race/.apd/pipeline/.lock/occupant"
+touch -t 202001010000 "$LK/race/.apd/pipeline/.lock"
+_lk_blocks "lock reclaimed by a third party mid-cleanup BLOCKS" "$LK/race" \
+    "BLOCKED: Pipeline lock reclaimed by another session during stale cleanup."
+
+# -----------------------------------------------------------
+# 108. Phase ordering — a step refuses to run out of turn
+# -----------------------------------------------------------
+# The three ordering exits survived the 2026-07-25 audit on both surfaces.
+# verify-apd covers "builder BLOCKS without agent dispatch", which is a
+# different mechanism: this one is the plain precondition that the PREVIOUS
+# step actually completed.
+section "108. Phase ordering — steps refuse to run out of turn"
+
+_ord_blocks() {  # $1 label, $2 dir, $3 step, $4 expected message
+    local res rc out
+    res=$(_int_advance "$2" "$3"); rc="${res%%|*}"; out="${res#*|}"
+    if [ "$rc" -ne 0 ] && echo "$out" | grep -qF "$4"; then
+        pass "$1"; PASSES=$((PASSES + 1))
+    else
+        fail "$1 — expected '$4' (rc=$rc)"; FAILS=$((FAILS + 1))
+    fi
+}
+_ord_not_blocked() {  # $1 label, $2 dir, $3 step, $4 message that must NOT appear
+    local res out
+    res=$(_int_advance "$2" "$3"); out="${res#*|}"
+    if echo "$out" | grep -qF "$4"; then
+        fail "$1 — ordering gate fired when the previous step WAS done"; FAILS=$((FAILS + 1))
+    else
+        pass "$1"; PASSES=$((PASSES + 1))
+    fi
+}
+
+# builder without a completed spec
+_ORD_A="$(mktemp -d -t apd-ord-a.XXXXXX)"
+_int_proj "$_ORD_A"
+rm -f "$_ORD_A/.apd/pipeline/spec.done"
+_ord_blocks "builder BLOCKS when spec is not done" "$_ORD_A" builder \
+    "ERROR: Spec must be completed before builder!"
+rm -rf "$_ORD_A"
+
+# reviewer without a completed builder
+_ORD_B="$(mktemp -d -t apd-ord-b.XXXXXX)"
+_int_proj "$_ORD_B"
+_ord_blocks "reviewer BLOCKS when builder is not done" "$_ORD_B" reviewer \
+    "ERROR: Builder must be completed before reviewer!"
+rm -rf "$_ORD_B"
+
+# verifier without a completed reviewer
+_ORD_C="$(mktemp -d -t apd-ord-c.XXXXXX)"
+_int_proj "$_ORD_C"
+_oc1=$(_v67_ts 1); _oc2=$(_v67_ts 11)
+printf '%s|start|backend-builder|aabbccddeeff5001\n%s|stop|backend-builder|aabbccddeeff5001\n' \
+    "$_oc1" "$_oc2" >> "$_ORD_C/.apd/pipeline/.agents"
+_int_advance "$_ORD_C" builder >/dev/null
+_ord_blocks "verifier BLOCKS when reviewer is not done" "$_ORD_C" verifier \
+    "ERROR: Reviewer must be completed before verifier!"
+# ALLOW: with spec done, the builder step is not stopped by the ordering gate
+_ord_not_blocked "builder is not ordering-blocked once spec is done" "$_ORD_C" builder \
+    "ERROR: Spec must be completed before builder!"
+rm -rf "$_ORD_C"
+
+# -----------------------------------------------------------
+# 109. Sub-gate translation — a failing verifier must stop the step
+# -----------------------------------------------------------
+# Four sites where pipeline-advance turns a sub-gate's failure into a refusal.
+# Each is load-bearing on its own: the sub-gate can work perfectly and the
+# pipeline would still advance if the translation is neutered. All four
+# survived the audit on both surfaces.
+section "109. Sub-gate translation — failing sub-gate stops the step"
+
+# --- verify-plan-spec (strict is the default) ------------------------------
+_SG_A="$(mktemp -d -t apd-sg-a.XXXXXX)"
+_int_proj "$_SG_A"   # plan declares **Implements:** R1 — consistent
+_int_advance "$_SG_A" builder >/dev/null
+_SG_RES=$(_int_advance "$_SG_A" builder); _SG_OUT="${_SG_RES#*|}"
+if echo "$_SG_OUT" | grep -q 'plan-spec consistency'; then
+    fail "consistent plan wrongly blocked by the plan-spec translation"; FAILS=$((FAILS + 1))
+else
+    pass "consistent plan is not blocked by the plan-spec translation"; PASSES=$((PASSES + 1))
+fi
+rm -rf "$_SG_A"
+
+_SG_B="$(mktemp -d -t apd-sg-b.XXXXXX)"
+# NOT _int_proj: that fixture carries `plan_consistency_gate: off`, so the gate
+# never runs. An earlier draft used it and the check passed on the builder-agent
+# block instead — a test for a mechanism it never exercised.
+mkdir -p "$_SG_B/.apd/pipeline" "$_SG_B/.claude/agents" "$_SG_B/.claude/memory" "$_SG_B/tests"
+echo "PROJECT_NAME=sg-test" > "$_SG_B/.apd/config"
+printf '# t\n**Acceptance criteria:**\n- R1: x\n' > "$_SG_B/.apd/pipeline/spec-card.md"
+echo "// @trace R1" > "$_SG_B/tests/t.py"
+printf -- '---\nname: backend-builder\nmodel: opus\n---\nt\n' > "$_SG_B/.claude/agents/backend-builder.md"
+_guide_marker "$_SG_B" "sg-task"
+# strip the **Implements:** header — verify-plan-spec fails under the strict default
+printf '# Plan\n### Agents\n- backend-builder: x\n' > "$_SG_B/.apd/pipeline/implementation-plan.md"
+APD_PROJECT_DIR="$_SG_B" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "sg-task" >/dev/null 2>&1
+_SG_RES=$(_int_advance "$_SG_B" builder); _SG_RC="${_SG_RES%%|*}"; _SG_OUT="${_SG_RES#*|}"
+# The plan-spec message is printed BEFORE the exit, so its presence proves
+# nothing on its own — with the exit neutered the text still appears and a later
+# gate supplies the non-zero status. What proves the translation is that the run
+# STOPS HERE: the next stage's block must not appear.
+if [ "$_SG_RC" -ne 0 ] \
+   && echo "$_SG_OUT" | grep -q 'BLOCKED: plan-spec consistency check failed' \
+   && ! echo "$_SG_OUT" | grep -q 'No project Builder agent was dispatched'; then
+    pass "failing verify-plan-spec STOPS the builder step"; PASSES=$((PASSES + 1))
+else
+    fail "plan-spec translation did not stop builder (rc=$_SG_RC, reached=$(echo "$_SG_OUT" | grep -c 'No project Builder agent'))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_SG_B"
+
+# --- verify-regression-surface (opt into strict for the test) --------------
+_SG_C="$(mktemp -d -t apd-sg-c.XXXXXX)"
+mkdir -p "$_SG_C/.apd/pipeline" "$_SG_C/.claude/agents" "$_SG_C/.claude/memory" "$_SG_C/tests"
+echo "PROJECT_NAME=sg-test" > "$_SG_C/.apd/config"
+# An RS item with no **Cover:** is an issue regardless of escalation. (A MISSING
+# Regression surface block only counts on a Human-gate path, which is why an
+# earlier draft of this fixture sailed past the gate and was stopped further
+# down by the builder-dispatch check instead.)
+printf '# t\nplan_consistency_gate: off\nregression_gate: strict\n**Acceptance criteria:**\n- R1: x\n**Regression surface:**\n- RS1: profile module keeps working\n' \
+    > "$_SG_C/.apd/pipeline/spec-card.md"
+printf '# Plan\n### Agents\n**Implements:** R1\n- backend-builder: x\n' \
+    > "$_SG_C/.apd/pipeline/implementation-plan.md"
+echo "// @trace R1" > "$_SG_C/tests/t.py"
+printf -- '---\nname: backend-builder\nmodel: opus\n---\nt\n' > "$_SG_C/.claude/agents/backend-builder.md"
+_guide_marker "$_SG_C" "sg-task"
+APD_PROJECT_DIR="$_SG_C" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "sg-task" >/dev/null 2>&1
+_SG_RES=$(_int_advance "$_SG_C" builder); _SG_RC="${_SG_RES%%|*}"; _SG_OUT="${_SG_RES#*|}"
+if [ "$_SG_RC" -ne 0 ] && echo "$_SG_OUT" | grep -qi 'regression surface'; then
+    pass "failing verify-regression-surface STOPS the builder step"; PASSES=$((PASSES + 1))
+else
+    fail "regression-surface translation did not stop builder (rc=$_SG_RC, block=$(echo "$_SG_OUT" | grep -m1 BLOCKED))"; FAILS=$((FAILS + 1))
+fi
+# ALLOW: the same spec with **Cover:** supplied must clear the gate.
+printf '# t\nplan_consistency_gate: off\nregression_gate: strict\n**Acceptance criteria:**\n- R1: x\n**Regression surface:**\n- RS1: profile module keeps working — **Cover:** existing profile suite\n' \
+    > "$_SG_C/.apd/pipeline/spec-card.md"
+rm -f "$_SG_C/.apd/pipeline"/*.done "$_SG_C/.apd/pipeline/.spec-hash"
+_guide_marker "$_SG_C" "sg-task"
+APD_PROJECT_DIR="$_SG_C" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "sg-task" >/dev/null 2>&1
+_SG_RES=$(_int_advance "$_SG_C" builder); _SG_OUT="${_SG_RES#*|}"
+if echo "$_SG_OUT" | grep -qi 'regression surface check failed'; then
+    fail "regression-surface blocked a covered RS item"; FAILS=$((FAILS + 1))
+else
+    pass "covered **Regression surface:** clears the gate"; PASSES=$((PASSES + 1))
+fi
+rm -rf "$_SG_C"
+
+# --- verify-trace ----------------------------------------------------------
+_SG_D="$(mktemp -d -t apd-sg-d.XXXXXX)"
+_v67_make_state "$_SG_D" "ADVERSARIAL:0:0:0"
+rm -f "$_SG_D/tests/test_v67.py"     # R1 loses its @trace marker
+_SG_OUT=$(_v67_run_verifier "$_SG_D"); _SG_RC=$?
+if [ "$_SG_RC" -ne 0 ] && echo "$_SG_OUT" | grep -qi '@trace'; then
+    pass "failing verify-trace STOPS the verifier step"; PASSES=$((PASSES + 1))
+else
+    fail "trace translation did not stop verifier (rc=$_SG_RC)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_SG_D"
+
+# --- verify-all.sh (project build + tests) ---------------------------------
+# BLOCK when it fails...
+_SG_E="$(mktemp -d -t apd-sg-e.XXXXXX)"
+_v67_make_state "$_SG_E" "ADVERSARIAL:0:0:0"
+mkdir -p "$_SG_E/.claude/scripts"
+printf '#!/bin/bash\necho "pretend test failure" >&2\nexit 1\n' > "$_SG_E/.claude/scripts/verify-all.sh"
+chmod +x "$_SG_E/.claude/scripts/verify-all.sh"
+_SG_OUT=$(_v67_run_verifier "$_SG_E"); _SG_RC=$?
+if [ "$_SG_RC" -ne 0 ] && echo "$_SG_OUT" | grep -q 'Build or tests failed'; then
+    pass "failing verify-all.sh STOPS the verifier step"; PASSES=$((PASSES + 1))
+else
+    fail "verify-all translation did not stop verifier (rc=$_SG_RC)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$_SG_E"
+
+# ...and pass when it succeeds.
+_SG_F="$(mktemp -d -t apd-sg-f.XXXXXX)"
+_v67_make_state "$_SG_F" "ADVERSARIAL:0:0:0"
+mkdir -p "$_SG_F/.claude/scripts"
+printf '#!/bin/bash\nexit 0\n' > "$_SG_F/.claude/scripts/verify-all.sh"
+chmod +x "$_SG_F/.claude/scripts/verify-all.sh"
+_SG_OUT=$(_v67_run_verifier "$_SG_F")
+if echo "$_SG_OUT" | grep -q 'Build or tests failed'; then
+    fail "verify-all blocked even though the script succeeded"; FAILS=$((FAILS + 1))
+else
+    pass "passing verify-all.sh does not block the verifier"; PASSES=$((PASSES + 1))
+fi
+rm -rf "$_SG_F"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
