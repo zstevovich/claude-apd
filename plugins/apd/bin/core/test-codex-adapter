@@ -11946,6 +11946,116 @@ no criteria here' \
 - work'
 
 # -----------------------------------------------------------
+# 106. Pipeline integrity — forged .done files + frozen spec
+# -----------------------------------------------------------
+# The 2026-07-25 round-3 mutation audit found these UNPROVEN on BOTH surfaces.
+# They are the anti-fabrication floor: verify_done is what stands between the
+# orchestrator hand-writing `builder.done` and the pipeline accepting it, and
+# the spec-hash check is what stops criteria being added mid-run. Neutering any
+# of the four left 955 checks green.
+#
+# A genuine .done carries a signature line written by the compiled validator;
+# a hand-written one has none, which is exactly what a bypass would produce.
+section "106. Pipeline integrity — forged .done + frozen spec"
+
+# Minimal APD project advanced through `spec` with the real pipeline-advance,
+# so .done files carry valid signatures.
+_int_proj() {   # $1 = dir
+    local d="$1"
+    mkdir -p "$d/.apd/pipeline" "$d/.claude/agents" "$d/.claude/memory" "$d/tests"
+    echo "PROJECT_NAME=int-test" > "$d/.apd/config"
+    printf '# integrity test\nplan_consistency_gate: off\n**Acceptance criteria:**\n- R1: x\n' \
+        > "$d/.apd/pipeline/spec-card.md"
+    printf '# Plan\n### Agents\n**Implements:** R1\n- backend-builder: x\n' \
+        > "$d/.apd/pipeline/implementation-plan.md"
+    echo "// @trace R1" > "$d/tests/t.py"
+    for a in backend-builder code-reviewer adversarial-reviewer; do
+        printf -- '---\nname: %s\nmodel: opus\n---\nt\n' "$a" > "$d/.claude/agents/$a.md"
+    done
+    _guide_marker "$d" "int-task"
+    APD_PROJECT_DIR="$d" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "int-task" >/dev/null 2>&1
+}
+_int_forge() {  # $1 = dir, $2 = step — replace a signed .done with an unsigned one
+    printf '%s|2026-07-25 12:00:00|int-task\n' "$(date +%s)" > "$1/.apd/pipeline/$2.done"
+}
+# Capture the exit code where it happens. An earlier draft had the helper set a
+# global inside $( ), which runs in a SUBSHELL — the parent kept a stale value,
+# so one check passed by reading the exit code of an unrelated earlier command.
+_int_advance() { # $1 = dir, $2 = step; echoes "<rc>|<output>"
+    local out rc
+    out=$(APD_PROJECT_DIR="$1" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" "$2" 2>&1)
+    rc=$?
+    printf '%s|%s' "$rc" "$out"
+}
+_int_expect_forged() {  # $1 = label, $2 = dir, $3 = step to run
+    local res rc out
+    res=$(_int_advance "$2" "$3")
+    rc="${res%%|*}"; out="${res#*|}"
+    if [ "$rc" -ne 0 ] && echo "$out" | grep -q 'was not created by pipeline-advance'; then
+        pass "$1"; PASSES=$((PASSES + 1))
+    else
+        fail "$1 — expected forged-done BLOCK (rc=$rc, out=$(echo "$out" | grep -m1 BLOCKED))"
+        FAILS=$((FAILS + 1))
+    fi
+}
+
+# --- forged spec.done must stop the builder step ---------------------------
+_INT_A="$(mktemp -d -t apd-int-a.XXXXXX)"
+_int_proj "$_INT_A"
+_INT_OUT=$(_int_advance "$_INT_A" builder)   # ALLOW direction: genuine chain is not flagged
+if echo "$_INT_OUT" | grep -q 'was not created by pipeline-advance'; then
+    fail "genuine spec.done wrongly flagged as forged"; FAILS=$((FAILS + 1))
+else
+    pass "genuine signed spec.done passes verify_done"; PASSES=$((PASSES + 1))
+fi
+_int_forge "$_INT_A" spec
+_int_expect_forged "forged spec.done BLOCKS the builder step" "$_INT_A" builder
+rm -rf "$_INT_A"
+
+# --- forged builder.done must stop the reviewer step -----------------------
+_INT_B="$(mktemp -d -t apd-int-b.XXXXXX)"
+_int_proj "$_INT_B"
+_b1=$(_v67_ts 1); _b2=$(_v67_ts 11)
+printf '%s|start|backend-builder|aabbccddeeff4001\n%s|stop|backend-builder|aabbccddeeff4001\n' \
+    "$_b1" "$_b2" >> "$_INT_B/.apd/pipeline/.agents"
+_int_advance "$_INT_B" builder >/dev/null
+_int_forge "$_INT_B" builder
+_int_expect_forged "forged builder.done BLOCKS the reviewer step" "$_INT_B" reviewer
+rm -rf "$_INT_B"
+
+# --- forged reviewer.done must stop the verifier step ----------------------
+_INT_C="$(mktemp -d -t apd-int-c.XXXXXX)"
+_v67_make_state "$_INT_C" "ADVERSARIAL:0:0:0"
+_int_forge "$_INT_C" reviewer
+_int_expect_forged "forged reviewer.done BLOCKS the verifier step" "$_INT_C" verifier
+rm -rf "$_INT_C"
+
+# --- spec-card frozen after the spec step ----------------------------------
+# BLOCK: editing spec-card.md mid-pipeline (adding criteria) must be refused.
+_INT_D="$(mktemp -d -t apd-int-d.XXXXXX)"
+_v67_make_state "$_INT_D" "ADVERSARIAL:0:0:0"
+printf -- '- R2: sneaked in after approval\n' >> "$_INT_D/.apd/pipeline/spec-card.md"
+_INT_OUT=$(_v67_run_verifier "$_INT_D"); _INT_RC=$?
+if [ "$_INT_RC" -ne 0 ] && echo "$_INT_OUT" | grep -q 'spec-card.md was modified after spec step'; then
+    pass "spec-card edited after approval BLOCKS the verifier (frozen spec)"; PASSES=$((PASSES + 1))
+else
+    fail "frozen-spec gate did not fire (rc=$_INT_RC, out=$(echo "$_INT_OUT" | grep -m1 BLOCKED))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_INT_D"
+
+# ALLOW: an untouched spec-card must not trip the frozen check.
+_INT_E="$(mktemp -d -t apd-int-e.XXXXXX)"
+_v67_make_state "$_INT_E" "ADVERSARIAL:0:0:0"
+_INT_OUT=$(_v67_run_verifier "$_INT_E")
+if echo "$_INT_OUT" | grep -q 'spec-card.md was modified after spec step'; then
+    fail "frozen-spec gate false-positives on an untouched spec-card"; FAILS=$((FAILS + 1))
+else
+    pass "untouched spec-card does not trip the frozen check"; PASSES=$((PASSES + 1))
+fi
+rm -rf "$_INT_E"
+
+# -----------------------------------------------------------
 # Summary
 # -----------------------------------------------------------
 echo ""
