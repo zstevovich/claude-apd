@@ -28,12 +28,14 @@ Generated from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/agent-template.md`. 
 | `name` | `<domain>-builder` (e.g. `backend-builder`) |
 | `description` | One-line role summary |
 | `tools` | `Read, Write, Edit, Glob, Grep, Bash` |
-| `model` | `sonnet` |
+| `model` | `claude-sonnet-5` — **full id, never the bare alias `sonnet`** |
 | `effort` | `xhigh` |
 | `permissionMode` | `bypassPermissions` |
 | `color` | `purple` (backend), `blue` (frontend), `green` (testing), `cyan` (other) |
 
-**Hooks:** all paths use `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/` prefix. The builder MUST register `guard-scope` (file scope enforcement) and `guard-bash-scope` (Bash scope enforcement) with the exact same SCOPE_PATHS list — never a superset.
+**Hooks:** all paths use the `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/` prefix (the CC shims — `bin/core/` holds the runtime-neutral implementations those shims call). The builder MUST register `guard-scope` (file scope enforcement) and `guard-bash-scope` (Bash scope enforcement) with the exact same SCOPE_PATHS list — never a superset.
+
+> **The hook block is DATA, not execution.** Per-agent frontmatter `hooks:` never fire (measured on CC 2.1.220), so enforcement runs session-level from `hooks/hooks.json`. But `bin/lib/agent-scope.sh` resolves each agent's writable scope by reading the `guard-scope` hook command out of this very file when no YAML `scope:` key is present. So the block must still be written, and its SCOPE_PATHS must be exactly right — it is the registry the guard consults, not a formality.
 
 **Body:** role description, stack notes, workflow reference, FORBIDDEN section listing what the builder must NOT do (commit, push, edit out-of-scope files, run destructive commands).
 
@@ -47,7 +49,7 @@ ALWAYS generated, regardless of stack. Generated from `${CLAUDE_PLUGIN_ROOT}/plu
 |---|---|
 | `name` | `code-reviewer` |
 | `tools` | `Read, Glob, Grep, Bash` — **no Write or Edit** |
-| `model` | `opus` |
+| `model` | `claude-opus-5` — **full id, never the bare alias `opus`** |
 | `effort` | `max` |
 | `permissionMode` | `plan` (read-only) |
 | `color` | `orange` |

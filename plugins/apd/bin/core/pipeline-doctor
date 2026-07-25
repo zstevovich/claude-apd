@@ -145,7 +145,13 @@ if [ -d "$APD_AGENTS_DIR" ]; then
         fail "No code-reviewer agent found — reviewer dispatch will BLOCK"
     fi
     if [ "$HAS_ADVERSARIAL" = false ]; then
-        warn "No adversarial-reviewer agent — Full pipeline adversarial dispatch will BLOCK"
+        # v6.38 — this used to `warn` that the dispatch "will BLOCK" while the
+        # measured behaviour was the exact opposite: with no definition the
+        # reviewer step never armed the layer and the verifier passed with zero
+        # adversarial evidence. So the one diagnostic that could have caught the
+        # hole reported the inverse. The reviewer advance now really does block
+        # (`adversarial-agent-missing`), which makes this a fail, not a warning.
+        fail "No adversarial-reviewer agent — the reviewer advance will BLOCK (adversarial-agent-missing); run /apd-setup"
     fi
 elif [ -d "$PROJECT_DIR/.codex" ] && [ ! -d "$CLAUDE_DIR/agents" ]; then
     fail "No agent registry — native Codex dispatch requires canonical roles under .apd/agents/"

@@ -206,9 +206,17 @@ FOOTER
       "Edit(.apd/pipeline/spec-card.md)",
       "Edit(.apd/pipeline/implementation-plan.md)",
       "Edit(.apd/pipeline/.adversarial-summary)",
+      "Edit(.apd/pipeline/.adversarial-rationale.md)",
+      "Edit(.apd/pipeline/.supervision-summary)",
+      "Edit(.apd/pipeline/.supervision-rationale.md)",
+      "Edit(.apd/pipeline/.guide-marker)",
       "Edit(**/.apd/pipeline/spec-card.md)",
       "Edit(**/.apd/pipeline/implementation-plan.md)",
       "Edit(**/.apd/pipeline/.adversarial-summary)",
+      "Edit(**/.apd/pipeline/.adversarial-rationale.md)",
+      "Edit(**/.apd/pipeline/.supervision-summary)",
+      "Edit(**/.apd/pipeline/.supervision-rationale.md)",
+      "Edit(**/.apd/pipeline/.guide-marker)",
       "Bash(bash .claude/bin/apd *)",
       "Bash(bash .claude/bin/apd pipeline *)"
     ],
@@ -306,11 +314,38 @@ if [ "$MODE" = "update" ]; then
     # runs this script every session and would silently revert burn/eco).
     DECLARED_PROFILE=$(grep '^MODEL_PROFILE=' "$APD_CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
 
+    # v6.38 — a declared profile only OWNS the role classes it actually names.
+    # Since no named role falls back to `default` any more, a conf without a
+    # `reviewer` row leaves `code-reviewer` on its template pin — `apd profile`
+    # deliberately does not touch it. Skipping the repair on the mere PRESENCE of
+    # a profile therefore left that role owned by NOBODY: init deferred to the
+    # profile, the profile ignored it, and a hand-edited model would stand
+    # forever. Ask the conf, not the config flag.
+    _profile_owns() {   # $1 = role class as it appears in model-profiles.conf
+        [ -n "$DECLARED_PROFILE" ] || return 1
+        local _conf="$PROJECT_DIR/.apd/model-profiles.conf"
+        [ -f "$_conf" ] || _conf="$APD_PLUGIN_ROOT/templates/model-profiles.conf"
+        [ -f "$_conf" ] || return 1
+        grep -qE "^${DECLARED_PROFILE}\|$1\|" "$_conf" 2>/dev/null
+    }
+
     # --- code-reviewer agent ---
     if [ -f "$CLAUDE_DIR/agents/code-reviewer.md" ]; then
-        # Check model (skipped when a model profile is declared — profile owns it)
-        if [ -n "$DECLARED_PROFILE" ]; then
+        # Check model. Three-way since v6.38, because "a profile is declared" and
+        # "the profile owns this role" stopped being the same thing.
+        if _profile_owns reviewer; then
             ok "code-reviewer (model managed by profile '$DECLARED_PROFILE')"
+        elif [ -n "$DECLARED_PROFILE" ]; then
+            # Declared but UNOWNED: no `reviewer` row, so `apd profile` leaves this
+            # agent alone. Init deliberately leaves it alone too — rewriting a
+            # hand-picked model on every session-start is precisely the footgun
+            # v6.16.1 removed. But say so, because the previous wording claimed the
+            # profile was managing a role nothing was managing.
+            if grep -q 'model: claude-opus-5' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null; then
+                ok "code-reviewer (template pin; profile '$DECLARED_PROFILE' has no reviewer row)"
+            else
+                warn "code-reviewer: $(grep -m1 '^model:' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null) — profile '$DECLARED_PROFILE' carries no reviewer row, so NOTHING manages this model (template pin is claude-opus-5). Left as-is; change it deliberately or add a reviewer row."
+            fi
         elif grep -q 'model: claude-opus-5' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null; then
             ok "code-reviewer (opus/max)"
         else
@@ -336,7 +371,7 @@ if [ "$MODE" = "update" ]; then
 
     # --- adversarial-reviewer agent (optional but recommended) ---
     if [ -f "$CLAUDE_DIR/agents/adversarial-reviewer.md" ]; then
-        if [ -n "$DECLARED_PROFILE" ]; then
+        if _profile_owns adversarial; then
             # Profile owns the model; still surface a missing memory:none (positional
             # independence contract) without touching the model line.
             if grep -q 'memory: none' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null; then
@@ -373,7 +408,9 @@ if [ "$MODE" = "update" ]; then
 
                 sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" > "$CLAUDE_DIR/agents/adversarial-reviewer.md"
 
-                if [ -n "$DECLARED_PROFILE" ]; then
+                # Restore the profile-applied pin only if the profile actually
+                # owns this role; otherwise the template pin IS the intent.
+                if _profile_owns adversarial; then
                     [ -n "$PREV_MODEL" ] && sed -i.bak "s|^model:.*|$PREV_MODEL|" "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null
                     [ -n "$PREV_EFFORT" ] && sed -i.bak "s|^effort:.*|$PREV_EFFORT|" "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null
                     rm -f "$CLAUDE_DIR/agents/adversarial-reviewer.md.bak"
@@ -404,7 +441,7 @@ if [ "$MODE" = "update" ]; then
     else
         if [ -f "$APD_PLUGIN_ROOT/templates/supervisor-template.md" ]; then
             sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/supervisor-template.md" > "$CLAUDE_DIR/agents/supervisor.md"
-            fix "Created supervisor.md (frontier final review — required by eco profile, Full mode)"
+            fix "Created supervisor.md (frontier final review — every profile, Full mode)"
             FIXES=$((FIXES + 1))
         fi
     fi
@@ -596,9 +633,17 @@ with open('$CLAUDE_DIR/settings.json') as f:
 required_allow = [
     'Edit(.claude/memory/**)', 'Edit(**/.claude/memory/**)',
     'Edit(.apd/pipeline/spec-card.md)', 'Edit(.apd/pipeline/implementation-plan.md)',
-    'Edit(.apd/pipeline/.adversarial-summary)',
+    # Every file guard-pipeline-state lets the orchestrator write must be
+    # pre-approved here, or the gates it MUST satisfy (rationale at the verifier,
+    # .guide-marker at the spec advance) prompt on a path the framework mandates.
+    # This list carried only the pre-v6.7 trio for ~30 minor versions.
+    'Edit(.apd/pipeline/.adversarial-summary)', 'Edit(.apd/pipeline/.adversarial-rationale.md)',
+    'Edit(.apd/pipeline/.supervision-summary)', 'Edit(.apd/pipeline/.supervision-rationale.md)',
+    'Edit(.apd/pipeline/.guide-marker)',
     'Edit(**/.apd/pipeline/spec-card.md)', 'Edit(**/.apd/pipeline/implementation-plan.md)',
-    'Edit(**/.apd/pipeline/.adversarial-summary)',
+    'Edit(**/.apd/pipeline/.adversarial-summary)', 'Edit(**/.apd/pipeline/.adversarial-rationale.md)',
+    'Edit(**/.apd/pipeline/.supervision-summary)', 'Edit(**/.apd/pipeline/.supervision-rationale.md)',
+    'Edit(**/.apd/pipeline/.guide-marker)',
     'Bash(bash .claude/bin/apd *)', 'Bash(bash .claude/bin/apd pipeline *)'
 ]
 required_deny = [

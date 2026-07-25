@@ -4385,6 +4385,11 @@ _b_write_spec() {
     local rev_line=""
     [ -n "$1" ] && mode_line="pipeline_mode: $1"
     [ -n "$2" ] && rev_line="reviewer: max_cycles=$2"
+    # `adversarial: skip` is deliberate: this fixture exercises REVIEWER CYCLE
+    # CAPS, not the adversarial layer, and since v6.38 a reviewer advance needs
+    # either an adversarial-reviewer definition or a valid opt-out (1 R here, so
+    # the opt-out is honoured). Before v6.38 the absence of the agent silently
+    # dropped the layer, which is what this fixture was unknowingly relying on.
     cat > "$R_DIR/.apd/pipeline/spec-card.md" <<EOF
 # Polish-mode test
 
@@ -4392,6 +4397,7 @@ plan_consistency_gate: off
 **Acceptance criteria:**
 - R1: x
 
+adversarial: skip — fixture covers reviewer cycle caps only
 $mode_line
 $rev_line
 EOF
@@ -4616,6 +4622,16 @@ EOF
 cat > "$RB_DIR/.apd/agents/code-reviewer.md" <<'EOF'
 ---
 name: code-reviewer
+readonly: true
+scope: []
+---
+EOF
+# The subject here IS `.adversarial-summary` handling, so the role must exist:
+# since v6.38 a reviewer advance with no adversarial-reviewer definition and no
+# opt-out BLOCKS instead of silently dropping the layer.
+cat > "$RB_DIR/.apd/agents/adversarial-reviewer.md" <<'EOF'
+---
+name: adversarial-reviewer
 readonly: true
 scope: []
 ---
@@ -9428,6 +9444,18 @@ fi
 echo "MODEL_PROFILE=eco" >> "$IN_PROJ/.claude/.apd-config"
 printf -- '---\nname: code-reviewer\nmodel: sonnet\neffort: xhigh\n---\nreviewed-files\n' > "$IN_PROJ/.claude/agents/code-reviewer.md"
 APD_PROJECT_DIR="$IN_PROJ" bash "$INIT_SCRIPT" --quick >/dev/null 2>&1
+IN_UNOWNED=$(APD_PROJECT_DIR="$IN_PROJ" bash "$INIT_SCRIPT" --quick 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+# v6.38: `eco` carries no `reviewer` row, so NOTHING manages this model. Init must
+# still leave it alone (rewriting a hand-picked model every session-start is the
+# footgun v6.16.1 removed) but must SAY it is unowned — the old wording claimed
+# the profile was managing a role the profile deliberately ignores.
+if printf '%s' "$IN_UNOWNED" | grep -q 'no reviewer row'; then
+    pass "profile without a reviewer row is reported as unowned, not 'managed'"
+    PASSES=$((PASSES + 1))
+else
+    fail "init still claims the profile manages code-reviewer (no unowned notice)"
+    FAILS=$((FAILS + 1))
+fi
 if grep -q '^model: sonnet' "$IN_PROJ/.claude/agents/code-reviewer.md"; then
     pass "profile declared: init does not revert code-reviewer model"
     PASSES=$((PASSES + 1))
@@ -11338,6 +11366,18 @@ if [ -z "$BARE_I" ]; then
 else
     fail "apd-init writes a bare alias back into agents: $BARE_I"; FAILS=$((FAILS + 1))
 fi
+# The GENERATOR was missed by the original sweep, and it is the path that writes
+# agents into real projects: `apd-setup`'s reference tables specified `sonnet` and
+# `opus`, and its own generation rule says to build agents FROM THE TABLE rather
+# than copy the templates — so the aliases won over the pinned ids the checks
+# above protect. Guard the instructions, not only the artifacts.
+BARE_S=$(grep -rnE '`(opus|sonnet|haiku|fable)`|model: (opus|sonnet|haiku|fable)$' \
+    "$REPO_ROOT/skills/apd-setup" 2>/dev/null | grep -vi 'never the bare alias' || true)
+if [ -z "$BARE_S" ]; then
+    pass "apd-setup tells the generator to write full model ids"; PASSES=$((PASSES + 1))
+else
+    fail "apd-setup reference specifies a bare alias: $BARE_S"; FAILS=$((FAILS + 1))
+fi
 
 if echo "$TR_OUT" | grep -q "served model"; then
     pass "pipeline-report-turns shows a served-model column"; PASSES=$((PASSES + 1))
@@ -13013,6 +13053,107 @@ for _sf in core/test-codex-adapter core/verify-apd; do
         fail "$(basename "$_sf") can inherit a blocking stdin"; FAILS=$((FAILS + 1))
     fi
 done
+
+section "115. The adversarial layer must not depend on the agent file existing"
+
+# Measured 2026-07-25 as a discriminating pair. The reviewer step only wrote
+# `.adversarial-pending` when an adversarial-reviewer definition existed, and
+# EVERY verifier adversarial check keys on that marker — so with the definition
+# absent the layer went off in silence: full pipeline, `verifier.done` created,
+# zero findings, no rationale, no BLOCK, nothing in guard-audit. `.claude/agents/`
+# is covered by no guard, so `rm` was a one-command unlogged bypass of the floor,
+# and a project sits in exactly that state after a first `apd-init`.
+#
+# Three fixtures in this very suite were relying on the hole to advance their
+# reviewer — that is the measure of how invisible it was.
+#
+# The checks below are a PAIR on purpose: the opt-out case must still pass, or
+# "closes the hole" is indistinguishable from "blocks every Lean run".
+
+_adv_fx() {   # $1 dir  $2 with-agent|no-agent  $3 optout(yes|no)
+    local D=$1 WANT=$2 OPT=$3
+    rm -rf "$D"; mkdir -p "$D/.apd/pipeline" "$D/.apd/agents" "$D/.codex/bin" "$D/src" "$D/tests"
+    echo "PROJECT_NAME=adv-fx" > "$D/.apd/config"
+    printf '#!/bin/bash\nexit 0\n' > "$D/.codex/bin/verify-all.sh"; chmod +x "$D/.codex/bin/verify-all.sh"
+    printf -- '---\nname: backend-builder\nscope: [src/]\n---\n' > "$D/.apd/agents/backend-builder.md"
+    printf -- '---\nname: code-reviewer\nreadonly: true\nscope: []\n---\n' > "$D/.apd/agents/code-reviewer.md"
+    [ "$WANT" = "with-agent" ] && printf -- '---\nname: adversarial-reviewer\nreadonly: true\nscope: []\n---\n' > "$D/.apd/agents/adversarial-reviewer.md"
+    if [ "$OPT" = "yes" ]; then
+        printf '# adv\nplan_consistency_gate: off\n**Acceptance criteria:**\n- R1: x\n- R2: y\nadversarial: skip — fixture\n' > "$D/.apd/pipeline/spec-card.md"
+        printf '// @trace R1\n// @trace R2\nt();\n' > "$D/tests/a.test.js"
+    else
+        printf '# adv\nplan_consistency_gate: off\n**Acceptance criteria:**\n- R1: x\n- R2: y\n- R3: z\n' > "$D/.apd/pipeline/spec-card.md"
+        printf '// @trace R1\n// @trace R2\n// @trace R3\nt();\n' > "$D/tests/a.test.js"
+    fi
+    printf '# Plan\n- src/foo.x\n\n### Agents\n- backend-builder\n' > "$D/.apd/pipeline/implementation-plan.md"
+    _guide_marker "$D" "adv-task"
+    _adv_run "$D" spec "adv-task" >/dev/null 2>&1
+    _seed_codex_pair "$D" backend-builder aabbccddeeff5101 1 11
+    _seed_codex_pair "$D" code-reviewer aabbccddeeff5102 13 23
+    _adv_run "$D" builder >/dev/null 2>&1
+}
+_adv_run() { local d=$1; shift; APD_PROJECT_DIR="$d" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" "$@" 2>&1; }
+
+ADV_T="$(mktemp -d -t apd-advgate.XXXXXX)"
+
+# A — definition absent, 3 R, no opt-out: the reviewer must refuse.
+_adv_fx "$ADV_T/a" no-agent no
+A_OUT=$(_adv_run "$ADV_T/a" reviewer)
+if printf '%s' "$A_OUT" | grep -q 'no adversarial-reviewer agent definition'; then
+    pass "missing adversarial-reviewer definition BLOCKS the reviewer advance"; PASSES=$((PASSES + 1))
+else
+    fail "missing adversarial-reviewer definition did not block (out: ${A_OUT:0:120})"; FAILS=$((FAILS + 1))
+fi
+# The decision happens BEFORE create_done, or a BLOCK leaves the phase half-advanced.
+if [ ! -f "$ADV_T/a/.apd/pipeline/reviewer.done" ]; then
+    pass "the blocked reviewer advance did not sign reviewer.done"; PASSES=$((PASSES + 1))
+else
+    fail "reviewer.done was created despite the BLOCK — phase left half-advanced"; FAILS=$((FAILS + 1))
+fi
+
+# B — NEGATIVE CONTROL: a genuine Lean opt-out must still pass. Without this the
+# section cannot tell a closed hole from a guard that refuses everything.
+_adv_fx "$ADV_T/b" no-agent yes
+_adv_run "$ADV_T/b" reviewer >/dev/null 2>&1
+if [ -f "$ADV_T/b/.apd/pipeline/reviewer.done" ] && [ ! -f "$ADV_T/b/.apd/pipeline/.adversarial-pending" ]; then
+    pass "valid opt-out (<=2 R) still advances without an adversarial agent"; PASSES=$((PASSES + 1))
+else
+    fail "the opt-out path broke — closing the hole must not block Lean runs"; FAILS=$((FAILS + 1))
+fi
+
+# C — control: definition present, no opt-out → the layer is armed as before.
+_adv_fx "$ADV_T/c" with-agent no
+_adv_run "$ADV_T/c" reviewer >/dev/null 2>&1
+if [ -f "$ADV_T/c/.apd/pipeline/.adversarial-pending" ]; then
+    pass "definition present → .adversarial-pending written (layer armed)"; PASSES=$((PASSES + 1))
+else
+    fail "no .adversarial-pending with the agent present — the layer is not armed"; FAILS=$((FAILS + 1))
+fi
+
+# D — the second site: remove the definition AND the marker after the reviewer
+# signed off, then reach the verifier. Asserts the CAUSE (this gate's own
+# message) and that the run stopped HERE, not at a neighbouring check.
+rm -f "$ADV_T/c/.apd/agents/adversarial-reviewer.md" "$ADV_T/c/.apd/pipeline/.adversarial-pending"
+D_OUT=$(_adv_run "$ADV_T/c" verifier)
+if printf '%s' "$D_OUT" | grep -q 'adversarial phase is unaccounted for'; then
+    pass "verifier refuses an unaccounted adversarial phase"; PASSES=$((PASSES + 1))
+else
+    fail "verifier accepted a dropped adversarial layer (out: ${D_OUT:0:140})"; FAILS=$((FAILS + 1))
+fi
+if [ ! -f "$ADV_T/c/.apd/pipeline/verifier.done" ]; then
+    pass "no verifier.done for a dropped adversarial layer"; PASSES=$((PASSES + 1))
+else
+    fail "verifier.done created with zero adversarial evidence — the hole is open"; FAILS=$((FAILS + 1))
+fi
+
+# E — NEGATIVE CONTROL at the verifier: a waived task must reach verifier.done.
+_adv_run "$ADV_T/b" verifier >/dev/null 2>&1
+if [ -f "$ADV_T/b/.apd/pipeline/verifier.done" ]; then
+    pass "an opted-out task still reaches verifier.done"; PASSES=$((PASSES + 1))
+else
+    fail "the verifier check blocks legitimately waived tasks"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$ADV_T"
 
 section "114. The pipeline guide must track the framework it documents"
 

@@ -384,6 +384,31 @@ _agent_definition_exists() {
     [ -f "$APD_AGENTS_DIR/${agent_name}.md" ] || [ -f "$APD_AGENTS_DIR/${agent_name}.toml" ]
 }
 
+# v6.38 — the ONLY sanctioned way past the adversarial pass: `adversarial: skip`
+# in the spec-card, honoured at <=2 R-criteria. Evaluated identically at the
+# reviewer step (where the requirement is decided) and at the verifier (where the
+# absence of `.adversarial-pending` must be justified rather than trusted).
+#
+# Why it exists: the layer used to be agent-PRESENCE-dependent. With no
+# adversarial-reviewer definition the reviewer step never wrote
+# `.adversarial-pending`, and every verifier adversarial check keys on that file
+# — so the whole layer went silently off. Measured 2026-07-25 as a discriminating
+# pair: with the definition present the verifier BLOCKED on the missing pass;
+# with it absent the same pipeline created `verifier.done` with zero adversarial
+# evidence, no BLOCK and no audit entry. `.claude/agents/` is covered by no
+# guard, so `rm` was a one-command, unlogged bypass of the floor — and a project
+# is in exactly that state after a first `apd-init`, which scaffolds no agents.
+# A missing definition is a setup fault to fix, never a reason to drop the layer.
+_adversarial_opt_out_ok() {
+    [ -f "$PIPELINE_DIR/spec-card.md" ] || return 1
+    # v6.1.2: tolerate markdown bold/italic/list-item prefixes around the
+    # directive — `**adversarial:** skip` opts out the same as `adversarial: skip`.
+    grep -qiE '^[-*_[:blank:]]*adversarial[-*_[:blank:]]*:.*skip' "$PIPELINE_DIR/spec-card.md" 2>/dev/null || return 1
+    local _n
+    _n=$(sed -n '/Acceptance criteria/,/^\*\*[A-Z]/p' "$PIPELINE_DIR/spec-card.md" 2>/dev/null | grep -cE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' || echo 0)
+    [ "$_n" -le 2 ] 2>/dev/null
+}
+
 # v6.37 #4: snapshot the files already dirty when the spec is signed — as
 # `<content-hash>TAB<path>` so the builder-step scope can tell a pre-existing
 # change the task did NOT touch (hash unchanged → exclude) from one the task
@@ -1063,6 +1088,37 @@ case "$STEP" in
 
         BUILDER_TS=$(head -1 "$PIPELINE_DIR/builder.done" | cut -d'|' -f1)
         ELAPSED=$(format_duration $((NOW - BUILDER_TS)))
+        # v6.38 — decide the adversarial requirement BEFORE signing reviewer.done,
+        # so a BLOCK here leaves the phase un-advanced instead of half-done.
+        ADV_CRITERIA=$(sed -n '/Acceptance criteria/,/^\*\*[A-Z]/p' "$PIPELINE_DIR/spec-card.md" 2>/dev/null | grep -cE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' || echo 0)
+        ADV_OPT_OUT=false
+        if _adversarial_opt_out_ok; then
+            ADV_OPT_OUT=true
+        elif [ -f "$PIPELINE_DIR/spec-card.md" ] && grep -qiE '^[-*_[:blank:]]*adversarial[-*_[:blank:]]*:.*skip' "$PIPELINE_DIR/spec-card.md" 2>/dev/null; then
+            warn "Adversarial opt-out DENIED: $ADV_CRITERIA criteria (max 2 for opt-out)" >&2
+        fi
+
+        # The requirement no longer depends on the agent EXISTING (see
+        # _adversarial_opt_out_ok): a missing definition used to drop the layer
+        # in silence. Block instead, and name the repair.
+        if [ "$ADV_OPT_OUT" = false ] && ! _agent_definition_exists "adversarial-reviewer"; then
+            echo "BLOCKED: no adversarial-reviewer agent definition — the adversarial pass cannot run." >&2
+            echo "" >&2
+            echo "  Looked in: $APD_AGENTS_DIR (adversarial-reviewer.md / .toml)" >&2
+            echo "  Until v6.38 this silently dropped the whole adversarial layer:" >&2
+            echo "  the pipeline reached the verifier with no findings, no rationale" >&2
+            echo "  and no BLOCK. A missing definition is a setup fault, not an opt-out." >&2
+            echo "" >&2
+            echo "  Two ways forward:" >&2
+            echo "    (a) Restore the agent — /apd-setup (CC) or 'apd cdx init' (Codex)" >&2
+            echo "        scaffolds it from the shipped template." >&2
+            echo "    (b) Opt out for this task, if it genuinely qualifies (<=2 R-criteria," >&2
+            echo "        this task declares $ADV_CRITERIA): add to spec-card.md" >&2
+            echo "          adversarial: skip — <reason>" >&2
+            log_block "adversarial-agent-missing" "criteria=$ADV_CRITERIA dir=$APD_AGENTS_DIR"
+            exit 1
+        fi
+
         create_done "reviewer"
 
         # Refresh the task-scoped review list. The primary scope was already
@@ -1070,26 +1126,11 @@ case "$STEP" in
         # v6.37 #2); this refresh keeps it current for the adversarial pass.
         _write_reviewed_files
 
-        # Mark adversarial review as pending if agent exists
-        if _agent_definition_exists "adversarial-reviewer"; then
-            # Check for opt-out in spec-card — only allowed for small tasks (<=2 criteria)
-            ADV_OPT_OUT=false
-            # v6.1.2: tolerate markdown bold/italic/list-item prefixes around
-            # the directive — `**adversarial:** skip` etc. should opt out the
-            # same as plain `adversarial: skip`.
-            if [ -f "$PIPELINE_DIR/spec-card.md" ] && grep -qiE '^[-*_ 	]*adversarial[-*_ 	]*:.*skip' "$PIPELINE_DIR/spec-card.md" 2>/dev/null; then
-                ADV_CRITERIA=$(sed -n '/Acceptance criteria/,/^\*\*[A-Z]/p' "$PIPELINE_DIR/spec-card.md" 2>/dev/null | grep -cE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' || echo 0)
-                if [ "$ADV_CRITERIA" -le 2 ] 2>/dev/null; then
-                    ADV_OPT_OUT=true
-                    ok "Adversarial reviewer: skipped (opt-out, $ADV_CRITERIA criteria)"
-                else
-                    warn "Adversarial opt-out DENIED: $ADV_CRITERIA criteria (max 2 for opt-out)" >&2
-                fi
-            fi
-            if [ "$ADV_OPT_OUT" = false ]; then
-                echo "${NOW}" > "$PIPELINE_DIR/.adversarial-pending"
-                ok "Adversarial reviewer: required before verifier"
-            fi
+        if [ "$ADV_OPT_OUT" = true ]; then
+            ok "Adversarial reviewer: skipped (opt-out, $ADV_CRITERIA criteria)"
+        else
+            echo "${NOW}" > "$PIPELINE_DIR/.adversarial-pending"
+            ok "Adversarial reviewer: required before verifier"
         fi
 
         apd_header "Reviewer Complete" "+$ELAPSED"
@@ -1141,6 +1182,27 @@ case "$STEP" in
                 echo "  Then re-run: pipeline-advance verifier" >&2
                 exit 1
             fi
+        fi
+
+        # v6.38 — every adversarial check below keys on `.adversarial-pending`, so
+        # its ABSENCE has to be justified, not trusted. The reviewer step already
+        # refuses to advance without either the agent or a valid opt-out; this is
+        # the same question asked again at the gate that matters, because the
+        # agent definition can be removed AFTER the reviewer signed off and
+        # `.claude/agents/` is covered by no guard.
+        if [ ! -f "$PIPELINE_DIR/.adversarial-pending" ] && ! _adversarial_opt_out_ok; then
+            echo "BLOCKED: the adversarial phase is unaccounted for." >&2
+            echo "" >&2
+            echo "  No .adversarial-pending marker, and spec-card.md carries no valid" >&2
+            echo "  'adversarial: skip' opt-out (honoured at <=2 R-criteria only)." >&2
+            echo "  That combination means the layer was dropped rather than run or" >&2
+            echo "  waived — most often because the adversarial-reviewer definition" >&2
+            echo "  went missing after the reviewer step." >&2
+            echo "" >&2
+            echo "  Restore the agent (/apd-setup on CC, 'apd cdx init' on Codex) and" >&2
+            echo "  re-advance the reviewer, or declare the opt-out if the task qualifies." >&2
+            log_block "adversarial-unaccounted" "no pending marker, no valid opt-out"
+            exit 1
         fi
 
         # Verify adversarial ran AFTER reviewer (not parallel)
