@@ -9138,6 +9138,24 @@ else
     FAILS=$((FAILS + 1))
 fi
 
+# The effort column was never verified — only `model` was. A profile is a
+# (model, effort) pair and effort is the dial that decides how long an agent
+# works; a typo there would ship silently, which is the same shape as the bare
+# alias that moved a whole corpus between models unnoticed.
+# Two directions: the builder's existing effort must be REWRITTEN (xhigh→high),
+# and the adversarial has no effort line at all, so it must be INSERTED.
+MP_B_EFF=$(awk '/^effort:/ {print $2; exit}' "$MP_PROJ/.claude/agents/backend-x.md")
+MP_A_EFF=$(awk '/^effort:/ {print $2; exit}' "$MP_PROJ/.claude/agents/adversarial-reviewer.md")
+MP_B_WANT=$(awk -F'|' '$1=="burn" && $2=="default" {print $4; exit}' "$APD_PLUGIN_ROOT/templates/model-profiles.conf")
+MP_A_WANT=$(awk -F'|' '$1=="burn" && $2=="adversarial" {print $4; exit}' "$APD_PLUGIN_ROOT/templates/model-profiles.conf")
+if [ "$MP_B_EFF" = "$MP_B_WANT" ] && [ "$MP_A_EFF" = "$MP_A_WANT" ]; then
+    pass "apply burn: effort written from the conf (rewrite + insert)"
+    PASSES=$((PASSES + 1))
+else
+    fail "apply burn wrong effort: builder=$MP_B_EFF (want $MP_B_WANT) adversarial=$MP_A_EFF (want $MP_A_WANT)"
+    FAILS=$((FAILS + 1))
+fi
+
 # Live G: effort inserted when absent + body line untouched
 if grep -q '^effort: max' "$MP_PROJ/.claude/agents/adversarial-reviewer.md" \
    && grep -q '^body model: untouched' "$MP_PROJ/.claude/agents/backend-x.md"; then
