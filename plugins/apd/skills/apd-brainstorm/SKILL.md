@@ -49,6 +49,12 @@ spec-card.md. A vague spec produces vague code.
    Scope / Out of scope / Approach / Affected files / **Regression surface**
    (what this touches INDIRECTLY that must not break; 'none — reason' if
    self-contained) / **Risks** / **Rollback** / Mode / R-criteria / Human gate.
+
+   Write the regression surface in the shape the gate parses — one
+   `- RS<N>: <behaviour> — **Cover:** <existing suite | new test | none: reason>`
+   per item, plus `**Evidence:**` per item when Human gate is YES. Agreeing on
+   the content but writing it free-form still fails at the builder advance;
+   the full contract is in `apd-pipeline-guide`.
    Wait for explicit approval.
 
    **Risks + Rollback are NOT optional** for tasks with DB migration / new

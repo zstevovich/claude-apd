@@ -69,7 +69,11 @@ Scope: <what's in>
 Out of scope: <what's out>
 Approach: <one-paragraph technical direction>
 Affected files: <list>
-Regression surface: <what this touches INDIRECTLY that must not break — shared modules reached into; 'none — reason' if self-contained>
+Regression surface:
+  - RS1: <neighbouring behaviour this reaches into and must not break> — **Cover:** <existing suite | new test | none: reason>
+  <self-contained? then the single line 'none — <reason>'. The gate parses the
+   `- RS<N>:` + `**Cover:**` shape; free-form text fails at the builder advance.
+   Human gate YES additionally requires `**Evidence:**` per item.>
 Pipeline mode: Full | Lean  (see AGENTS.md)
 ```
 

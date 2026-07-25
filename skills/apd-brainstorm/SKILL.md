@@ -95,7 +95,12 @@ Scope: [what's included]
 Out of scope: [what's not]
 Approach: [technical approach]
 Affected files: [list]
-Regression surface: [what this touches INDIRECTLY that must not break — shared modules reached into; 'none — reason' if self-contained]
+Regression surface:
+  - RS1: [neighbouring behaviour this reaches into and must not break] — **Cover:** [existing <Suite> | new <TestName> | none: <reason>]
+  (self-contained? then the single line 'none — <reason>'. The gate parses the
+   `- RS<N>:` + `**Cover:**` shape, so agreeing on the content here but writing
+   it free-form still fails at the builder advance — see /apd-pipeline-guide.
+   Human gate YES also requires `**Evidence:**` per item.)
 Risks: [concrete risks with mitigation — at least 1; especially for migration/security/auth tasks]
 Rollback: [revert plan — revert commit + optional manual SQL/DROP if migration]
 Mode: [Full | Lean]

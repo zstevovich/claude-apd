@@ -18,6 +18,16 @@ Quick switch for the claude-apd plugin's `enabledPlugins` state in CC settings. 
 
 ## When NOT to use
 
+- **To get an out-of-scope fix past a cycle cap or a gate mid-pipeline.** `toggle off`
+  disables the WHOLE enforcement layer, so the fix lands with no fresh adversarial pass —
+  and it is usually a finding on exactly the paths that most need one. Since v6.29 the
+  toggle refuses this: with `APD_ACTIVE` and a `spec-card.md` present it exits 2 with
+  `toggle-off-active-pipeline`. The sanctioned routes, in order:
+  - out of scope → `apd pipeline spinoff-finding <id> "<reason>"`, then continue in scope
+  - genuinely in scope, out of cycles → `apd pipeline raise-cap builder|reviewer <N> "<reason>"`
+  - done with the run → `apd pipeline reset`
+  `--force "<reason>"` exists as a valve for a real emergency and logs `toggle-off-forced`;
+  reaching for it routinely means the run should have been reset or the finding spun off.
 - User wants to UNINSTALL the plugin entirely (use `/plugin uninstall` directly — different operation).
 - User is on Codex — no `enabledPlugins` concept exists, this skill does nothing useful there.
 - User wants to disable a different plugin (e.g. superpowers) — this skill is APD-specific.

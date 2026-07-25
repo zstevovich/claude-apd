@@ -13292,6 +13292,80 @@ else
     fail "CC guide writes .guide-marker via bash but does not declare Bash"; FAILS=$((FAILS + 1))
 fi
 
+# --- The same joins, across EVERY skill --------------------------------------
+# The guides are not the only instructions an agent acts on. `apd-audit` told
+# auditors that builders "must be `sonnet`" — an audit that would have flagged a
+# correctly pinned project as wrong and walked it back to the alias this release
+# removed. Same shape, different file, so the checks belong at skill scope.
+
+# Supervision topology: no skill may scope the layer to one profile while the
+# conf gives every profile a supervisor row.
+GD_SUP_STALE=""
+for _s in "$REPO_ROOT"/skills/*/SKILL.md "$APD_PLUGIN_ROOT"/skills/*/SKILL.md; do
+    grep -qE 'only.*\beco\b.*supervis|supervis.*\bonly\b.*\beco\b|v1: eco' "$_s" 2>/dev/null \
+        && GD_SUP_STALE="$GD_SUP_STALE $(basename "$(dirname "$_s")")"
+done
+if [ -z "$GD_SUP_STALE" ]; then
+    pass "no skill scopes supervision to a single profile"; PASSES=$((PASSES + 1))
+else
+    fail "skill(s) still tie supervision to one profile:$GD_SUP_STALE"; FAILS=$((FAILS + 1))
+fi
+
+# Permission form: CC 2.1.208 made `Write(path)` inert for file-permission checks
+# and apd-init strips legacy twins, so a skill demanding one makes the audit and
+# init undo each other on every session-start.
+GD_WRITE=$(grep -rn 'Write(' "$REPO_ROOT/skills" "$APD_PLUGIN_ROOT/skills" 2>/dev/null | grep -vi 'never\|inert\|strip' || true)
+if [ -z "$GD_WRITE" ]; then
+    pass "no skill asks for a Write(...) permission twin"; PASSES=$((PASSES + 1))
+else
+    fail "skill demands a Write(...) rule that CC ignores: $GD_WRITE"; FAILS=$((FAILS + 1))
+fi
+
+# apd-toggle walks the user into the v6.29 block unless it names the alternatives.
+GD_TOG="$REPO_ROOT/skills/apd-toggle/SKILL.md"
+if grep -q 'toggle-off-active-pipeline' "$APD_PLUGIN_ROOT/bin/core/toggle-apd" 2>/dev/null; then
+    if grep -q 'spinoff-finding' "$GD_TOG" 2>/dev/null; then
+        pass "apd-toggle names the sanctioned route instead of the disabled floor"; PASSES=$((PASSES + 1))
+    else
+        fail "apd-toggle never mentions the block it leads into, nor spinoff-finding"; FAILS=$((FAILS + 1))
+    fi
+fi
+
+# Producer and gate must agree on shape. Brainstorm WRITES the spec, and its three
+# mirrors taught a free-form `Regression surface:` while verify-regression-surface
+# parses `- RS<N>:` + `**Cover:**` — so a spec the skill was happy with failed at
+# the builder advance. Agreeing on the content is not agreeing on the format.
+if grep -q 'Cover:' "$APD_PLUGIN_ROOT/bin/core/verify-regression-surface" 2>/dev/null; then
+    GD_SHAPE=""
+    for _s in "$REPO_ROOT/skills/apd-brainstorm/SKILL.md" \
+              "$APD_PLUGIN_ROOT/skills/apd-brainstorm/SKILL.md" \
+              "$APD_PLUGIN_ROOT/templates/codex/rules/brainstorm.md"; do
+        [ -f "$_s" ] || continue
+        grep -q 'Regression surface' "$_s" || continue
+        grep -q 'Cover:' "$_s" || GD_SHAPE="$GD_SHAPE $(basename "$(dirname "$_s")")/$(basename "$_s")"
+    done
+    if [ -z "$GD_SHAPE" ]; then
+        pass "every brainstorm mirror teaches the regression shape the gate parses"; PASSES=$((PASSES + 1))
+    else
+        fail "brainstorm mirror teaches a shape the gate rejects:$GD_SHAPE"; FAILS=$((FAILS + 1))
+    fi
+fi
+
+# apd-finish must resolve the push remote in BOTH mirrors — v6.33 shipped the
+# resolver and updated the Codex mirror only, which is how the CC one kept
+# telling the orchestrator to push to a remote that may not exist.
+if [ -x "$APD_PLUGIN_ROOT/bin/core/git-remote-resolve" ] || [ -f "$APD_PLUGIN_ROOT/bin/core/git-remote-resolve" ]; then
+    for _pair in "CC:$REPO_ROOT/skills/apd-finish/SKILL.md" "Codex:$APD_PLUGIN_ROOT/skills/apd-finish/SKILL.md"; do
+        _lbl="${_pair%%:*}"; _f="${_pair#*:}"
+        [ -f "$_f" ] || continue
+        if grep -q 'git-remote' "$_f" && ! grep -qE 'git push -u origin' "$_f"; then
+            pass "$_lbl apd-finish resolves the push remote"; PASSES=$((PASSES + 1))
+        else
+            fail "$_lbl apd-finish hardcodes 'origin' instead of using apd git-remote"; FAILS=$((FAILS + 1))
+        fi
+    done
+fi
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"

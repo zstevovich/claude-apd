@@ -47,15 +47,21 @@ Profiles are data, not code: defaults ship in the plugin
 3. Ask the user which profile to apply (AskUserQuestion with the profiles as
    options, current one marked). Briefly state the trade-off: `burn` =
    maximum quality / maximum cost, `cruise` = strong daily default, `eco` =
-   cheapest builders, for small well-scoped work. **eco carries the supervision
-   layer (v6.30):** every Full-mode run adds a frontier-model supervision pass
-   over the final diff before the verifier (one extra frontier dispatch —
-   that is the mechanism that keeps eco's quality floor; say this at the
-   decision point so the cost is not a surprise).
+   cheapest builders, for small well-scoped work.
 
-   Also mention: the eco supervisor rewrite pins `supervisor` from the profile
-   row; on burn/cruise the supervisor agent is left untouched (no row = no
-   supervision on that profile).
+   **Supervision is topology, not a price tier (v6.38).** Every profile carries a
+   `supervisor` row, so every Full-mode run adds a frontier pass over the final
+   diff before the verifier — on burn, cruise and eco alike. Say this at the
+   decision point so the extra frontier dispatch is not a surprise, and do NOT
+   present a cheaper profile as "the one without supervision": while that was
+   true (v6.30, eco only) the profiles were different pipelines rather than one
+   pipeline at three prices, and their telemetry was not comparable.
+
+   **A profile only owns the roles it names (v6.38).** No named role class falls
+   back to `default` any more, so a conf without a row for a role leaves that
+   agent on its template pin — `code-reviewer` is the live example: no `reviewer`
+   row ships, so switching profiles never touches it. Unnamed agents still take
+   the `default` row, otherwise profiles would be no-ops.
 
 4. Apply:
 

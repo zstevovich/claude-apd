@@ -48,19 +48,42 @@ If FAIL → fix those first. This skill builds on top of verify-apd, not replace
 
 For each agent in `.claude/agents/*.md`:
 
+**Roles that must EXIST** — check presence before quality:
+- `code-reviewer` — missing → the reviewer advance BLOCKs
+- `adversarial-reviewer` — missing → the reviewer advance BLOCKs (`adversarial-agent-missing`).
+  Until v6.38 its absence silently disabled the whole adversarial layer, so a project
+  that has been running "clean" without this file was running without the layer.
+- `supervisor` — missing → `supervision-missing` at the verifier (every profile since v6.38)
+
 **Frontmatter check:**
-- `model:` — builders must be `sonnet`, reviewer must be `opus`
-- `effort:` — builders must be `xhigh`, reviewer must be `max`
+- `model:` — **full ids only, never a bare alias.** `opus`/`sonnet` resolve to whatever
+  the runtime maps them to today, which is how a corpus moved between model generations
+  unnoticed. Builders `claude-sonnet-5`, `code-reviewer` `claude-opus-5`,
+  `adversarial-reviewer` `claude-sonnet-5`, `supervisor` `claude-opus-5`.
+  **Do not "fix" a model a profile owns:** `apd profile status` shows which roles the
+  declared `MODEL_PROFILE` manages. A conf with no row for a role means the template pin
+  stands — flag a mismatch, do not rewrite it.
+- `effort:` — builders `xhigh`; `code-reviewer`, `adversarial-reviewer` and `supervisor` `max`
 - `color:` — should be set (purple/blue/green/cyan for builders, orange for reviewer)
-- `permissionMode:` — builders `bypassPermissions`, reviewer `plan`
-- `memory: project` — should be set
+- `permissionMode:` — builders `bypassPermissions`, reviewers `plan`
+- `memory:` — `project` for builders, but **`none` for `adversarial-reviewer` and
+  `supervisor`**. Those two carry the decontextualization contract; flagging them for a
+  missing `memory: project` inverts the thing that makes them worth dispatching.
 
 **Hook check:**
 - `if:` field must be inside hook objects, NOT at matcher level
 - No env var prefixes in `if` patterns (e.g., `Bash(git *)` not `Bash(APD_ORCHESTRATOR_COMMIT=1 git *)`)
-- Guard scripts use `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/` paths
-- Builders have: guard-scope, guard-bash-scope, guard-secrets, guard-git
-- Reviewer has: guard-secrets, guard-git (NO guard-scope — read-only)
+- Guard paths use `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/` (the CC shims;
+  `bin/core/` holds the runtime-neutral implementations they call)
+- Builders declare: guard-scope, guard-bash-scope, guard-secrets, guard-git
+- Reviewers declare: guard-secrets, guard-git (NO guard-scope — read-only)
+- `adversarial-reviewer` must carry the `guard-spec-blind` marker (v6.38)
+
+> **The per-agent `hooks:` block is DATA, not execution.** It never fires (measured on
+> CC 2.1.220) — enforcement runs session-level from `hooks/hooks.json`. But
+> `bin/lib/agent-scope.sh` resolves an agent's writable scope by reading the `guard-scope`
+> command out of that block when no YAML `scope:` key exists. So a wrong SCOPE_PATHS list
+> there is a live enforcement defect, and a missing block on a writable agent fails closed.
 
 **Body check:**
 - Has FORBIDDEN section with commit prohibition
@@ -74,7 +97,8 @@ Check that CLAUDE.md has all required sections:
 - `## APD` — orchestrator role description
 - `### Pipeline` — enforced pipeline reference
 - `### Guardrails` — guard script list
-- `### Mandatory skills` — brainstorm/tdd/debug/finish table
+- `### Mandatory skills` — the table must name **`apd-pipeline-guide`** (mandatory before
+  every task since v6.15, hard-gated by `.guide-marker`); brainstorm is advisory, not the gate
 - `### Human gate` — approval requirements
 - `### Session memory` — session-log reference
 - `## Anti-patterns` — common mistakes
@@ -91,7 +115,14 @@ Read `.claude/settings.json` and verify:
 - `enabledPlugins.superpowers@claude-plugins-official: false`
 - `attribution.commit: ""` (empty — no AI signatures)
 - `attribution.pr: ""` (empty)
-- `permissions.allow` includes `.claude/memory/**` (Write and Edit)
+- `permissions.allow` includes `Edit(.claude/memory/**)` and every pipeline file the
+  framework mandates writing: `spec-card.md`, `implementation-plan.md`,
+  `.adversarial-summary`, `.adversarial-rationale.md`, `.supervision-summary`,
+  `.supervision-rationale.md`, `.guide-marker`
+- **`Edit(...)` only — never ask for a `Write(...)` twin.** Since CC 2.1.208 `Edit(path)`
+  covers every file-editing tool and a `Write(path)` rule is inert for file-permission
+  checks; `apd-init` strips legacy APD Write twins on each run, so demanding them here
+  would make the audit and init undo each other on every session-start
 - Notification hook configured
 
 ### 5. Workflow Rules
@@ -99,8 +130,9 @@ Read `.claude/settings.json` and verify:
 Read `.claude/rules/workflow.md` and verify:
 - Uses `apd pipeline` commands (not `apd-pipeline`)
 - Has step 9 (finish)
-- Has mandatory skills section (brainstorm, tdd, debug, finish)
-- Model discipline table present (orchestrator opus, builder sonnet, reviewer opus)
+- Has the mandatory skills section (apd-pipeline-guide first — it carries the gate contract)
+- Model discipline table present, written with full model ids (never bare aliases). The
+  orchestrator's own model is not APD-managed; `MODEL_PROFILE` governs agents only
 
 ### 6. Pipeline Health
 
@@ -132,7 +164,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-audit-drift
 
 1. **`.claude/settings.json` deny patterns** — compares against current framework baseline (8 mkdir patterns: 4 slash-prefixed + 4 bare-dir). Pre-v6.10 re-inits left projects with only 4 patterns; v6.10 closes the bypass vector by writing all 8 on re-init.
 2. **`.claude/.apd-config` APD_VERSION** — compares against the currently loaded plugin version. Stale `APD_VERSION` means the project was configured under an older minor and may carry stale workflow/agent templates. Patch-only drift is INFO; minor-or-major drift is IMPORTANT.
-3. **`.claude/rules/workflow.md` content markers** — checks for presence of v6.7+ guidance markers (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`). Missing markers indicate workflow.md was last refreshed under a pre-v6.7 framework — orchestrator does not see plan-spec consistency / rationale gate / v6.9 deprecation guidance.
+3. **`.claude/rules/workflow.md` content markers** — checks presence of six guidance markers (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`, `apd-pipeline-guide`, `SUPERVISION`). Missing markers mean workflow.md was last refreshed under an older framework, so the orchestrator never sees plan-spec consistency, the rationale gate, the v6.15 guide gate or the v6.30 supervision layer. Read the marker list from the script rather than this page if they disagree — the script is the authority.
 
 4. **Feature claim drift** (v6.12.3+) — scans `workflow.md` and `CLAUDE.md` for orchestrator confabulation patterns claiming features the framework does not ship. Specifically: any line that mentions BOTH a contracts command (`verify-contracts`, `apd contracts`) AND an unsupported language (PHP/Python/Java/Go/Ruby/Kotlin/Rust). First documented instance: Festico apd-setup (2026-05-28) — orchestrator wrote "apd verify-contracts automatically checks PHP DTO ↔ TS types" which is false; framework supports TS ↔ C# only. Detection prevents silent gaps in cross-layer review coverage where humans rely on a feature that errors at runtime.
 

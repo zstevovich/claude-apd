@@ -47,10 +47,22 @@ If it reports errors → fix those first. This skill builds on top of
 
 For each agent in `.apd/agents/*.md`:
 
+**Roles that must EXIST** — check presence before quality:
+- `code-reviewer` — missing → the reviewer advance BLOCKs
+- `adversarial-reviewer` — missing → the reviewer advance BLOCKs (`adversarial-agent-missing`).
+  Until v6.38 its absence silently disabled the whole adversarial layer, so a project that
+  has been running "clean" without this file was running without the layer. On Codex that
+  layer is the ONLY independent review the pipeline has — supervision is inert here.
+
 **Frontmatter check:**
-- `scope:` list — paths actually exist in the repo?
-- `model:` (if present) — builders should be `gpt-5.4` or stronger
-- `effort:` (if present) — builders `xhigh`, reviewer `max`
+- `scope:` list — paths actually exist in the repo? A writable role with no scope in either
+  the YAML key or the `guard-scope` hook command fails CLOSED at `apd:apd_guard_write` (v6.37)
+- `model:` (if present) — the gpt-* namespace. `MODEL_PROFILE` is CC-only and **inert under
+  Codex**, so a Claude model name in a Codex project's config is never applied — `apd doctor`
+  warns about exactly this
+- `effort:` (if present) — builders `xhigh`, reviewers `max`
+- `memory:` — `none` on `adversarial-reviewer` (decontextualization contract); flagging it
+  for a missing `memory: project` inverts what makes the role worth dispatching
 
 **Body check:**
 - Has a FORBIDDEN section with commit prohibition for builders
@@ -64,7 +76,8 @@ Check that `AGENTS.md` has all required sections:
 - `## APD` — orchestrator role description
 - `### Pipeline` — enforced pipeline reference
 - `### Guardrails` — guard list
-- `### Mandatory skills` — brainstorm/tdd/debug/finish table
+- `### Mandatory skills` — the table must name **`apd-pipeline-guide`** (mandatory before
+  every task since v6.15, hard-gated by `.guide-marker`); brainstorm is advisory, not the gate
 - `### Human gate` — approval requirements
 
 Check that `AGENTS.md` does NOT contain:
@@ -121,7 +134,7 @@ bash ${APD_PLUGIN_ROOT}/bin/core/pipeline-audit-drift
 
 1. `.claude/settings.json` (or Codex equivalent) deny patterns — compares against current framework baseline (8 mkdir patterns: 4 slash-prefixed + 4 bare-dir). Pre-v6.10 re-inits left projects with only 4 patterns.
 2. `.claude/.apd-config` APD_VERSION — compares against currently loaded plugin version. Stale value (minor/major lag) means stale workflow/agent templates.
-3. `.claude/rules/workflow.md` content markers — checks for v6.7+ guidance markers (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`). Missing markers indicate stale workflow.md.
+3. `.claude/rules/workflow.md` content markers — checks six guidance markers (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`, `apd-pipeline-guide`, `SUPERVISION`). Missing markers mean a stale workflow.md — the orchestrator never sees the v6.15 guide gate or the v6.30 supervision layer. If this list and the script disagree, the script is the authority.
 4. **Feature claim drift** (v6.12.3+) — scans workflow.md and CLAUDE.md for orchestrator confabulation: any line mentioning BOTH a contracts command (`verify-contracts`/`apd contracts`) AND an unsupported language (PHP/Python/Java/Go/Ruby/Kotlin/Rust). Festico apd-setup 2026-05-28 generated false "verify-contracts checks PHP automatically" claim; framework supports TS ↔ C# only. Prevents silent cross-layer review coverage gaps.
 
 Output buckets: CRITICAL / IMPORTANT (most common) / INFO / CLEAN. Recovery actions point to re-run of `apd cdx init` (Codex) or `/apd-setup` (CC); v6.10+ python merge fix writes all 8 deny patterns.

@@ -78,12 +78,13 @@ Pipeline complete. What would you like to do?
 
 #### Option 1: Push
 ```bash
-APD_ORCHESTRATOR_COMMIT=1 git push -u origin <branch>
+# Resolve the push remote first — never assume "origin" (handles esir, upstream, etc.)
+REMOTE=$(bash .claude/bin/apd git-remote) && APD_ORCHESTRATOR_COMMIT=1 git push -u "$REMOTE" <branch>
 ```
 
 #### Option 2: Push + PR
 ```bash
-APD_ORCHESTRATOR_COMMIT=1 git push -u origin <branch>
+REMOTE=$(bash .claude/bin/apd git-remote) && APD_ORCHESTRATOR_COMMIT=1 git push -u "$REMOTE" <branch>
 gh pr create --title "<feature>" --body "$(cat <<'EOF'
 ## Summary
 <what changed>
@@ -119,11 +120,14 @@ git branch -D <branch>
 | "I'll push and create PR in one go" | User might want to review locally first. |
 | "Skip verification, we just ran tests" | Verify again. Something might have changed. |
 | "Force push to fix the branch" | Never force push. guard-git blocks it anyway. |
+| "Push to origin" | The remote may not be `origin` (e.g. `esir`). Run `apd git-remote` — never assume. |
 
 ## Rules
 
 - **Never push without asking the user first**
 - **Never force-push** (guard-git blocks this anyway)
+- **Resolve the push remote with `apd git-remote`** — never hardcode `origin`. If it exits
+  non-zero (ambiguous), ask the user or pin it with `apd git-remote --set-remote <name>`
 - **Always verify tests** before presenting options
 - **PR body must include APD pipeline summary** — proves the work was reviewed
 
@@ -144,7 +148,7 @@ Pipeline complete. What would you like to do?
 
 > 1
 
-APD_ORCHESTRATOR_COMMIT=1 git push -u origin feature/order-refund
+REMOTE=$(bash .claude/bin/apd git-remote) && APD_ORCHESTRATOR_COMMIT=1 git push -u "$REMOTE" feature/order-refund
 → https://github.com/org/repo/tree/feature/order-refund
 ```
 
