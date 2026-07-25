@@ -7,6 +7,7 @@
 #   pipeline-advance reset|status|stats|metrics|rollback
 #   pipeline-advance show [spec|plan|state|deferred]
 #   pipeline-advance spinoff-finding <id> "<reason>"  (defer accepted out-of-scope finding)
+#   pipeline-advance lesson "<rule>" "<source>"       (record a defect CLASS in .apd/lessons.md)
 #   pipeline-advance init "Description"  (first setup only)
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
@@ -2077,6 +2078,15 @@ EOF
                     echo "    apd pipeline spinoff-finding <id> \"<why out of scope + the follow-up task>\""
                 fi
                 ;;
+            lessons)
+                if [ -f "$PROJECT_DIR/.apd/lessons.md" ]; then
+                    cat "$PROJECT_DIR/.apd/lessons.md"
+                else
+                    echo "lessons.md: none — no defect class recorded yet"
+                    echo "  Record one from an accepted finding with:"
+                    echo "    apd pipeline lesson \"<the rule, as a class>\" \"<what it cost>\""
+                fi
+                ;;
             ""|state|status)
                 print_pipeline_state
                 ;;
@@ -2186,6 +2196,92 @@ EOF
         echo "  It will NOT be crammed into this run. Continue the current pipeline in scope;"
         echo "  open the spinoff as its own task (spec + fresh adversarial + red-green) next."
         echo "  Backlog: apd pipeline show deferred"
+        ;;
+
+    lesson)
+        # v6.38 — the pipeline enforced the FINDING and dropped the GENERALIZATION.
+        # An accepted adversarial finding produced a fix in code and nothing else:
+        # the class it belonged to evaporated with the run, and the next task met
+        # the same shape from scratch. `.adversarial-rationale.md` is archived
+        # (v6.13) but nothing ever reads it back, so the framework was producing
+        # knowledge and discarding it.
+        #
+        # A lesson is a CLASS, not a patch: the rule, and where the shape lives.
+        # Deliberately NOT auto-distilled from the archive — a machine summary of
+        # every past finding turns into noise that every builder then carries, and
+        # noise in a system prompt is worse than silence. It takes a human or an
+        # orchestrator decision, and a mandatory source, so each line traces to
+        # something the project actually paid for.
+        #
+        # Lives at `.apd/lessons.md`: runtime-neutral (same path on CC and Codex),
+        # outside `pipeline/` so no reset wipes it, and trackable in git because it
+        # is team knowledge — unlike the memory dir, which projects often gitignore.
+        LRULE="$ARG"
+        LSRC="$ARG2"
+        if [ -z "$LRULE" ] || [ -z "$LSRC" ]; then
+            echo "BLOCKED: lesson needs a rule AND a source." >&2
+            echo "" >&2
+            echo "  Usage: apd pipeline lesson \"<the rule, as a class>\" \"<what it cost / where it came from>\"" >&2
+            echo "  Example: apd pipeline lesson \\" >&2
+            echo "    \"Webhook handlers must dedupe on the provider event id, never on a locally derived key\" \\" >&2
+            echo "    \"Postmark backfill finding #3 — now() fallback entered the dedup key, duplicating OPEN events\"" >&2
+            echo "" >&2
+            echo "  Write the CLASS, not the patch: a rule the next task can apply without" >&2
+            echo "  reading this one's diff. If it only makes sense for one file, it is a" >&2
+            echo "  code comment, not a lesson." >&2
+            exit 1
+        fi
+        # Substance floor, same idea as the rationale gate: a class needs a sentence.
+        if [ "${#LRULE}" -lt 20 ] || [ "${#LSRC}" -lt 20 ]; then
+            echo "BLOCKED: lesson rule and source must each be at least 20 characters." >&2
+            echo "  Got rule=${#LRULE} chars, source=${#LSRC} chars." >&2
+            echo "  A one-word rule cannot be applied by anyone who was not in this run." >&2
+            exit 1
+        fi
+        LESSON_FILE="$PROJECT_DIR/.apd/lessons.md"
+        mkdir -p "$PROJECT_DIR/.apd" 2>/dev/null || true
+        LRULE_CLEAN="${LRULE//$'\n'/ }"; LRULE_CLEAN="${LRULE_CLEAN//$'\r'/ }"
+        LSRC_CLEAN="${LSRC//$'\n'/ }";  LSRC_CLEAN="${LSRC_CLEAN//$'\r'/ }"
+        # Dedupe: the same rule recorded twice is the noise this file must not become.
+        if [ -f "$LESSON_FILE" ] && grep -qF "**Rule:** $LRULE_CLEAN" "$LESSON_FILE" 2>/dev/null; then
+            echo "BLOCKED: this exact rule is already recorded in $LESSON_FILE." >&2
+            echo "  If the new finding sharpens it, edit that entry instead of appending a near-duplicate." >&2
+            exit 1
+        fi
+        if [ ! -f "$LESSON_FILE" ]; then
+            {
+                echo "# Lessons — defect classes this project has already paid for"
+                echo ""
+                echo "Each entry is a CLASS, not a patch: a rule the next task can apply without"
+                echo "reading the diff that produced it. Written from accepted findings via"
+                echo "\`apd pipeline lesson\`. Builders are told to read this file before they start."
+            } > "$LESSON_FILE"
+        fi
+        LNUM=$(( $(grep -c '^## L[0-9]' "$LESSON_FILE" 2>/dev/null) + 1 ))
+        LTASK="(outside a pipeline run)"
+        [ -f "$PIPELINE_DIR/spec.done" ] && LTASK=$(head -1 "$PIPELINE_DIR/spec.done" 2>/dev/null | cut -d'|' -f3)
+        [ -n "$LTASK" ] || LTASK="(unknown)"
+        {
+            echo ""
+            echo "## L${LNUM} — $(date +%Y-%m-%d)"
+            echo "**Rule:** $LRULE_CLEAN"
+            echo "**Paid for by:** $LSRC_CLEAN"
+            echo "**Recorded during:** $LTASK"
+        } >> "$LESSON_FILE"
+        if [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ]; then
+            if [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ]; then _lt=SYNTHETIC; else _lt=INFO; fi
+            echo "$(date +"%Y-%m-%d %H:%M:%S")|${_lt}|orchestrator|lesson-recorded|task=$LTASK id=L$LNUM" >> "$MEMORY_DIR/guard-audit.log"
+        fi
+        echo ""
+        echo "  Recorded L${LNUM} → $LESSON_FILE"
+        echo "  Builders read this file before they start, so the next task meets the"
+        echo "  class instead of the instance. Commit it — it is team knowledge."
+        LCOUNT=$(grep -c '^## L[0-9]' "$LESSON_FILE" 2>/dev/null)
+        if [ "${LCOUNT:-0}" -gt 20 ] 2>/dev/null; then
+            echo ""
+            echo "  NOTE: $LCOUNT lessons. Past ~20 a builder skims rather than reads —" >&2
+            echo "  merge the ones that turned out to be the same class." >&2
+        fi
         ;;
 
     stats)

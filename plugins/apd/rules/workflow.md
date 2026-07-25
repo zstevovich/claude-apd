@@ -310,6 +310,17 @@ bash .claude/bin/apd pipeline raise-cap reviewer <N|unlimited> "<reason>"
 
 Raises only, reason mandatory, logged as `INFO|cap-raise`, cleared on spec re-advance and reset. If the blocker is an accepted finding that is genuinely **out of this task's scope**, do NOT raise the cap and do NOT `apd toggle off` — **spin it off** to a follow-up task and continue in scope: `bash .claude/bin/apd pipeline spinoff-finding <id> "<reason>"`. When you surface this choice to the user, spinoff is the first, recommended option.
 
+### Lessons — the class, not the instance
+
+A disposition settles one finding; the class outlives it. When an accepted finding could recur in another module, another handler, another task, record it once:
+
+```
+bash .claude/bin/apd pipeline lesson "<the rule, as a class>" "<what it cost>"
+bash .claude/bin/apd pipeline show lessons
+```
+
+It appends to `.apd/lessons.md` — outside `pipeline/`, so no reset wipes it, and trackable in git because it is team knowledge. **Builders are told to read that file before they start**, which is what makes it education rather than an archive: a recorded class arrives automatically on every future dispatch. Write the RULE, not the patch (if it only makes sense for one file it is a code comment), and not one per finding — past ~20 entries the file gets skimmed rather than read, and then it teaches nothing. `/apd-finish` asks at the end of every run whether anything generalized.
+
 ### Polish mode
 
 Polish iterations — typo fixes, copy tweaks, small UI polish — should NOT need re-dispatch. Mark them up front:

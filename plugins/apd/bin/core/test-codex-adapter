@@ -13054,6 +13054,113 @@ for _sf in core/test-codex-adapter core/verify-apd; do
     fi
 done
 
+section "117. Lessons — the pipeline keeps the class, not just the fix"
+
+# APD enforced the FINDING and dropped the GENERALIZATION: an accepted finding
+# produced a fix in code and nothing else, so the class it belonged to left with
+# the run and the next task met the same shape from scratch. The rationale archive
+# has held every finding since v6.13 and nothing ever read it back.
+#
+# Two halves, and the second is the one that makes it education rather than an
+# archive: the file has to REACH a builder. Both are asserted here.
+
+LS_T="$(mktemp -d -t apd-lessons.XXXXXX)"
+mkdir -p "$LS_T/p/.apd/pipeline" "$LS_T/p/.claude/memory"
+printf '# x\n' > "$LS_T/p/CLAUDE.md"
+printf 'PROJECT_NAME=ls-test\n' > "$LS_T/p/.apd/config"
+_ls() { APD_PROJECT_DIR="$LS_T/p" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" "$@" 2>&1; }
+LS_RULE='Webhook handlers must dedupe on the provider event id, never a locally derived key'
+LS_SRC='Postmark backfill finding #3 — a now() fallback entered the dedup key'
+
+if _ls lesson | grep -q 'needs a rule AND a source'; then
+    pass "lesson without arguments is refused"; PASSES=$((PASSES + 1))
+else
+    fail "lesson accepted empty arguments"; FAILS=$((FAILS + 1))
+fi
+# Substance floor: a one-word rule cannot be applied by anyone who was not there.
+if _ls lesson "too short" "also far too short" | grep -q 'at least 20 characters'; then
+    pass "lesson enforces a substance floor on rule and source"; PASSES=$((PASSES + 1))
+else
+    fail "a one-word rule was accepted as a lesson"; FAILS=$((FAILS + 1))
+fi
+_ls lesson "$LS_RULE" "$LS_SRC" >/dev/null 2>&1
+LS_FILE="$LS_T/p/.apd/lessons.md"
+if [ -f "$LS_FILE" ] && grep -qF "**Rule:** $LS_RULE" "$LS_FILE" && grep -q '^## L1' "$LS_FILE"; then
+    pass "lesson recorded as L1 with the rule intact"; PASSES=$((PASSES + 1))
+else
+    fail "lesson not recorded in .apd/lessons.md"; FAILS=$((FAILS + 1))
+fi
+# Dedupe IS the noise defence — a file that repeats itself gets skimmed.
+if _ls lesson "$LS_RULE" "a different source, same rule entirely" | grep -q 'already recorded'; then
+    pass "an exact duplicate rule is refused"; PASSES=$((PASSES + 1))
+else
+    fail "duplicate rules accumulate — the file becomes noise"; FAILS=$((FAILS + 1))
+fi
+_ls lesson "Any retry path must be idempotent at the sink, not only at the caller" \
+          "SEF invoice uniqueness — retry duplicated rows under concurrency" >/dev/null 2>&1
+if [ "$(grep -c '^## L[0-9]' "$LS_FILE")" = "2" ] && grep -q '^## L2' "$LS_FILE"; then
+    pass "a second distinct lesson numbers as L2"; PASSES=$((PASSES + 1))
+else
+    fail "lesson numbering broken ($(grep -c '^## L[0-9]' "$LS_FILE") entries)"; FAILS=$((FAILS + 1))
+fi
+if _ls show lessons | grep -qF "$LS_RULE"; then
+    pass "apd pipeline show lessons reads the file back"; PASSES=$((PASSES + 1))
+else
+    fail "show lessons does not surface the recorded classes"; FAILS=$((FAILS + 1))
+fi
+if grep -q 'lesson-recorded' "$LS_T/p/.claude/memory/guard-audit.log" 2>/dev/null; then
+    pass "recording a lesson is auditable"; PASSES=$((PASSES + 1))
+else
+    fail "no audit entry for a recorded lesson"; FAILS=$((FAILS + 1))
+fi
+# Durability: lessons outlive the run that paid for them, or they are session state.
+printf 'x' > "$LS_T/p/.apd/pipeline/spec-card.md"
+_ls reset >/dev/null 2>&1
+if [ -f "$LS_FILE" ] && [ "$(grep -c '^## L[0-9]' "$LS_FILE")" = "2" ]; then
+    pass "a pipeline reset does not wipe the lessons"; PASSES=$((PASSES + 1))
+else
+    fail "reset destroyed the lessons — they are session state, not knowledge"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$LS_T"
+
+# "Team knowledge" is a claim about git, so check it against git. APD writes
+# `.apd/pipeline/` into a project's .gitignore — broaden that to `.apd/` and the
+# lessons file stops being committable without a sound, taking the whole reason
+# it lives there rather than in the (often gitignored) memory dir. Measured on a
+# real repo, not by reading the pattern: this framework repo ignores `.apd/`
+# wholesale for its own development, so reading the wrong .gitignore says
+# "ignored" and would have shipped the opposite conclusion.
+LS_G="$(mktemp -d -t apd-lsgit.XXXXXX)"
+if command -v git >/dev/null 2>&1; then
+    ( cd "$LS_G" && git init -q . 2>/dev/null \
+        && cp "$APD_PLUGIN_ROOT/templates/gitignore-entries.txt" .gitignore \
+        && mkdir -p .apd/pipeline && printf 'x' > .apd/lessons.md \
+        && printf 'y' > .apd/pipeline/spec-card.md )
+    if ! ( cd "$LS_G" && git check-ignore -q .apd/lessons.md ) \
+       && ( cd "$LS_G" && git check-ignore -q .apd/pipeline/spec-card.md ); then
+        pass "lessons are committable while pipeline state stays ignored"; PASSES=$((PASSES + 1))
+    else
+        fail "project .gitignore makes lessons uncommittable (or stopped ignoring pipeline state)"
+        FAILS=$((FAILS + 1))
+    fi
+fi
+rm -rf "$LS_G"
+
+# The delivery half. Without this the file is an archive nobody opens, which is
+# exactly what `adversarial-rationale-archive.md` already was.
+if grep -q 'lessons.md' "$APD_PLUGIN_ROOT/templates/agent-template.md" 2>/dev/null; then
+    pass "builders are told to read the lessons before they start"; PASSES=$((PASSES + 1))
+else
+    fail "nothing routes lessons to a builder — an archive, not education"; FAILS=$((FAILS + 1))
+fi
+# And the run has to ASK, or nobody records one at the only moment they know.
+if grep -q 'pipeline lesson' "$REPO_ROOT/skills/apd-finish/SKILL.md" 2>/dev/null \
+   && grep -q 'pipeline lesson' "$APD_PLUGIN_ROOT/skills/apd-finish/SKILL.md" 2>/dev/null; then
+    pass "both apd-finish mirrors ask whether the run generalized"; PASSES=$((PASSES + 1))
+else
+    fail "apd-finish never asks whether a finding generalized"; FAILS=$((FAILS + 1))
+fi
+
 section "116. Builder charter — the role that writes the code gets taught too"
 
 # Guards are mechanics; the average comes from education. APD had that backwards

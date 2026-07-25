@@ -170,6 +170,19 @@ Every adversarial finding gets one of three dispositions:
 list spinoff FIRST and recommend it.** "Expand this task / raise the cap" is only
 right when the finding is genuinely in scope and the cap raise is justified.
 
+**Orthogonal to all three: does the finding generalize?** A disposition settles
+this instance; a class outlives it. If the same shape can appear elsewhere,
+record it once — builders read `.apd/lessons.md` before they start, so it becomes
+education on every future dispatch instead of knowledge that leaves with the run:
+
+```bash
+apd pipeline lesson "<the rule, as a class>" "<what it cost>"
+apd pipeline show lessons
+```
+
+Write the rule, not the patch, and not one per finding — a file past ~20 entries
+gets skimmed rather than read. `apd-finish` asks this again at the end of the run.
+
 ## Reading pipeline state
 
 Use the sanctioned read path — shell `cat`/`ls` on `.apd/pipeline/` is

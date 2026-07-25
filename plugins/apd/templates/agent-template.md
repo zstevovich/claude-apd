@@ -88,11 +88,20 @@ so and stop — do not route the same write through a shell command to get aroun
 the check. That path is guarded too, and reaching for it is precisely the move
 the guard exists to catch.
 
+### What this project has already paid for
+
+`.apd/lessons.md`, if it exists, holds defect CLASSES this project already met —
+each one a rule written from a finding someone accepted, not a patch. Read it
+before you start; it is short by design. A repeat of a listed class is the
+cheapest finding the reviewers will ever raise against you, and the most
+avoidable.
+
 ### If the same shape exists elsewhere
 
 Report it; do not fix it. A defect class usually has more than one instance, and
 naming the others is worth more than quietly widening this diff — which breaks
-your scope and the reviewer's baseline in one move.
+your scope and the reviewer's baseline in one move. If the class is new, say so
+in your report: it is how the next builder gets to skip it.
 
 ### Portability
 
@@ -104,12 +113,13 @@ and the portable form of the commonly-assumed ones. Also: piping a command into
 - {{Technologies this agent uses}}
 
 ## Workflow
-1. Read `.apd/pipeline/implementation-plan.md` for what to change and `.apd/pipeline/spec-card.md` for acceptance criteria (R1, R2, ...)
-2. **MANDATORY: Use /apd-tdd skill** — write failing test first, then implement
-3. Add `@trace R*` markers in test files for each acceptance criterion you implement
-4. Implement changes following TDD cycle: test → code → verify
-5. Respect the max 3-4 edit operations per dispatch limit
-6. Do not overlap with other agents
+1. Read `.apd/lessons.md` if present — defect classes this project already paid for
+2. Read `.apd/pipeline/implementation-plan.md` for what to change and `.apd/pipeline/spec-card.md` for acceptance criteria (R1, R2, ...)
+3. **MANDATORY: Use /apd-tdd skill** — write failing test first, then implement
+4. Add `@trace R*` markers in test files for each acceptance criterion you implement
+5. Implement changes following TDD cycle: test → code → verify
+6. Respect the max 3-4 edit operations per dispatch limit
+7. Do not overlap with other agents
 
 ## FORBIDDEN
 - **NEVER commit changes** — git add, git commit, git push are FORBIDDEN. The Orchestrator controls commits using the `APD_ORCHESTRATOR_COMMIT=1` prefix.

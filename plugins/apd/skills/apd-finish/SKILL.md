@@ -51,6 +51,27 @@ Pull `apd:apd_pipeline_state()` and summarize for the user:
 - Adversarial outcome (total / accepted / dismissed) if present
 - Reviewed files count
 
+### Step 2b — did this run teach the project anything?
+
+If the run ACCEPTED any adversarial finding, ask one question before moving on:
+**does it generalize?** A finding is an instance; the class is what is worth
+keeping. The fix already landed in code — that part is done.
+
+If the same shape can appear in another module, another handler, another task,
+record it once:
+
+```bash
+apd pipeline lesson "<the rule, as a class>" "<what it cost>"
+apd pipeline show lessons   # what the project already knows
+```
+
+Builders are told to read `.apd/lessons.md` before they start, so a recorded
+class becomes education that arrives automatically on every future dispatch.
+Write the RULE, not the patch — if it only makes sense for one file it belongs
+in a code comment. **Do not record one per finding:** past ~20 entries the file
+gets skimmed rather than read, and then it teaches nothing. Commit it; it is
+team knowledge, not session state.
+
 ### Step 3 — present options
 
 ```

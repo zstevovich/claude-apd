@@ -63,6 +63,30 @@ bash "$(git rev-parse --show-toplevel)/.claude/bin/apd" report
 
 Show the formatted pipeline recap so the user sees what was done before deciding.
 
+### Step 2b: Did this run teach the project anything?
+
+If the run ACCEPTED any adversarial or supervision finding, ask one question
+before moving on: **does it generalize?** A finding is an instance; the thing
+worth keeping is the class.
+
+- The fix already landed in code — that part is done.
+- If the same shape can appear in another module, another handler, another task,
+  record it once so the next builder meets the class instead of the instance:
+
+  ```bash
+  bash .claude/bin/apd pipeline lesson "<the rule, as a class>" "<what it cost>"
+  bash .claude/bin/apd pipeline show lessons   # what the project already knows
+  ```
+
+  Builders are told to read `.apd/lessons.md` before they start, so a recorded
+  class is education that arrives automatically on every future dispatch.
+
+Write the RULE, not the patch: if it only makes sense for one file it belongs in
+a code comment. **Do not record a lesson for every finding** — a file past ~20
+entries gets skimmed rather than read, and then it teaches nothing. One good
+class beats five restatements of the same run. Commit the file; it is team
+knowledge, not session state.
+
 ### Step 3: Present Options
 
 ```
