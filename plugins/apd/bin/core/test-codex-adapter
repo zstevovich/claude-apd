@@ -9130,8 +9130,13 @@ printf -- '---\nname: apd-verify-stub\nmodel: sonnet\n---\n' > "$MP_PROJ/.claude
 APD_PROJECT_DIR="$MP_PROJ" bash "$MP_SCRIPT" burn >/dev/null 2>&1
 MP_B_MODEL=$(awk '/^model:/ {print $2; exit}' "$MP_PROJ/.claude/agents/backend-x.md")
 MP_A_MODEL=$(awk '/^model:/ {print $2; exit}' "$MP_PROJ/.claude/agents/adversarial-reviewer.md")
-if [ "$MP_B_MODEL" = "claude-fable-5" ] && [ "$MP_A_MODEL" = "claude-opus-5" ]; then
-    pass "apply burn: builder→claude-fable-5, adversarial→opus (role split)"
+# Expected values come from the conf, not hardcoded: a fixture that pins the
+# table's current contents breaks silently the moment the table is tuned, and
+# then reports it as a code regression.
+MP_B_M_WANT=$(awk -F'|' '$1=="burn" && $2=="default" {print $3; exit}' "$APD_PLUGIN_ROOT/templates/model-profiles.conf")
+MP_A_M_WANT=$(awk -F'|' '$1=="burn" && $2=="adversarial" {print $3; exit}' "$APD_PLUGIN_ROOT/templates/model-profiles.conf")
+if [ "$MP_B_MODEL" = "$MP_B_M_WANT" ] && [ "$MP_A_MODEL" = "$MP_A_M_WANT" ]; then
+    pass "apply burn: builder + adversarial take their own rows (role split)"
     PASSES=$((PASSES + 1))
 else
     fail "apply burn wrong models: builder=$MP_B_MODEL adversarial=$MP_A_MODEL"
@@ -9154,6 +9159,62 @@ if [ "$MP_B_EFF" = "$MP_B_WANT" ] && [ "$MP_A_EFF" = "$MP_A_WANT" ]; then
 else
     fail "apply burn wrong effort: builder=$MP_B_EFF (want $MP_B_WANT) adversarial=$MP_A_EFF (want $MP_A_WANT)"
     FAILS=$((FAILS + 1))
+fi
+
+# --- v6.38 precedence: a missing role row means "leave it alone" -------------
+# `reviewer` used to fall back to `default`, so applying ANY profile silently
+# stripped code-reviewer off its template `effort: max` — a profile default
+# overriding a deliberate template value. The rule is now uniform across named
+# roles, so the same trap cannot reappear when a role is added later.
+MP_PREC="$SCRATCH/mp-precedence"
+mkdir -p "$MP_PREC/.claude/agents" "$MP_PREC/.apd"
+touch "$MP_PREC/CLAUDE.md"; printf 'APD_ACTIVE=true\n' > "$MP_PREC/.apd/config"
+printf -- '---\nname: code-reviewer\nmodel: claude-opus-5\neffort: max\n---\nbody\n' \
+    > "$MP_PREC/.claude/agents/code-reviewer.md"
+printf -- '---\nname: backend-x\nmodel: sonnet\neffort: low\n---\nbody\n' \
+    > "$MP_PREC/.claude/agents/backend-x.md"
+APD_PROJECT_DIR="$MP_PREC" bash "$MP_SCRIPT" eco >/dev/null 2>&1
+MP_R_LINE=$(grep -E '^(model|effort):' "$MP_PREC/.claude/agents/code-reviewer.md" | tr '\n' ' ')
+MP_X_MODEL=$(awk '/^model:/ {print $2; exit}' "$MP_PREC/.claude/agents/backend-x.md")
+case "$MP_R_LINE" in
+    *claude-opus-5*max*)
+        pass "no reviewer row: code-reviewer keeps its template pin (not reset to default)"
+        PASSES=$((PASSES + 1)) ;;
+    *)
+        fail "reviewer was overwritten by the profile default: $MP_R_LINE"
+        FAILS=$((FAILS + 1)) ;;
+esac
+# The other half of the rule: an UNNAMED agent must still take the default row,
+# or "leave it alone" would have turned profiles into no-ops.
+if [ "$MP_X_MODEL" = "claude-sonnet-5" ]; then
+    pass "unnamed agent still resolves to the profile default row"; PASSES=$((PASSES + 1))
+else
+    fail "unnamed agent did not take the default row: $MP_X_MODEL"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$MP_PREC"
+
+# --- v6.38 topology: which roles run is constant across profiles -------------
+# Row presence used to double as supervision on/off (eco only), which meant eco
+# and burn were not one pipeline at two prices but two different pipelines —
+# cross-profile telemetry was not comparable, and drift analysis could not tell
+# "worse model" from "layer never ran".
+MP_CONF="$APD_PLUGIN_ROOT/templates/model-profiles.conf"
+MP_NO_SUP=$(awk -F'|' '!/^[[:space:]]*(#|$)/ {seen[$1]; if ($2=="supervisor") sup[$1]}
+                       END { for (p in seen) if (!(p in sup)) print p }' "$MP_CONF")
+if [ -z "$MP_NO_SUP" ]; then
+    pass "every profile carries a supervisor row (topology constant)"; PASSES=$((PASSES + 1))
+else
+    fail "profile(s) without a supervisor row — topology varies by profile: $MP_NO_SUP"
+    FAILS=$((FAILS + 1))
+fi
+# Fable is available on demand and as an orchestrator choice, but is not an
+# agent default: measured $71.80/dispatch as a builder against $41.27 for
+# opus-5, while the vendor puts opus-5 at max within 0.5% of Fable's peak.
+MP_FABLE=$(awk -F'|' '!/^[[:space:]]*(#|$)/ && $3 ~ /fable/ {print $1"|"$2}' "$MP_CONF")
+if [ -z "$MP_FABLE" ]; then
+    pass "no Fable in agent rows (on-demand only)"; PASSES=$((PASSES + 1))
+else
+    fail "Fable is back as an agent default: $MP_FABLE"; FAILS=$((FAILS + 1))
 fi
 
 # Live G: effort inserted when absent + body line untouched
@@ -9196,7 +9257,7 @@ else
 fi
 
 # Live K: status flags hand-edited drift
-sed 's/^model: claude-fable-5/model: haiku/' "$MP_PROJ/.claude/agents/backend-x.md" > "$MP_PROJ/.claude/agents/backend-x.md.tmp" \
+sed 's/^model: .*/model: haiku/' "$MP_PROJ/.claude/agents/backend-x.md" > "$MP_PROJ/.claude/agents/backend-x.md.tmp" \
     && mv "$MP_PROJ/.claude/agents/backend-x.md.tmp" "$MP_PROJ/.claude/agents/backend-x.md"
 MP_STATUS2=$(APD_PROJECT_DIR="$MP_PROJ" bash "$MP_SCRIPT" status 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
 if echo "$MP_STATUS2" | grep -q "DRIFTED from declared profile 'burn'"; then
@@ -10738,23 +10799,30 @@ SV_PROFILE_BIN="$APD_PLUGIN_ROOT/bin/core/pipeline-model-profile"
 SV_CONF="$APD_PLUGIN_ROOT/templates/model-profiles.conf"
 
 # Static A: conf — supervisor row on eco ONLY (v1); cruise/burn stay bare.
-if grep -q '^eco|supervisor|claude-fable-5|' "$SV_CONF" \
-   && ! grep -q '^cruise|supervisor|' "$SV_CONF" \
-   && ! grep -q '^burn|supervisor|' "$SV_CONF"; then
-    pass "model-profiles.conf: supervisor row on eco only (frontier model)"; PASSES=$((PASSES + 1))
+# v6.38 inverts v6.30 here: row presence no longer encodes supervision on/off.
+# Which roles run is topology and must be constant across profiles; a profile
+# decides only what each role costs. When presence doubled as a switch, eco and
+# burn were two different pipelines, not one pipeline at two prices.
+SV_MISSING=$(awk -F'|' '!/^[[:space:]]*(#|$)/ {seen[$1]; if ($2=="supervisor") sup[$1]}
+                        END { for (p in seen) if (!(p in sup)) print p }' "$SV_CONF")
+if [ -z "$SV_MISSING" ]; then
+    pass "model-profiles.conf: every profile carries a supervisor row (topology constant)"; PASSES=$((PASSES + 1))
 else
-    fail "conf supervisor rows wrong (want eco only)"; FAILS=$((FAILS + 1))
+    fail "supervision topology varies by profile — no supervisor row in: $SV_MISSING"; FAILS=$((FAILS + 1))
 fi
 
 # Static B: template exists — decontextualized (memory: none) + frontier pin;
 # profile script maps supervisor role WITHOUT default fallback.
 SV_TPL="$APD_PLUGIN_ROOT/templates/supervisor-template.md"
-if [ -f "$SV_TPL" ] && grep -q 'memory: none' "$SV_TPL" && grep -q 'model: claude-fable-5' "$SV_TPL" \
+# The no-default-fallback rule used to be a supervisor special case
+# (`"$role" != "supervisor"`). It is now uniform across named roles, so the
+# assertion moves from "supervisor is exempt" to "nothing falls back".
+if [ -f "$SV_TPL" ] && grep -q 'memory: none' "$SV_TPL" && grep -q 'model: claude-opus-5' "$SV_TPL" \
    && grep -q 'supervisor)           echo "supervisor"' "$SV_PROFILE_BIN" \
-   && grep -q '"$role" != "supervisor"' "$SV_PROFILE_BIN"; then
-    pass "supervisor template (memory:none, fable) + profile role match with NO default fallback"; PASSES=$((PASSES + 1))
+   && ! grep -q '_lookup "$1" "default"' "$SV_PROFILE_BIN"; then
+    pass "supervisor template (memory:none, pinned) + no role falls back to default"; PASSES=$((PASSES + 1))
 else
-    fail "supervisor template / profile role wiring missing"; FAILS=$((FAILS + 1))
+    fail "supervisor template / uniform no-fallback wiring missing"; FAILS=$((FAILS + 1))
 fi
 
 # Static C: gate wiring in pipeline-advance — structural fn, ONE-WAY env
@@ -10993,16 +11061,30 @@ else
 fi
 rm -rf "$_T"
 
-# Live P: cruise profile (no supervisor row) → inert under strict.
+# Live P: v6.38 — cruise now carries a supervisor row, so the gate APPLIES
+# there. The inert path is not deleted, it moves to what still triggers it: a
+# project override conf that omits the row. Dropping that coverage would leave
+# the "profile has no supervisor" branch untested while it is still reachable.
 _T="$(mktemp -d -t apd-v95p.XXXXXX)"
 _v67_make_state "$_T" "ADVERSARIAL:0:0:0"
 echo "MODEL_PROFILE=cruise" >> "$_T/.apd/config"
 _OUT=$(_v95_verifier "$_T" strict); _RC=$?
-if [ "$_RC" = "0" ] && ! echo "$_OUT" | grep -q 'Supervision'; then
-    pass "cruise (no supervisor row) → gate inert"; PASSES=$((PASSES + 1))
+if [ "$_RC" != "0" ] || echo "$_OUT" | grep -q 'Supervision'; then
+    pass "cruise now carries supervision (topology no longer profile-dependent)"; PASSES=$((PASSES + 1))
 else
-    fail "cruise not inert (rc=$_RC)"; FAILS=$((FAILS + 1))
+    fail "cruise supervision did not apply (rc=$_RC)"; FAILS=$((FAILS + 1))
 fi
+# Project override with no supervisor row → gate inert (the branch still exists)
+mkdir -p "$_T/.apd"
+printf 'cruise|default|claude-opus-5|high\ncruise|adversarial|claude-sonnet-5|max\n' \
+    > "$_T/.apd/model-profiles.conf"
+_OUT2=$(_v95_verifier "$_T" strict); _RC2=$?
+if [ "$_RC2" = "0" ] && ! echo "$_OUT2" | grep -q 'Supervision'; then
+    pass "project override without a supervisor row → gate inert"; PASSES=$((PASSES + 1))
+else
+    fail "override without supervisor row still gated (rc=$_RC2)"; FAILS=$((FAILS + 1))
+fi
+rm -f "$_T/.apd/model-profiles.conf"
 rm -rf "$_T"
 
 # Live Q: synthetic run (verify-apd Section 8 shape) — gate stays ACTIVE (no
@@ -11124,10 +11206,14 @@ APD_PROJECT_DIR="$_T" bash "$SV_PROFILE_BIN" cruise >/dev/null 2>&1
 SV_M_CRUISE=$(grep '^model:' "$_T/.claude/agents/supervisor.md" | head -1)
 APD_PROJECT_DIR="$_T" bash "$SV_PROFILE_BIN" eco >/dev/null 2>&1
 SV_M_ECO=$(grep '^model:' "$_T/.claude/agents/supervisor.md" | head -1)
-if [ "$SV_M_CRUISE" = "model: opus" ] && [ "$SV_M_ECO" = "model: claude-fable-5" ]; then
-    pass "profile apply: cruise leaves supervisor as-is, eco pins claude-fable-5"; PASSES=$((PASSES + 1))
+# Both profiles now own the supervisor role, and both pin the same model —
+# read from the conf so tuning the table does not look like a regression.
+SV_WANT_C=$(awk -F'|' '$1=="cruise" && $2=="supervisor" {print "model: " $3; exit}' "$SV_CONF")
+SV_WANT_E=$(awk -F'|' '$1=="eco" && $2=="supervisor" {print "model: " $3; exit}' "$SV_CONF")
+if [ "$SV_M_CRUISE" = "$SV_WANT_C" ] && [ "$SV_M_ECO" = "$SV_WANT_E" ]; then
+    pass "profile apply: supervisor takes its own row on both cruise and eco"; PASSES=$((PASSES + 1))
 else
-    fail "supervisor role apply wrong (cruise='$SV_M_CRUISE' eco='$SV_M_ECO')"; FAILS=$((FAILS + 1))
+    fail "supervisor role apply wrong (cruise='$SV_M_CRUISE' want='$SV_WANT_C'; eco='$SV_M_ECO' want='$SV_WANT_E')"; FAILS=$((FAILS + 1))
 fi
 rm -rf "$_T"
 

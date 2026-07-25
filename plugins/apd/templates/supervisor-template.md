@@ -2,7 +2,7 @@
 name: supervisor
 description: Frontier-model final review — judges the FINAL diff after adversarial fixes, before the verifier
 tools: Read, Glob, Grep, Bash
-model: claude-fable-5
+model: claude-opus-5
 effort: max
 color: purple
 permissionMode: plan

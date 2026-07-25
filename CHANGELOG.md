@@ -44,6 +44,16 @@ Applies the standing rule — a test that cannot go red proves nothing — retro
 
   Existing projects re-pin on their next session-start init. Three static checks now fail on any bare alias — in the conf, in a shipped template, or written back by `apd-init` — because pinning once without a guard just defers the next silent move. Codex templates keep the gpt-* namespace, untouched.
 
+- **Profiles after Opus 5: two rule changes, not just new values.** Full record in `docs/plans/v6.38-profiles-after-opus-5.md`.
+
+  **Precedence.** A missing role row means "this profile does not mention that role", so the agent keeps its template pin — never "reset to the default row". Only `supervisor` behaved this way; `reviewer` fell back to `default`, which silently stripped `code-reviewer` off its template `effort: max` the moment any profile was applied. A profile default overriding a deliberate template value is backwards, and the trap would have repeated for every role added later. Unnamed agents still take `default`, otherwise "leave it alone" turns profiles into no-ops — both halves are tested.
+
+  **Topology.** Every profile now carries a supervisor row, so row presence no longer doubles as supervision on/off. While it did (eco only), eco and burn were not one pipeline at two prices but two different pipelines: cross-profile telemetry was not comparable, and drift analysis could not separate "worse because the model is cheaper" from "worse because a layer never ran". An off switch, if it is ever needed, has to be explicit.
+
+  **Fable leaves the agents.** Measured across the corpus: fable builder $71.80/dispatch, opus-5 $41.27, sonnet-5 $18.78 — the burn default was the most expensive line in the table, and the vendor puts Opus 5 at max within 0.5% of Fable's peak CursorBench score at half the cost per task, at identical per-token pricing. Fable stays on-demand and as an orchestrator choice. Note the supervisor was NOT the expensive item it was assumed to be ($20.48, one focused pass) — the topology fix is about comparability, not cost.
+
+  Cost of the two rule changes: an eco run goes from roughly $152 to roughly $200, stated up front rather than discovered later. The effort values remain the least evidenced part of the table — `cruise` and `eco` at `high` vs `xhigh`, and what Opus 5 at `max` costs per task, are all open and measurable only through runs.
+
 ### Fixed
 
 - **A hook that drained stdin with `cat` could hang forever.** `adapter/cdx/session-start` guarded the drain with `[ ! -t 0 ]`, but "not a TTY" is not "will reach EOF": invoked from a harness or CI that inherited an open socket on fd 0, `cat` waits for an EOF that never comes — no output, no child process, no clue. It cost two 26-minute stalls in one session before the cause was found. The drain is now bounded with `read -t`, and both E2E suites `exec </dev/null` so no fixture can inherit a blocking stdin. Locked in by §113, which builds the condition on purpose (a fifo held open by a writer that never closes it) — the suites can no longer reproduce it themselves, which is exactly why the first version of this fix passed every test while protecting nothing.
