@@ -91,8 +91,18 @@ jobs:
           G=plugins/apd/bin/core/guard-bash-portability
           rc=0
           check() { # <platform> <expected> <command>
-            APD_PORTABILITY_FORCE="$1" bash "$G" --command "$3" >/dev/null 2>&1
-            local got=$?
+            # GitHub runs `run:` blocks under `bash -e`, so a bare call that
+            # exits 2 — which is what a correct BLOCK looks like — aborts the
+            # step before a single assertion prints. Measured: this job died on
+            # its first check with "Process completed with exit code 2" and zero
+            # `ok` lines, on both platforms, testing nothing. The `if` form is
+            # the only capture that is safe under `-e`.
+            local got=0
+            if APD_PORTABILITY_FORCE="$1" bash "$G" --command "$3" >/dev/null 2>&1; then
+              got=0
+            else
+              got=$?
+            fi
             if [ "$got" != "$2" ]; then
               echo "FAIL [$1] expected $2, got $got: $3"; rc=1
             else

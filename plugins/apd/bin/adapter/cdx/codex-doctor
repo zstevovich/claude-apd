@@ -224,8 +224,11 @@ else
             fi
         fi
 
-        MCP_CFG_STATUS="$(
-python3 - "$CFG" "$APD_PLUGIN_ROOT" <<'PY'
+        # Heredoc redirected to a file, not nested inside $( ) — bash 3.2
+        # cannot parse the latter (it hunts the closing paren through the
+        # heredoc body and finds Python's first). See suite §122.
+        _APD_PYOUT="$(mktemp "${TMPDIR:-/tmp}/apd-doctor-pyout.XXXXXX")"
+python3 - "$CFG" "$APD_PLUGIN_ROOT" > "$_APD_PYOUT" <<'PY'
 import sys
 from pathlib import Path
 
@@ -271,8 +274,9 @@ if missing_server or missing_tools:
     print("; ".join(details))
     raise SystemExit(1)
 PY
-        )"
-        if [ $? -eq 0 ]; then
+        MCP_CFG_RC=$?
+        MCP_CFG_STATUS="$(cat "$_APD_PYOUT")"; rm -f "$_APD_PYOUT"
+        if [ "$MCP_CFG_RC" -eq 0 ]; then
             _ok "config.toml registers APD MCP server + 10 auto-approved tools"
         else
             _bad "config.toml APD MCP block incomplete or stale — run \`apd cdx init\` (${MCP_CFG_STATUS:-unknown mismatch})"

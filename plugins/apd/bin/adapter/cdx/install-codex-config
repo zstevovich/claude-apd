@@ -183,8 +183,8 @@ HOOK_LAUNCHER_Q="\"$HOOK_LAUNCHER\""
 # -----------------------------------------------------------
 CFG_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-config.XXXXXX")"
 set +e
-CFG_STATUS="$(
-python3 - "$CONFIG_FILE" "$MCP_LAUNCHER" "$CFG_TMP" <<'PY'
+_APD_PYOUT="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-pyout.XXXXXX")"
+python3 - "$CONFIG_FILE" "$MCP_LAUNCHER" "$CFG_TMP" > "$_APD_PYOUT" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -275,8 +275,8 @@ out_path.write_text("\n\n".join(serialized).rstrip() + "\n")
 print(action)
 raise SystemExit(10)
 PY
-)"
 CFG_RC=$?
+CFG_STATUS="$(cat "$_APD_PYOUT")"; rm -f "$_APD_PYOUT"
 set -e
 case "$CFG_RC" in
     0)
@@ -469,8 +469,8 @@ fi
 # -----------------------------------------------------------
 HOOKS_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-hooks.XXXXXX")"
 set +e
-HOOKS_STATUS="$(
-python3 - "$HOOKS_FILE" "$HOOK_LAUNCHER_Q guard-bash-scope" "$HOOKS_TMP" <<'PY'
+_APD_PYOUT="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-pyout.XXXXXX")"
+python3 - "$HOOKS_FILE" "$HOOK_LAUNCHER_Q guard-bash-scope" "$HOOKS_TMP" > "$_APD_PYOUT" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -553,8 +553,8 @@ out_path.write_text(json.dumps(data, indent=2) + "\n")
 print(action)
 raise SystemExit(10)
 PY
-)"
 HOOKS_RC=$?
+HOOKS_STATUS="$(cat "$_APD_PYOUT")"; rm -f "$_APD_PYOUT"
 set -e
 case "$HOOKS_RC" in
     0)
@@ -585,8 +585,8 @@ esac
 # -----------------------------------------------------------
 PORT_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-port.XXXXXX")"
 set +e
-PORT_STATUS="$(
-python3 - "$HOOKS_FILE" "$HOOK_LAUNCHER_Q guard-bash-portability" "$PORT_TMP" <<'PY'
+_APD_PYOUT="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-pyout.XXXXXX")"
+python3 - "$HOOKS_FILE" "$HOOK_LAUNCHER_Q guard-bash-portability" "$PORT_TMP" > "$_APD_PYOUT" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -669,8 +669,8 @@ out_path.write_text(json.dumps(data, indent=2) + "\n")
 print(action)
 raise SystemExit(10)
 PY
-)"
 PORT_RC=$?
+PORT_STATUS="$(cat "$_APD_PYOUT")"; rm -f "$_APD_PYOUT"
 set -e
 case "$PORT_RC" in
     0)
@@ -697,8 +697,8 @@ esac
 # -----------------------------------------------------------
 FE_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-file-edit.XXXXXX")"
 set +e
-FE_STATUS="$(
-python3 - "$HOOKS_FILE" "$HOOK_LAUNCHER_Q guard-file-edit" "$FE_TMP" <<'PY'
+_APD_PYOUT="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-pyout.XXXXXX")"
+python3 - "$HOOKS_FILE" "$HOOK_LAUNCHER_Q guard-file-edit" "$FE_TMP" > "$_APD_PYOUT" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -790,8 +790,8 @@ out_path.write_text(json.dumps(data, indent=2) + "\n")
 print(action)
 raise SystemExit(10)
 PY
-)"
 FE_RC=$?
+FE_STATUS="$(cat "$_APD_PYOUT")"; rm -f "$_APD_PYOUT"
 set -e
 case "$FE_RC" in
     0)
@@ -825,8 +825,8 @@ esac
 # -----------------------------------------------------------
 SA_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-subagent.XXXXXX")"
 set +e
-SA_STATUS="$(
-python3 - "$HOOKS_FILE" "$HOOK_LAUNCHER_Q track-subagent" "$SA_TMP" <<'PY'
+_APD_PYOUT="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-pyout.XXXXXX")"
+python3 - "$HOOKS_FILE" "$HOOK_LAUNCHER_Q track-subagent" "$SA_TMP" > "$_APD_PYOUT" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -894,8 +894,8 @@ out_path.write_text(json.dumps(data, indent=2) + "\n")
 print("updated")
 raise SystemExit(10)
 PY
-)"
 SA_RC=$?
+SA_STATUS="$(cat "$_APD_PYOUT")"; rm -f "$_APD_PYOUT"
 set -e
 case "$SA_RC" in
     0)
@@ -925,8 +925,8 @@ esac
 # -----------------------------------------------------------
 SS_TMP="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-ss.XXXXXX")"
 set +e
-SS_STATUS="$(
-python3 - "$HOOKS_FILE" "$HOOK_LAUNCHER_Q session-start" "$SS_TMP" <<'PY'
+_APD_PYOUT="$(mktemp "${TMPDIR:-/tmp}/apd-cdx-pyout.XXXXXX")"
+python3 - "$HOOKS_FILE" "$HOOK_LAUNCHER_Q session-start" "$SS_TMP" > "$_APD_PYOUT" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -1012,8 +1012,8 @@ out_path.write_text(json.dumps(data, indent=2) + "\n")
 print(action)
 raise SystemExit(10)
 PY
-)"
 SS_RC=$?
+SS_STATUS="$(cat "$_APD_PYOUT")"; rm -f "$_APD_PYOUT"
 set -e
 case "$SS_RC" in
     0)

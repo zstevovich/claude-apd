@@ -13536,6 +13536,57 @@ else
     fail "no compiled validator ships for $(uname -s)-$(uname -m)"; FAILS=$((FAILS + 1))
 fi
 
+section "122. Every script must parse under the bash macOS actually ships"
+
+# macOS has shipped /bin/bash 3.2.57 since 2007 and will not ship a newer one.
+# Every APD script says `#!/bin/bash`, and a hook wired as `"command": "bash"`
+# resolves through PATH — so a maintainer with Homebrew bash 5 runs a different
+# interpreter than a user without it, and the whole suite has been green under
+# 5.x for as long as it has existed.
+#
+# What that hid: `install-codex-config` could not be PARSED by 3.2 at all. Six
+# sites wrote `STATUS="$(  python3 - … <<'PY' … PY )"`, and 3.2 cannot handle a
+# heredoc inside a command substitution — it scans the body for the closing
+# paren, the Python finds one first, and the file dies with a syntax error a
+# thousand lines later. The Codex installer therefore never worked on a stock
+# macOS. It took the first CI run to see it: `suite (macos-latest)` failed while
+# BOTH Linux legs passed, which is not an outcome anyone predicts.
+if [ "$(uname -s)" = "Darwin" ] && [ -x /bin/bash ]; then
+    SYS_BASH_VER="$(/bin/bash -c 'echo "${BASH_VERSINFO[0]}"' 2>/dev/null)"
+    B32_BAD=""
+    B32_N=0
+    while IFS= read -r _f; do
+        head -1 "$_f" 2>/dev/null | grep -q '^#!.*bash' || continue
+        B32_N=$((B32_N + 1))
+        /bin/bash -n "$_f" 2>/dev/null || B32_BAD="$B32_BAD $(basename "$_f")"
+    done < <(find "$APD_PLUGIN_ROOT/bin" -type f ! -path '*/compiled/*')
+    if [ -z "$B32_BAD" ]; then
+        pass "all $B32_N scripts parse under the system bash (${SYS_BASH_VER:-?}.x)"
+        PASSES=$((PASSES + 1))
+    else
+        fail "system bash ${SYS_BASH_VER:-?}.x cannot parse:$B32_BAD"
+        FAILS=$((FAILS + 1))
+    fi
+    # The specific construct, so the next one is named rather than hunted. A
+    # `$(` line whose command substitution is closed only after a heredoc.
+    B32_HD=""
+    while IFS= read -r _f; do
+        head -1 "$_f" 2>/dev/null | grep -q '^#!.*bash' || continue
+        awk '
+            /="?\$\($/ { insub = 1; hd = 0; next }
+            insub && /<<'"'"'?[A-Z_]+'"'"'?/ { hd = 1 }
+            insub && /^\)"?$/ { if (hd) { print FILENAME; exit } ; insub = 0 }
+        ' "$_f" 2>/dev/null | grep -q . && B32_HD="$B32_HD $(basename "$_f")"
+    done < <(find "$APD_PLUGIN_ROOT/bin" -type f ! -path '*/compiled/*')
+    if [ -z "$B32_HD" ]; then
+        pass "no heredoc is nested inside a command substitution"
+        PASSES=$((PASSES + 1))
+    else
+        fail "heredoc inside \$( ) — unparseable by bash 3.2 — in:$B32_HD"
+        FAILS=$((FAILS + 1))
+    fi
+fi
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"

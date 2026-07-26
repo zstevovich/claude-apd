@@ -1,5 +1,17 @@
 # Changelog
 
+## v7.0.1 — 2026-07-26
+
+**What the first CI run said, an hour after v7.0.0 was pushed.** Both Linux legs passed — `ubuntu-latest` and `ubuntu-24.04-arm`, the run that motivated adding the ARM leg. `macos-latest` failed. That is not an outcome anyone predicts on a framework developed on macOS, and the reason is worth stating plainly.
+
+- **`install-codex-config` could not be parsed by the bash macOS actually ships.** Six sites wrote `STATUS="$(` newline `python3 - … <<'PY' … PY )"`, and bash 3.2 cannot handle a heredoc nested inside a command substitution: it hunts the closing paren through the heredoc body, Python's parentheses supply one first, and the file dies with a syntax error a thousand lines later — at an innocent `echo "… change(s) written."`. macOS has shipped `/bin/bash` 3.2.57 since 2007 and will not ship a newer one, so **the Codex installer never worked on a stock macOS**; it worked for anyone whose `bash` resolves to Homebrew 5. Every APD script says `#!/bin/bash`, and hooks wired as `"command": "bash"` resolve through PATH, which is why the maintainer's machine has been running a different interpreter than a plain user's for as long as this has existed. All six sites now redirect the heredoc to a file and read the status back; `codex-doctor` carried the same construct — it happened to parse, which is worse, and it is fixed too.
+
+- **§122 makes the class mechanical.** On Darwin the suite now parses every shipped script with `/bin/bash` itself, and separately flags any heredoc nested inside a command substitution before it becomes a syntax error. Red-green: a probe script using `;;&` (bash 4+) flips exactly the first check; the second flipped for real on `codex-doctor` when it was written.
+
+- **The portability CI job tested nothing and reported failure.** GitHub runs `run:` blocks under `bash -e`, so the first `check` — whose whole point is that the guard exits 2 — aborted the step before a single assertion printed. Both platforms failed with "Process completed with exit code 2" and zero `ok` lines. The exit code is captured with an `if` now, which is the only form that survives `-e`.
+
+Suite 1146 → 1148 on macOS, unchanged on Linux.
+
 ## v7.0.0 — 2026-07-26
 
 **A major because of what changes on upgrade, not because of how much changed.** Two guards — `guard-scope` and `guard-secrets` — had never executed on Claude Code at all: they were wired to per-agent frontmatter hooks, and those do not fire (measured on CC 2.1.220, both schema forms, against a session-level control that fired and blocked). Agent write scope was therefore unenforced on CC, and the secrets guard never ran. They run now, session-level, which means an upgrade can surface blocks on paths that were silently unguarded before — including a writable agent whose scope cannot be resolved, which now fails closed. Add to that the three deprecations promised for this major, and an adversarial layer that no longer switches itself off when its agent file is missing.
