@@ -12615,6 +12615,50 @@ else
 fi
 rm -rf "$LS_T"
 
+# A write that fails must not report success. `{ ...; } > file` does NOT report a
+# failed redirection — bash prints "Permission denied" and the compound returns 0
+# — so the first version of this check was decoration and the command announced
+# "Recorded L1" while nothing reached disk. For a feature whose whole purpose is
+# that knowledge is not discarded, a false success is worse than an error,
+# because nobody re-records. Both writes are simple commands now.
+LS_RO="$(mktemp -d -t apd-lsro.XXXXXX)"
+mkdir -p "$LS_RO/p/.apd/pipeline" "$LS_RO/p/.claude/memory"
+printf '# x\n' > "$LS_RO/p/CLAUDE.md"; printf 'PROJECT_NAME=ro\n' > "$LS_RO/p/.apd/config"
+chmod a-w "$LS_RO/p/.apd"
+LS_OUT=$(APD_PROJECT_DIR="$LS_RO/p" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+    lesson "A rule long enough to clear the twenty character floor" \
+           "A source long enough to clear the twenty character floor" 2>&1)
+LS_RC=$?
+chmod u+w "$LS_RO/p/.apd"
+if [ "$LS_RC" -ne 0 ] && ! printf '%s' "$LS_OUT" | grep -q 'Recorded'; then
+    pass "an unwritable lessons file fails loudly instead of reporting success"
+    PASSES=$((PASSES + 1))
+else
+    fail "lesson reported success on a failed write (rc=$LS_RC)"; FAILS=$((FAILS + 1))
+fi
+# Numbering comes from the highest existing id, not a count: entries get merged
+# by hand (this command advises it past 20), and a count-based id collided.
+mkdir -p "$LS_RO/p2/.apd/pipeline" "$LS_RO/p2/.claude/memory"
+printf '# x\n' > "$LS_RO/p2/CLAUDE.md"; printf 'PROJECT_NAME=ro\n' > "$LS_RO/p2/.apd/config"
+printf '# Lessons\n\n## L1 — 2026-01-01\n**Rule:** kept\n\n## L2 — 2026-01-01\n**Rule:** kept two\n' \
+    > "$LS_RO/p2/.apd/lessons.md"
+python3 - "$LS_RO/p2/.apd/lessons.md" <<'PYDEL'
+import re, sys
+p = sys.argv[1]; s = open(p).read()
+open(p, "w").write(re.sub(r"\n## L1 —.*?(?=\n## L|\Z)", "", s, flags=re.S))
+PYDEL
+APD_PROJECT_DIR="$LS_RO/p2" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+    lesson "A distinct rule long enough to clear the character floor" \
+           "A source long enough to clear the twenty character floor" >/dev/null 2>&1
+if [ "$(grep -c '^## L3' "$LS_RO/p2/.apd/lessons.md")" = "1" ] \
+   && [ "$(grep -c '^## L2' "$LS_RO/p2/.apd/lessons.md")" = "1" ]; then
+    pass "numbering survives a hand-deleted entry without colliding"; PASSES=$((PASSES + 1))
+else
+    fail "lesson id collided after a hand edit: $(grep -oE '^## L[0-9]+' "$LS_RO/p2/.apd/lessons.md" | tr '\n' ' ')"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$LS_RO"
+
 # "Team knowledge" is a claim about git, so check it against git. APD writes
 # `.apd/pipeline/` into a project's .gitignore — broaden that to `.apd/` and the
 # lessons file stops being committable without a sound, taking the whole reason
@@ -12771,6 +12815,50 @@ else
     fail "charter duplicated on re-init ($(grep -cF "$BC_MARK" "$BC_B") copies)"; FAILS=$((FAILS + 1))
 fi
 rm -rf "$BC_T"
+
+section "119. Scope must be readable in every form a project declares it"
+
+# The resolver understood two declaration forms. Every form it did NOT read
+# resolved to nothing, and nothing means a TOTAL WRITE BAN, because guard-scope
+# fails closed. So a quoted hook argument, a YAML block list or a legacy
+# `guard-scope.sh` path did not loosen enforcement — it froze a working agent on
+# its first write, mid-pipeline, on projects that had been fine. That is the
+# failure mode an upgrade actually delivers, and it was invisible here because
+# the suite only ever used the shipped default form.
+#
+# Driven through the SHIM with stdin JSON, which is how hooks.json runs it —
+# calling the core directly makes `--agent-type` land as a positional scope path
+# and every case passes against the wrong thing. (It did, for me, first time.)
+SC_T="$(mktemp -d -t apd-scopeforms.XXXXXX)"
+mkdir -p "$SC_T/.claude/agents" "$SC_T/src" "$SC_T/secrets" "$SC_T/My App/src"
+printf 'PROJECT_NAME=sc\n' > "$SC_T/.claude/.apd-config"
+_sc_agent() { printf -- '---\nname: %s\ntools: Read, Write, Edit\n%b\n---\nBuilder.\n' "$1" "$2" > "$SC_T/.claude/agents/$1.md"; }
+_sc_agent inline-list  'scope: [src/, tests/]'
+_sc_agent block-list   'scope:\n  - src/\n  - tests/'
+_sc_agent hook-unquoted 'hooks:\n  PreToolUse:\n    - matcher: "Write|Edit"\n      hooks:\n        - type: command\n          command: "bash /p/bin/adapter/cc/guard-scope src/ tests/"'
+_sc_agent hook-quoted  'hooks:\n  PreToolUse:\n    - matcher: "Write|Edit"\n      hooks:\n        - type: command\n          command: bash /p/guard-scope "src/" "tests/"'
+_sc_agent hook-legacy  'hooks:\n  PreToolUse:\n    - matcher: "Write|Edit"\n      hooks:\n        - type: command\n          command: "bash .claude/scripts/guard-scope.sh src/ tests/"'
+_sc_agent hook-spaces  'hooks:\n  PreToolUse:\n    - matcher: "Write|Edit"\n      hooks:\n        - type: command\n          command: bash /p/guard-scope "My App/src/"'
+# A prose line in the BODY must not widen what the hook declared.
+printf -- '---\nname: body-widen\ntools: Read, Write, Edit\nhooks:\n  PreToolUse:\n    - matcher: "Write|Edit"\n      hooks:\n        - type: command\n          command: "bash /p/guard-scope src/"\n---\nBuilder.\nscope: src/ secrets/\n' \
+    > "$SC_T/.claude/agents/body-widen.md"
+
+_sc() {  # $1 agent, $2 rel path, $3 want-rc, $4 label
+    printf '{"agent_type":"%s","tool_input":{"file_path":"%s"}}' "$1" "$SC_T/$2" \
+      | ( cd "$SC_T" && APD_PROJECT_DIR="$SC_T" bash "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-scope" ) >/dev/null 2>&1
+    local rc=$?
+    if [ "$rc" -eq "$3" ]; then pass "scope form: $4"; PASSES=$((PASSES + 1))
+    else fail "scope form: $4 — rc=$rc, expected $3"; FAILS=$((FAILS + 1)); fi
+}
+for _f in inline-list block-list hook-unquoted hook-quoted hook-legacy; do
+    _sc "$_f" "src/a.ts"      0 "$_f allows its declared path"
+    _sc "$_f" "secrets/x.txt" 2 "$_f still blocks outside it"
+done
+_sc hook-spaces "My App/src/a.ts" 0 "a quoted path keeps its space"
+_sc hook-spaces "App/src/a.ts"    2 "and does not leak the split sibling"
+_sc body-widen  "src/a.ts"      0 "the hook declaration still allows its own path"
+_sc body-widen  "secrets/x.txt" 2 "a scope line in the BODY cannot widen the hook"
+rm -rf "$SC_T"
 
 section "118. Spec-blindness must survive the forms an agent actually types"
 

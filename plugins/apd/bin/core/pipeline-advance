@@ -2209,35 +2209,61 @@ EOF
             exit 1
         fi
         LESSON_FILE="$PROJECT_DIR/.apd/lessons.md"
-        mkdir -p "$PROJECT_DIR/.apd" 2>/dev/null || true
+        if ! mkdir -p "$PROJECT_DIR/.apd" 2>/dev/null; then
+            echo "BLOCKED: cannot create $PROJECT_DIR/.apd — the lesson was NOT recorded." >&2
+            exit 1
+        fi
         LRULE_CLEAN="${LRULE//$'\n'/ }"; LRULE_CLEAN="${LRULE_CLEAN//$'\r'/ }"
         LSRC_CLEAN="${LSRC//$'\n'/ }";  LSRC_CLEAN="${LSRC_CLEAN//$'\r'/ }"
-        # Dedupe: the same rule recorded twice is the noise this file must not become.
-        if [ -f "$LESSON_FILE" ] && grep -qF "**Rule:** $LRULE_CLEAN" "$LESSON_FILE" 2>/dev/null; then
+        # Dedupe on the WHOLE rule line, anchored. `grep -qF` matched anywhere in
+        # the line, so a legitimate shorter rule that happened to be a prefix of
+        # an existing one was refused as "already recorded" (untrue), while one
+        # trailing space recorded the same rule twice. Compare what is actually
+        # equal: the trimmed rule against the trimmed stored rule.
+        if [ -f "$LESSON_FILE" ] \
+           && grep -xF "**Rule:** $LRULE_CLEAN" "$LESSON_FILE" >/dev/null 2>&1; then
             echo "BLOCKED: this exact rule is already recorded in $LESSON_FILE." >&2
             echo "  If the new finding sharpens it, edit that entry instead of appending a near-duplicate." >&2
             exit 1
         fi
+        # Every write below is checked. Unchecked, a read-only `.apd` produced
+        # "Recorded L1 →" on stdout and exit 0 while the file was never created:
+        # for a feature whose entire purpose is that knowledge is not discarded,
+        # a false success is worse than an error, because nobody re-records.
+        # Written with printf, a SIMPLE command, on purpose. `{ ...; } > file` does
+        # NOT report a failed redirection: bash prints "Permission denied" and the
+        # compound still returns 0, so the first version of this check was pure
+        # decoration — the command announced "Recorded L1" while the file was
+        # never created. Only a simple command's redirection failure is catchable.
         if [ ! -f "$LESSON_FILE" ]; then
-            {
-                echo "# Lessons — defect classes this project has already paid for"
-                echo ""
-                echo "Each entry is a CLASS, not a patch: a rule the next task can apply without"
-                echo "reading the diff that produced it. Written from accepted findings via"
-                echo "\`apd pipeline lesson\`. Builders are told to read this file before they start."
-            } > "$LESSON_FILE"
+            if ! printf '%s\n' \
+                "# Lessons — defect classes this project has already paid for" \
+                "" \
+                "Each entry is a CLASS, not a patch: a rule the next task can apply without" \
+                "reading the diff that produced it. Written from accepted findings via" \
+                "\`apd pipeline lesson\`. Builders are told to read this file before they start." \
+                > "$LESSON_FILE" 2>/dev/null; then
+                echo "BLOCKED: cannot write $LESSON_FILE — the lesson was NOT recorded." >&2
+                echo "  Check permissions on $PROJECT_DIR/.apd, then run the command again." >&2
+                exit 1
+            fi
         fi
-        LNUM=$(( $(grep -c '^## L[0-9]' "$LESSON_FILE" 2>/dev/null) + 1 ))
+        # Number from the highest EXISTING id, not from the count: entries get
+        # hand-merged (the command itself advises it past 20 lessons), and a
+        # count-based id collided with a surviving one — two `## L2` blocks, and
+        # an ambiguous `id=L2` in the audit log.
+        LMAX=$(grep -oE '^## L[0-9]+' "$LESSON_FILE" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
+        LNUM=$(( ${LMAX:-0} + 1 ))
         LTASK="(outside a pipeline run)"
         [ -f "$PIPELINE_DIR/spec.done" ] && LTASK=$(head -1 "$PIPELINE_DIR/spec.done" 2>/dev/null | cut -d'|' -f3)
         [ -n "$LTASK" ] || LTASK="(unknown)"
-        {
-            echo ""
-            echo "## L${LNUM} — $(date +%Y-%m-%d)"
-            echo "**Rule:** $LRULE_CLEAN"
-            echo "**Paid for by:** $LSRC_CLEAN"
-            echo "**Recorded during:** $LTASK"
-        } >> "$LESSON_FILE"
+        if ! printf '\n## L%s — %s\n**Rule:** %s\n**Paid for by:** %s\n**Recorded during:** %s\n' \
+            "$LNUM" "$(date +%Y-%m-%d)" "$LRULE_CLEAN" "$LSRC_CLEAN" "$LTASK" \
+            >> "$LESSON_FILE" 2>/dev/null; then
+            echo "BLOCKED: cannot append to $LESSON_FILE — the lesson was NOT recorded." >&2
+            echo "  Check permissions, then run the command again." >&2
+            exit 1
+        fi
         if [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ]; then
             if [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ]; then _lt=SYNTHETIC; else _lt=INFO; fi
             echo "$(date +"%Y-%m-%d %H:%M:%S")|${_lt}|orchestrator|lesson-recorded|task=$LTASK id=L$LNUM" >> "$MEMORY_DIR/guard-audit.log"

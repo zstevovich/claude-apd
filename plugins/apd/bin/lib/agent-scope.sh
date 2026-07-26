@@ -57,30 +57,76 @@ _agent_is_readonly() {
 # back empty, and the fail-closed rule blocked EVERY write by EVERY agent.
 # Measured, not theorised: the resolver returned `src/` when tested by hand
 # (no `set -e`) and nothing at all through the shim.
+#
+# READS THE FRONTMATTER ONLY, and reads every form a project actually uses.
+# An audit found both halves of that sentence were false:
+#
+#   * `^scope:` was grepped over the WHOLE file, so a prose line in the body
+#     ("scope: src/ secrets/") silently widened an agent past what its hook
+#     command declared — a fail-OPEN, and the body of an agent `.md` is a file
+#     the orchestrator is explicitly allowed to write.
+#   * Only two declaration forms were understood. Every unread form resolves to
+#     nothing, and nothing means a total write ban for that agent (guard-scope
+#     fails closed). So a QUOTED hook argument, a YAML block list, or a legacy
+#     `scripts/guard-scope.sh` path did not loosen enforcement — it froze the
+#     agent mid-pipeline on its first write, on projects that had been working.
+#
+# Forms handled: `scope: [a, b]`, `scope: a b`, a `scope:` block list, and the
+# hook command with quoted OR unquoted arguments, with or without a `.sh` suffix.
+# Quoted arguments are kept whole, so a path containing a space is expressible —
+# stripping the quotes first split it into two wrong paths AND let an undeclared
+# sibling through.
 _agent_scope_paths() {
-  local f="$1" line toks tok
+  local f="$1" tok
+  awk '
+    # --- frontmatter only ------------------------------------------------
+    NR == 1 && $0 ~ /^---[ \t]*$/ { fm = 1; next }
+    fm && $0 ~ /^---[ \t]*$/ { exit }
+    !fm { next }
 
-  # YAML inline list: `scope: [src/, tests/]` or plain `scope: src/ tests/`
-  line=$(grep -m1 -E '^scope:' "$f" 2>/dev/null || true)
-  if [ -n "$line" ]; then
-    toks="${line#scope:}"
-    toks="${toks//[/ }"; toks="${toks//]/ }"; toks="${toks//,/ }"
-    toks="${toks//\"/ }"; toks="${toks//\'/ }"
-    for tok in $toks; do
-      case "$tok" in -*|*'{{'*) continue ;; esac
-      printf '%s\n' "$tok"
-    done
-    return 0
-  fi
+    # --- `scope:` block list ---------------------------------------------
+    inlist {
+      if ($0 ~ /^[ \t]*-[ \t]*/) {
+        s = $0; sub(/^[ \t]*-[ \t]*/, "", s); print s; next
+      }
+      inlist = 0
+    }
+    $0 ~ /^scope:[ \t]*$/ { inlist = 1; found = 1; next }
 
-  # CC form: the paths trailing the `guard-scope` token in the hook command.
-  # `guard-bash-scope` is a different token and must not match this anchor,
-  # hence the leading `/` boundary from the adapter path.
-  line=$(grep -m1 -oE '/guard-scope([[:space:]]+[^[:space:]"'"'"']+)+' "$f" 2>/dev/null || true)
-  [ -n "$line" ] || return 0
-  line="${line#/guard-scope}"
-  for tok in $line; do
-    case "$tok" in -*|*'{{'*) continue ;; esac
+    # --- `scope:` inline --------------------------------------------------
+    $0 ~ /^scope:[ \t]*[^ \t]/ {
+      s = $0; sub(/^scope:[ \t]*/, "", s)
+      gsub(/[][,]/, " ", s)
+      n = split(s, a, /[ \t]+/)
+      for (i = 1; i <= n; i++) if (a[i] != "") print a[i]
+      found = 1; next
+    }
+
+    # --- the hook command -------------------------------------------------
+    # Only the file-scope guard: `guard-bash-scope` is a different token and
+    # must not match. Everything after it is split respecting quotes, so a
+    # quoted path keeps its spaces.
+    !found && /guard-scope/ && !/guard-bash-scope/ {
+      p = index($0, "guard-scope")
+      s = substr($0, p + length("guard-scope"))
+      sub(/^\.sh/, "", s)                       # legacy `guard-scope.sh`
+      cur = ""; q = ""
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (q != "") { if (c == q) { q = "" } else { cur = cur c }; continue }
+        if (c == "\"" || c == "\047") { q = c; continue }
+        if (c == " " || c == "\t") { if (cur != "") { print cur; cur = "" }; continue }
+        cur = cur c
+      }
+      if (cur != "") print cur
+    }
+  ' "$f" 2>/dev/null | while IFS= read -r tok; do
+    # Drop flags, unfilled placeholders, and anything carrying shell syntax —
+    # the hook command is a command line, and only its path arguments are a
+    # declaration. A token we cannot read as a path is not a scope widening.
+    case "$tok" in
+      ''|-*|*'{{'*|*'$'*|*'&'*|*';'*|*'|'*|*'`'*) continue ;;
+    esac
     printf '%s\n' "$tok"
   done
 }
