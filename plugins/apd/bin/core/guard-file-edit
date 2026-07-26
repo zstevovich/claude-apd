@@ -21,7 +21,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-python3 - "$PROJECT_DIR" "$PIPELINE_DIR" "$COMMAND" "${FILE_PATHS[@]}" <<'PY'
+python3 - "$PROJECT_DIR" "$PIPELINE_DIR" "$COMMAND" ${FILE_PATHS[@]+"${FILE_PATHS[@]}"} <<'PY'
 from __future__ import annotations
 
 import os

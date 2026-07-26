@@ -134,8 +134,13 @@ _deny() {
 _norm() {
   local p="$1"
   p="${p//\"/}"; p="${p//\'/}"
-  while [ "$p" != "${p//\/.\//\/}" ]; do p="${p//\/.\//\/}"; done
-  while [ "$p" != "${p//\/\//\/}" ]; do p="${p//\/\//\/}"; done
+  # The replacement is a BARE slash, not an escaped one. bash 5 strips the
+  # backslash from `\/` in a replacement; bash 3.2 — which is what macOS ships
+  # and what CI runs — keeps it, so `.apd/./pipeline/x` normalised to
+  # `.apd\/pipeline/x`, no comparison matched, and spec-blindness silently
+  # failed OPEN on every stock Mac. Measured on both interpreters side by side.
+  while [ "$p" != "${p//\/.\///}" ]; do p="${p//\/.\///}"; done
+  while [ "$p" != "${p//\/\///}" ]; do p="${p//\/\///}"; done
   p="${p#./}"
   p="${p%/}"
   [ "$p" = "." ] && p=""

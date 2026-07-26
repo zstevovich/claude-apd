@@ -1,5 +1,17 @@
 # Changelog
 
+## v7.0.2 — 2026-07-26
+
+**The second layer of the same problem: the scripts now PARSE under the bash macOS ships, and two of them still behaved differently under it.** v7.0.1 fixed the parse error; `macos-latest` came back with four failures that no local run had ever produced, because every local run has used Homebrew bash 5.
+
+- **Spec-blindness failed OPEN on every stock Mac.** The path normaliser collapsed `/./` and `//` with `${p//\/.\//\/}` — and bash 5 strips the backslash from `\/` in a REPLACEMENT while bash 3.2 keeps it. So `.apd/./pipeline/spec-card.md` normalised to `.apd\/pipeline/spec-card.md`, no comparison matched, and the adversarial reviewer could read the spec card through any path spelled with a `/./` or a doubled slash. Measured side by side on both interpreters. The replacement is a bare slash now.
+
+- **`guard-file-edit` aborted before it guarded anything.** It passed `"${FILE_PATHS[@]}"` to python, and on an EMPTY array that is an unbound-variable error under `set -u` in bash 3.2 (bash 4.4 made it expand to nothing). An `apply_patch` carries no `--file-path`, so the array is empty in the normal case: the guard died, and the CI signature is what makes this class dangerous rather than merely broken — **both ALLOW checks failed and the BLOCK check PASSED, for the wrong reason.** All 29 bare array expansions under `set -u` across the codebase are now the empty-safe form.
+
+- **§122 gained both checks, and the suite is now run under both interpreters.** Parse every shipped script with `/bin/bash` on Darwin; flag any heredoc nested in a command substitution; flag any bare `"${arr[@]}"` under `set -u` (platform-independent — the defect is in the text). Red-green on each. Locally the whole suite is now driven with a bash 3.2 first on PATH, which reproduces the runner exactly and turned a 12-minute CI round trip into a 4-minute one.
+
+Suite 1148 → 1149, and green under bash 3.2 as well as 5.
+
 ## v7.0.1 — 2026-07-26
 
 **What the first CI run said, an hour after v7.0.0 was pushed.** Both Linux legs passed — `ubuntu-latest` and `ubuntu-24.04-arm`, the run that motivated adding the ARM leg. `macos-latest` failed. That is not an outcome anyone predicts on a framework developed on macOS, and the reason is worth stating plainly.

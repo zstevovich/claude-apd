@@ -212,7 +212,7 @@ if [ "$JSON_OUTPUT" = true ]; then
     echo "  \"stacks\": ["
     n=${#DETECTIONS[@]}
     i=0
-    for entry in "${DETECTIONS[@]}"; do
+    for entry in ${DETECTIONS[@]+"${DETECTIONS[@]}"}; do
         i=$((i + 1))
         IFS='|' read -r name conf signals <<< "$entry"
         # signals is comma-separated → JSON array
@@ -243,7 +243,7 @@ else
     else
         printf "  %-22s  %-10s  %s\n" "Stack" "Confidence" "Signals"
         printf "  %-22s  %-10s  %s\n" "-----" "----------" "-------"
-        for entry in "${DETECTIONS[@]}"; do
+        for entry in ${DETECTIONS[@]+"${DETECTIONS[@]}"}; do
             IFS='|' read -r name conf signals <<< "$entry"
             # Color confidence
             conf_color="$conf"

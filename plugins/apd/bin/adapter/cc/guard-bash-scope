@@ -71,4 +71,4 @@ if [ ${#SCOPE_PATHS[@]} -eq 0 ]; then
   exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND"
 fi
 
-exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" "${SCOPE_PATHS[@]}"
+exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" ${SCOPE_PATHS[@]+"${SCOPE_PATHS[@]}"}

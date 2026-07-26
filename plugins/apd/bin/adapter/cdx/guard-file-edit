@@ -33,4 +33,4 @@ done < <(
   ' 2>/dev/null
 )
 
-exec "$CORE_DIR/guard-file-edit" "${ARGS[@]}" "$@"
+exec "$CORE_DIR/guard-file-edit" ${ARGS[@]+"${ARGS[@]}"} "$@"

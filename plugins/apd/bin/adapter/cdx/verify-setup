@@ -116,7 +116,7 @@ HEADER
 # Result
 if [ ${#ERRORS[@]} -gt 0 ]; then
     echo "VERIFICATION FAILED:"
-    for e in "${ERRORS[@]}"; do echo "  - $e"; done
+    for e in ${ERRORS[@]+"${ERRORS[@]}"}; do echo "  - $e"; done
     exit 1
 fi
 echo "Verification passed"

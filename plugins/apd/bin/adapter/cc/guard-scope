@@ -83,4 +83,4 @@ if [ ${#SCOPE_PATHS[@]} -eq 0 ]; then
   exit 2
 fi
 
-exec "$CORE_DIR/guard-scope" --file-path "$FILE_PATH" "${SCOPE_PATHS[@]}"
+exec "$CORE_DIR/guard-scope" --file-path "$FILE_PATH" ${SCOPE_PATHS[@]+"${SCOPE_PATHS[@]}"}

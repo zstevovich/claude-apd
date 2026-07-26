@@ -186,7 +186,7 @@ if [ "$ACTION" = "status" ]; then
     fi
     echo ""
     MISMATCH=0
-    for f in "${AGENT_FILES[@]}"; do
+    for f in ${AGENT_FILES[@]+"${AGENT_FILES[@]}"}; do
         name=$(basename "$f" .md)
         cur_m=$(_fm_field "$f" model)
         cur_e=$(_fm_field "$f" effort)
@@ -252,7 +252,7 @@ echo ""
 CHANGED=0
 SKIPPED=0
 CHANGED_NAMES=""
-for f in "${AGENT_FILES[@]}"; do
+for f in ${AGENT_FILES[@]+"${AGENT_FILES[@]}"}; do
     name=$(basename "$f" .md)
     target=$(_target_for "$PROFILE" "$name")
     if [ -z "$target" ]; then

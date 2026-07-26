@@ -109,7 +109,7 @@ case "$SUB" in
 
         # Scope override: if caller passed scope paths, rewrite the scope: block
         if [ "${#SCOPE_ARGS[@]}" -gt 0 ]; then
-            python3 - "$TARGET" "${SCOPE_ARGS[@]}" <<'PY'
+            python3 - "$TARGET" ${SCOPE_ARGS[@]+"${SCOPE_ARGS[@]}"} <<'PY'
 import sys
 path = sys.argv[1]
 scopes = sys.argv[2:]
@@ -206,7 +206,7 @@ PY
 
         MIGRATED=0
         SKIPPED=0
-        for src in "${SOURCE_FILES[@]}"; do
+        for src in ${SOURCE_FILES[@]+"${SOURCE_FILES[@]}"}; do
             [ -f "$src" ] || continue
             name=$(basename "$src" .md)
             target="$TARGET_DIR/$name.toml"

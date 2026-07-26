@@ -100,7 +100,7 @@ _check "apd_mcp_server.py exists" test -f "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.p
 _check "Python syntax valid" python3 -m py_compile "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
 
 EXPECTED_TOOLS=(apd_ping apd_doctor apd_advance_pipeline apd_guard_write apd_verify_step apd_adversarial_pass apd_list_agents apd_pipeline_state apd_pipeline_metrics apd_prepare_dispatch)
-for tool in "${EXPECTED_TOOLS[@]}"; do
+for tool in ${EXPECTED_TOOLS[@]+"${EXPECTED_TOOLS[@]}"}; do
     _check_file_contains "tool '$tool' registered" "$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py" "^def $tool\b"
 done
 
@@ -4325,7 +4325,7 @@ F4_TEMPLATES=(
     "$APD_PLUGIN_ROOT/templates/codex/agents/adversarial-reviewer.md"
 )
 
-for tpl in "${F4_TEMPLATES[@]}"; do
+for tpl in ${F4_TEMPLATES[@]+"${F4_TEMPLATES[@]}"}; do
     name=$(basename "$tpl")
     if grep -q "^## Exit criteria" "$tpl" && grep -q "STOP IMMEDIATELY" "$tpl"; then
         pass "$name has '## Exit criteria' + 'STOP IMMEDIATELY'"
@@ -13585,6 +13585,35 @@ if [ "$(uname -s)" = "Darwin" ] && [ -x /bin/bash ]; then
         fail "heredoc inside \$( ) — unparseable by bash 3.2 — in:$B32_HD"
         FAILS=$((FAILS + 1))
     fi
+fi
+
+# Parsing is only the first layer. `"${arr[@]}"` on an EMPTY array is an
+# unbound-variable ERROR under `set -u` in bash 3.2 — bash 4.4 made it expand to
+# nothing. So a script parses, runs, and dies at the one call site where the
+# array happens to be empty. Measured: `guard-file-edit` passed its patch to
+# python as `… "$COMMAND" "${FILE_PATHS[@]}"`, and with no `--file-path` (the
+# normal apply_patch case) it aborted before python ran. Both ALLOW checks
+# failed and the BLOCK check PASSED — for the wrong reason, which is the shape
+# that makes this class dangerous rather than merely broken. This check is
+# platform-independent: the defect is in the text, not in the interpreter
+# running the suite.
+U32_BAD=""
+while IFS= read -r _f; do
+    head -1 "$_f" 2>/dev/null | grep -q '^#!.*bash' || continue
+    grep -qE '^set -[a-z]*u' "$_f" 2>/dev/null || continue
+    # Comments are excluded, or this very check's own explanation of the
+    # pattern reports the suite as an offender — which it did, first run.
+    grep -vE '^[[:space:]]*#' "$_f" 2>/dev/null \
+        | grep -E '"\$\{[A-Za-z_][A-Za-z0-9_]*\[@\]\}"' \
+        | grep -qv '\[@\]+' \
+        && U32_BAD="$U32_BAD $(basename "$_f")"
+done < <(find "$APD_PLUGIN_ROOT/bin" -type f ! -path '*/compiled/*')
+if [ -z "$U32_BAD" ]; then
+    pass "no bare \"\${arr[@]}\" under set -u (bash 3.2 calls an empty array unbound)"
+    PASSES=$((PASSES + 1))
+else
+    fail "bare array expansion under set -u — dies on an empty array in bash 3.2 — in:$U32_BAD"
+    FAILS=$((FAILS + 1))
 fi
 
 section "Summary"

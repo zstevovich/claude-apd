@@ -215,7 +215,7 @@ if [ "$DRY_RUN" = true ]; then
     if [ ${#WOULD_COPY[@]} -eq 0 ]; then
         echo "  (none)"
     else
-        for line in "${WOULD_COPY[@]}"; do
+        for line in ${WOULD_COPY[@]+"${WOULD_COPY[@]}"}; do
             echo "  ${G}+${R} $line"
         done
     fi
@@ -224,7 +224,7 @@ if [ "$DRY_RUN" = true ]; then
     if [ ${#WOULD_SKIP[@]} -eq 0 ]; then
         echo "  (none)"
     else
-        for line in "${WOULD_SKIP[@]}"; do
+        for line in ${WOULD_SKIP[@]+"${WOULD_SKIP[@]}"}; do
             echo "  ${D}-${R} $line"
         done
     fi

@@ -63,7 +63,7 @@ if [ ! -d "$SKILL_SRC_DIR" ]; then
     echo "ERROR: APD skill sources missing at $SKILL_SRC_DIR" >&2
     exit 2
 fi
-for name in "${ALL_SKILLS[@]}"; do
+for name in ${ALL_SKILLS[@]+"${ALL_SKILLS[@]}"}; do
     [ -f "$SKILL_SRC_DIR/$name/SKILL.md" ] || {
         echo "ERROR: source skill missing: $SKILL_SRC_DIR/$name/SKILL.md" >&2
         exit 2
@@ -223,7 +223,7 @@ case "$SUB" in
         fi
         echo ""
         echo "  ${V}Direct-drop (--legacy-symlink, deprecated — ~/.codex/skills/)${R}"
-        for s in "${ALL_SKILLS[@]}"; do
+        for s in ${ALL_SKILLS[@]+"${ALL_SKILLS[@]}"}; do
             printf "    %-18s  %s\n" "$s" "$(_direct_installed_status "$s")"
         done
         echo ""
@@ -301,7 +301,7 @@ case "$SUB" in
         DIRECT_MODE="symlink"
         FORCE="false"
         NAMES=()
-        for a in "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"; do
+        for a in "${EXTRA_ARGS[@]+${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}}"; do
             case "$a" in
                 --copy) DIRECT_MODE="copy" ;;
                 --symlink) DIRECT_MODE="symlink" ;;
@@ -309,10 +309,10 @@ case "$SUB" in
                 *) NAMES+=("$a") ;;
             esac
         done
-        [ "${#NAMES[@]}" -eq 0 ] && NAMES=("${ALL_SKILLS[@]}")
+        [ "${#NAMES[@]}" -eq 0 ] && NAMES=(${ALL_SKILLS[@]+"${ALL_SKILLS[@]}"})
 
         mkdir -p "$CODEX_SKILLS_DIR"
-        for name in "${NAMES[@]}"; do
+        for name in ${NAMES[@]+"${NAMES[@]}"}; do
             src="$SKILL_SRC_DIR/$name"
             tgt="$CODEX_SKILLS_DIR/$name"
             if [ ! -d "$src" ]; then
@@ -391,9 +391,9 @@ PY
         fi
 
         # -------- Direct-drop mode uninstall --------
-        NAMES=("${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}")
-        [ "${#NAMES[@]}" -eq 0 ] && NAMES=("${ALL_SKILLS[@]}")
-        for name in "${NAMES[@]}"; do
+        NAMES=("${EXTRA_ARGS[@]+${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}}")
+        [ "${#NAMES[@]}" -eq 0 ] && NAMES=(${ALL_SKILLS[@]+"${ALL_SKILLS[@]}"})
+        for name in ${NAMES[@]+"${NAMES[@]}"}; do
             tgt="$CODEX_SKILLS_DIR/$name"
             case "$name" in
                 apd-*) ;;

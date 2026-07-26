@@ -63,7 +63,7 @@ EXPECTED_DENY=(
 
 if [ -f "$SETTINGS_FILE" ] && command -v jq >/dev/null 2>&1; then
     MISSING_DENY=()
-    for pattern in "${EXPECTED_DENY[@]}"; do
+    for pattern in ${EXPECTED_DENY[@]+"${EXPECTED_DENY[@]}"}; do
         if ! jq -e --arg p "$pattern" '.permissions.deny // [] | index($p)' "$SETTINGS_FILE" >/dev/null 2>&1; then
             MISSING_DENY+=("$pattern")
         fi
@@ -143,7 +143,7 @@ _check_feature_claims() {
 
     if [ ${#found_claims[@]} -gt 0 ]; then
         IMPORTANT+=("[$file_label] Feature claim drift — ${#found_claims[@]} unsupported language claim(s)")
-        for claim in "${found_claims[@]}"; do
+        for claim in ${found_claims[@]+"${found_claims[@]}"}; do
             IMPORTANT+=("  - $claim (verify-contracts supports TypeScript ↔ C# only as of v6.12+)")
         done
         IMPORTANT+=("  Effect: orchestrator (or human reading docs) believes feature exists; relies on it; silent gap in cross-layer review coverage.")
@@ -170,7 +170,7 @@ if [ -f "$WORKFLOW_FILE" ] && [ -f "$FRAMEWORK_WORKFLOW" ]; then
         "SUPERVISION"
     )
     MISSING_MARKERS=()
-    for marker in "${MARKERS[@]}"; do
+    for marker in ${MARKERS[@]+"${MARKERS[@]}"}; do
         # grep -c returns "0" + exit 1 on no matches; ignore exit code, just
         # capture stdout. Fall back to 0 if file unreadable.
         local_count=$(grep -c "$marker" "$WORKFLOW_FILE" 2>/dev/null) || true
@@ -202,7 +202,7 @@ echo ""
 if [ ${#CRITICAL[@]} -gt 0 ]; then
     echo "${R}${B}CRITICAL:${R}"
     n=0
-    for line in "${CRITICAL[@]}"; do
+    for line in ${CRITICAL[@]+"${CRITICAL[@]}"}; do
         if [[ "$line" =~ ^\[ ]]; then
             n=$((n + 1))
             echo "  $n. $line"
@@ -216,7 +216,7 @@ fi
 if [ ${#IMPORTANT[@]} -gt 0 ]; then
     echo "${Y}${B}IMPORTANT:${R}"
     n=0
-    for line in "${IMPORTANT[@]}"; do
+    for line in ${IMPORTANT[@]+"${IMPORTANT[@]}"}; do
         if [[ "$line" =~ ^\[ ]]; then
             n=$((n + 1))
             echo "  $n. $line"
@@ -230,7 +230,7 @@ fi
 if [ ${#INFO[@]} -gt 0 ]; then
     echo "${D}INFO:${R}"
     n=0
-    for line in "${INFO[@]}"; do
+    for line in ${INFO[@]+"${INFO[@]}"}; do
         if [[ "$line" =~ ^\[ ]]; then
             n=$((n + 1))
             echo "  $n. $line"
