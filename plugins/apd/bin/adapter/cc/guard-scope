@@ -28,7 +28,11 @@ if ! command -v jq &>/dev/null; then
 fi
 
 INPUT=$(cat)
-FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+# `NotebookEdit` names its target `notebook_path`, and the hooks.json matcher
+# `Write|Edit` is a regex — it matches that tool too. Reading only `file_path`
+# left the value empty, and an empty path makes the core exit 0: a notebook was
+# the one file an agent could write outside its scope.
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty' 2>/dev/null)
 AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
 
 # Legacy form: paths supplied by the caller.

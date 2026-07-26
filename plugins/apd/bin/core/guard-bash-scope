@@ -14,10 +14,16 @@ source "$(dirname "$0")/../lib/style.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
 COMMAND=""
+DENY_ALL_WRITES=false
 ALLOWED_PATHS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --command) COMMAND="$2"; shift 2 ;;
+    # A writable agent whose scope did not resolve. The caller cannot name a
+    # path, but "no scope" must not read as "every path": this keeps the write
+    # DETECTION here, where it already lives, so the agent is stopped at writes
+    # and still free to run `git diff` or the test command.
+    --deny-all-writes) DENY_ALL_WRITES=true; shift ;;
     *) ALLOWED_PATHS+=("$1"); shift ;;
   esac
 done
@@ -150,14 +156,33 @@ for ppath in "${PROTECTED_PIPELINE[@]}"; do
   fi
 done
 
-if [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
+if [ ${#ALLOWED_PATHS[@]} -eq 0 ] && [ "$DENY_ALL_WRITES" = false ]; then
   exit 0
 fi
 
 # --- 1. Shell write operations ---
 # Add destructive ops too (rm, mkdir, touch, rmdir) — scope guard covers
 # any filesystem modification, not just creation.
-SHELL_WRITE_PATTERNS=('>>' '>' 'tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ' 'rm ' 'rmdir ' 'mkdir ' 'touch ')
+#
+# `>` and `>>` are NOT in this list, and that is the fix for a false positive
+# that mattered the moment this guard started running on CC. A bare `>` match
+# counts `2>&1` as a write: no target can be extracted from a file-descriptor
+# duplication, so the code fell through to the strict per-token check and
+# blocked whenever nothing else in the line happened to be in scope. Measured:
+# `pytest -q 2>&1 | tail -20` and `npm test 2>&1 | tail -5` — the ordinary test
+# command of an ordinary builder — were BLOCKED as out-of-scope writes. The
+# guard had never fired on CC before this release, so nobody had met it.
+# Redirects are now judged by their TARGET (below), which is what a write is.
+SHELL_WRITE_PATTERNS=('tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ' 'rm ' 'rmdir ' 'mkdir ' 'touch ')
+
+# Redirect targets that are not files: fd duplications (`2>&1`, `>&2`) and the
+# null/tty sinks. A command whose only redirects are these writes nothing.
+_file_redirect_targets() {
+  echo "$COMMAND" | grep -oE '[0-9]?>{1,2}[[:space:]]*[^&[:space:]|;`"]+' 2>/dev/null \
+    | sed -E 's/^[0-9]?>+[[:space:]]*//' \
+    | grep -vE '^&' \
+    | grep -vE '^/dev/(null|stdout|stderr|tty)$' || true
+}
 
 HAS_WRITE_OP=false
 WRITE_TYPE=""
@@ -169,6 +194,11 @@ for pattern in "${SHELL_WRITE_PATTERNS[@]}"; do
     break
   fi
 done
+
+if [ "$HAS_WRITE_OP" = false ] && [ -n "$(_file_redirect_targets)" ]; then
+  HAS_WRITE_OP=true
+  WRITE_TYPE="shell"
+fi
 
 # --- 2. Runtime write operations ---
 if [ "$HAS_WRITE_OP" = false ]; then
@@ -191,6 +221,16 @@ fi
 # inside a string literal we can't parse safely; fall back to strict per-token
 # check there.
 
+_scope_hint() {
+  if [ "$DENY_ALL_WRITES" = true ] && [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
+    echo "  This agent declares no writable scope, so it may not write anywhere —" >&2
+    echo "  not through Write/Edit and not through the shell. Fix the scope in its" >&2
+    echo "  agent definition (an unfilled {{SCOPE_PATHS}} reads as 'no scope')." >&2
+  else
+    echo "  Allowed paths: ${ALLOWED_PATHS[*]}" >&2
+  fi
+}
+
 _path_in_scope() {
   local clean="$1"
   clean="${clean#./}"
@@ -207,10 +247,8 @@ _path_in_scope() {
 
 # Collect candidate write targets (one per line)
 WRITE_TARGETS=$(
-  # 1. Redirect targets: > or >> followed by path (skip &> /dev/null, 2>&1)
-  echo "$COMMAND" | grep -oE '[0-9]?>{1,2}[[:space:]]*[^&[:space:]|;`"]+' 2>/dev/null \
-    | sed -E 's/^[0-9]?>+[[:space:]]*//' \
-    | grep -vE '^&' || true
+  # 1. Redirect targets: > or >> followed by a path (fd dups and sinks dropped)
+  _file_redirect_targets
   # 2. tee <file>: target is the first non-flag arg
   echo "$COMMAND" | grep -oE '\btee\b[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*[^-[:space:]|;&]+' 2>/dev/null \
     | awk '{for(i=2;i<=NF;i++) if ($i !~ /^-/) {print $i; exit}}' || true
@@ -263,7 +301,7 @@ if [ -n "$TARGETS_FOUND" ]; then
       else
         echo "BLOCKED: Runtime write ($WRITE_TYPE) detected outside the allowed scope." >&2
       fi
-      echo "  Allowed paths: ${ALLOWED_PATHS[*]}" >&2
+      _scope_hint
       log_block "out-of-scope-bash-write" "${COMMAND:0:100}"
       exit 2
     fi
@@ -297,6 +335,6 @@ if [ "$WRITE_TYPE" = "shell" ]; then
 else
   echo "BLOCKED: Runtime write ($WRITE_TYPE) detected outside the allowed scope." >&2
 fi
-echo "Allowed paths: ${ALLOWED_PATHS[*]}" >&2
+_scope_hint
 log_block "out-of-scope-bash-write" "${COMMAND:0:100}"
 exit 2

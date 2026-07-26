@@ -485,7 +485,14 @@ rest = tmpl[start:]
 end = rest.find("\n## Stack")
 block = (rest if end == -1 else rest[:end]).rstrip() + "\n\n"
 
-body = open(agent_path, encoding="utf-8").read()
+# `newline=""` on BOTH ends. Python's default text mode translates CRLF to LF on
+# read and never puts it back, so inserting one block rewrote every line ending
+# in the file — a whole-file diff for a two-line change, on the one platform
+# where that is the normal ending. Measured: an 8-line CRLF agent came back with
+# 0. Work in LF internally, restore whatever the file used on write.
+raw = open(agent_path, encoding="utf-8", newline="").read()
+eol = "\r\n" if "\r\n" in raw else "\n"
+body = raw.replace("\r\n", "\n")
 if MARK in body:
     sys.exit(2)                      # already carries the charter
 lines = body.split("\n")
@@ -537,7 +544,7 @@ if fence is not None:
     ins = len(lines)
 
 out = "\n".join(lines[:ins]).rstrip() + "\n\n" + block + "\n".join(lines[ins:]).lstrip("\n")
-open(agent_path, "w", encoding="utf-8").write(out)
+open(agent_path, "w", encoding="utf-8", newline="").write(out.replace("\n", eol))
 PYCHARTER
             if grep -qF "$CHARTER_MARK" "$_ag" 2>/dev/null; then
                 CHARTER_ADDED=$((CHARTER_ADDED + 1))

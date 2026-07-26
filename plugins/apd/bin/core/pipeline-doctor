@@ -129,9 +129,28 @@ if [ -d "$APD_AGENTS_DIR" ]; then
     AGENT_COUNT=0
     HAS_REVIEWER=false
     HAS_ADVERSARIAL=false
+    # Scope resolution is fail-closed: an agent whose declaration the resolver
+    # cannot read gets NO writable paths, which means no writes at all — through
+    # Write/Edit or the shell. That is the safe direction, but it surfaces as a
+    # builder that dies on its first write in the middle of a pipeline, with a
+    # message about a placeholder. Nothing checked it before a run, so this asks
+    # the question here, where the answer is free.
+    # shellcheck source=/dev/null
+    [ -f "$SCRIPT_DIR/../lib/agent-scope.sh" ] && source "$SCRIPT_DIR/../lib/agent-scope.sh"
     for f in "$APD_AGENTS_DIR"/*.md; do
         [ -f "$f" ] || continue
         NAME=$(basename "$f" .md)
+        if declare -f _agent_scope_paths >/dev/null 2>&1; then
+            case "$NAME" in
+                apd-verify-*) ;;
+                *)
+                    if _agent_is_writable "$f" && ! _agent_is_readonly "$f" \
+                       && [ -z "$(_agent_scope_paths "$f")" ]; then
+                        fail "$NAME declares Write/Edit but no readable scope — every write it attempts will BLOCK (check the guard-scope hook command / {{SCOPE_PATHS}})"
+                    fi
+                    ;;
+            esac
+        fi
         MODEL=$(grep -m1 '^model:' "$f" 2>/dev/null | sed 's/model:[[:space:]]*//')
         EFFORT=$(grep -m1 '^effort:' "$f" 2>/dev/null | sed 's/effort:[[:space:]]*//')
         MEMORY=$(grep -m1 '^memory:' "$f" 2>/dev/null | sed 's/memory:[[:space:]]*//')

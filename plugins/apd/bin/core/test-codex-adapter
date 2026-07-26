@@ -13270,6 +13270,126 @@ if [ -x "$APD_PLUGIN_ROOT/bin/core/git-remote-resolve" ] || [ -f "$APD_PLUGIN_RO
     done
 fi
 
+section "120. What the guards do once they are actually running"
+
+# These five come from the same audit as 118/119 and share one cause: guards
+# that had never executed on CC now do, so their false positives and their gaps
+# both became real on the same day. A guard nobody meets is a guard nobody
+# measures.
+NB_T="$(mktemp -d -t apd-guardclean.XXXXXX)"
+mkdir -p "$NB_T/.claude/agents" "$NB_T/src" "$NB_T/sl"
+printf 'PROJECT_NAME=nb\n' > "$NB_T/.claude/.apd-config"
+# writable, scope declared
+printf -- '---\nname: scoped\ntools: Read, Write, Edit, Bash\nhooks:\n  PreToolUse:\n    - hooks:\n        - command: "bash /p/guard-scope src/"\n---\nB.\n' \
+    > "$NB_T/.claude/agents/scoped.md"
+# writable, scope NOT resolvable — the unfilled placeholder an upgrade leaves
+printf -- '---\nname: unscoped\ntools: Read, Write, Edit, Bash\nhooks:\n  PreToolUse:\n    - hooks:\n        - command: "bash /p/guard-scope {{SCOPE_PATHS}}"\n---\nB.\n' \
+    > "$NB_T/.claude/agents/unscoped.md"
+# read-only by tools — APD's own reviewers look like this, and they run bash
+printf -- '---\nname: rev\ntools: Read, Glob, Grep, Bash\n---\nR.\n' > "$NB_T/.claude/agents/rev.md"
+
+_gc_bash() {  # $1 agent, $2 command, $3 want-rc, $4 label
+    printf '{"agent_type":"%s","tool_input":{"command":"%s"}}' "$1" "$2" \
+      | ( cd "$NB_T" && APD_PROJECT_DIR="$NB_T" bash "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-bash-scope" ) >/dev/null 2>&1
+    local rc=$?
+    if [ "$rc" -eq "$3" ]; then pass "bash scope: $4"; PASSES=$((PASSES + 1))
+    else fail "bash scope: $4 — rc=$rc, expected $3"; FAILS=$((FAILS + 1)); fi
+}
+
+# LIVENESS FIRST. Everything below reads as a pass when the guard is inert, so
+# prove it is armed in THIS fixture before trusting a single allow.
+_gc_bash scoped   "echo x > ../outside.txt" 2 "armed — a scoped agent is stopped outside its scope"
+
+# A writable agent whose scope did not resolve was blocked on Write/Edit and
+# unbounded on the shell: the sanctioned channel guarded, the one beside it open.
+_gc_bash unscoped "echo x > src/a.ts"       2 "no resolvable scope blocks the write"
+_gc_bash unscoped "echo x > /etc/passwd"    2 "…anywhere, not just outside the project"
+# but it is a WRITE ban, not a shell ban — it must still be able to look around
+_gc_bash unscoped "git diff --stat"         0 "…while reads and test commands still run"
+# and the same rule must NOT catch the roles that have no scope by design
+_gc_bash rev      "echo x > /tmp/out.txt"   0 "a read-only role keeps its shell (no scope by design)"
+
+# `2>&1` is a file-descriptor duplication, not a write. Counting it as one made
+# the guard block `pytest -q 2>&1 | tail -20` — the ordinary test command of an
+# ordinary builder — as an out-of-scope write, with no target to name.
+_gc_bash scoped "pytest -q 2>&1 | tail -20"            0 "2>&1 is not a write"
+_gc_bash scoped "dotnet test >/dev/null 2>&1"          0 "/dev/null is not a write"
+_gc_bash scoped "cmd > /dev/null 2>&1 && echo x > ../o" 2 "…and a real target beside them still blocks"
+_gc_bash scoped "echo x > src/a.ts"                    0 "an in-scope write still passes"
+
+# guard-secrets ran nowhere on CC until this release; as a session-wide hook its
+# substring `.key` match turns ordinary commands into blocks.
+_gc_sec() {  # $1 kind(cmd|file), $2 value, $3 want-rc, $4 label
+    if [ "$1" = cmd ]; then
+        ( cd "$NB_T" && APD_PROJECT_DIR="$NB_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-secrets" --command "$2" ) >/dev/null 2>&1
+    else
+        ( cd "$NB_T" && APD_PROJECT_DIR="$NB_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-secrets" --file-path "$2" ) >/dev/null 2>&1
+    fi
+    local rc=$?
+    if [ "$rc" -eq "$3" ]; then pass "secrets: $4"; PASSES=$((PASSES + 1))
+    else fail "secrets: $4 — rc=$rc, expected $3"; FAILS=$((FAILS + 1)); fi
+}
+_gc_sec cmd  "cat certs/server.pem"                 2 "armed — a real key file is blocked"
+_gc_sec cmd  "jq -r '.key' resp.json"               0 "a jq selector is not a key file"
+_gc_sec cmd  "grep -rn \"api.keys\" src/"           0 "…nor is a .keys member"
+_gc_sec cmd  "git commit -m \"document the keystore setup\""  0 "…nor the word in a commit message"
+_gc_sec cmd  "cp release.keystore /tmp/"            2 "but a keystore FILE still blocks"
+_gc_sec cmd  "openssl rsa -in \"my app/tls.key\""   2 "…and quoting does not hide one"
+_gc_sec file "$NB_T/src/data.keys"                  0 "a .keys file is not a .key file"
+_gc_sec file "$NB_T/src/tls.key"                    2 "a .key file is"
+printf 'SECRET\n' > "$NB_T/sl/.env.production"
+ln -sf .env.production "$NB_T/sl/harmless.json"
+_gc_sec file "$NB_T/sl/harmless.json"               2 "an innocent NAME pointing at a secret is resolved"
+
+# NotebookEdit names its target `notebook_path`, and `Write|Edit` is a regex that
+# matches it. Reading only `file_path` left the path empty, and an empty path
+# makes the core exit 0 — a notebook was the one file that escaped scope.
+_gc_nb() {  # $1 rel path, $2 want-rc, $3 label
+    printf '{"agent_type":"scoped","tool_input":{"notebook_path":"%s/%s"}}' "$NB_T" "$1" \
+      | ( cd "$NB_T" && APD_PROJECT_DIR="$NB_T" bash "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-scope" ) >/dev/null 2>&1
+    local rc=$?
+    if [ "$rc" -eq "$2" ]; then pass "notebook: $3"; PASSES=$((PASSES + 1))
+    else fail "notebook: $3 — rc=$rc, expected $2"; FAILS=$((FAILS + 1)); fi
+}
+_gc_nb "other/x.ipynb" 2 "a notebook outside scope is blocked like any other file"
+_gc_nb "src/x.ipynb"   0 "…and one inside it is not"
+
+# Nothing asked, before a run, whether an agent's scope can be read at all — so
+# the answer arrived as a builder dying on its first write, mid-pipeline.
+DOC_OUT=$( cd "$NB_T" && APD_PROJECT_DIR="$NB_T" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-doctor" 2>&1 )
+if echo "$DOC_OUT" | grep -q "unscoped declares Write/Edit but no readable scope"; then
+    pass "doctor names the agent whose scope will not resolve"; PASSES=$((PASSES + 1))
+else
+    fail "doctor is silent about an unresolvable scope"; FAILS=$((FAILS + 1))
+fi
+if echo "$DOC_OUT" | grep -qE "^.*(scoped|rev) declares Write/Edit but no readable" \
+   && ! echo "$DOC_OUT" | grep -q "unscoped declares"; then
+    fail "doctor flags an agent that is fine"; FAILS=$((FAILS + 1))
+else
+    pass "doctor leaves the scoped builder and the read-only reviewer alone"; PASSES=$((PASSES + 1))
+fi
+rm -rf "$NB_T"
+
+# Inserting the charter rewrote every line ending in the file: Python's default
+# text mode translates CRLF on read and never restores it, so a two-line change
+# came back as a whole-file diff on the platform where CRLF is normal.
+CR_T="$(mktemp -d -t apd-charter-eol.XXXXXX)"
+mkdir -p "$CR_T/.claude/agents"
+printf 'PROJECT_NAME=cr\n' > "$CR_T/.claude/.apd-config"
+printf -- '---\r\nname: b\r\ntools: Read, Write, Edit\r\n---\r\n\r\n## Role\r\n\r\nBuilder.\r\n' > "$CR_T/.claude/agents/b.md"
+( cd "$CR_T" && APD_PROJECT_DIR="$CR_T" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" ) >/dev/null 2>&1
+if grep -q 'apd:builder-charter' "$CR_T/.claude/agents/b.md" 2>/dev/null; then
+    pass "charter reaches a CRLF agent at all"; PASSES=$((PASSES + 1))
+    if [ "$(grep -c $'\r' "$CR_T/.claude/agents/b.md")" -gt 0 ]; then
+        pass "…without converting the file to LF behind the user's back"; PASSES=$((PASSES + 1))
+    else
+        fail "charter insert rewrote every CRLF line ending"; FAILS=$((FAILS + 1))
+    fi
+else
+    fail "charter never inserted into a CRLF agent"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$CR_T"
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"

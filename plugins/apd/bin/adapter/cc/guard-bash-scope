@@ -54,11 +54,20 @@ while IFS= read -r p; do
   [ -n "$p" ] && SCOPE_PATHS+=("$p")
 done < <(_agent_scope_paths "$AGENT_FILE")
 
-# No declared scope: fall through to the protected-path checks only. Unlike the
-# Write/Edit path this does NOT fail closed — read-only roles legitimately run
-# bash (`git diff`, test commands) and have no scope by design, so blocking
-# every command from them would break the review steps.
+# No declared scope. What that means depends on whether the agent can write at
+# all, and the first version of this shim did not ask: it fell through for
+# EVERYONE, so a writable agent whose scope did not resolve was blocked on
+# Write/Edit and unbounded on the shell — the sanctioned channel guarded, the
+# one beside it open, which is the worst of both.
+#
+# Read-only roles genuinely have no scope by design and legitimately run bash
+# (`git diff`, the test command, `… > /tmp/out`); blocking them would break the
+# review steps for nothing. So they keep the fall-through, and only a writable
+# agent fails closed — same rule, same message shape as the Write/Edit path.
 if [ ${#SCOPE_PATHS[@]} -eq 0 ]; then
+  if _agent_is_writable "$AGENT_FILE"; then
+    exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" --deny-all-writes
+  fi
   exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND"
 fi
 

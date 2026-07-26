@@ -43,6 +43,32 @@ _agent_is_readonly() {
   grep -qE '^readonly:[[:space:]]*true[[:space:]]*$' "$1" 2>/dev/null
 }
 
+# _agent_is_writable <file> — can this agent modify files at all?
+#
+# `readonly: true` is NOT the discriminator, and assuming it was is what left a
+# hole on the Bash channel. APD's own review roles (code-reviewer, adversarial,
+# supervisor) do not carry that flag — they are bounded by OMITTING Write/Edit
+# from `tools:`. So "not readonly" describes every agent APD ships, and using it
+# to decide whether an empty scope should fail closed would have blocked
+# reviewers from `… > /tmp/out` while still not bounding anything.
+#
+# The honest question is whether the agent can write, and CC answers it in
+# `tools:`. An agent with NO `tools:` line inherits every tool, so absence means
+# writable — the fail-safe reading, since the consequence of guessing wrong is
+# an unbounded shell.
+_agent_is_writable() {
+  awk '
+    NR == 1 && $0 ~ /^---[ \t]*$/ { fm = 1; next }
+    fm && $0 ~ /^---[ \t]*$/ { exit }
+    !fm { next }
+    tolower($0) ~ /^tools:/ {
+      seen = 1
+      if (tolower($0) ~ /write|edit|all tools|\*/) w = 1
+    }
+    END { exit (seen && !w) ? 1 : 0 }
+  ' "$1" 2>/dev/null
+}
+
 # _agent_scope_paths <file>
 # Prints the declared scope, one path per line.
 # YAML `scope:` first (Codex-native form), then the CC hook command. Unfilled

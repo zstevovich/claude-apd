@@ -12,6 +12,7 @@ if ! command -v jq &>/dev/null; then
 fi
 
 INPUT=$(cat)
-FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+# NotebookEdit names its target `notebook_path` — see the note in guard-scope.
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty' 2>/dev/null)
 
 exec "$CORE_DIR/guard-lockfile" --file-path "$FILE_PATH" "$@"
