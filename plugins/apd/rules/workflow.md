@@ -57,7 +57,7 @@
      Dispatching adversarial-reviewer earlier is mechanically blocked (CC: track-agent
      hook exits 2; Codex: apd:apd_adversarial_pass refuses).
    → Dispatch adversarial-reviewer agent (sonnet/max, read-only, no spec context)
-   → BLINDNESS IS ENFORCED (v6.38, CC): `guard-spec-blind` closes the whole
+   → BLINDNESS IS ENFORCED (v7.0, CC): `guard-spec-blind` closes the whole
      `.apd/pipeline/` dir and the APD memory dir to that role — spec-card,
      implementation-plan, any earlier rationale, `apd pipeline show`, `apd report`.
      Only `.apd/pipeline/.reviewed-files` stays readable: it IS its scope.
@@ -104,7 +104,7 @@
    → If accepted findings → fix via builder → re-review
    → Lean mode skips this step — see "Lean vs Full" below
    ↓
-6b. SUPERVISION (v6.30 — Full mode, on EVERY profile since v6.38; inert on the Codex runtime)
+6b. SUPERVISION (v6.30 — Full mode, on EVERY profile since v7.0; inert on the Codex runtime)
    → AFTER all adversarial findings are triaged and fixed — the supervisor judges
      the FINAL diff, not the pre-fix state.
    → Dispatch supervisor agent (frontier model, memory: none). Its scope is ONLY:
@@ -143,7 +143,7 @@
      must be the last agent activity) and a 2-completed-passes churn cap).
      Currently WARN (rollout); flips to hard BLOCK in a future release.
      NO spec-card opt-out. Applies on EVERY profile — supervision is topology,
-     not a price tier (v6.38); a cheap profile does not mean the layer is off.
+     not a price tier (v7.0); a cheap profile does not mean the layer is off.
      Inert on one axis only: `APD_RUNTIME=codex`, where the CC supervisor cannot
      be dispatched at all (`supervision-not-applicable`, never a pass, never a
      block) — on Codex the adversarial pass is the only independent review layer.

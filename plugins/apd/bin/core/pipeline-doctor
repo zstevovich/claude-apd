@@ -164,7 +164,7 @@ if [ -d "$APD_AGENTS_DIR" ]; then
         fail "No code-reviewer agent found — reviewer dispatch will BLOCK"
     fi
     if [ "$HAS_ADVERSARIAL" = false ]; then
-        # v6.38 — this used to `warn` that the dispatch "will BLOCK" while the
+        # v7.0 — this used to `warn` that the dispatch "will BLOCK" while the
         # measured behaviour was the exact opposite: with no definition the
         # reviewer step never armed the layer and the verifier passed with zero
         # adversarial evidence. So the one diagnostic that could have caught the

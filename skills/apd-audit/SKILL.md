@@ -51,9 +51,9 @@ For each agent in `.claude/agents/*.md`:
 **Roles that must EXIST** — check presence before quality:
 - `code-reviewer` — missing → the reviewer advance BLOCKs
 - `adversarial-reviewer` — missing → the reviewer advance BLOCKs (`adversarial-agent-missing`).
-  Until v6.38 its absence silently disabled the whole adversarial layer, so a project
+  Until v7.0 its absence silently disabled the whole adversarial layer, so a project
   that has been running "clean" without this file was running without the layer.
-- `supervisor` — missing → `supervision-missing` at the verifier (every profile since v6.38)
+- `supervisor` — missing → `supervision-missing` at the verifier (every profile since v7.0)
 
 **Frontmatter check:**
 - `model:` — **full ids only, never a bare alias.** `opus`/`sonnet` resolve to whatever
@@ -77,7 +77,7 @@ For each agent in `.claude/agents/*.md`:
   `bin/core/` holds the runtime-neutral implementations they call)
 - Builders declare: guard-scope, guard-bash-scope, guard-secrets, guard-git
 - Reviewers declare: guard-secrets, guard-git (NO guard-scope — read-only)
-- `adversarial-reviewer` must carry the `guard-spec-blind` marker (v6.38)
+- `adversarial-reviewer` must carry the `guard-spec-blind` marker (v7.0)
 
 > **The per-agent `hooks:` block is DATA, not execution.** It never fires (measured on
 > CC 2.1.220) — enforcement runs session-level from `hooks/hooks.json`. But

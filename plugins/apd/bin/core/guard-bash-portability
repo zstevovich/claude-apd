@@ -1,10 +1,10 @@
 #!/bin/bash
 # APD Bash Portability Guard — blocks commands that do not exist, or silently mean
-# something else, on the platform you are actually running. SYMMETRIC since v6.38:
+# something else, on the platform you are actually running. SYMMETRIC since v7.0:
 # on macOS it blocks GNU/Linux-isms, on Linux it blocks BSD/macOS-isms. Each block
 # names the local equivalent.
 #
-# The Linux direction was missing until v6.38, and the gap was not academic: the
+# The Linux direction was missing until v7.0, and the gap was not academic: the
 # framework is developed on macOS, so a BSD-ism reaches a Linux user unchallenged
 # while the reverse is caught immediately. The worst of them is `sed -i ""` —
 # valid and required on BSD, but on GNU the empty string is consumed as the
@@ -30,7 +30,7 @@ source "$(dirname "$0")/../lib/style.sh"
 [ "${APD_SKIP_PORTABILITY_GUARD:-}" = "1" ] && exit 0
 # OS gate. APD_PORTABILITY_FORCE is a TEST SEAM only: `darwin` / `linux` pick a
 # direction so either side can be verified from either host (`1` = darwin, kept for
-# compatibility with pre-v6.38 callers). It can only make the guard MORE strict.
+# compatibility with pre-v7.0 callers). It can only make the guard MORE strict.
 case "${APD_PORTABILITY_FORCE:-}" in
   1|darwin) PLATFORM=Darwin ;;
   linux)    PLATFORM=Linux ;;

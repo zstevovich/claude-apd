@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## v7.0.0 — 2026-07-26
 
-**Mutation audit: every guard and gate now has a test that fails when the mechanism is removed.**
+**A major because of what changes on upgrade, not because of how much changed.** Two guards — `guard-scope` and `guard-secrets` — had never executed on Claude Code at all: they were wired to per-agent frontmatter hooks, and those do not fire (measured on CC 2.1.220, both schema forms, against a session-level control that fired and blocked). Agent write scope was therefore unenforced on CC, and the secrets guard never ran. They run now, session-level, which means an upgrade can surface blocks on paths that were silently unguarded before — including a writable agent whose scope cannot be resolved, which now fails closed. Add to that the three deprecations promised for this major, and an adversarial layer that no longer switches itself off when its agent file is missing.
+
+**Migration.** Nothing to do for most projects: the next session-start `apd-init` re-pins models, widens the permission allow list, and inserts the builder charter. Two things are worth checking first. Run `apd doctor` — it now FAILs when an agent declares Write/Edit but no scope the resolver can read, which is the one condition that will stop a builder on its first write. And if a project carries `adversarial: max_defects=N`, the field is dead: the spec advance says so once and continues.
+
+
 
 Applies the standing rule — a test that cannot go red proves nothing — retroactively. Each mechanism was neutered in a throwaway copy of the repo and the full suite re-run; anything that stayed green had no proof. Both E2E surfaces were probed, since `verify-apd` is inert in the framework repo (`APD_ACTIVE=false`) and needs an installed-project fixture.
 
@@ -70,7 +74,7 @@ Three deprecations that were promised for this major, removed on schedule. None 
 
   Existing projects re-pin on their next session-start init. Three static checks now fail on any bare alias — in the conf, in a shipped template, or written back by `apd-init` — because pinning once without a guard just defers the next silent move. Codex templates keep the gpt-* namespace, untouched.
 
-- **Profiles after Opus 5: two rule changes, not just new values.** Full record in `docs/plans/v6.38-profiles-after-opus-5.md`.
+- **Profiles after Opus 5: two rule changes, not just new values.** Full record in `docs/plans/v7.0-profiles-after-opus-5.md`.
 
   **Precedence.** A missing role row means "this profile does not mention that role", so the agent keeps its template pin — never "reset to the default row". Only `supervisor` behaved this way; `reviewer` fell back to `default`, which silently stripped `code-reviewer` off its template `effort: max` the moment any profile was applied. A profile default overriding a deliberate template value is backwards, and the trap would have repeated for every role added later. Unnamed agents still take `default`, otherwise "leave it alone" turns profiles into no-ops — both halves are tested.
 
@@ -128,6 +132,46 @@ Three deprecations that were promised for this major, removed on schedule. None 
 
 - **`stall-watch` could not be stopped and could not stop itself.** `INT`/`TERM` were trapped onto a handler that never exits, so the loop resumed — only `SIGKILL` worked (measured: TERM to 9 daemons, 9 survivors). Separately, `session_dead` was computed only when transcripts existed, so a watcher pointed at a directory CC never opened could never conclude the session was gone; with a spec-card holding `idle_since` at 0, both exits were dead. Adds `SW_MAX_LIFE` (default 24h) as an unconditional ceiling.
 - **Both test surfaces leaked watchers.** Every fixture advancing `spec` launched one; 387 stale pid files and 3603 logs had accumulated. `test-codex-adapter` and `verify-apd` now cap them with `SW_MAX_ITERS=1`.
+
+### Fixed — found by the independent audit of this release
+
+Four decontextualised auditors read the branch before it shipped. Every finding was reproduced by execution before being accepted; every defect below was introduced by this release, under a green suite.
+
+- **One markdown line defeated two gates.** The criteria counter read a `sed` range that ended at the first `^**` heading, so a `**Notes:**` line among the acceptance criteria truncated the count. A 12-criteria spec passed a `max 7` decomposition check, and — worse — a 6-criteria spec looked like 2 and qualified for the ≤2 adversarial opt-out: `verifier.done`, no summary, no rationale, no audit entry, the console cheerfully reporting "opt-out, 2 criteria". That is the exact end state the adversarial fix in this same release claimed to close. The count is now taken over the whole card, deduped by R-id, from ONE helper — there were four copies, including one in the MCP server. The failure direction is now safe: a miscount can only over-count, and over-counting is stricter.
+
+- **The 100%-dismiss gate did not fire below three findings.** `ADVERSARIAL:2:0:2` — every finding dismissed by the orchestrator — reached `verifier.done`. Threshold lowered to two; a single finding stays exempt, and that pair is what distinguishes "lowered the bar" from "blocks any dismissal at all".
+
+- **Spec-blindness enforced spellings, not files.** The adversarial reviewer must not read the spec card; the guard checked the shapes I had thought of. Eleven forms walked through it, starting with the DEFAULT one — `Grep` with no `path` searches the whole project, reaches the spec, and carries nothing for a path matcher to match. Now the tool name reaches the guard, an ancestor directory counts as reaching, tokens are normalised and stripped of shell punctuation, globs compare their literal prefix, and the project root is checked rather than skipped.
+
+- **The scope resolver understood two declaration forms out of six.** Every form it could not read resolved to nothing, and nothing is a TOTAL write ban because `guard-scope` fails closed — so a quoted hook argument, a YAML block list, a legacy `guard-scope.sh` path or a path containing a space did not loosen enforcement, they froze a working agent on its first write, mid-pipeline, on a project that had been fine. It also read `^scope:` over the whole file, so a prose line in an agent's body could widen it past what its hook command declared — a fail-open on a file the orchestrator is allowed to write. Resolution is frontmatter-only now.
+
+- **`apd pipeline lesson` reported success on a failed write.** `{ …; } > file` does not report a failed redirection — bash prints `Permission denied` and the compound still returns 0 — so the first repair was decoration and the command announced "Recorded L1" while nothing reached disk. For a feature whose entire purpose is that knowledge is not discarded, a false success is worse than an error. Both writes are simple commands now. Dedupe also compared rules as substrings (a shorter rule that was a prefix of an existing one was refused as "already recorded"), and ids came from a count, so the hand-merge the command itself recommends produced two blocks with the same id.
+
+### Fixed — what the guards do now that they actually run
+
+Making two guards live for the first time on CC surfaced their gaps and their false positives on the same day. A guard nobody meets is a guard nobody measures.
+
+- **A writable agent with an unresolvable scope was blocked on Write/Edit and unbounded on the shell** — the sanctioned channel guarded, the one beside it open. It fails closed there too now, as a WRITE ban rather than a shell ban, so the agent can still run `git diff` and the test command. Writability is read from `tools:`, not from `readonly:`: APD's own review roles carry no such flag, they simply omit Write/Edit, so "not readonly" describes every agent we ship.
+
+- **`2>&1` counted as a write.** A bare `>` in the write-operation list meant a file-descriptor duplication looked like a redirect with no extractable target, and the guard fell through to a strict per-token check that blocked whenever nothing else on the line happened to be in scope. Measured: `pytest -q 2>&1 | tail -20` and `npm test 2>&1 | tail -5` — the ordinary test command of an ordinary builder — were BLOCKED as out-of-scope writes. Redirects are judged by their target now, and `/dev/null|stdout|stderr|tty` are not targets.
+
+- **`guard-secrets` matched `.key` as a substring**, so `jq -r '.key'`, `data.keys()` and `grep -rn "api.keys"` were all blocked. Secret extensions match as dot-delimited components of a filename now; `keystore`, `jks` and `p12` are listed explicitly, because they used to be caught only by accident as substrings of `.key` and the stricter rule would have dropped them silently. The path is also checked as RESOLVED, so an innocently named symlink cannot launder a secret. Found while building the matrix: the token loop dropped the LAST token for want of a trailing newline, and the last token of a command is usually the file — `cat certs/server.pem` passed clean.
+
+- **A notebook was the one file an agent could write outside its scope.** `NotebookEdit` names its target `notebook_path`, and the `Write|Edit` hook matcher is a regex that matches it; every shim read only `file_path`, and an empty path makes the core exit 0.
+
+- **`apd doctor` now asks, before a run, whether each agent's scope can be read at all.** Scope resolution is fail-closed, so the answer used to arrive as a builder dying on its first write with a message about a placeholder. Also: inserting the builder charter rewrote every line ending in a CRLF file, because Python's text mode translates on read and never restores.
+
+### Fixed — the first Linux run this suite has ever had
+
+`.github/workflows/test.yml` was written but had never executed, so "Linux support" rested on discipline. A local `ubuntu:24.04` container scored **975 PASS / 161 FAIL** against a macOS run of 1140/0. Two of the causes were ours.
+
+- **`stat -f %m … || stat -c %Y …`, in eight places.** It reads as "BSD first, GNU second" and is broken on GNU, where `-f` means "report the FILESYSTEM": it ignores the unknown `%m`, prints five lines to STDOUT, and only then exits non-zero — so command substitution keeps both branches and the variable holds a filesystem report with the epoch glued on the end. Nothing errors. The value is simply never a number again, and each consumer fails in whichever direction its own guard points: `[ "$LOCK_MTIME" -gt 0 ]` goes false, so **a stale pipeline lock is never reclaimed on Linux** and the next session waits on a dead one; `date -d "@$blob"` fails, so `reconstruct-agents` writes empty timestamps and the recovery it exists for produces a zero-duration pair. That one idiom accounted for 60 of the 161 failures. It is now a single validated helper (`bin/lib/portable.sh`), and the validation rather than the ordering is what makes it safe. The `date -r` / `date -j -f` / `date -v` chains written in the same style were checked, not assumed — they fail on the other platform without writing to stdout, so they compose correctly.
+
+- **`uname -m` says `aarch64` on Linux ARM; the shipped binary carries Go's name for it, `arm64`.** Six hand-written copies of that mapping stopped at `x86_64`, so the lookup missed a binary that IS shipped — and the consequence is not a missing feature: the agent-ledger check fails CLOSED, so APD refuses to advance at all on Graviton, a Raspberry Pi, or Docker on an Apple Silicon laptop, while `pipeline-gate` quietly SKIPS signature verification because its validator call is an `elif [ -x ]`. An x86_64-only CI matrix would never have found this, which is why `ubuntu-24.04-arm` is now a leg of it.
+
+The other three causes were the environment rather than the framework, and saying so matters as much as fixing them: `uv` is absent from both runner images and `install-codex-config` correctly refuses without it (the first check fails and ~150 cascade off it, which reads as a broken framework); a fixture proved nothing as root, since `chmod a-w` does not stop uid 0; and sections `cd` into a fixture and `rm -rf` it, after which Linux bash writes `shell-init: error retrieving current directory` from every child process into the very output the next assertions capture.
+
+**Linux 1141/0, macOS 1146/0.** The five checks that differ are the ones a container cannot express — most notably a zombie-sweep fixture that is unbuildable when the suite is pid 1, which it is when bash execs the last command of `bash -c`. The sweep counts a process only when its PPID lies in the chain back to init and stops AT init without adding it, deliberately; in that shape the fixture's own child is init's, and no valid parent exists. Those two assertions now say out loud that they are not observable rather than failing. On a runner the suite is not pid 1, so the coverage returns.
 
 ## v6.37.1 — 2026-07-22
 

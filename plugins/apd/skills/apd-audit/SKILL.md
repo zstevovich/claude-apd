@@ -50,7 +50,7 @@ For each agent in `.apd/agents/*.md`:
 **Roles that must EXIST** — check presence before quality:
 - `code-reviewer` — missing → the reviewer advance BLOCKs
 - `adversarial-reviewer` — missing → the reviewer advance BLOCKs (`adversarial-agent-missing`).
-  Until v6.38 its absence silently disabled the whole adversarial layer, so a project that
+  Until v7.0 its absence silently disabled the whole adversarial layer, so a project that
   has been running "clean" without this file was running without the layer. On Codex that
   layer is the ONLY independent review the pipeline has — supervision is inert here.
 

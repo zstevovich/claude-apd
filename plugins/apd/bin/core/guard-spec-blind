@@ -3,7 +3,7 @@
 #
 # WHY THIS EXISTS
 # The adversarial reviewer's value is positional: it judges the diff without
-# knowing the intent behind it. Until v6.38 that was INTENT ONLY. Measured
+# knowing the intent behind it. Until v7.0 that was INTENT ONLY. Measured
 # 2026-07-25 on a fixture, every channel returned exit 0:
 #
 #   guard-bash-scope  cat .apd/pipeline/spec-card.md   -> 0  (blocks WRITES only)

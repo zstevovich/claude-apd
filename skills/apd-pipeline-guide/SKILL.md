@@ -26,7 +26,7 @@ spec → builder → reviewer → adversarial → [supervision] → verifier →
 | `apd pipeline builder` | implementation-plan.md exists, plan-spec consistency (strict), regression surface (Cover/Evidence), no stale pre-spec dispatch |
 | `apd pipeline reviewer` | builder ran post-spec, builder cycle cap (default 2) |
 | adversarial dispatch | only AFTER reviewer.done (out-of-order start is not recorded — re-dispatch) |
-| supervision dispatch | **every** profile carries a `supervisor` row (v6.38 — burn, cruise and eco alike), so this applies on whatever profile is declared, once adversarial ran (Full mode) — see Supervision contract below |
+| supervision dispatch | **every** profile carries a `supervisor` row (v7.0 — burn, cruise and eco alike), so this applies on whatever profile is declared, once adversarial ran (Full mode) — see Supervision contract below |
 | `apd pipeline verifier` | `.adversarial-summary` + `.adversarial-rationale.md` present, rationale gate, supervision gate (profile-coupled), spec-hash immutability |
 | commit | guard-git: pipeline complete, commit message prefix, no mass staging |
 
@@ -102,7 +102,7 @@ check it (`verify-regression-surface`, in the builder advance).
 ## Dispatching the adversarial reviewer — it is BLIND
 
 Its value is positional: it judges the diff without knowing the intent, which is
-how it finds what the contextual reviewer already rationalised away. Since v6.38
+how it finds what the contextual reviewer already rationalised away. Since v7.0
 that is **mechanically enforced** (`guard-spec-blind`), not just asked for. The
 whole of `.apd/pipeline/` and the APD memory directory are closed to that role —
 spec-card, implementation-plan, any earlier rationale, `apd pipeline show`,
@@ -185,13 +185,13 @@ bash .claude/bin/apd pipeline show lessons
 Write the rule, not the patch, and not one per finding — a file past ~20 entries
 gets skimmed rather than read. `/apd-finish` asks this again at the end of the run.
 
-## Supervision contract (v6.30; topology fixed in v6.38)
+## Supervision contract (v6.30; topology fixed in v7.0)
 
 Full mode (adversarial ran) expects a **supervision pass over the FINAL diff**
 before the verifier, on **every** profile. Rollout: currently a WARN at the
 verifier; becomes a hard BLOCK in a future release — treat it as required now.
 
-Supervision is **topology, not a price tier** (v6.38): burn, cruise and eco all
+Supervision is **topology, not a price tier** (v7.0): burn, cruise and eco all
 carry a `supervisor` row, so the layer runs at every price point and the profiles
 stay comparable. Do not read a cheap profile as "supervision does not apply here".
 It is inert on one axis only: `APD_RUNTIME=codex`, where the CC supervisor cannot
@@ -275,7 +275,7 @@ These are not phase gates. They stop the individual call and the run continues.
 | `commit-no-prefix` / `push-no-prefix` | The APD commit prefix is missing. Recurring in practice — check the message shape before every commit |
 | `forged-done-file` | A `.done` file written by hand. Phase files come from `apd pipeline <phase>`, never from an editor |
 
-**Three of these are new in v6.38** — `spec-blind`, `secret-access` and
+**Three of these are new in v7.0** — `spec-blind`, `secret-access` and
 `out-of-scope-write` were wired to per-agent frontmatter hooks, which do not
 fire; they now run session-level. If a run of yours hits one of them for the
 first time, that is the guard finally working, not a regression.

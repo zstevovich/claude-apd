@@ -4164,9 +4164,9 @@ _b_write_spec() {
     [ -n "$1" ] && mode_line="pipeline_mode: $1"
     [ -n "$2" ] && rev_line="reviewer: max_cycles=$2"
     # `adversarial: skip` is deliberate: this fixture exercises REVIEWER CYCLE
-    # CAPS, not the adversarial layer, and since v6.38 a reviewer advance needs
+    # CAPS, not the adversarial layer, and since v7.0 a reviewer advance needs
     # either an adversarial-reviewer definition or a valid opt-out (1 R here, so
-    # the opt-out is honoured). Before v6.38 the absence of the agent silently
+    # the opt-out is honoured). Before v7.0 the absence of the agent silently
     # dropped the layer, which is what this fixture was unknowingly relying on.
     cat > "$R_DIR/.apd/pipeline/spec-card.md" <<EOF
 # Polish-mode test
@@ -4405,7 +4405,7 @@ scope: []
 ---
 EOF
 # The subject here IS `.adversarial-summary` handling, so the role must exist:
-# since v6.38 a reviewer advance with no adversarial-reviewer definition and no
+# since v7.0 a reviewer advance with no adversarial-reviewer definition and no
 # opt-out BLOCKS instead of silently dropping the layer.
 cat > "$RB_DIR/.apd/agents/adversarial-reviewer.md" <<'EOF'
 ---
@@ -8717,7 +8717,7 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# --- v6.38 precedence: a missing role row means "leave it alone" -------------
+# --- v7.0 precedence: a missing role row means "leave it alone" -------------
 # `reviewer` used to fall back to `default`, so applying ANY profile silently
 # stripped code-reviewer off its template `effort: max` — a profile default
 # overriding a deliberate template value. The rule is now uniform across named
@@ -8749,7 +8749,7 @@ else
 fi
 rm -rf "$MP_PREC"
 
-# --- v6.38 topology: which roles run is constant across profiles -------------
+# --- v7.0 topology: which roles run is constant across profiles -------------
 # Row presence used to double as supervision on/off (eco only), which meant eco
 # and burn were not one pipeline at two prices but two different pipelines —
 # cross-profile telemetry was not comparable, and drift analysis could not tell
@@ -8985,7 +8985,7 @@ echo "MODEL_PROFILE=eco" >> "$IN_PROJ/.claude/.apd-config"
 printf -- '---\nname: code-reviewer\nmodel: sonnet\neffort: xhigh\n---\nreviewed-files\n' > "$IN_PROJ/.claude/agents/code-reviewer.md"
 APD_PROJECT_DIR="$IN_PROJ" bash "$INIT_SCRIPT" --quick >/dev/null 2>&1
 IN_UNOWNED=$(APD_PROJECT_DIR="$IN_PROJ" bash "$INIT_SCRIPT" --quick 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
-# v6.38: `eco` carries no `reviewer` row, so NOTHING manages this model. Init must
+# v7.0: `eco` carries no `reviewer` row, so NOTHING manages this model. Init must
 # still leave it alone (rewriting a hand-picked model every session-start is the
 # footgun v6.16.1 removed) but must SAY it is unowned — the old wording claimed
 # the profile was managing a role the profile deliberately ignores.
@@ -10367,7 +10367,7 @@ SV_PROFILE_BIN="$APD_PLUGIN_ROOT/bin/core/pipeline-model-profile"
 SV_CONF="$APD_PLUGIN_ROOT/templates/model-profiles.conf"
 
 # Static A: conf — supervisor row on eco ONLY (v1); cruise/burn stay bare.
-# v6.38 inverts v6.30 here: row presence no longer encodes supervision on/off.
+# v7.0 inverts v6.30 here: row presence no longer encodes supervision on/off.
 # Which roles run is topology and must be constant across profiles; a profile
 # decides only what each role costs. When presence doubled as a switch, eco and
 # burn were two different pipelines, not one pipeline at two prices.
@@ -10629,7 +10629,7 @@ else
 fi
 rm -rf "$_T"
 
-# Live P: v6.38 — cruise now carries a supervisor row, so the gate APPLIES
+# Live P: v7.0 — cruise now carries a supervisor row, so the gate APPLIES
 # there. The inert path is not deleted, it moves to what still triggers it: a
 # project override conf that omits the row. Dropping that coverage would leave
 # the "profile has no supervisor" branch untested while it is still reachable.
@@ -10870,7 +10870,7 @@ if echo "$TR_OUT" | grep -qE "dropped-stop" && echo "$TR_OUT" | grep -q "reconst
 else
     fail "pipeline-report-turns dropped-stop detection failed: $TR_OUT"; FAILS=$((FAILS + 1))
 fi
-# Served model per agent (v6.38). The agent file's `model:` is a REQUEST; a bare
+# Served model per agent (v7.0). The agent file's `model:` is a REQUEST; a bare
 # alias resolves to whatever the runtime maps it to today. Measured on this
 # corpus, agents pinned to `opus` were served claude-opus-4-8 until 2026-07-23
 # and claude-opus-5 from 2026-07-25 — same config, different model, no record.
@@ -11173,8 +11173,8 @@ GP_T="$(mktemp -d -t apd-port.XXXXXX)"
 mkdir -p "$GP_T/.apd" "$GP_T/.claude/memory"
 printf 'PROJECT_NAME=port\nAPD_VERSION=6.33.0\n' > "$GP_T/.apd/config"
 _gp() { APD_PROJECT_DIR="$GP_T" APD_PORTABILITY_FORCE=1 bash "$GP_CORE" --command "$1" >/dev/null 2>&1; echo $?; }
-# v6.38 — the guard is symmetric, so the Linux direction needs its own probe.
-# `FORCE=1` still means darwin (pre-v6.38 callers), `FORCE=linux` drives the
+# v7.0 — the guard is symmetric, so the Linux direction needs its own probe.
+# `FORCE=1` still means darwin (pre-v7.0 callers), `FORCE=linux` drives the
 # other half. Without this the whole BSD-ism matcher set ships untested: the
 # suite stayed green through its addition because it never looked at it.
 
@@ -12214,7 +12214,7 @@ rm -rf "$_PC_F"
 echo ""
 section "111. Spec-blind guard — adversarial decontextualisation enforced"
 
-# Until v6.38 the adversarial reviewer's blindness was INTENT ONLY: the template
+# Until v7.0 the adversarial reviewer's blindness was INTENT ONLY: the template
 # never mentions the spec, but the agent carries Read/Glob/Grep/Bash, its Read
 # hook is guard-secrets (env files, keys) and guard-pipeline-state is Write|Edit.
 # Measured on a fixture, EVERY channel returned exit 0 for `cat spec-card.md`.
@@ -12380,14 +12380,14 @@ SBI="$SCRATCH/specblind-init"
 mkdir -p "$SBI/.claude/agents" "$SBI/.apd/pipeline"
 touch "$SBI/CLAUDE.md"
 printf 'APD_ACTIVE=true\nMODEL_PROFILE=burn\n' > "$SBI/.apd/config"
-# A pre-v6.38 agent: scope directive present, spec-blind absent, model set by profile.
+# A pre-v7.0 agent: scope directive present, spec-blind absent, model set by profile.
 sed 's/^model: .*/model: claude-opus-5/; s/^effort: .*/effort: high/' "$ADV_TMPL" \
     | grep -v 'guard-spec-blind' | grep -v 'Read|Glob|Grep' \
     > "$SBI/.claude/agents/adversarial-reviewer.md"
 APD_PROJECT_DIR="$SBI" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick >/dev/null 2>&1 || true
 
 if grep -q 'guard-spec-blind' "$SBI/.claude/agents/adversarial-reviewer.md"; then
-    pass "apd-init adds spec-blind to a pre-v6.38 agent"; PASSES=$((PASSES + 1))
+    pass "apd-init adds spec-blind to a pre-v7.0 agent"; PASSES=$((PASSES + 1))
 else
     fail "apd-init did not roll spec-blind out to an existing agent"; FAILS=$((FAILS + 1))
 fi
@@ -13174,7 +13174,7 @@ for _pair in "CC:$GD_CC" "Codex:$GD_CDX"; do
     fi
 done
 
-# Supervision is topology, not a price tier (v6.38). The conf is the authority:
+# Supervision is topology, not a price tier (v7.0). The conf is the authority:
 # assert the docs against it rather than against a remembered profile name.
 GD_SUPROWS=$(grep -cE '^[a-z]+\|supervisor\|' "$APD_PLUGIN_ROOT/templates/model-profiles.conf")
 GD_PROFILES=$(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$APD_PLUGIN_ROOT/templates/model-profiles.conf" | cut -d'|' -f1 | sort -u | grep -c .)

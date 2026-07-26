@@ -8,7 +8,7 @@
 #   adversarial-reviewer  -> adversarial
 #   code-reviewer         -> reviewer
 #   supervisor            -> supervisor
-#   (v6.38: NO role falls back to default. A missing row means the profile does
+#   (v7.0: NO role falls back to default. A missing row means the profile does
 #    not mention that role, so the agent keeps its template pin. Only unnamed
 #    agents resolve to the `default` row.)
 #   apd-verify-*          -> skipped (reserved namespace, never touched)
@@ -97,7 +97,7 @@ _role_for() {
 
 # _target_for <profile> <agent-basename> -> "model|effort" (empty = leave alone)
 #
-# PRECEDENCE (v6.38): a missing row means "do not touch this role", never
+# PRECEDENCE (v7.0): a missing row means "do not touch this role", never
 # "reset it to the default row". Only `supervisor` behaved this way before;
 # `reviewer` fell back to default, which silently DOWNGRADED code-reviewer the
 # moment any profile was applied — its template pins `effort: max` and the
@@ -256,7 +256,7 @@ for f in "${AGENT_FILES[@]}"; do
     name=$(basename "$f" .md)
     target=$(_target_for "$PROFILE" "$name")
     if [ -z "$target" ]; then
-        # Any named role without a row lands here (v6.38 precedence rule):
+        # Any named role without a row lands here (v7.0 precedence rule):
         # the profile does not mention it, so the agent keeps its template pin.
         echo "  ${D}=${R} $name: profile '$PROFILE' has no $(_role_for "$name") row — left as-is"
         continue

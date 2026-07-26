@@ -49,7 +49,7 @@ Profiles are data, not code: defaults ship in the plugin
    maximum quality / maximum cost, `cruise` = strong daily default, `eco` =
    cheapest builders, for small well-scoped work.
 
-   **Supervision is topology, not a price tier (v6.38).** Every profile carries a
+   **Supervision is topology, not a price tier (v7.0).** Every profile carries a
    `supervisor` row, so every Full-mode run adds a frontier pass over the final
    diff before the verifier — on burn, cruise and eco alike. Say this at the
    decision point so the extra frontier dispatch is not a surprise, and do NOT
@@ -57,7 +57,7 @@ Profiles are data, not code: defaults ship in the plugin
    true (v6.30, eco only) the profiles were different pipelines rather than one
    pipeline at three prices, and their telemetry was not comparable.
 
-   **A profile only owns the roles it names (v6.38).** No named role class falls
+   **A profile only owns the roles it names (v7.0).** No named role class falls
    back to `default` any more, so a conf without a row for a role leaves that
    agent on its template pin — `code-reviewer` is the live example: no `reviewer`
    row ships, so switching profiles never touches it. Unnamed agents still take

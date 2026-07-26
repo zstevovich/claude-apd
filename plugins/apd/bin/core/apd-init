@@ -314,7 +314,7 @@ if [ "$MODE" = "update" ]; then
     # runs this script every session and would silently revert burn/eco).
     DECLARED_PROFILE=$(grep '^MODEL_PROFILE=' "$APD_CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
 
-    # v6.38 — a declared profile only OWNS the role classes it actually names.
+    # v7.0 — a declared profile only OWNS the role classes it actually names.
     # Since no named role falls back to `default` any more, a conf without a
     # `reviewer` row leaves `code-reviewer` on its template pin — `apd profile`
     # deliberately does not touch it. Skipping the repair on the mere PRESENCE of
@@ -331,7 +331,7 @@ if [ "$MODE" = "update" ]; then
 
     # --- code-reviewer agent ---
     if [ -f "$CLAUDE_DIR/agents/code-reviewer.md" ]; then
-        # Check model. Three-way since v6.38, because "a profile is declared" and
+        # Check model. Three-way since v7.0, because "a profile is declared" and
         # "the profile owns this role" stopped being the same thing.
         if _profile_owns reviewer; then
             ok "code-reviewer (model managed by profile '$DECLARED_PROFILE')"
@@ -390,7 +390,7 @@ if [ "$MODE" = "update" ]; then
         # Each refresh rewrites the file from the template, so the markers are
         # checked together and the file is regenerated at most once.
         #   reviewed-files    — scope directive (v4.7.10+)
-        #   guard-spec-blind  — spec-blindness enforcement (v6.38+); without it
+        #   guard-spec-blind  — spec-blindness enforcement (v7.0+); without it
         #                       the decontextualisation contract is intent only
         MISSING_MARKER=""
         grep -q 'reviewed-files' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null \
@@ -446,7 +446,7 @@ if [ "$MODE" = "update" ]; then
         fi
     fi
 
-    # --- builder charter (v6.38) ---------------------------------------------
+    # --- builder charter (v7.0) ---------------------------------------------
     # Builders are the least-educated role and the most consequential one: the
     # orchestrator gets a mandatory operating manual, the supervisor a charter,
     # the adversarial reviewer a template that explains its own blindness — while
