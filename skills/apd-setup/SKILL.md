@@ -144,6 +144,44 @@ bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-stack-scaffold dotnet
 
 **Supported stacks (v6.12+):** `dotnet`. Roadmap: `node-react`, `php-symfony`, `kmp-compose`, `python-django` (v6.13+).
 
+### 5c. Reconcile the project 1:1 with the framework (v7.0.3+)
+
+**This step is setup's job, not `apd-init`'s.** Init deliberately never rewrites a model once a profile is declared (`apd-init:336` — rewriting a hand-picked model on every session-start is the footgun v6.16.1 removed). The consequence: when the plugin changes what it ships — as v7.0 did, replacing every bare alias with a full id (`claude-opus-5`, `claude-sonnet-5`), moving the supervisor to `claude-opus-5`, and deleting guidance that v6.31 retracted — **nothing carries that into an existing project.** Setup is the only place that reconciles it, and it does so by asking.
+
+Measured cost of not doing it (Bambi, 2026-07-26, hours after v7.0.2): 7 of 9 agents on stale models, the supervisor still on a model no profile names, `workflow.md` 103 lines behind and still instructing the orchestrator to raise `maxTurns` — a field proven inert on 2026-07-09. Every mechanical check said the project was fine.
+
+**Gather all four before asking anything.** One report, one question.
+
+```bash
+# 1. Models vs the declared profile
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-model-profile status
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-model-profile <declared> --dry-run   # writes nothing
+
+# 2. Config, permissions, workflow.md content
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-audit-drift
+```
+
+3. **Agent frontmatter vs the shipped template** — compare every agent against `reference/agent-templates.md`: `tools`, `permissionMode`, `memory`, `color`, and `memory: none` on the adversarial reviewer. `scope` is project-specific and NEVER reset; `model`/`effort` belong to the profile (item 1), not the template.
+
+4. **Fields the framework no longer ships** — anything in an agent that the current template has no line for. `maxTurns` is the live example: removed in v6.31 after a controlled test proved CC ignores it (a subagent with `maxTurns: 3` ran 34 turns and finished). Carrying it is not harmful, but it is not configuration either, and any prose telling the user to tune it is wrong.
+
+Present ONE report and ask once. The recommendation is **full 1:1 alignment** — never a subset, never a per-item negotiation:
+
+> "Project declares profile `cruise`. Four things differ from framework v7.0.2:
+> - **Models:** 6 builders + code-reviewer `opus / xhigh` → `claude-opus-5 / high`; supervisor `claude-fable-5 / max` → `claude-opus-5 / max`
+> - **workflow.md:** 103 lines behind — still documents `maxTurns` tuning, which v6.31 removed
+> - **Agent frontmatter:** 2 agents missing `permissionMode`, adversarial missing `memory: none`
+> - **Dead fields:** `maxTurns` on 8 agents — no longer part of the template
+>
+> Recommended: align all four 1:1 with v7.0.2. Apply? **[Y/n]**"
+
+- **User accepts** → apply all four: `apd profile <declared>` (owned roles), unowned roles to their template pin, refresh `workflow.md` from the shipped copy (init keeps `workflow.md.bak.preaudit`), fix frontmatter fields, strip dead fields. Then say the session must be restarted — agent definitions are cached at session start, and `apd profile` drops `.apd/.pending-reload` so the PreToolUse guard blocks dispatch until `apd reload-done` or a fresh session.
+- **User declines** → change nothing and say so plainly. A declined reconcile is a valid end state; do not re-ask later in the same run, and do not apply "just the safe half".
+
+**Where references collide, name the authority instead of guessing.** `model-profiles.conf` is authoritative for `model`/`effort` — a missing row means "this profile does not mention that role", never "reset it to the default row", so a declared `cruise` builder is NOT dragged down to the template's `claude-sonnet-5`. The template is authoritative for structural fields. If a project rule and a framework file genuinely conflict, report the conflict in the same report rather than silently picking a side.
+
+If everything is in sync, say so in one line and move on.
+
 ### 6. Verify
 
 ```bash
@@ -159,6 +197,8 @@ The check must report `0 FAIL` before this skill finishes. If a FAIL surfaces, e
 - **Don't** populate `CLAUDE.md` with `{{PLACEHOLDER}}` values **→ Do** ask the user (or read from `CLAUDE_PLUGIN_OPTION_*` env vars) and fill every placeholder
 - **Don't** assume the stack from one folder name **→ Do** read enough of the project (`package.json`, `pom.xml`, `Cargo.toml`, etc.) to confirm before suggesting agents
 - **Don't** generate the reviewer agent with a cheap or unpinned model **→ Do** use `model: claude-opus-5, effort: max, permissionMode: plan` — this is the one agent where shortcuts matter
+- **Don't** hand-edit a `model:` line for a role the profile owns, and **don't** offer partial alignment ("update the builders, leave the supervisor") **→ Do** run `apd profile <declared>`, which moves every owned role at once. A profile the project only half-matches is worse than a declared drift: `apd profile status` then reports IN SYNC for a state nobody chose
+- **Don't** leave a declared-but-drifted profile unmentioned because init printed "managed by profile" **→ Do** run step 5c. Init says who owns the model, not whether the value is right — reconciling is setup's job
 - **Don't promise framework features that don't exist in generated CLAUDE.md / workflow.md.** Especially: `apd verify-contracts` supports **TypeScript ↔ C# only** (v6.12+). For PHP/Python/Java/Go/Ruby/Kotlin/Rust backends, the verifier ERRORS — do NOT write "apd verify-contracts automatically checks <X> DTO ↔ TS types" in generated docs for those stacks. Instead write "Cross-layer type mapping is manual — see the workflow.md section 7 table". This anti-pattern was observed in Festico apd-setup (2026-05-28) — orchestrator confabulated PHP support claim that does not exist. When uncertain about framework feature scope, read `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/<command>` script header for exact supported scope, or `docs/SPEC.md`.
 
 ## Exit criteria
@@ -171,6 +211,7 @@ You're done when:
 - The reviewer agent exists with `opus / max / plan / orange`
 - `.claude/.apd-config` (or `.apd/config`) is present with `PROJECT_NAME`, `APD_VERSION`, `STACK`
 - `.mcp.json` recommendations have been presented to the user (and either accepted or skipped explicitly)
+- If a profile is declared, `pipeline-model-profile status` was run and its verdict acted on: IN SYNC reported in one line, or DRIFTED presented as a single full-alignment offer that the user explicitly accepted or declined
 
 ## Hand-off
 

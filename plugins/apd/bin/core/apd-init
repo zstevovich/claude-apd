@@ -617,6 +617,16 @@ PYCHARTER
                 fi
             done
         fi
+        # v7.0.3 deliberately does NOT auto-refresh on a plain byte difference.
+        # It is real drift and `apd audit-drift` now reports it (dimension C),
+        # but a project's workflow.md legitimately differs: apd-setup itself
+        # instructs the orchestrator to write a per-stack table into section 7
+        # for languages verify-contracts does not support. Overwriting that
+        # unattended on every session-start would delete user-authored content
+        # this framework asked for — with one first-wins backup slot, so the
+        # SECOND edit would go unbacked, and silently under Codex, whose
+        # session-start runs init with output discarded. Same rule as models:
+        # init reports, /apd-setup step 5c reconciles BY ASKING.
         if [ -n "$WF_STALE_REASON" ]; then
             [ -f "$CLAUDE_DIR/rules/workflow.md.bak.preaudit" ] || cp "$CLAUDE_DIR/rules/workflow.md" "$CLAUDE_DIR/rules/workflow.md.bak.preaudit"
             cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$CLAUDE_DIR/rules/workflow.md"
@@ -723,20 +733,20 @@ sys.exit(1)
         # Edit-only. A legacy APD Write(...) allow twin present also triggers
         # repair: the merge strips it (inert on 2.1.208+ → startup "use Edit"
         # warnings). See CC permissions min-version 2.1.208.
-        PERMS_MISSING=false
-        for perm in "Edit(.apd/pipeline/spec-card.md)" "Bash(bash .claude/bin/apd *)" "Edit(**/.apd/pipeline/spec-card.md)" "Bash(mkdir .apd/pipeline)"; do
-            if ! grep -qF "$perm" "$CLAUDE_DIR/settings.json" 2>/dev/null; then
-                PERMS_MISSING=true
-                break
-            fi
-        done
-        if [ "$PERMS_MISSING" = false ] \
-           && grep -qE 'Write\((\*\*/)?\.(claude/memory|apd/pipeline)' "$CLAUDE_DIR/settings.json" 2>/dev/null; then
-            PERMS_MISSING=true
-        fi
-        if [ "$PERMS_MISSING" = true ]; then
-            # Rebuild permissions array with all required entries
-            python3 -c "
+        # v7.0.3: there is no bash pre-probe any more. It kept its OWN list of
+        # four sentinels, separate from the required lists below, so every time
+        # the required list grew the probe stayed behind and existing projects
+        # never re-entered the merge. That is exactly how it failed twice: the
+        # v6.10 deny expansion (fixed in v6.16.1 by adding a deny sentinel) and
+        # again in v6.30/v7.0, when the allow list went from the pre-v6.7 trio to
+        # seven pipeline files — measured on Bambi 2026-07-26, where the four
+        # sentinels all matched and `.guide-marker`, `.adversarial-rationale.md`
+        # and both supervision files never arrived, so the gates the framework
+        # MANDATES prompted on paths it had promised to pre-approve.
+        # The merge below is now the single source of truth: it computes the
+        # result, writes only when it differs, and exits 1 when nothing changed.
+        PERM_RC=0
+        PERM_OUT=$(python3 -c "
 import json, sys
 with open('$CLAUDE_DIR/settings.json') as f:
     s = json.load(f)
@@ -778,14 +788,46 @@ apd_write_twins = {
 # Write(...) allow twins — otherwise they emit startup 'use Edit(path)' warnings.
 existing_allow = [x for x in s.get('permissions', {}).get('allow', []) if x not in apd_write_twins]
 existing_deny = s.get('permissions', {}).get('deny', [])
-s.setdefault('permissions', {})['allow'] = list(dict.fromkeys(existing_allow + required_allow))
-s.setdefault('permissions', {})['deny'] = list(dict.fromkeys(existing_deny + required_deny))
-with open('$CLAUDE_DIR/settings.json', 'w') as f:
+before_allow = s.get('permissions', {}).get('allow', [])
+before_deny = list(existing_deny)
+merged_allow = list(dict.fromkeys(existing_allow + required_allow))
+merged_deny = list(dict.fromkeys(existing_deny + required_deny))
+# Nothing to do — say so by exit code instead of by a separate probe that can
+# fall behind this list. Code 3, NOT 1: CPython exits 1 on any uncaught
+# exception and this call discards stderr, so no-change and crashed-on-a-
+# malformed-settings.json would be the same signal — and the crash would be
+# reported as a green OK on exactly the projects the merge exists to repair.
+if merged_allow == before_allow and merged_deny == before_deny:
+    sys.exit(3)
+added = len([x for x in merged_allow if x not in before_allow]) + len([x for x in merged_deny if x not in before_deny])
+stripped = len([x for x in before_allow if x in apd_write_twins])
+s.setdefault('permissions', {})['allow'] = merged_allow
+s.setdefault('permissions', {})['deny'] = merged_deny
+# Atomic: every other settings.json writer in this script goes through
+# mktemp + mv. An interrupted in-place write leaves a truncated file, and a
+# truncated file is exactly the input the merge cannot parse.
+import os, tempfile
+_dst = '$CLAUDE_DIR/settings.json'
+_fd, _tmp = tempfile.mkstemp(dir=os.path.dirname(_dst) or '.', prefix='.settings.', suffix='.tmp')
+with os.fdopen(_fd, 'w') as f:
     json.dump(s, f, indent=2, ensure_ascii=False)
     f.write('\n')
-" 2>/dev/null && fix "Updated permissions (pipeline + apd commands)" && FIXES=$((FIXES + 1)) || warn "Could not update permissions (python3 required)"
-        else
+os.replace(_tmp, _dst)
+print('%d added, %d legacy Write twin(s) stripped' % (added, stripped))
+" 2>/dev/null) || PERM_RC=$?
+        if [ "$PERM_RC" -eq 0 ]; then
+            fix "Updated permissions (pipeline + apd commands) — $PERM_OUT"
+            FIXES=$((FIXES + 1))
+        elif [ "$PERM_RC" -eq 3 ]; then
             ok "permissions (pipeline + apd commands)"
+        elif [ "$PERM_RC" -eq 127 ]; then
+            warn "Could not update permissions (python3 required)"
+        else
+            # Any other code is the merge dying — almost always an unparseable
+            # settings.json (merge conflict markers, truncated write). Never
+            # report that as OK: the pipeline files stay unapproved and the
+            # gates the framework mandates will prompt.
+            warn "Could not update permissions — settings.json may be invalid JSON (run: python3 -m json.tool $CLAUDE_DIR/settings.json)"
         fi
     fi
 

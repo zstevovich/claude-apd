@@ -187,6 +187,20 @@ if [ -f "$WORKFLOW_FILE" ] && [ -f "$FRAMEWORK_WORKFLOW" ]; then
         IMPORTANT+=("  Missing: ${MISSING_MARKERS[*]}")
         IMPORTANT+=("  Effect: orchestrator does not see plan-spec Implements format / rationale gate / v6.15 apd-pipeline-guide gate / v6.30 supervision guidance. A copy this stale still instructs --skip-brainstorm and max_defects, both removed in v7.0 — following it wastes a cycle on flags that no longer do anything")
         IMPORTANT+=("  Recovery: re-run '/apd-setup' to refresh workflow.md from current framework template")
+    elif ! cmp -s "$WORKFLOW_FILE" "$FRAMEWORK_WORKFLOW"; then
+        # v7.0.3: the marker sweep above is ONE-WAY — it asks "framework has it,
+        # project doesn't". It is structurally blind to a project still carrying
+        # a section the framework DELETED, which is the more dangerous half: the
+        # orchestrator reads instructions the framework has retracted.
+        # Measured on Bambi 2026-07-26: 103 lines behind, still carrying the v6
+        # "Raising maxTurns makes pipelines faster" section that v6.31 removed
+        # (maxTurns was proven a no-op on 2026-07-09), every marker present —
+        # and this dimension reported CLEAN. workflow.md is a plain `cp` with no
+        # placeholders, so byte-equality is the entire contract.
+        WF_DELTA=$(diff "$FRAMEWORK_WORKFLOW" "$WORKFLOW_FILE" 2>/dev/null | grep -c '^[<>]') || true
+        IMPORTANT+=("[.claude/rules/workflow.md] differs from the shipped file (${WF_DELTA:-?} changed line(s)) — every guidance marker is present, so the marker sweep passes it")
+        IMPORTANT+=("  Effect: the project may be running RETRACTED guidance. A marker check cannot see instructions the framework has since deleted — it only sees ones it has added")
+        IMPORTANT+=("  Recovery: re-run '/apd-setup' to refresh workflow.md (init keeps the current copy as workflow.md.bak.preaudit). If the difference is deliberate, that file is a plain copy of the framework's — put project-specific rules in CLAUDE.md instead")
     fi
 fi
 

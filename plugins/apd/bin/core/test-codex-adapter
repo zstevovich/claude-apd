@@ -7266,16 +7266,7 @@ PROJECT_NAME=clean-test
 APD_VERSION=$(cat "$APD_PLUGIN_ROOT/VERSION")
 STACK=test
 EOF
-cat > "$V6_10_SCRATCH/.claude/rules/workflow.md" <<'EOF'
-# Workflow
-
-**Implements:** R1 — plan-spec consistency demo
-**rationale gate** — v6.7 reference
-**DEPRECATED as of v6.9** — max_defects soft removal
-**unconditional** — guide-marker v6.15
-**apd-pipeline-guide** — v6.15 mandatory operating manual
-**SUPERVISION** — v6.30 profile-coupled final review
-EOF
+cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$V6_10_SCRATCH/.claude/rules/workflow.md"
 CLEAN_OUT="$(run_drift_v6_10)"
 if echo "$CLEAN_OUT" | grep -qE "EXIT=0" && echo "$CLEAN_OUT" | grep -qE "CLEAN|no drift detected"; then
     pass "clean project (all 3 dimensions valid) → exit 0 + CLEAN"
@@ -7340,16 +7331,19 @@ else
 fi
 
 # Live L: missing workflow.md markers → IMPORTANT + exit 1
-# Restore canonical settings + APD_VERSION; write stale workflow
+# Restore canonical settings + APD_VERSION; write stale workflow.
+# This one is deliberately NOT a copy of the shipped file — it is the
+# marker-absence path (dimension C's original half), so it must stay hand-rolled.
 cat > "$V6_10_SCRATCH/.apd/config" <<EOF
 PROJECT_NAME=stale-workflow-test
 APD_VERSION=$(cat "$APD_PLUGIN_ROOT/VERSION")
 STACK=test
 EOF
 cat > "$V6_10_SCRATCH/.claude/rules/workflow.md" <<'EOF'
-# Stale workflow
+# Workflow
 
-No modern markers present here.
+Pre-v6.7 guidance: write a spec, hand it to a builder, review the diff.
+No plan-spec contract, no rationale gate, no guide, no supervision.
 EOF
 WORKFLOW_OUT="$(run_drift_v6_10)"
 if echo "$WORKFLOW_OUT" | grep -qE "EXIT=1" && echo "$WORKFLOW_OUT" | grep -qE "v6\.7\+ guidance markers missing"; then
@@ -7370,16 +7364,7 @@ APD_VERSION=${CURRENT_MAJOR_MINOR}.99
 STACK=test
 EOF
 # Restore canonical workflow
-cat > "$V6_10_SCRATCH/.claude/rules/workflow.md" <<'EOF'
-# Workflow
-
-**Implements:** R1
-**rationale gate** — v6.7
-**DEPRECATED as of v6.9**
-**unconditional** — v6.15
-**apd-pipeline-guide** — v6.15
-**SUPERVISION** — v6.30
-EOF
+cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$V6_10_SCRATCH/.claude/rules/workflow.md"
 PATCH_OUT="$(run_drift_v6_10)"
 if echo "$PATCH_OUT" | grep -qE "EXIT=0" \
    && echo "$PATCH_OUT" | grep -qE "INFO:" \
@@ -8069,14 +8054,8 @@ cat > "$V6_12_3_SCRATCH/.claude/settings.json" <<'EOF'
 EOF
 
 # Live F: workflow.md WITH confabulation → drift IMPORTANT
-cat > "$V6_12_3_SCRATCH/.claude/rules/workflow.md" <<'EOF'
-# Workflow
-**Implements:** R1
-rationale gate
-DEPRECATED
-unconditional
-apd-pipeline-guide
-SUPERVISION
+cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$V6_12_3_SCRATCH/.claude/rules/workflow.md"
+cat >> "$V6_12_3_SCRATCH/.claude/rules/workflow.md" <<'EOF'
 
 ## Cross-layer verification
 apd verify-contracts automatically checks PHP DTO ↔ TypeScript types.
@@ -8094,25 +8073,17 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Live G: workflow.md WITHOUT confabulation (manual guidance) → no dim D flag
-cat > "$V6_12_3_SCRATCH/.claude/rules/workflow.md" <<'EOF'
-# Workflow
-**Implements:** R1
-rationale gate
-DEPRECATED
-unconditional
-apd-pipeline-guide
-SUPERVISION
+# Live G: workflow.md WITHOUT confabulation (manual guidance) → no dim D flag.
+# Dimension C legitimately fires here (the appended line makes the file differ
+# from the shipped one), so this asserts dim D specifically, not the exit code.
+cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$V6_12_3_SCRATCH/.claude/rules/workflow.md"
+cat >> "$V6_12_3_SCRATCH/.claude/rules/workflow.md" <<'EOF'
 
 ## Cross-layer verification
-When a task involves backend + frontend/mobile:
-1. Backend DTO is the source of truth
-2. For each field, map the type to the frontend equivalent
-3. Manual cross-layer review — automatic verification only for TS ↔ C# pairs
+Backend DTO is the source of truth for PHP — map the type by hand.
 EOF
 CLEAN_OUT=$(APD_PROJECT_DIR="$V6_12_3_SCRATCH" bash "$DRIFT_SCRIPT" 2>&1; echo "EXIT=$?")
-if echo "$CLEAN_OUT" | grep -qE 'EXIT=0' \
-   && ! echo "$CLEAN_OUT" | grep -qE 'Feature claim drift'; then
+if ! echo "$CLEAN_OUT" | grep -qE 'Feature claim drift'; then
     pass "manual cross-layer guidance (no command + lang combo) → no false dim D flag"
     PASSES=$((PASSES + 1))
 else
@@ -8889,13 +8860,18 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static C: workflow.md content-marker staleness check + backup
+# Static C: workflow.md refresh stays MARKER-based, with backup. v7.0.3 widened
+# DETECTION to byte-equality (audit-drift dim C, §124) but deliberately did not
+# widen the automatic overwrite: a byte difference is often content apd-setup
+# itself told the project to write, and the single first-wins backup slot would
+# lose every edit after the first. Reconciling that is /apd-setup step 5c's job.
 if grep -q 'WF_STALE_REASON' "$INIT_SCRIPT" && grep -q 'workflow.md.bak.preaudit' "$INIT_SCRIPT" \
-   && grep -q '"apd-pipeline-guide"' "$INIT_SCRIPT"; then
-    pass "apd-init refreshes workflow.md on missing content markers (with backup)"
+   && grep -q '"apd-pipeline-guide"' "$INIT_SCRIPT" \
+   && ! grep -q 'WF_STALE_REASON="differs from the shipped' "$INIT_SCRIPT"; then
+    pass "apd-init refreshes workflow.md on missing guidance markers only (byte drift is reported, not overwritten)"
     PASSES=$((PASSES + 1))
 else
-    fail "apd-init workflow.md marker refresh missing"
+    fail "apd-init workflow.md refresh policy wrong — markers refresh, byte drift must NOT auto-overwrite"
     FAILS=$((FAILS + 1))
 fi
 
@@ -13615,6 +13591,331 @@ else
     fail "bare array expansion under set -u — dies on an empty array in bash 3.2 — in:$U32_BAD"
     FAILS=$((FAILS + 1))
 fi
+
+section "123. A declared profile must be reconciled by setup, not by init"
+
+# v7.0 re-pinned every shipped model to a full id (`opus` -> `claude-opus-5`,
+# supervisor -> `claude-opus-5`). Nothing carried that into an existing project:
+# `apd-init` deliberately steps aside once a profile is declared (the v6.16.1
+# footgun — rewriting a hand-picked model on every session-start), and
+# `apd profile` only ever runs when a human types it. Measured on Bambi the day
+# v7.0.2 shipped: config said `cruise`, and 7 of 9 agents were on `opus/xhigh`
+# with the supervisor still on `claude-fable-5`. Init printed "managed by
+# profile" — true about ownership, silent about the value being wrong.
+#
+# The owner of reconciling is apd-setup, and it must ASK: full 1:1 alignment is
+# the recommendation, the user may decline, and a partial apply is never offered.
+SETUP_SKILL="$REPO_ROOT/skills/apd-setup/SKILL.md"
+PROFILE_BIN="$APD_PLUGIN_ROOT/bin/core/pipeline-model-profile"
+
+# The step exists AND the command it names is real (a doc that cites a route the
+# script does not implement is the confabulation this project has shipped before).
+# NB: POSIX ERE has no \s — a `^\s*status\)` alternative silently never matches
+# on BSD grep, which is how a check ends up passing on one live alternative and
+# two dead ones. Match the literal dispatch form the script actually uses.
+if grep -q 'pipeline-model-profile status' "$SETUP_SKILL" 2>/dev/null \
+   && grep -qE '^[[:space:]]*(status\)|status\|)' "$PROFILE_BIN" 2>/dev/null; then
+    pass "apd-setup reconcile step calls a status route that pipeline-model-profile implements"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-setup must run 'pipeline-model-profile status' and that route must exist"
+    FAILS=$((FAILS + 1))
+fi
+
+if grep -qE 'pipeline-model-profile <declared> --dry-run' "$SETUP_SKILL" 2>/dev/null \
+   && grep -q -- '--dry-run)' "$PROFILE_BIN" 2>/dev/null; then
+    pass "reconcile previews with --dry-run before writing (flag exists in the script)"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-setup must preview with --dry-run and the flag must exist in pipeline-model-profile"
+    FAILS=$((FAILS + 1))
+fi
+
+# Full alignment is the recommendation, and declining is a valid end state.
+if grep -qiE 'full 1:1 alignment|align everything 1:1' "$SETUP_SKILL" 2>/dev/null \
+   && grep -qiE 'declined reconcile is a valid end state|User declines' "$SETUP_SKILL" 2>/dev/null; then
+    pass "reconcile recommends full 1:1 alignment and lets the user decline"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-setup reconcile must recommend FULL alignment and accept a decline"
+    FAILS=$((FAILS + 1))
+fi
+
+# A partial apply must be named as forbidden — half-alignment makes `status`
+# report IN SYNC for a state nobody chose.
+if grep -qiE "don't offer partial alignment|never a subset" "$SETUP_SKILL" 2>/dev/null; then
+    pass "partial alignment is called out as an anti-pattern"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-setup must forbid partial profile alignment"
+    FAILS=$((FAILS + 1))
+fi
+
+# Reconcile is FOUR things, not just models. Bambi had stale models AND a
+# workflow.md 103 lines behind AND dead maxTurns fields — a models-only step
+# would have declared that project reconciled.
+RECON_BLOCK=$(awk '/^### 5c\./{f=1} f&&/^### 6\./{exit} f' "$SETUP_SKILL" 2>/dev/null)
+RECON_MISS=""
+echo "$RECON_BLOCK" | grep -q 'pipeline-model-profile status'  || RECON_MISS="$RECON_MISS models"
+echo "$RECON_BLOCK" | grep -q 'pipeline-audit-drift'           || RECON_MISS="$RECON_MISS drift/workflow"
+echo "$RECON_BLOCK" | grep -qi 'agent-templates.md'            || RECON_MISS="$RECON_MISS frontmatter"
+echo "$RECON_BLOCK" | grep -q 'maxTurns'                       || RECON_MISS="$RECON_MISS dead-fields"
+if [ -z "$RECON_MISS" ]; then
+    pass "reconcile covers all four surfaces (models, workflow.md, frontmatter, dead fields)"
+    PASSES=$((PASSES + 1))
+else
+    fail "reconcile leaves gaps —$RECON_MISS not covered"
+    FAILS=$((FAILS + 1))
+fi
+
+# Colliding references must be adjudicated, not guessed. The conf's own header
+# says a missing row never means "reset to the default row" — so a cruise
+# builder must not be dragged down to the template's sonnet pin.
+if echo "$RECON_BLOCK" | grep -qiE 'authoritative for .*model|name the authority'; then
+    pass "reconcile names the authority when template and profile collide"
+    PASSES=$((PASSES + 1))
+else
+    fail "reconcile must state which reference wins (conf owns model/effort, template owns structure)"
+    FAILS=$((FAILS + 1))
+fi
+
+# Exit criteria must carry it, or the step is skippable in silence.
+if awk '/^## Exit criteria/{f=1;next} f&&/^## /{exit} f' "$SETUP_SKILL" 2>/dev/null | grep -qiE 'pipeline-model-profile status|IN SYNC.*DRIFTED|profile is declared'; then
+    pass "reconcile verdict is an exit criterion (cannot be skipped silently)"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-setup exit criteria must require the profile verdict be acted on"
+    FAILS=$((FAILS + 1))
+fi
+
+# The division of labour holds: init must still NOT rewrite a model it says the
+# profile owns. If someone "fixes" the drift by making init write, this flips.
+# `_profile_owns` gates three branches (reviewer, and adversarial twice). Check
+# every one, not a fixed 3-line window over the first — a `sed -i` added to any
+# other owned branch is the same footgun and a windowed check waves it through.
+OWNED_VIOL=""
+while IFS=: read -r _ln _; do
+    [ -n "$_ln" ] || continue
+    # A write that RESTORES the previous pin ($PREV_MODEL/$PREV_EFFORT, after a
+    # template refresh) is the profile being respected, not overridden. The
+    # violation is writing a template or hardcoded value into an owned role.
+    if awk -v s="$_ln" 'NR>=s && NR<s+8' "$APD_PLUGIN_ROOT/bin/core/apd-init" 2>/dev/null \
+         | grep -E "sed -i.*(model|effort):" | grep -qv 'PREV_'; then
+        OWNED_VIOL="$OWNED_VIOL $_ln"
+    fi
+done <<EOF
+$(grep -n '_profile_owns [a-z]' "$APD_PLUGIN_ROOT/bin/core/apd-init" 2>/dev/null | grep -v '_profile_owns()')
+EOF
+if [ -z "$OWNED_VIOL" ]; then
+    pass "apd-init leaves profile-owned models alone in every branch (ownership boundary intact)"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-init rewrites a profile-owned model near line(s):$OWNED_VIOL — that is the v6.16.1 footgun; reconciling belongs to setup"
+    FAILS=$((FAILS + 1))
+fi
+
+section "124. Drift must see guidance the framework DELETED, not only guidance it added"
+
+# Dimension C compared marker presence one way: "framework has it, project does
+# not". Nothing asked the reverse, so a project could keep a section the
+# framework had retracted and still be reported CLEAN — and the orchestrator
+# reads that file as instructions.
+#
+# Measured on Bambi 2026-07-26, an hour after v7.0.2 landed: workflow.md was 103
+# lines behind and still carried the v6 "Raising maxTurns makes pipelines faster
+# / Do NOT lower" section, which v6.31 deleted after maxTurns was proven a no-op
+# (controlled test 2026-07-09: a subagent with maxTurns: 3 ran 34 turns). Every
+# marker was present. `apd audit-drift` said CLEAN for weeks. workflow.md is a
+# plain `cp` with zero placeholders, so byte-equality is the entire contract.
+WFD_SCRATCH="$(mktemp -d -t apd-wfdrift.XXXXXX)"
+mkdir -p "$WFD_SCRATCH/.claude/rules" "$WFD_SCRATCH/.apd"
+cat > "$WFD_SCRATCH/.apd/config" <<EOF
+PROJECT_NAME=wf-drift-test
+APD_VERSION=$(cat "$APD_PLUGIN_ROOT/VERSION")
+STACK=test
+EOF
+cat > "$WFD_SCRATCH/.claude/settings.json" <<'EOF'
+{"permissions":{"deny":["Bash(mkdir */.apd/pipeline/*)","Bash(mkdir -p */.apd/pipeline/*)","Bash(mkdir */.apd/pipeline)","Bash(mkdir -p */.apd/pipeline)","Bash(mkdir .apd/pipeline/*)","Bash(mkdir -p .apd/pipeline/*)","Bash(mkdir .apd/pipeline)","Bash(mkdir -p .apd/pipeline)"]}}
+EOF
+
+# Live A: byte-identical copy → CLEAN (no false positive on a healthy project)
+cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$WFD_SCRATCH/.claude/rules/workflow.md"
+WFD_CLEAN=$(APD_PROJECT_DIR="$WFD_SCRATCH" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-audit-drift" 2>&1; echo "EXIT=$?")
+if echo "$WFD_CLEAN" | grep -q 'EXIT=0' && ! echo "$WFD_CLEAN" | grep -q 'differs from the shipped file'; then
+    pass "workflow.md identical to the shipped file → CLEAN"
+    PASSES=$((PASSES + 1))
+else
+    fail "an up-to-date workflow.md must not be flagged: $WFD_CLEAN"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live B: THE RED-GREEN. Every marker present (it is the shipped file) PLUS a
+# retracted section appended. The marker sweep passes it; byte-equality does not.
+cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$WFD_SCRATCH/.claude/rules/workflow.md"
+cat >> "$WFD_SCRATCH/.claude/rules/workflow.md" <<'EOF'
+
+## Raising maxTurns makes pipelines faster
+Raise per-project if you see recurring exhaust. Do NOT lower.
+EOF
+WFD_STALE=$(APD_PROJECT_DIR="$WFD_SCRATCH" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-audit-drift" 2>&1; echo "EXIT=$?")
+if echo "$WFD_STALE" | grep -q 'EXIT=1' && echo "$WFD_STALE" | grep -q 'differs from the shipped file'; then
+    pass "workflow.md carrying a RETRACTED section → IMPORTANT + exit 1 (markers all present)"
+    PASSES=$((PASSES + 1))
+else
+    fail "retracted guidance must be detected — this is the CLEAN-for-weeks bug: $WFD_STALE"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live C: the counted delta is reported, so the message is actionable
+if echo "$WFD_STALE" | grep -qE 'changed line\(s\)'; then
+    pass "drift reports how many lines differ"
+    PASSES=$((PASSES + 1))
+else
+    fail "drift must report the size of the difference"
+    FAILS=$((FAILS + 1))
+fi
+
+# Live D: detection is drift's job; DELETION is not init's. apd-setup itself
+# tells the orchestrator to author a per-stack table into workflow.md section 7
+# for languages verify-contracts cannot check, so a byte difference is often
+# content the framework ASKED for. Init must report and leave it — one
+# first-wins backup slot means the second edit would vanish unbacked, and the
+# Codex session-start runs init with output discarded, so it would be silent.
+# Same rule as models: init reports, /apd-setup step 5c reconciles by asking.
+# This runs init for real and asserts the bytes survive.
+mkdir -p "$WFD_SCRATCH/.claude/rules" "$WFD_SCRATCH/.claude/agents"
+cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$WFD_SCRATCH/.claude/rules/workflow.md"
+cat >> "$WFD_SCRATCH/.claude/rules/workflow.md" <<'EOF'
+
+## 7b. Project-authored table
+PHP DTO ↔ TS mapping is manual — see the table below.
+EOF
+cat > "$WFD_SCRATCH/.claude/.apd-config" <<EOF
+PROJECT_NAME=wf-drift-test
+APD_VERSION=$(cat "$APD_PLUGIN_ROOT/VERSION")
+STACK=test
+EOF
+APD_PROJECT_DIR="$WFD_SCRATCH" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick >/dev/null 2>&1 || true
+if grep -q 'Project-authored table' "$WFD_SCRATCH/.claude/rules/workflow.md" 2>/dev/null; then
+    pass "apd-init does NOT delete project-authored workflow.md content on a byte difference"
+    PASSES=$((PASSES + 1))
+else
+    fail "apd-init overwrote user-authored workflow.md content unattended — the backup holds only the FIRST such loss"
+    FAILS=$((FAILS + 1))
+fi
+
+# ...but a copy missing shipped guidance IS refreshed (the marker path, unchanged).
+cat > "$WFD_SCRATCH/.claude/rules/workflow.md" <<'EOF'
+# Workflow
+Pre-v6.7 guidance with none of the shipped markers.
+EOF
+APD_PROJECT_DIR="$WFD_SCRATCH" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick >/dev/null 2>&1 || true
+if grep -q 'apd-pipeline-guide' "$WFD_SCRATCH/.claude/rules/workflow.md" 2>/dev/null \
+   && [ -f "$WFD_SCRATCH/.claude/rules/workflow.md.bak.preaudit" ]; then
+    pass "apd-init still refreshes a copy missing shipped guidance (with backup)"
+    PASSES=$((PASSES + 1))
+else
+    fail "marker-based refresh regressed — a genuinely stale workflow.md was left in place"
+    FAILS=$((FAILS + 1))
+fi
+
+rm -rf "$WFD_SCRATCH"
+
+section "125. The permissions merge must be its own probe"
+
+# The repair used to be gated by a bash pre-probe carrying FOUR hand-picked
+# sentinels, kept separately from the required lists it guarded. Every time the
+# required list grew, the probe stayed behind and existing projects never
+# re-entered the merge — the same bug twice: the v6.10 deny expansion (patched
+# in v6.16.1 by adding a deny sentinel) and the v6.30/v7.0 allow expansion from
+# the pre-v6.7 trio to seven pipeline files. Measured on Bambi 2026-07-26: all
+# four sentinels matched, so `.guide-marker`, `.adversarial-rationale.md` and
+# both supervision files never arrived — on paths whose whole purpose is that
+# the gates the framework MANDATES do not prompt.
+PERMFIX_T="$(mktemp -d -t apd-permfix.XXXXXX)"
+mkdir -p "$PERMFIX_T/.claude/rules" "$PERMFIX_T/.claude/agents"
+cat > "$PERMFIX_T/.claude/.apd-config" <<EOF
+PROJECT_NAME=legacy-perms
+APD_VERSION=$(cat "$APD_PLUGIN_ROOT/VERSION")
+STACK=test
+EOF
+# A legacy install: every old sentinel present, only the pre-v6.7 trio allowed,
+# all 8 deny patterns already there, plus one unrelated user rule.
+cat > "$PERMFIX_T/.claude/settings.json" <<'EOF'
+{"permissions":{"allow":["Edit(.claude/memory/**)","Edit(.apd/pipeline/spec-card.md)","Edit(.apd/pipeline/implementation-plan.md)","Edit(.apd/pipeline/.adversarial-summary)","Edit(**/.apd/pipeline/spec-card.md)","Bash(bash .claude/bin/apd *)","Bash(git status:*)"],"deny":["Bash(mkdir .apd/pipeline)","Bash(mkdir -p .apd/pipeline)","Bash(mkdir */.apd/pipeline)","Bash(mkdir -p */.apd/pipeline)","Bash(mkdir .apd/pipeline/*)","Bash(mkdir -p .apd/pipeline/*)","Bash(mkdir */.apd/pipeline/*)","Bash(mkdir -p */.apd/pipeline/*)"]}}
+EOF
+APD_PROJECT_DIR="$PERMFIX_T" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick >/dev/null 2>&1 || true
+PERMFIX_MISS=""
+for _p in '.guide-marker' '.adversarial-rationale.md' '.supervision-summary' '.supervision-rationale.md'; do
+    grep -qF "Edit(.apd/pipeline/$_p)" "$PERMFIX_T/.claude/settings.json" 2>/dev/null || PERMFIX_MISS="$PERMFIX_MISS $_p"
+done
+if [ -z "$PERMFIX_MISS" ]; then
+    pass "legacy install with all old sentinels still gets the v6.30/v7.0 pipeline files"
+    PASSES=$((PASSES + 1))
+else
+    fail "merge skipped on a legacy install — missing:$PERMFIX_MISS (the probe fell behind the required list)"
+    FAILS=$((FAILS + 1))
+fi
+
+# The merge must not eat unrelated user rules while doing it.
+if grep -qF 'Bash(git status:*)' "$PERMFIX_T/.claude/settings.json" 2>/dev/null; then
+    pass "unrelated user permission rules survive the merge"
+    PASSES=$((PASSES + 1))
+else
+    fail "merge dropped a user rule"
+    FAILS=$((FAILS + 1))
+fi
+
+# Second run must be a no-op — asserted on the FILE, not on the message. A merge
+# that crashes also prints nothing, so a message-only check scores a permanently
+# broken project as "idempotent" (found by the pre-release audit on exactly this
+# check). Run twice more and compare bytes: the attribution block settles on the
+# first of the two, so run N and N+1 must be identical.
+APD_PROJECT_DIR="$PERMFIX_T" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick >/dev/null 2>&1 || true
+PERMFIX_H1=$(cksum < "$PERMFIX_T/.claude/settings.json")
+APD_PROJECT_DIR="$PERMFIX_T" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick >/dev/null 2>&1 || true
+PERMFIX_H2=$(cksum < "$PERMFIX_T/.claude/settings.json")
+if [ "$PERMFIX_H1" = "$PERMFIX_H2" ]; then
+    pass "permissions merge reaches a fixed point (settings.json byte-identical across runs)"
+    PASSES=$((PASSES + 1))
+else
+    fail "settings.json churns on every session-start"
+    FAILS=$((FAILS + 1))
+fi
+
+# An unparseable settings.json must WARN, never report OK. The merge signals
+# "no change" with exit 3 precisely because CPython exits 1 on any uncaught
+# exception and this call discards stderr — before the fix, a truncated file
+# reported a green "permissions (pipeline + apd commands)" while the pipeline
+# files it exists to approve never arrived.
+PERMFIX_BAD="$(mktemp -d -t apd-permbad.XXXXXX)"
+mkdir -p "$PERMFIX_BAD/.claude/rules" "$PERMFIX_BAD/.claude/agents"
+cat > "$PERMFIX_BAD/.claude/.apd-config" <<EOF
+PROJECT_NAME=bad-json
+APD_VERSION=$(cat "$APD_PLUGIN_ROOT/VERSION")
+STACK=test
+EOF
+printf '%s' '{"permissions":{"allow":["Edit(x)"' > "$PERMFIX_BAD/.claude/settings.json"
+PERMFIX_BADOUT=$(APD_PROJECT_DIR="$PERMFIX_BAD" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick 2>&1 | grep -i 'permission')
+if echo "$PERMFIX_BADOUT" | grep -qi 'invalid JSON' && ! echo "$PERMFIX_BADOUT" | grep -qi 'Updated permissions'; then
+    pass "unparseable settings.json warns (a crashed merge is not reported as OK)"
+    PASSES=$((PASSES + 1))
+else
+    fail "a broken settings.json must not be reported as healthy: $PERMFIX_BADOUT"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$PERMFIX_BAD"
+
+# Anti-regression on the CLASS: no second list may reappear as a gate.
+if grep -q 'PERMS_MISSING' "$APD_PLUGIN_ROOT/bin/core/apd-init"; then
+    fail "a separate permissions probe is back — it will fall behind the required list again"
+    FAILS=$((FAILS + 1))
+else
+    pass "no separate sentinel list gates the permissions merge"
+    PASSES=$((PASSES + 1))
+fi
+
+rm -rf "$PERMFIX_T"
 
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
