@@ -42,11 +42,13 @@ source "$(dirname "$0")/../lib/style.sh"
 FILE_PATH=""
 COMMAND=""
 AGENT_TYPE=""
+TOOL=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --agent-type) AGENT_TYPE="$2"; shift 2 ;;
     --file-path)  FILE_PATH="$2"; shift 2 ;;
     --command)    COMMAND="$2"; shift 2 ;;
+    --tool)       TOOL="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -102,6 +104,10 @@ _rel_path() {
     [ -d "$d" ] && abs="$(cd "$d" 2>/dev/null && pwd -P)/$(basename "$p")"
   fi
   [ -z "$abs" ] && abs="$p"
+  # The project root itself strips to nothing, not to an absolute path: `path: "."`
+  # resolves to PROJ_CANON exactly, where the `#PROJ_CANON/` strip does not match
+  # (no trailing slash) and left the value absolute, so every comparison missed.
+  [ "$abs" = "$PROJ_CANON" ] && { printf ''; return 0; }
   printf '%s' "${abs#"$PROJ_CANON"/}"
 }
 
@@ -120,9 +126,47 @@ _deny() {
   exit 2
 }
 
+# Normalise a project-relative path for comparison: strip surrounding quotes,
+# collapse `//` and `/./`, drop a leading `./` and any trailing `/`. The audit
+# found the raw form let `.apd/./pipeline/spec-card.md` and `.apd//pipeline/...`
+# through while the identical path without the extra separators was blocked —
+# one character of difference, same file.
+_norm() {
+  local p="$1"
+  p="${p//\"/}"; p="${p//\'/}"
+  while [ "$p" != "${p//\/.\//\/}" ]; do p="${p//\/.\//\/}"; done
+  while [ "$p" != "${p//\/\//\/}" ]; do p="${p//\/\//\/}"; done
+  p="${p#./}"
+  p="${p%/}"
+  [ "$p" = "." ] && p=""
+  printf '%s' "$p"
+}
+
+# Does $1 reach $2 — by being it, being inside it, or being an ANCESTOR of it?
+# The ancestor half is the one that was missing: a recursive read rooted at `.`
+# or `.apd` reaches the pipeline directory just as surely as naming it, and the
+# empty string means the project root.
+_reaches() {
+  local p="$1" blinded="$2"
+  [ -z "$p" ] && return 0
+  case "$p" in "$blinded"|"$blinded"/*) return 0 ;; esac
+  case "$blinded" in "$p"/*) return 0 ;; esac
+  return 1
+}
+
 # --- Channel 1: Read / Glob / Grep target ----------------------------------
+# A Grep or Glob with NO path searches the whole project, so it reaches blinded
+# content while carrying nothing for a path matcher to match. That is not an
+# evasion, it is the tool's default form — and it is also outside this role's
+# contract, which is to read the files `.reviewed-files` lists and nothing else.
+if [ -z "$FILE_PATH" ] && [ -z "$COMMAND" ]; then
+  case "$TOOL" in
+    Grep|Glob) _deny "the whole project (a $TOOL with no path)" "tool:$TOOL:nopath" ;;
+  esac
+fi
+
 if [ -n "$FILE_PATH" ]; then
-  REL=$(_rel_path "$FILE_PATH")
+  REL=$(_norm "$(_rel_path "$FILE_PATH")")
 
   # Unresolved traversal means the prefix comparison below cannot be trusted.
   # Fail closed: an unverifiable path is never allowed through.
@@ -130,11 +174,10 @@ if [ -n "$FILE_PATH" ]; then
     */../*|*/..|../*) _deny "a path with unresolved traversal ($REL)" "$REL" ;;
   esac
 
-  case "$REL" in
-    "$PIPE_REL/$ALLOWED_BASENAME") : ;;                      # the review scope — allowed
-    "$PIPE_REL"|"$PIPE_REL"/*) _deny "pipeline state ($REL)" "$REL" ;;
-    "$MEM_REL"|"$MEM_REL"/*)   _deny "project memory ($REL)" "$REL" ;;
-  esac
+  if [ "$REL" != "$PIPE_REL/$ALLOWED_BASENAME" ]; then
+    _reaches "$REL" "$PIPE_REL" && _deny "pipeline state (${REL:-the project root})" "${REL:-.}"
+    _reaches "$REL" "$MEM_REL"  && _deny "project memory (${REL:-the project root})" "${REL:-.}"
+  fi
 fi
 
 # --- Channel 2: Bash command -----------------------------------------------
@@ -145,18 +188,59 @@ if [ -n "$COMMAND" ]; then
     fi
   done
 
+  # git is exempt from the ANCESTOR rule below (not from named blinded paths):
+  # the pipeline directory is gitignored, so `git diff .` cannot surface its
+  # content, and that is the role's most legitimate command.
+  _CMD_HEAD="${COMMAND%% *}"; _CMD_HEAD="${_CMD_HEAD##*/}"
+
   # Word-split without globbing: an unquoted expansion would let `cat
   # .apd/pipeline/*` expand against the CWD and the token we meant to inspect
   # would never appear.
   set -f
-  for tok in $COMMAND; do
-    tok="${tok//\"/}"
-    tok="${tok//\'/}"
-    case "$tok" in
-      *"$PIPE_REL/$ALLOWED_BASENAME") continue ;;            # the review scope — allowed
-      *"$PIPE_REL"*) set +f; _deny "pipeline state ($tok)" "cmd:$tok" ;;
-      *"$MEM_REL"*)  set +f; _deny "project memory ($tok)" "cmd:$tok" ;;
+  for raw in $COMMAND; do
+    # Shell punctuation rides on the token: `cd .apd; cat pipeline/spec-card.md`
+    # word-splits to `.apd;`, which normalised to nothing resembling `.apd` and
+    # walked through. Strip the operators before looking at the path.
+    tok="${raw//[;&|()<>]/}"
+    [ -z "$tok" ] && continue
+
+    # A blinded path can ride INSIDE a token that is not a path at all —
+    # `git show HEAD:.apd/pipeline/spec-card.md` is the shipped example. The
+    # prefix logic below cannot see that, so the substring test stays as a
+    # separate signal rather than being replaced by it. (Removing it regressed
+    # exactly that case; the suite caught it.)
+    _plain="${tok//\"/}"; _plain="${_plain//\'/}"
+    case "$_plain" in
+      *"$PIPE_REL/$ALLOWED_BASENAME") : ;;                   # the review scope — allowed
+      *"$PIPE_REL"*) set +f; _deny "pipeline state ($_plain)" "cmd:$_plain" ;;
+      *"$MEM_REL"*)  set +f; _deny "project memory ($_plain)" "cmd:$_plain" ;;
     esac
+
+    tok=$(_norm "$tok")
+    # A glob cannot be resolved here, so compare its literal prefix: the audit
+    # got through with `.apd/*/spec-card.md`, whose prefix `.apd` is an ancestor.
+    case "$tok" in *[*?[]*) tok="${tok%%[*?[]*}"; tok="${tok%/}" ;; esac
+    # An EMPTY normalised token means the project root (`.`, `./`) — the root is
+    # an ancestor of everything blinded, so it must be checked, not skipped.
+    # Skipping it is how `find . -name spec-card.md -exec cat {} +` got through.
+    if [ -z "$tok" ]; then
+      case "${raw//[;&|()<>]/}" in
+        .|./) : ;;          # explicit root — fall through to the check
+        *) continue ;;      # genuinely nothing to compare
+      esac
+    fi
+    [ "$tok" = "$PIPE_REL/$ALLOWED_BASENAME" ] && continue  # the review scope — allowed
+    if _reaches "$tok" "$PIPE_REL" || _reaches "$tok" "$MEM_REL"; then
+      # Ancestors only count against non-git readers; an exact or inside hit
+      # always counts.
+      case "$tok" in
+        "$PIPE_REL"|"$PIPE_REL"/*|"$MEM_REL"|"$MEM_REL"/*)
+          set +f; _deny "pipeline state or project memory ($tok)" "cmd:$tok" ;;
+      esac
+      if [ "$_CMD_HEAD" != "git" ]; then
+        set +f; _deny "a directory that contains pipeline state (${tok:-the project root})" "cmd:${tok:-.}"
+      fi
+    fi
   done
   set +f
 fi

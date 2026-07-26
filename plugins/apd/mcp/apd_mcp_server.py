@@ -539,11 +539,16 @@ def apd_pipeline_state() -> dict:
     if spec_card.is_file():
         try:
             text = spec_card.read_text()
-            # Count R* lines only inside Acceptance criteria section
+            # v7.0 — count over the WHOLE card, de-duplicated by R-id, mirroring
+            # `_count_criteria` in pipeline-advance. The old form read a region
+            # ending at the first `**X` line, so one bold line among the criteria
+            # truncated the count; on the bash side that silently defeated both
+            # the ≤7 decomposition cap and the ≤2 adversarial opt-out boundary.
+            # This value is advisory here (it feeds `apd_pipeline_state`), but a
+            # number that disagrees with the gate is a reason to trust the wrong
+            # one, so the two are kept identical. `- RS1:` does not match.
             import re
-            ac_match = re.search(r"Acceptance criteria.*?(?=\n\*\*[A-Z]|\Z)", text, re.S)
-            block = ac_match.group(0) if ac_match else text
-            criteria = len(re.findall(r"^\s*-\s+R\d+\s*:", block, re.M))
+            criteria = len({m.group(1) for m in re.finditer(r"^\s*-\s+(R\d+)\s*:", text, re.M)})
         except OSError:
             criteria = 0
         state["spec_card"] = {

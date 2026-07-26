@@ -28,6 +28,11 @@ INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // empty' 2>/dev/null)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
+# The tool NAME is what separates "Read with a target" from "Grep with no path".
+# Grep and Glob default to searching the whole project when `path` is omitted,
+# which reaches blinded content while carrying no path for the guard to match —
+# an audit found that the default form of the tool walked straight through.
+TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 
 exec "$CORE_DIR/guard-spec-blind" \
-  --agent-type "$AGENT_TYPE" --file-path "$FILE_PATH" --command "$COMMAND" "$@"
+  --agent-type "$AGENT_TYPE" --file-path "$FILE_PATH" --command "$COMMAND" --tool "$TOOL" "$@"

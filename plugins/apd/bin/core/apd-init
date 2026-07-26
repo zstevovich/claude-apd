@@ -469,9 +469,9 @@ if [ "$MODE" = "update" ]; then
         for _ag in "$CLAUDE_DIR"/agents/*.md; do
             [ -f "$_ag" ] || continue
             case "$(basename "$_ag")" in apd-verify-*) continue ;; esac
-            # Writable agents only — `tools:` naming Write is what a builder is.
-            grep -qE '^tools:.*\bWrite\b' "$_ag" 2>/dev/null || continue
-            grep -qF "$CHARTER_MARK" "$_ag" 2>/dev/null && continue
+            # Everything else — is this a writable agent, is the block already
+            # there, where does it go — is decided by the parser below, which is
+            # the only thing here that understands frontmatter and code fences.
             python3 - "$_ag" "$CHARTER_SRC" <<'PYCHARTER' || continue
 import sys
 agent_path, tmpl_path = sys.argv[1], sys.argv[2]
@@ -484,20 +484,58 @@ if start == -1:
 rest = tmpl[start:]
 end = rest.find("\n## Stack")
 block = (rest if end == -1 else rest[:end]).rstrip() + "\n\n"
+
 body = open(agent_path, encoding="utf-8").read()
-# Insert before the first top-level section of the BODY, never inside frontmatter.
+if MARK in body:
+    sys.exit(2)                      # already carries the charter
 lines = body.split("\n")
+
+# --- frontmatter bounds -----------------------------------------------------
 fm_end = 0
 if lines and lines[0].strip() == "---":
     for i in range(1, len(lines)):
         if lines[i].strip() == "---":
             fm_end = i + 1
             break
-ins = len(lines)
-for i in range(fm_end, len(lines)):
-    if lines[i].startswith("## "):
-        ins = i
+
+# --- is this a WRITABLE agent? ----------------------------------------------
+# Scoped to the frontmatter on purpose: a prose line or a code sample in the
+# BODY that happens to start with `tools:` is not a declaration, and treating
+# it as one put the charter into files that are not agents at all.
+tools_writable = False
+for i in range(0, fm_end):
+    l = lines[i].strip()
+    if l.lower().startswith("tools:") and "write" in l.lower():
+        tools_writable = True
         break
+if not tools_writable:
+    sys.exit(3)
+
+# --- where the block goes ---------------------------------------------------
+# Before the first top-level section of the BODY — but a `## ` inside a fenced
+# code block is NOT a section. Inserting there corrupts the user's example AND
+# renders the charter as literal code, so the agent reads it as a sample rather
+# than as instruction: the block is present and silently inert, which is worse
+# than absent because nothing looks wrong.
+ins = len(lines)
+fence = None
+for i in range(fm_end, len(lines)):
+    s = lines[i].lstrip()
+    if fence is None:
+        if s.startswith("```") or s.startswith("~~~"):
+            fence = s[:3]
+            continue
+        if lines[i].startswith("## "):
+            ins = i
+            break
+    else:
+        if s.startswith(fence):
+            fence = None
+if fence is not None:
+    # Unterminated fence: everything after it is ambiguous, so append at the end
+    # rather than guess a boundary inside it.
+    ins = len(lines)
+
 out = "\n".join(lines[:ins]).rstrip() + "\n\n" + block + "\n".join(lines[ins:]).lstrip("\n")
 open(agent_path, "w", encoding="utf-8").write(out)
 PYCHARTER

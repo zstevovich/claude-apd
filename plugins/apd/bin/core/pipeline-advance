@@ -378,13 +378,39 @@ _agent_definition_exists() {
 # guard, so `rm` was a one-command, unlogged bypass of the floor — and a project
 # is in exactly that state after a first `apd-init`, which scaffolds no agents.
 # A missing definition is a setup fault to fix, never a reason to drop the layer.
+# v7.0 — the task's acceptance-criteria count, and the ONE place it is computed.
+#
+# This number governs two gates: the ≤7 decomposition cap at the spec advance and
+# the ≤2 boundary on the adversarial opt-out. It used to be read from a sed RANGE
+# ending at the first `^**X` line, so a single bold line placed among the criteria
+# truncated the count. Measured on this branch: `**Notes:**` after R2 made a
+# 12-criteria spec pass "max 7", and made a 6-criteria spec waive the adversarial
+# layer entirely — `verifier.done` with no summary, no rationale, no audit entry,
+# while the console reported "opt-out, 2 criteria". One markdown line, two gates,
+# and invisible in the record afterwards.
+#
+# So the count is taken over the WHOLE card and de-duplicated by R-id. It cannot
+# be truncated, and the failure direction is now the safe one: a spurious match
+# makes both gates STRICTER (decomposition demanded, opt-out denied), where the
+# undercount silently removed them. `- RS1:` (regression surface) does not match —
+# the pattern requires a digit immediately after R.
+#
+# Also fixes the counter's own arithmetic: `grep -c` prints 0 AND exits 1 on no
+# match, so the old `|| echo 0` appended a SECOND zero, giving a literal `0\n0`
+# that made every downstream `-le` comparison error out and print broken guidance.
+_count_criteria() {
+    [ -f "$PIPELINE_DIR/spec-card.md" ] || { echo 0; return 0; }
+    grep -oE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' "$PIPELINE_DIR/spec-card.md" 2>/dev/null \
+        | grep -oE 'R[0-9]+' | sort -u | grep -c . || true
+}
+
 _adversarial_opt_out_ok() {
     [ -f "$PIPELINE_DIR/spec-card.md" ] || return 1
     # v6.1.2: tolerate markdown bold/italic/list-item prefixes around the
     # directive — `**adversarial:** skip` opts out the same as `adversarial: skip`.
     grep -qiE '^[-*_[:blank:]]*adversarial[-*_[:blank:]]*:.*skip' "$PIPELINE_DIR/spec-card.md" 2>/dev/null || return 1
     local _n
-    _n=$(sed -n '/Acceptance criteria/,/^\*\*[A-Z]/p' "$PIPELINE_DIR/spec-card.md" 2>/dev/null | grep -cE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' || echo 0)
+    _n=$(_count_criteria)
     [ "$_n" -le 2 ] 2>/dev/null
 }
 
@@ -528,7 +554,7 @@ case "$STEP" in
         # Check criteria count — too many means feature should be decomposed
         # Only count R* lines within the Acceptance criteria section (between header and next ** section)
         MAX_CRITERIA=7
-        CRITERIA_COUNT=$(sed -n '/Acceptance criteria/,/^\*\*[A-Z]/p' "$PIPELINE_DIR/spec-card.md" 2>/dev/null | grep -cE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' || echo 0)
+        CRITERIA_COUNT=$(_count_criteria)
         if [ "$CRITERIA_COUNT" -gt "$MAX_CRITERIA" ]; then
             echo "BLOCKED: spec-card.md has $CRITERIA_COUNT criteria (max $MAX_CRITERIA)." >&2
             echo "" >&2
@@ -1037,7 +1063,7 @@ case "$STEP" in
         ELAPSED=$(format_duration $((NOW - BUILDER_TS)))
         # v6.38 — decide the adversarial requirement BEFORE signing reviewer.done,
         # so a BLOCK here leaves the phase un-advanced instead of half-done.
-        ADV_CRITERIA=$(sed -n '/Acceptance criteria/,/^\*\*[A-Z]/p' "$PIPELINE_DIR/spec-card.md" 2>/dev/null | grep -cE '^[[:space:]]*-[[:space:]]+R[0-9]+[[:space:]]*:' || echo 0)
+        ADV_CRITERIA=$(_count_criteria)
         ADV_OPT_OUT=false
         if _adversarial_opt_out_ok; then
             ADV_OPT_OUT=true
@@ -1332,7 +1358,27 @@ case "$STEP" in
                         exit 1
                     fi
                     # v7.6 — hard gate: 100% orchestrator-dismissal pattern
-                    if [ "$ADV_T" -ge 3 ] && [ "$ADV_A" -eq 0 ] && [ "$DISMISSED_O" -ge 1 ]; then
+                    # v7.0 — threshold lowered 3 → 2. Removing `max_defects` was
+                    # justified on the claim that this gate "always did the
+                    # stronger job"; measured, that was false below three
+                    # findings. `ADVERSARIAL:2:0:2` — the orchestrator dismissed
+                    # everything an independent reviewer found — reached
+                    # `verifier.done`, where the pre-removal tree blocked it on
+                    # the count cap. Nothing else constrained dismissals at T<3,
+                    # so the removal quietly took a lever away instead of
+                    # replacing it.
+                    #
+                    # T=2 with A=0 and at least one orchestrator dismissal is the
+                    # same rubber-stamp shape as T=3, and the escape is the same
+                    # and cheap: accept one finding, or reclassify a dismissal as
+                    # reviewer-self-dismissed where the adversarial agent conceded
+                    # it inline (the corpus's common honest case — the Dr-dominant
+                    # profile never trips this, since it needs Do≥1).
+                    #
+                    # T=1 stays exempt on purpose: one dismissed finding is too
+                    # thin to infer a pattern from, and blocking it would be noise
+                    # rather than enforcement.
+                    if [ "$ADV_T" -ge 2 ] && [ "$ADV_A" -eq 0 ] && [ "$DISMISSED_O" -ge 1 ]; then
                         echo "BLOCKED: 100% orchestrator dismissal pattern detected." >&2
                         echo "" >&2
                         echo "  T=$ADV_T findings, A=0 accepted, Do=$DISMISSED_O orchestrator-dismissed, Dr=$DISMISSED_R reviewer-self-dismissed." >&2

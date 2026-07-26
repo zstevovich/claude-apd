@@ -5038,14 +5038,17 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static C: hard-gate expression (ADV_T -ge 3 && ADV_A -eq 0 && DISMISSED_O -ge 1)
-if grep -q '"$ADV_T" -ge 3' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
-   && grep -q '"$ADV_A" -eq 0' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
-   && grep -q '"$DISMISSED_O" -ge 1' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
-    pass "pipeline-advance has T>=3 && A==0 && Do>=1 hard-gate"
+# Static C: the hard-gate conjunction exists. Deliberately does NOT pin the T
+# threshold — that number moved in v7.0 (3 → 2) and a test that spells it out
+# fails on the change rather than on a defect. The threshold itself is asserted
+# behaviourally in Live Q/R below, which is where it belongs.
+if grep -q '"$ADV_A" -eq 0' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && grep -q '"$DISMISSED_O" -ge 1' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
+   && grep -qE '"\$ADV_T" -ge [0-9]' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance"; then
+    pass "pipeline-advance keeps the A==0 && Do>=1 hard-gate conjunction"
     PASSES=$((PASSES + 1))
 else
-    fail "pipeline-advance missing v6.7 hard-gate expression"
+    fail "pipeline-advance missing the 100%-dismiss hard-gate expression"
     FAILS=$((FAILS + 1))
 fi
 
@@ -5493,6 +5496,42 @@ else
     FAILS=$((FAILS + 1))
 fi
 rm -rf "$_TO"
+
+# Live Q (v7.0): the wholesale-dismissal floor reaches down to TWO findings.
+# Removing `max_defects` was justified on the claim that this gate "always did
+# the stronger job". Measured, that was false below three: `ADVERSARIAL:2:0:2`
+# reached verifier.done where the pre-removal tree blocked it on the count cap,
+# so the removal took a lever away rather than replacing it. Found by an
+# independent audit, not by this suite.
+_v67_block_case "T=2, A=0, both orchestrator-dismissed → BLOCK" \
+    "100%" "ADVERSARIAL:2:0:2" \
+'## Finding 1 — a
+**Severity:** important
+**Status:** dismissed
+**Rationale:** not reachable in this code path, checked against the caller chain
+
+## Finding 2 — b
+**Severity:** important
+**Status:** dismissed
+**Rationale:** not reachable in this code path, checked against the caller chain'
+
+# Live R: and T=1 stays exempt — one dismissed finding is too thin to infer a
+# pattern from, so blocking it would be noise rather than enforcement. This is
+# the pair that keeps "lowered the threshold" distinguishable from "blocks any
+# dismissal at all".
+_TQ="$(mktemp -d -t apd-v67q.XXXXXX)"
+_v67_make_state "$_TQ" "ADVERSARIAL:1:0:1"
+printf '## Finding 1 — a\n**Severity:** minor\n**Status:** dismissed\n**Rationale:** not reachable in this code path, checked against the caller chain\n' \
+    > "$_TQ/.apd/pipeline/.adversarial-rationale.md"
+_OUT=$(_v67_run_verifier "$_TQ"); _RC=$?
+if [ "$_RC" -eq 0 ]; then
+    pass "T=1 single dismissal still signs (threshold lowered, not abolished)"
+    PASSES=$((PASSES + 1))
+else
+    fail "T=1 dismissal now blocks — the floor overshot (rc=$_RC, $(echo "$_OUT" | grep -m1 BLOCKED))"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$_TQ"
 
 # Live P (v7.0): `max_defects` is REMOVED, so a spec that still declares it must
 # gate nothing — and the floor must be exactly where it was. Both halves, because
@@ -12685,6 +12724,44 @@ if [ "$(head -1 "$BC_B")" = "---" ] && grep -q '^name: backend-api' "$BC_B" \
 else
     fail "charter insert damaged the frontmatter or landed inside it"; FAILS=$((FAILS + 1))
 fi
+# A `## ` inside a fenced code block is NOT a section. Inserting there corrupts
+# the user's example AND renders the charter as literal code, so the agent reads
+# it as a sample rather than an instruction — present and silently inert, which
+# is worse than absent because nothing looks wrong. Found by hostile input, not
+# by the suite: the original insert scanned for the first `## ` with no fence
+# state at all.
+mkdir -p "$BC_T/fence/.claude/agents"
+printf 'PROJECT_NAME=bc\n' > "$BC_T/fence/.claude/.apd-config"
+printf '# p\n' > "$BC_T/fence/CLAUDE.md"
+printf -- '---\nname: b\ntools: Read, Write, Edit\n---\n\nBuilder.\n\n```markdown\n## Not a real heading\n```\n\n## Stack\n- node\n' \
+    > "$BC_T/fence/.claude/agents/b.md"
+APD_PROJECT_DIR="$BC_T/fence" CLAUDE_PLUGIN_OPTION_PROJECT_NAME=bc \
+    bash "$APD_PLUGIN_ROOT/bin/core/apd-init" >/dev/null 2>&1
+BC_FL=$(grep -n "$BC_MARK" "$BC_T/fence/.claude/agents/b.md" | cut -d: -f1)
+BC_FENCE_CLOSE=$(grep -n '^```$' "$BC_T/fence/.claude/agents/b.md" | tail -1 | cut -d: -f1)
+if [ -n "$BC_FL" ] && [ -n "$BC_FENCE_CLOSE" ] && [ "$BC_FL" -gt "$BC_FENCE_CLOSE" ] \
+   && grep -q '^## Not a real heading$' "$BC_T/fence/.claude/agents/b.md"; then
+    pass "a heading inside a code fence is not mistaken for a section"; PASSES=$((PASSES + 1))
+else
+    fail "charter landed inside a fenced block (corrupts the example, renders inert)"
+    FAILS=$((FAILS + 1))
+fi
+# The writable test must read the FRONTMATTER, not the whole file: a prose line
+# or code sample starting with `tools:` is not a declaration.
+mkdir -p "$BC_T/prose/.claude/agents"
+printf 'PROJECT_NAME=bc\n' > "$BC_T/prose/.claude/.apd-config"
+printf '# p\n' > "$BC_T/prose/CLAUDE.md"
+printf -- 'You are a builder.\ntools: Read, Write, Edit\n\n## Stack\n- node\n' \
+    > "$BC_T/prose/.claude/agents/b.md"
+APD_PROJECT_DIR="$BC_T/prose" CLAUDE_PLUGIN_OPTION_PROJECT_NAME=bc \
+    bash "$APD_PLUGIN_ROOT/bin/core/apd-init" >/dev/null 2>&1
+if [ "$(grep -cF "$BC_MARK" "$BC_T/prose/.claude/agents/b.md")" = "0" ]; then
+    pass "a 'tools:' line in the body does not make a file a builder"; PASSES=$((PASSES + 1))
+else
+    fail "charter inserted into a file whose 'tools:' line is prose, not frontmatter"
+    FAILS=$((FAILS + 1))
+fi
+
 # Idempotent: session-start runs init every session, so a second pass must be a no-op.
 APD_PROJECT_DIR="$BC_T/proj" CLAUDE_PLUGIN_OPTION_PROJECT_NAME=bc \
     bash "$APD_PLUGIN_ROOT/bin/core/apd-init" >/dev/null 2>&1
@@ -12694,6 +12771,71 @@ else
     fail "charter duplicated on re-init ($(grep -cF "$BC_MARK" "$BC_B") copies)"; FAILS=$((FAILS + 1))
 fi
 rm -rf "$BC_T"
+
+section "118. Spec-blindness must survive the forms an agent actually types"
+
+# An independent audit walked through this guard by typing the DEFAULT form of
+# the tool: `Grep` with no `path` searches the whole project, reaches the spec,
+# and carries nothing for a path matcher to match. Ten more followed — a glob one
+# position left of the one the suite already covered, a `/./` in the middle, a
+# `find -exec cat`, a `cd` whose token kept its semicolon. Each is the same file
+# by another spelling, and the branch tells the agent this blindness is
+# "mechanically enforced", so every spelling has to hold or the claim is the very
+# thing this release exists to stop.
+#
+# Both directions in one table: the role must be blind AND still able to work,
+# and no other caller may be touched — blinding a builder would deadlock the
+# pipeline, which is a worse outcome than the leak.
+SB_T="$(mktemp -d -t apd-blind2.XXXXXX)"
+mkdir -p "$SB_T/.apd/pipeline" "$SB_T/.claude/memory" "$SB_T/src"
+printf 'PROJECT_NAME=sb\n' > "$SB_T/.apd/config"
+printf 'spec\n' > "$SB_T/.apd/pipeline/spec-card.md"
+printf 'src/a.ts\n' > "$SB_T/.apd/pipeline/.reviewed-files"
+printf 'status\n' > "$SB_T/.claude/memory/status.md"
+printf 'code\n' > "$SB_T/src/a.ts"
+_sb() {  # $1 want-rc, $2 label, rest = guard args
+    local want=$1 label=$2; shift 2
+    ( cd "$SB_T" && APD_PROJECT_DIR="$SB_T" \
+        bash "$APD_PLUGIN_ROOT/bin/core/guard-spec-blind" --agent-type adversarial-reviewer "$@" ) >/dev/null 2>&1
+    local rc=$?
+    if [ "$rc" -eq "$want" ]; then
+        pass "spec-blind: $label"; PASSES=$((PASSES + 1))
+    else
+        fail "spec-blind: $label — rc=$rc, expected $want"; FAILS=$((FAILS + 1))
+    fi
+}
+_sb 2 "pathless Grep reaches the whole project" --tool Grep --file-path "" --command ""
+_sb 2 "pathless Glob likewise"                  --tool Glob --file-path "" --command ""
+_sb 2 "Grep rooted at the project"              --tool Grep --file-path "."
+_sb 2 "Grep rooted at an ancestor dir"          --tool Grep --file-path ".apd"
+_sb 2 "glob one level up from the blinded dir"  --command "cat .apd/*/spec-card.md"
+_sb 2 "a /./ in the middle of the path"         --command "cat .apd/./pipeline/spec-card.md"
+_sb 2 "doubled separators and a ./ prefix"      --command "cat ./.apd//pipeline/spec-card.md"
+_sb 2 "find -exec cat rooted at ."              --command "find . -name spec-card.md -exec cat {} +"
+_sb 2 "recursive grep over an ancestor"         --command "grep -r '' .apd"
+_sb 2 "cd whose token keeps its semicolon"      --command "cd .apd; cat pipeline/spec-card.md"
+_sb 2 "cd into the memory dir"                  --command "cd .claude && cat memory/status.md"
+_sb 2 "a blinded path riding inside a token"    --command "git show HEAD:.apd/pipeline/spec-card.md"
+# ALLOW — without these the section cannot tell blindness from paralysis.
+_sb 0 "reads its own scope file"                --tool Read --file-path ".apd/pipeline/.reviewed-files"
+_sb 0 "cats its own scope file"                 --command "cat .apd/pipeline/.reviewed-files"
+_sb 0 "reads a reviewed source file"            --tool Read --file-path "src/a.ts"
+_sb 0 "greps inside a source directory"         --tool Grep --file-path "src"
+_sb 0 "git diff (pipeline state is gitignored)" --command "git diff ."
+_sb 0 "runs the test suite"                     --command "npm test"
+# Every other caller passes through, including the orchestrator (no agent_type).
+for _r in backend-builder code-reviewer supervisor Explore ""; do
+    ( cd "$SB_T" && APD_PROJECT_DIR="$SB_T" \
+        bash "$APD_PLUGIN_ROOT/bin/core/guard-spec-blind" \
+        --agent-type "$_r" --tool Grep --file-path "" ) >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        pass "spec-blind leaves ${_r:-the orchestrator} alone"; PASSES=$((PASSES + 1))
+    else
+        fail "spec-blind blinded ${_r:-the orchestrator} — this deadlocks the pipeline"
+        FAILS=$((FAILS + 1))
+    fi
+done
+rm -rf "$SB_T"
 
 section "115. The adversarial layer must not depend on the agent file existing"
 
@@ -12760,6 +12902,39 @@ if [ -f "$ADV_T/b/.apd/pipeline/reviewer.done" ] && [ ! -f "$ADV_T/b/.apd/pipeli
     pass "valid opt-out (<=2 R) still advances without an adversarial agent"; PASSES=$((PASSES + 1))
 else
     fail "the opt-out path broke — closing the hole must not block Lean runs"; FAILS=$((FAILS + 1))
+fi
+
+# B2 — the criteria counter must not be truncatable. It governs TWO gates (the
+# ≤7 decomposition cap and this ≤2 opt-out boundary), and it used to be read from
+# a range ending at the first `^**X` line. One `**Notes:**` among the criteria
+# made a 6-criteria task waive the adversarial layer entirely — verifier.done
+# with no summary, no rationale, no audit entry, while the console reported
+# "opt-out, 2 criteria". Found by an independent audit; this suite's own opt-out
+# cases only ever used uninterrupted lists, which is why it was green.
+_adv_fx "$ADV_T/b2" no-agent no
+python3 - "$ADV_T/b2/.apd/pipeline/spec-card.md" <<'PYB2'
+import sys
+p = sys.argv[1]
+lines = open(p).read().split("\n")
+out = []
+for l in lines:
+    out.append(l)
+    if l.startswith("- R1:"):
+        out.append("**Notes:** the remaining criteria follow")
+open(p, "w").write("\n".join(out))
+PYB2
+printf 'adversarial: skip — declared small\n' >> "$ADV_T/b2/.apd/pipeline/spec-card.md"
+B2_OUT=$(_adv_run "$ADV_T/b2" reviewer)
+if printf '%s' "$B2_OUT" | grep -q 'DENIED'; then
+    pass "a bold line among the criteria cannot shrink the count"; PASSES=$((PASSES + 1))
+else
+    fail "interrupted criteria list defeated the opt-out boundary (out: ${B2_OUT:0:110})"
+    FAILS=$((FAILS + 1))
+fi
+if [ ! -f "$ADV_T/b2/.apd/pipeline/reviewer.done" ]; then
+    pass "and the phase did not advance on the shrunken count"; PASSES=$((PASSES + 1))
+else
+    fail "reviewer advanced despite the denied opt-out"; FAILS=$((FAILS + 1))
 fi
 
 # C — control: definition present, no opt-out → the layer is armed as before.
