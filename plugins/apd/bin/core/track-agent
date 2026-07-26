@@ -6,6 +6,7 @@
 # Interface: --event <SubagentStart|SubagentStop> --agent-type <name> --agent-id <id> [--raw-payload <json>]
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/portable.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 source "$(dirname "$0")/../lib/style.sh"
 
@@ -217,7 +218,7 @@ case "$EVENT" in
                         while IFS= read -r _f; do
                             [ -z "$_f" ] && continue
                             [ -f "$PROJECT_DIR/$_f" ] || continue
-                            _mt=$(stat -f %m "$PROJECT_DIR/$_f" 2>/dev/null || stat -c %Y "$PROJECT_DIR/$_f" 2>/dev/null || echo 0)
+                            _mt=$(_file_mtime "$PROJECT_DIR/$_f")
                             if [ "$_mt" -gt "$TRAIL_THRESHOLD" ] 2>/dev/null; then
                                 HAS_RECENT_WRITE=1
                                 break

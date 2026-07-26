@@ -12,6 +12,7 @@ _ss_log() { [ -n "$_SS_LOG" ] && echo "$(date +"%Y-%m-%d %H:%M:%S") $1" >> "$_SS
 _ss_log "START pwd=$(pwd) PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-unset}"
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/portable.sh"
 _ss_log "resolve: PROJECT_DIR=$PROJECT_DIR APD_ACTIVE=$APD_ACTIVE APD_FRAMEWORK_SELF=$APD_FRAMEWORK_SELF"
 
 # v6.5 framework-self banner — emit a one-line context hint when working on
@@ -191,7 +192,7 @@ fi
 if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
     OLDEST_FLAG=$(ls -t "$PIPELINE_DIR"/*.done 2>/dev/null | tail -1)
     if [ -n "$OLDEST_FLAG" ]; then
-        MTIME=$(stat -f %m "$OLDEST_FLAG" 2>/dev/null || stat -c %Y "$OLDEST_FLAG" 2>/dev/null || echo "0")
+        MTIME=$(_file_mtime "$OLDEST_FLAG")
         if [ -n "$MTIME" ] && [ "$MTIME" -gt 0 ] 2>/dev/null; then
             FLAG_AGE=$(( $(date +%s) - MTIME ))
         else

@@ -11,6 +11,7 @@
 #   pipeline-advance init "Description"  (first setup only)
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
+source "$(dirname "$0")/../lib/portable.sh"
 
 mkdir -p "$PIPELINE_DIR"
 
@@ -24,7 +25,7 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     # mkdir return code so two concurrent stale-detecting processes can't both
     # think they own the lock.
     LOCK_AGE=0
-    LOCK_MTIME=$(stat -f %m "$LOCK_DIR" 2>/dev/null || stat -c %Y "$LOCK_DIR" 2>/dev/null || echo 0)
+    LOCK_MTIME=$(_file_mtime "$LOCK_DIR")
     [ "$LOCK_MTIME" -gt 0 ] 2>/dev/null && LOCK_AGE=$(( $(date +%s) - LOCK_MTIME ))
 
     if [ "$LOCK_AGE" -gt 300 ]; then
@@ -85,6 +86,13 @@ validate_agent_entry() {
     os_name=$(uname -s | tr '[:upper:]' '[:lower:]')
     arch_name=$(uname -m)
     [ "$arch_name" = "x86_64" ] && arch_name="amd64"
+    # `uname -m` says aarch64 on Linux ARM; the binary is named for Go's GOARCH,
+    # which calls it arm64. Without this the lookup misses a binary that IS
+    # shipped, and the agent-ledger check then fails closed — APD is unusable on
+    # Linux ARM (Graviton, Pi, Docker on Apple Silicon) until someone sets
+    # APD_ALLOW_UNVALIDATED_AGENTS=1, which is the weaker check. macOS says
+    # arm64 already, which is why nobody saw it.
+    [ "$arch_name" = "aarch64" ] && arch_name="arm64"
     validator="${APD_PLUGIN_ROOT}/bin/compiled/validate-agent-${os_name}-${arch_name}"
 
     if [ -x "$validator" ]; then
@@ -121,6 +129,7 @@ validate_agent_entry() {
 _os_name=$(uname -s | tr '[:upper:]' '[:lower:]')
 _arch_name=$(uname -m)
 [ "$_arch_name" = "x86_64" ] && _arch_name="amd64"
+[ "$_arch_name" = "aarch64" ] && _arch_name="arm64"   # Linux ARM; see _validator_arch note above
 APD_VALIDATOR="${APD_PLUGIN_ROOT}/bin/compiled/validate-agent-${_os_name}-${_arch_name}"
 
 # Create signed .done file via compiled binary (tamper-proof)
@@ -332,9 +341,9 @@ _reconstruct_from_transcripts() {
         [ -f "$_jsonl" ] || continue   # require the transcript itself = proof it ran
         _id=$(basename "$_meta" | sed 's/^agent-//; s/\.meta\.json$//')
         grep -qF "|${_id}" "$_alog" 2>/dev/null && continue           # already recorded
-        _stop=$(stat -f %m "$_jsonl" 2>/dev/null || stat -c %Y "$_jsonl" 2>/dev/null || echo 0)
+        _stop=$(_file_mtime "$_jsonl")
         [ "$_stop" -ge "$RA_SPEC_TS" ] 2>/dev/null || continue        # current-task window only
-        _start=$(stat -f %m "$_meta" 2>/dev/null || stat -c %Y "$_meta" 2>/dev/null || echo "$_stop")
+        _start=$(_file_mtime "$_meta"); [ "$_start" = 0 ] && _start="$_stop"
         [ "$_start" -lt "$_stop" ] 2>/dev/null || _start=$(( _stop - 60 ))
         _type=$(sed -n 's/.*"agentType"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_meta" | head -1)
         [ -n "$_type" ] || continue

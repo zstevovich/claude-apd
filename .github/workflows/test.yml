@@ -21,17 +21,37 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        # ubuntu-24.04-arm is not decoration. The compiled validator is selected
+        # by `uname -m`, which says `aarch64` on Linux ARM while the shipped
+        # binary carries Go's name for it, `arm64` — so the lookup missed a
+        # binary that IS shipped and the agent-ledger check failed CLOSED: APD
+        # refused to advance at all on Graviton, a Pi, or Docker on an Apple
+        # Silicon laptop, while pipeline-gate silently skipped signature
+        # verification. An x86_64-only matrix would never have seen it; it
+        # surfaced in a local aarch64 container. macos-latest is ARM and Darwin
+        # reports `arm64`, so it cannot cover this either.
+        os: [macos-latest, ubuntu-latest, ubuntu-24.04-arm]
     timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v4
 
+      # `install-codex-config` refuses to run without uv — the MCP server is a
+      # uv-managed script — and neither runner image ships it. Measured in a
+      # clean Linux container: the very first check fails with exit 3 and about
+      # 150 more cascade off it, which reads as a broken framework rather than a
+      # missing tool. The failure is correct behaviour; the environment was the
+      # bug.
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Environment
         run: |
           echo "uname: $(uname -s) $(uname -m)"
           echo "bash:  $BASH_VERSION"
-          for t in jq python3 git realpath; do
+          for t in jq python3 git realpath uv; do
             printf '%-10s %s\n' "$t" "$(command -v "$t" || echo 'MISSING')"
           done
 

@@ -29,6 +29,20 @@ APD_PLUGIN_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 REPO_ROOT="$(cd "$APD_PLUGIN_ROOT/../.." && pwd)"
 source "$APD_PLUGIN_ROOT/bin/lib/style.sh"
 
+# Every section starts from a directory that still exists.
+#
+# Sections `cd` into their own fixture and then `rm -rf` it, which leaves the
+# shell sitting in a deleted directory for everything that follows. macOS bash
+# shrugs at that; Linux bash prints
+#     shell-init: error retrieving current directory: getcwd: ...
+# from every child process, INTO the very output the next assertions capture and
+# grep. That is how sections 28, 40 and 76 failed on Linux while passing when
+# run alone — the checks were fine, the ground under them was gone. One wrapper
+# here beats auditing 123 sections for a stray `cd`.
+SUITE_HOME="$(pwd)"
+eval "_suite_section_impl() $(declare -f section | sed '1d')"
+section() { cd "$SUITE_HOME" >/dev/null 2>&1 || cd / || true; _suite_section_impl "$@"; }
+
 apd_header "Codex Adapter E2E Test"
 
 SCRATCH="$(mktemp -d -t apd-cdx-test.XXXXXX)"
@@ -1083,6 +1097,7 @@ section "10. Pipeline builder requires Codex dispatch evidence"
 _os=$(uname -s | tr '[:upper:]' '[:lower:]')
 _arch=$(uname -m | tr '[:upper:]' '[:lower:]')
 [ "$_arch" = "x86_64" ] && _arch="amd64"
+[ "$_arch" = "aarch64" ] && _arch="arm64"   # Linux ARM; the binary carries Go's name
 [ "$_arch" = "aarch64" ] && _arch="arm64"
 VALIDATOR="$APD_PLUGIN_ROOT/bin/compiled/validate-agent-${_os}-${_arch}"
 
@@ -3041,6 +3056,7 @@ echo "y" > "$GATE_SCRATCH/src/foo.js"
 _os=$(uname -s | tr '[:upper:]' '[:lower:]')
 _arch=$(uname -m)
 [ "$_arch" = "x86_64" ] && _arch="amd64"
+[ "$_arch" = "aarch64" ] && _arch="arm64"   # Linux ARM; the binary carries Go's name
 GATE_VALIDATOR="$APD_PLUGIN_ROOT/bin/compiled/validate-agent-${_os}-${_arch}"
 for s in spec builder reviewer verifier; do
     "$GATE_VALIDATOR" advance -step "$s" -task stage-test -pipeline-dir "$GATE_SCRATCH/.apd/pipeline" >/dev/null 2>&1
@@ -3347,6 +3363,7 @@ EOF
 _os=$(uname -s | tr '[:upper:]' '[:lower:]')
 _arch=$(uname -m)
 [ "$_arch" = "x86_64" ] && _arch=amd64
+[ "$_arch" = "aarch64" ] && _arch=arm64   # Linux ARM; the binary carries Go's name
 SP_VAL="$APD_PLUGIN_ROOT/bin/compiled/validate-agent-${_os}-${_arch}"
 "$SP_VAL" advance -step spec -task sp-test -pipeline-dir "$SP_DIR/.apd/pipeline" >/dev/null
 "$SP_VAL" advance -step builder -pipeline-dir "$SP_DIR/.apd/pipeline" >/dev/null
@@ -3841,11 +3858,36 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Invoke SubagentStop — sweep should fire and find the marker
+# Invoke SubagentStop — sweep should fire and find the marker.
+#
+# Unless this suite is pid 1, in which case the check cannot be expressed and
+# says so instead of failing. The sweep counts a process only when its PPID is
+# in the chain from track-agent back to init, and the walk stops AT init without
+# adding it — deliberately, so a daemon in another terminal is not somebody's
+# leftover. In a container the suite is often pid 1 (bash execs the last command
+# of `bash -c`), the fixture's zombie is its direct child, and its PPID is
+# therefore 1: excluded by the rule, correctly. Nothing is wrong with the
+# product, and there is no way to give the zombie a parent that is both an
+# ancestor of track-agent and not pid 1.
+#
+# I first read this as load-sensitive flake — it passed standalone, passed in a
+# probed run, failed in two of three full runs — and was about to make it retry.
+# The marker in the failure message reads `apd-zombie-mark-1`, and that `1` is
+# the suite's own pid. The runs that passed were the ones where I had appended
+# another command, so bash forked instead of exec'ing.
+if [ "$$" = "1" ]; then
+    echo "  ${D}— zombie sweep ancestry not observable: this suite is pid 1${R}"
+    echo "  ${D}  (its child's PPID is init, which the sweep excludes by design)${R}"
+    Z_SKIP=1
+else
+    Z_SKIP=0
+fi
 Z_OUT=$(APD_PROJECT_DIR="$Z_DIR" bash "$APD_PLUGIN_ROOT/bin/core/track-agent" \
     --event SubagentStop --agent-type test-agent --agent-id z123 2>&1 || true)
 
-if echo "$Z_OUT" | grep -q "zombie sweep" && echo "$Z_OUT" | grep -q "$Z_MARKER"; then
+if [ "$Z_SKIP" = "1" ]; then
+    :   # not observable here — see the note above; neither passed nor failed
+elif echo "$Z_OUT" | grep -q "zombie sweep" && echo "$Z_OUT" | grep -q "$Z_MARKER"; then
     pass "sweep surfaces fake zombie via while.*sleep pattern"
     PASSES=$((PASSES + 1))
 else
@@ -3853,7 +3895,9 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-if [ -f "$Z_DIR/.claude/memory/zombie-audit.log" ] && grep -q "$Z_MARKER" "$Z_DIR/.claude/memory/zombie-audit.log"; then
+if [ "$Z_SKIP" = "1" ]; then
+    :
+elif [ -f "$Z_DIR/.claude/memory/zombie-audit.log" ] && grep -q "$Z_MARKER" "$Z_DIR/.claude/memory/zombie-audit.log"; then
     pass "zombie-audit.log captured the entry"
     PASSES=$((PASSES + 1))
 else
@@ -7893,8 +7937,12 @@ git add . >/dev/null 2>&1
 cd - >/dev/null
 
 PHP_CHANGED_OUT=$(APD_PROJECT_DIR="$V6_12_2_SCRATCH" bash "$VC_SCRIPT" --changed 2>&1 || true)
+# `.` matches a BYTE under the C locale and a CHARACTER under UTF-8, and the
+# arrow in "TypeScript <-> C#" is three bytes — so `TypeScript . C#` matched on
+# the maintainer's macOS and failed on every container, where LANG is unset. The
+# product output was correct on both; only the assertion had to move.
 if echo "$PHP_CHANGED_OUT" | grep -qE "unsupported language" \
-   && echo "$PHP_CHANGED_OUT" | grep -qE "TypeScript . C#"; then
+   && echo "$PHP_CHANGED_OUT" | grep -qE "TypeScript .* C#"; then
     pass "--changed mode emits 'unsupported language' warning for PHP diff"
     PASSES=$((PASSES + 1))
 else
@@ -7912,7 +7960,7 @@ echo "export type Foo = { id: string }" > "$V6_12_2_SCRATCH/ts_frontend/types.ts
 
 PHP_FULL_OUT=$(APD_PROJECT_DIR="$V6_12_2_SCRATCH" bash "$VC_SCRIPT" php_backend ts_frontend 2>&1 || true)
 if echo "$PHP_FULL_OUT" | grep -qE "Detected:.*5 \.php" \
-   && echo "$PHP_FULL_OUT" | grep -qE "Supported pairs.*TypeScript . C#"; then
+   && echo "$PHP_FULL_OUT" | grep -qE "Supported pairs.*TypeScript .* C#"; then
     pass "full mode error shows file count per language + supported pairs"
     PASSES=$((PASSES + 1))
 else
@@ -12624,12 +12672,17 @@ rm -rf "$LS_T"
 LS_RO="$(mktemp -d -t apd-lsro.XXXXXX)"
 mkdir -p "$LS_RO/p/.apd/pipeline" "$LS_RO/p/.claude/memory"
 printf '# x\n' > "$LS_RO/p/CLAUDE.md"; printf 'PROJECT_NAME=ro\n' > "$LS_RO/p/.apd/config"
-chmod a-w "$LS_RO/p/.apd"
+# The write is made to fail with a DIRECTORY where the file belongs, not with
+# `chmod a-w`: root ignores permission bits, so on any container that runs as
+# root (CI images, docker) the chmod version proved nothing and reported the
+# opposite — "lesson reported success on a failed write" — for a guard that was
+# working. `printf > <dir>` fails for every user there is.
+mkdir -p "$LS_RO/p/.apd/lessons.md"
 LS_OUT=$(APD_PROJECT_DIR="$LS_RO/p" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" \
     lesson "A rule long enough to clear the twenty character floor" \
            "A source long enough to clear the twenty character floor" 2>&1)
 LS_RC=$?
-chmod u+w "$LS_RO/p/.apd"
+rmdir "$LS_RO/p/.apd/lessons.md" 2>/dev/null
 if [ "$LS_RC" -ne 0 ] && ! printf '%s' "$LS_OUT" | grep -q 'Recorded'; then
     pass "an unwritable lessons file fails loudly instead of reporting success"
     PASSES=$((PASSES + 1))
@@ -13389,6 +13442,99 @@ else
     fail "charter never inserted into a CRLF agent"; FAILS=$((FAILS + 1))
 fi
 rm -rf "$CR_T"
+
+section "121. mtime must survive the stat it is actually given"
+
+# `stat -f %m … || stat -c %Y …` reads as "BSD first, GNU second" and is broken
+# on GNU: `-f` there means "report the FILESYSTEM", so it ignores the unknown
+# format, prints five lines to STDOUT, and only then exits non-zero. Command
+# substitution keeps both branches' stdout, so the variable holds the report
+# with the epoch glued on. Nothing errors; the value is just never a number
+# again, and a stale pipeline lock is never reclaimed while reconstruct-agents
+# writes empty timestamps. It accounted for 60 of the suite's 76 Linux failures
+# and NONE of the macOS ones, because on macOS the first branch simply works.
+#
+# So the test cannot wait for a Linux runner. It hands the helper a `stat` that
+# behaves like the other platform's.
+MT_T="$(mktemp -d -t apd-mtime.XXXXXX)"
+mkdir -p "$MT_T/gnu" "$MT_T/bsd" "$MT_T/hostile"
+printf 'x\n' > "$MT_T/target"
+# GNU: -c works, -f prints a filesystem report to stdout and fails
+cat > "$MT_T/gnu/stat" <<'GNUSTAT'
+#!/bin/bash
+if [ "$1" = "-c" ]; then echo 1700000042; exit 0; fi
+if [ "$1" = "-f" ]; then echo "  File: \"$3\""; echo "    ID: db6 Namelen: 255  Type: ext2/ext3"; exit 1; fi
+exit 1
+GNUSTAT
+# BSD: -f works, -c is an illegal option (stderr, nothing on stdout)
+cat > "$MT_T/bsd/stat" <<'BSDSTAT'
+#!/bin/bash
+if [ "$1" = "-f" ]; then echo 1700000042; exit 0; fi
+if [ "$1" = "-c" ]; then echo "stat: illegal option -- c" >&2; exit 1; fi
+exit 1
+BSDSTAT
+# A stat this code has never met: both forms print something non-numeric
+cat > "$MT_T/hostile/stat" <<'HOSTAT'
+#!/bin/bash
+echo "mtime=unknown"; exit 0
+HOSTAT
+chmod +x "$MT_T/gnu/stat" "$MT_T/bsd/stat" "$MT_T/hostile/stat"
+
+_mt_case() {  # $1 stub dir, $2 expected, $3 label
+    local got
+    got=$(PATH="$MT_T/$1:$PATH" bash -c \
+        "source '$APD_PLUGIN_ROOT/bin/lib/portable.sh'; _file_mtime '$MT_T/target'" 2>/dev/null)
+    if [ "$got" = "$2" ]; then pass "mtime: $3"; PASSES=$((PASSES + 1))
+    else fail "mtime: $3 — got '$got', expected '$2'"; FAILS=$((FAILS + 1)); fi
+}
+_mt_case gnu     1700000042 "a GNU stat gives an epoch, not a filesystem report"
+_mt_case bsd     1700000042 "a BSD stat gives the same epoch"
+_mt_case hostile 0          "an unrecognised stat yields 0, never a non-numeric value"
+
+# The helper is only worth having if nothing goes around it. This is the check
+# that survives the next person reaching for the familiar one-liner.
+MT_RAW=""
+while IFS= read -r _f; do
+    case "$_f" in
+        */lib/portable.sh|*/env-info|*/guard-bash-portability|*/test-codex-adapter) continue ;;
+    esac
+    grep -qE 'stat -f [^|]*\|\| *stat -c|stat -c [^|]*\|\| *stat -f' "$_f" 2>/dev/null \
+        && MT_RAW="$MT_RAW $(basename "$_f")"
+done < <(find "$APD_PLUGIN_ROOT/bin" -type f)
+if [ -z "$MT_RAW" ]; then
+    pass "no script chains stat -f and stat -c by hand any more"; PASSES=$((PASSES + 1))
+else
+    fail "raw stat fallback chain is back in:$MT_RAW"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$MT_T"
+
+# The same shape, one layer up: `uname -m` says aarch64 on Linux ARM while the
+# shipped binary carries Go's name for it, arm64. SIX places build that path by
+# hand — three in the runtime, three in this suite — and every one of them
+# mapped x86_64 and stopped. The consequence is not a missing feature: the agent
+# ledger check fails CLOSED, so APD refuses to advance at all on Graviton, a Pi,
+# or Docker on an Apple Silicon laptop, while `pipeline-gate` quietly SKIPS
+# signature verification because its validator is `elif [ -x ]`.
+VA_MISS=""
+while IFS= read -r _f; do
+    grep -q 'validate-agent-' "$_f" 2>/dev/null || continue
+    grep -q 'x86_64' "$_f" 2>/dev/null || continue
+    grep -q 'aarch64' "$_f" 2>/dev/null || VA_MISS="$VA_MISS $(basename "$_f")"
+done < <(find "$APD_PLUGIN_ROOT/bin" -type f ! -path '*/compiled/*')
+if [ -z "$VA_MISS" ]; then
+    pass "every validator path maps aarch64 as well as x86_64"; PASSES=$((PASSES + 1))
+else
+    fail "validator path drops Linux ARM in:$VA_MISS"; FAILS=$((FAILS + 1))
+fi
+# And the one this host can actually answer: the path must name a real file.
+if [ -x "$(bash -c "source '$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh' >/dev/null 2>&1; \
+        _o=\$(uname -s | tr '[:upper:]' '[:lower:]'); _a=\$(uname -m); \
+        [ \"\$_a\" = x86_64 ] && _a=amd64; [ \"\$_a\" = aarch64 ] && _a=arm64; \
+        printf '%s' '$APD_PLUGIN_ROOT/bin/compiled/validate-agent-'\"\$_o-\$_a\"")" ]; then
+    pass "…and the resulting path exists on this platform"; PASSES=$((PASSES + 1))
+else
+    fail "no compiled validator ships for $(uname -s)-$(uname -m)"; FAILS=$((FAILS + 1))
+fi
 
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"

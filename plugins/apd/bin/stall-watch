@@ -17,6 +17,10 @@
 #                 SW_MAX_LIFE=86400
 set -u
 
+# Only dependency this daemon takes: a side-effect-free portability shim.
+# shellcheck source=/dev/null
+source "$(cd "$(dirname "$0")" && pwd)/lib/portable.sh"
+
 PROJ="${1:-$PWD}"
 THRESH="${SW_THRESH:-150}"        # seconds of stream silence => treat as stall
 POLL="${SW_POLL:-10}"             # poll interval (s)
@@ -99,7 +103,7 @@ while :; do
   f=$(ls -t "$BASE"/*/subagents/agent-*.jsonl 2>/dev/null | head -1)
   if [ -n "$f" ]; then
     id=$(basename "$f" .jsonl); id="${id#agent-}"
-    mt=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo "$now")
+    mt=$(_file_mtime "$f"); [ "$mt" = 0 ] && mt="$now"
     sil=$(( now - mt ))
     # "finished / not-blocking" (suppress false alarm) if ANY:
     #  (a) last event stop_reason=end_turn, (b) STOP in .agents,
@@ -109,7 +113,7 @@ while :; do
     if [ "$fin" = 0 ] && [ -f "$AGENTS" ] && grep -qE "\|stop\|.*\|$id\$" "$AGENTS" 2>/dev/null; then fin=1; fi
     if [ "$fin" = 0 ]; then
       sess=$(basename "$(dirname "$(dirname "$f")")")
-      main_mt=$(stat -f %m "$BASE/$sess.jsonl" 2>/dev/null || stat -c %Y "$BASE/$sess.jsonl" 2>/dev/null || echo 0)
+      main_mt=$(_file_mtime "$BASE/$sess.jsonl")
       [ "$main_mt" -gt "$mt" ] && fin=1
     fi
     if [ "$fin" = 1 ]; then
@@ -138,7 +142,7 @@ while :; do
   newest_any=$(ls -t "$BASE"/*.jsonl "$BASE"/*/subagents/agent-*.jsonl 2>/dev/null | head -1)
   session_dead=0
   if [ -n "$newest_any" ]; then
-    nmt=$(stat -f %m "$newest_any" 2>/dev/null || stat -c %Y "$newest_any" 2>/dev/null || echo "$now")
+    nmt=$(_file_mtime "$newest_any"); [ "$nmt" = 0 ] && nmt="$now"
     [ $(( now - nmt )) -ge "$ORPHAN" ] && session_dead=1
   elif [ $(( now - START_TS )) -ge "$ORPHAN" ]; then
     # No transcripts under $BASE at all — CC never opened a session for this dir

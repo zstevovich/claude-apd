@@ -14,6 +14,10 @@ FORGED=()
 _os_name=$(uname -s | tr '[:upper:]' '[:lower:]')
 _arch_name=$(uname -m)
 [ "$_arch_name" = "x86_64" ] && _arch_name="amd64"
+# Linux ARM reports aarch64; the shipped binary carries Go's name for it, arm64.
+# Missing validator here means signature verification is SKIPPED (`elif [ -x ]`),
+# so the mismatch silently disabled the forged-.done check on that platform.
+[ "$_arch_name" = "aarch64" ] && _arch_name="arm64"
 APD_VALIDATOR="${APD_PLUGIN_ROOT}/bin/compiled/validate-agent-${_os_name}-${_arch_name}"
 
 for step in spec builder reviewer verifier; do
