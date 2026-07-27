@@ -98,5 +98,54 @@ if command -v git >/dev/null 2>&1 && git -C "$PROJECT_DIR" rev-parse --is-inside
     fi
 fi
 
+# v7.0.5 — an unstaged file carrying a @trace for THIS spec is evidence the
+# commit is about to drop.
+#
+# Found by the supervisor on PLAZMA (backend, 2026-07-27, SUPERVISION:6:4:2):
+# builder cycle 4 added two test files, both untracked, and they were the only
+# proof of the accepted finding's fix. `verify-trace` stayed GREEN because both
+# R-ids are also traced by older tests — the gate asks "does R have a trace",
+# never "did the trace this run produced make it into the commit". The stage
+# warn above could not see them either: it filters by BUILDER scope, and the
+# tests live under tests/ while the builder is scoped to src/.
+#
+# So this check ignores scope and ownership and asks the one question that
+# matters: is there a file this commit will not carry that claims coverage for
+# a criterion this spec declares? That file is the run's own evidence.
+if command -v git >/dev/null 2>&1 && git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+   && [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+    SPEC_RIDS=$(grep -oE '^[[:space:]]*[-*][[:space:]]*(R[0-9]+)' "$PIPELINE_DIR/spec-card.md" 2>/dev/null \
+                | grep -oE 'R[0-9]+' | sort -u)
+    if [ -n "$SPEC_RIDS" ]; then
+        ORPHAN_TRACE=""
+        while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            [ -f "$PROJECT_DIR/$f" ] || continue
+            FILE_RIDS=$(grep -oE '@trace[[:space:]]+R[0-9]+' "$PROJECT_DIR/$f" 2>/dev/null | grep -oE 'R[0-9]+' | sort -u)
+            [ -n "$FILE_RIDS" ] || continue
+            HIT=$(printf '%s\n' $FILE_RIDS | grep -xF -f <(printf '%s\n' $SPEC_RIDS) 2>/dev/null | tr '\n' ' ')
+            [ -n "$HIT" ] && ORPHAN_TRACE="${ORPHAN_TRACE}${f}|${HIT}
+"
+        done <<EOF
+$(git -C "$PROJECT_DIR" ls-files --others --exclude-standard 2>/dev/null; git -C "$PROJECT_DIR" diff --name-only 2>/dev/null)
+EOF
+        if [ -n "$ORPHAN_TRACE" ]; then
+            echo "" >&2
+            echo "BLOCKED: file(s) tracing THIS spec are not staged — the commit would ship the" >&2
+            echo "         fix and drop its proof, while verify-trace stays green because the" >&2
+            echo "         same R-ids are traced by older tests." >&2
+            printf '%s' "$ORPHAN_TRACE" | sort -u | while IFS='|' read -r f rids; do
+                [ -z "$f" ] && continue
+                echo "    $f  (traces: ${rids% })" >&2
+            done
+            echo "" >&2
+            echo "  Stage them (git add <file>) or, if they are genuinely not part of this" >&2
+            echo "  change, remove the @trace marker that claims they are." >&2
+            log_block "untraced-evidence-unstaged" "$(printf '%s' "$ORPHAN_TRACE" | head -3 | tr '\n' ' ')"
+            exit 2
+        fi
+    fi
+fi
+
 echo "  ${MARK_DONE} Pipeline gate: all steps complete" >&2
 exit 0

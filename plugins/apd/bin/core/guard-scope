@@ -88,6 +88,17 @@ if [[ "$REL_PATH" == /* ]]; then
   exit 2
 fi
 
+# v7.0.5: agent memory is writable by any agent, regardless of code scope.
+# `.claude/agent-memory/<agent>/` exists so an agent can carry a lesson from one
+# dispatch to the next; that is not code and it is not covered by a code scope.
+# It appeared to work for years only because per-agent frontmatter hooks never
+# fired on CC — the moment v7.0 wired guard-scope session-level, the directory
+# became unwritable and four blocks landed in a single PLAZMA run. The rest of
+# `.claude/` stays protected: only this subtree is exempt.
+case "$REL_PATH" in
+  .claude/agent-memory/*|*/.claude/agent-memory/*) exit 0 ;;
+esac
+
 for allowed in "${ALLOWED_PATHS[@]}"; do
   allowed="${allowed%/}/"
   # Slash on BOTH sides (same idiom as guard-bash-scope / pipeline-gate):

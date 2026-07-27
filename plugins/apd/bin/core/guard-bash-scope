@@ -177,8 +177,24 @@ SHELL_WRITE_PATTERNS=('tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'instal
 
 # Redirect targets that are not files: fd duplications (`2>&1`, `>&2`) and the
 # null/tty sinks. A command whose only redirects are these writes nothing.
+#
+# v7.0.5: lambda arrows are stripped first. `>` inside `=>` or `->` is not a
+# redirection — it is C#/JS/Java/Kotlin source, and it reaches this guard inside
+# a quoted search pattern. Measured on PLAZMA the day v7.0.4 shipped:
+#   grep -rn "RuleFor(x => x.Value)" --include=*.cs src/   → BLOCKED
+# The regex matched `> x.Value)`, extracted a "target" that is neither `&` nor a
+# sink, and a read-only grep was refused as an out-of-scope write. Twice in one
+# run, and it would fire on any codebase with lambdas.
+#
+# Stripping the arrows rather than teaching the regex about quoting is the
+# narrow fix: a real redirect written as `x =>file` or `x ->file` is the only
+# thing it could miss, and nobody writes that. Quote-aware parsing was the
+# alternative and it is worse — removing quoted spans would also erase the
+# TARGET in `echo x > "/tmp/out.txt"`, turning a false block into a miss.
 _file_redirect_targets() {
-  echo "$COMMAND" | grep -oE '[0-9]?>{1,2}[[:space:]]*[^&[:space:]|;`"]+' 2>/dev/null \
+  local _cmd="${COMMAND//=>/ }"
+  _cmd="${_cmd//->/ }"
+  echo "$_cmd" | grep -oE '[0-9]?>{1,2}[[:space:]]*[^&[:space:]|;`"]+' 2>/dev/null \
     | sed -E 's/^[0-9]?>+[[:space:]]*//' \
     | grep -vE '^&' \
     | grep -vE '^/dev/(null|stdout|stderr|tty)$' || true
@@ -231,8 +247,26 @@ _scope_hint() {
   fi
 }
 
+# v7.0.5: the session scratchpad is a sanctioned write target. Claude Code hands
+# each session a private directory under the per-uid temp root and instructs the
+# agent to use it for exactly this — capturing a test log instead of scrolling
+# it. Measured on PLAZMA: five blocks in one backend run, every one of the shape
+# `dotnet test … -v q > /private/tmp/claude-501/<slug>/<session>/scratchpad/x.log`.
+# Refusing it protects nothing; it pushes build output into the repo instead.
+# The match is deliberately narrow — the path must sit under a `claude-<uid>`
+# temp root AND name a `scratchpad` segment, so `/tmp/out.txt` and even
+# `/tmp/scratchpad/evil.txt` remain blocked.
+_is_session_scratchpad() {
+  case "$1" in
+    /tmp/claude-[0-9]*/*/scratchpad/*|/private/tmp/claude-[0-9]*/*/scratchpad/*) return 0 ;;
+    /tmp/claude-[0-9]*/*/scratchpad|/private/tmp/claude-[0-9]*/*/scratchpad)     return 0 ;;
+  esac
+  return 1
+}
+
 _path_in_scope() {
   local clean="$1"
+  _is_session_scratchpad "$clean" && return 0
   clean="${clean#./}"
   clean="${clean#~/}"
   local allowed

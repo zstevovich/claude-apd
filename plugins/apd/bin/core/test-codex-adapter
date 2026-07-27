@@ -13972,6 +13972,188 @@ else
     FAILS=$((FAILS + 1))
 fi
 
+section "127. A lambda arrow is not a redirection"
+
+# Measured on PLAZMA the day v7.0.4 shipped, twice in one pipeline run:
+#   grep -rn "RuleFor(x => x.Value)" --include=*.cs src/  → out-of-scope-bash-write
+# `=>` contains `>`, the redirect regex extracted `x.Value)` as a "target", and a
+# read-only grep was refused as a write. Any codebase with lambdas hits this —
+# C#, TS, Java, Kotlin — and the guard only started firing on CC in v7.0, so the
+# whole class was invisible until then. Same family as the `2>&1` false block.
+ARROW_T="$(mktemp -d -t apd-arrow.XXXXXX)"
+mkdir -p "$ARROW_T/.claude" "$ARROW_T/src"
+touch "$ARROW_T/.claude/.apd-config"
+_arrow_exit() {  # <json-quoted command> -> exit code
+    echo "{\"tool_input\":{\"command\":$1}}" \
+        | APD_PROJECT_DIR="$ARROW_T" bash "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-bash-scope" src/ >/dev/null 2>&1
+    echo $?
+}
+ARROW_FALSE=""
+[ "$(_arrow_exit '"grep -rn \"RuleFor(x => x.Value)\" --include=*.cs src/"')" -eq 0 ] || ARROW_FALSE="$ARROW_FALSE csharp-lambda"
+[ "$(_arrow_exit '"rg \"items.map(x => x.id)\" src/"')" -eq 0 ]                       || ARROW_FALSE="$ARROW_FALSE js-arrow"
+[ "$(_arrow_exit '"grep -rnE \"fn -> result\" src/"')" -eq 0 ]                        || ARROW_FALSE="$ARROW_FALSE thin-arrow"
+if [ -z "$ARROW_FALSE" ]; then
+    pass "grep/rg patterns containing => or -> are not read as redirection"
+    PASSES=$((PASSES + 1))
+else
+    fail "lambda arrow still false-blocks a read-only search:$ARROW_FALSE"
+    FAILS=$((FAILS + 1))
+fi
+
+# Stripping arrows must not blind the guard to a redirect in the SAME command.
+ARROW_LEAK=""
+[ "$(_arrow_exit '"echo x > /tmp/out.txt"')" -eq 2 ]                        || ARROW_LEAK="$ARROW_LEAK plain-redirect"
+[ "$(_arrow_exit '"grep -rn \"x => y\" src/ > /tmp/hits.txt"')" -eq 2 ]     || ARROW_LEAK="$ARROW_LEAK arrow-plus-redirect"
+[ "$(_arrow_exit '"echo x >> /etc/hosts"')" -eq 2 ]                         || ARROW_LEAK="$ARROW_LEAK append"
+[ "$(_arrow_exit '"cat f > .apd/pipeline/spec.done"')" -eq 2 ]              || ARROW_LEAK="$ARROW_LEAK pipeline-state"
+if [ -z "$ARROW_LEAK" ]; then
+    pass "real redirects still block, including one that follows an arrow in the same command"
+    PASSES=$((PASSES + 1))
+else
+    fail "arrow stripping opened a write path:$ARROW_LEAK"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$ARROW_T"
+
+section "128. Evidence this run produced must reach the commit"
+
+# The supervisor found this on PLAZMA (backend, 2026-07-27, SUPERVISION:6:4:2):
+# builder cycle 4 added two test files, both untracked, and they were the ONLY
+# proof of the accepted finding's fix. Every gate stayed green. `verify-trace`
+# passes because both R-ids are also traced by OLDER tests — it asks "does R
+# have a trace", never "did this run's trace make it into the commit". And the
+# stage-completeness warn above filters by BUILDER scope, so tests under tests/
+# were invisible while the builder was scoped to src/. A commit would have
+# shipped the fix and dropped its evidence, silently.
+EVID_T="$(mktemp -d -t apd-evidence.XXXXXX)"
+mkdir -p "$EVID_T/.apd/pipeline" "$EVID_T/.apd/agents" "$EVID_T/src" "$EVID_T/tests"
+echo "PROJECT_NAME=evidence-test" > "$EVID_T/.apd/config"
+git -C "$EVID_T" init -q
+git -C "$EVID_T" -c user.email=a@b -c user.name=t commit -q --allow-empty -m init
+printf '## Task\n**Acceptance criteria:**\n- R1: one\n- R2: two\n' > "$EVID_T/.apd/pipeline/spec-card.md"
+_eos=$(uname -s | tr '[:upper:]' '[:lower:]'); _earch=$(uname -m)
+[ "$_earch" = "x86_64" ] && _earch="amd64"
+[ "$_earch" = "aarch64" ] && _earch="arm64"
+EVID_VALIDATOR="$APD_PLUGIN_ROOT/bin/compiled/validate-agent-${_eos}-${_earch}"
+for s in spec builder reviewer verifier; do
+    "$EVID_VALIDATOR" advance -step "$s" -task evidence-test -pipeline-dir "$EVID_T/.apd/pipeline" >/dev/null 2>&1
+done
+echo "// @trace R1" > "$EVID_T/tests/covered.cs"
+git -C "$EVID_T" add tests/covered.cs
+
+_evid_exit() { APD_PROJECT_DIR="$EVID_T" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-gate" >/dev/null 2>&1; echo $?; }
+
+if [ "$(_evid_exit)" -eq 0 ]; then
+    pass "gate passes when every file tracing this spec is staged"
+    PASSES=$((PASSES + 1))
+else
+    fail "gate blocks a clean, fully staged tree"
+    FAILS=$((FAILS + 1))
+fi
+
+echo "// @trace R2" > "$EVID_T/tests/orphan.cs"   # untracked, traces THIS spec
+EVID_OUT=$(APD_PROJECT_DIR="$EVID_T" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-gate" 2>&1)
+EVID_RC=$?
+if [ "$EVID_RC" -eq 2 ] && echo "$EVID_OUT" | grep -q 'orphan.cs'; then
+    pass "unstaged file tracing this spec BLOCKS the commit and is named"
+    PASSES=$((PASSES + 1))
+else
+    fail "the run's own evidence can still be dropped silently (exit $EVID_RC)"
+    FAILS=$((FAILS + 1))
+fi
+
+git -C "$EVID_T" add tests/orphan.cs
+if [ "$(_evid_exit)" -eq 0 ]; then
+    pass "staging the file clears the block (the fix is one git add)"
+    PASSES=$((PASSES + 1))
+else
+    fail "block survives staging — the recovery path does not work"
+    FAILS=$((FAILS + 1))
+fi
+
+# Precision: an unstaged file is only evidence if it claims a criterion THIS
+# spec declares. Unrelated work in the tree must not hold the commit hostage.
+EVID_FALSE=""
+echo "// @trace R9" > "$EVID_T/tests/other.cs"
+[ "$(_evid_exit)" -eq 0 ] || EVID_FALSE="$EVID_FALSE foreign-r-id"
+echo "// plain helper" > "$EVID_T/tests/plain.cs"
+[ "$(_evid_exit)" -eq 0 ] || EVID_FALSE="$EVID_FALSE no-marker"
+if [ -z "$EVID_FALSE" ]; then
+    pass "unrelated untracked files do not block (only traces of THIS spec count)"
+    PASSES=$((PASSES + 1))
+else
+    fail "check is over-broad, blocks on:$EVID_FALSE"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$EVID_T"
+
+section "129. Two write targets are sanctioned, and only these two"
+
+# Both surfaced on PLAZMA the day v7.0.4 shipped, and both exist because v7.0
+# made guard-scope/guard-bash-scope actually run for the first time:
+#   4 blocks — an agent writing .claude/agent-memory/<agent>/*.md, the very
+#              directory that exists so an agent can carry a lesson forward
+#   5 blocks — `dotnet test … > <session scratchpad>/x.log`, the scratchpad CC
+#              hands the session and tells the agent to use
+# Neither protects the project; the second just pushes build output into the
+# repo. The exemptions are narrow and this section is what keeps them narrow.
+SANCT_T="$(mktemp -d -t apd-sanctioned.XXXXXX)"
+mkdir -p "$SANCT_T/.claude" "$SANCT_T/src"
+touch "$SANCT_T/.claude/.apd-config"
+_sanct_write() {  # <abs file> -> exit
+    echo "{\"tool_input\":{\"file_path\":\"$1\"}}" \
+        | APD_PROJECT_DIR="$SANCT_T" bash "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-scope" src/ >/dev/null 2>&1
+    echo $?
+}
+_sanct_bash() {   # <json-quoted cmd> -> exit
+    echo "{\"tool_input\":{\"command\":$1}}" \
+        | APD_PROJECT_DIR="$SANCT_T" bash "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-bash-scope" src/ >/dev/null 2>&1
+    echo $?
+}
+
+if [ "$(_sanct_write "$SANCT_T/.claude/agent-memory/testing/lesson.md")" -eq 0 ]; then
+    pass "an agent may write its own .claude/agent-memory/ entry"
+    PASSES=$((PASSES + 1))
+else
+    fail "agent memory is unwritable — the directory exists for exactly this"
+    FAILS=$((FAILS + 1))
+fi
+
+SANCT_LEAK=""
+[ "$(_sanct_write "$SANCT_T/.claude/settings.json")" -eq 2 ]       || SANCT_LEAK="$SANCT_LEAK settings.json"
+[ "$(_sanct_write "$SANCT_T/.claude/agents/backend-api.md")" -eq 2 ] || SANCT_LEAK="$SANCT_LEAK agent-definitions"
+[ "$(_sanct_write "$SANCT_T/apps/x.ts")" -eq 2 ]                    || SANCT_LEAK="$SANCT_LEAK out-of-scope-code"
+if [ -z "$SANCT_LEAK" ]; then
+    pass "the agent-memory exemption does not open the rest of .claude/ or code"
+    PASSES=$((PASSES + 1))
+else
+    fail "agent-memory exemption is too wide, also allows:$SANCT_LEAK"
+    FAILS=$((FAILS + 1))
+fi
+
+if [ "$(_sanct_bash '"dotnet test -v q > /private/tmp/claude-501/-Users-x/abc/scratchpad/t.log"')" -eq 0 ] \
+   && [ "$(_sanct_bash '"pytest > /tmp/claude-501/-Users-x/abc/scratchpad/p.log"')" -eq 0 ]; then
+    pass "a command may redirect output into the session scratchpad"
+    PASSES=$((PASSES + 1))
+else
+    fail "scratchpad redirect still blocked — output gets dumped into the repo instead"
+    FAILS=$((FAILS + 1))
+fi
+
+SCRATCH_LEAK=""
+[ "$(_sanct_bash '"echo x > /tmp/out.txt"')" -eq 2 ]                              || SCRATCH_LEAK="$SCRATCH_LEAK plain-tmp"
+[ "$(_sanct_bash '"echo x > /tmp/scratchpad/evil.txt"')" -eq 2 ]                  || SCRATCH_LEAK="$SCRATCH_LEAK wrong-root"
+[ "$(_sanct_bash '"echo x > /tmp/claude-501/-Users-x/abc/notes.txt"')" -eq 2 ]    || SCRATCH_LEAK="$SCRATCH_LEAK claude-root-no-scratchpad"
+[ "$(_sanct_bash '"echo x > /etc/hosts"')" -eq 2 ]                                || SCRATCH_LEAK="$SCRATCH_LEAK system-path"
+if [ -z "$SCRATCH_LEAK" ]; then
+    pass "scratchpad exemption needs BOTH the claude-<uid> root and a scratchpad segment"
+    PASSES=$((PASSES + 1))
+else
+    fail "scratchpad exemption is too wide, also allows:$SCRATCH_LEAK"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$SANCT_T"
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"

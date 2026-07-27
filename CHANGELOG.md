@@ -1,5 +1,21 @@
 # Changelog
 
+## v7.0.5 — 2026-07-28
+
+**Two v7.0.4 pipelines ran on a real project, and the guards that started enforcing in v7.0 produced eighteen blocks between them. Three were false, and the supervisor found a gap no gate could see.**
+
+- **A lambda arrow is not a redirection.** `grep -rn "RuleFor(x => x.Value)" --include=*.cs src/` was refused as an out-of-scope write, because `=>` contains `>` and the redirect scan extracted `x.Value)` as a "target" — a read-only search, blocked twice in one run, on any codebase with lambdas. Arrows are stripped before the scan now. The narrow fix beats teaching the regex about quoting: removing quoted spans would also erase the target in `echo x > "/tmp/out.txt"`, turning a false block into a miss. A redirect that follows an arrow in the same command still blocks.
+
+- **The session scratchpad is a sanctioned write target.** Five blocks of the shape `dotnet test … -v q > <scratchpad>/x.log` — the directory Claude Code hands the session and instructs the agent to use. Refusing it protects nothing; it pushes build output into the repo. The exemption requires BOTH a `claude-<uid>` temp root AND a `scratchpad` segment, so `/tmp/out.txt` and `/tmp/scratchpad/evil.txt` still block.
+
+- **Agent memory is writable again.** Four blocks on `.claude/agent-memory/<agent>/*.md`, the directory that exists so an agent can carry a lesson between dispatches. It is not code and no code scope covers it; it only appeared to work for years because per-agent frontmatter hooks never fired. The rest of `.claude/` — settings, agent definitions — stays protected.
+
+- **Evidence this run produced must reach the commit.** Builder cycle 4 added two test files, both untracked, and they were the only proof of an accepted supervisor finding. Every gate stayed green: `verify-trace` asks whether an R-id has coverage *anywhere*, and older tests satisfied both; the stage-completeness warn filters by builder scope, and the tests sat under `tests/` while the builder was scoped to `src/`. `pipeline-gate` now BLOCKS when an unstaged or untracked file carries a `@trace` for an R-id this spec declares — the one question that matters, independent of scope and of who wrote the file. Unrelated untracked files, foreign R-ids and unmarked files do not block; recovery is one `git add` and the message names each file with the R-ids it claims.
+
+**Three of the four mechanisms had no test until the mutation run said so.** Removing the agent-memory exemption and the scratchpad allowance both left the suite green — the code worked and nothing was guarding it. §129 now asserts each exemption exists *and* stays narrow. That is the third time in two days the same rule collected: `test-system` measured its own mistake, `verify-trace` measures the wrong question, and these two were not measured at all.
+
+Suite 1170 → 1176.
+
 ## v7.0.4 — 2026-07-27
 
 **An outside review pointed at a test nobody runs; underneath it was a real guard bug.** `test-system` — a script whose own header says "run before every push" — sat at 27 PASS / 9 FAIL on a fresh clone for six weeks and was not in CI. Eight of those nine failures were the test's own fault. The ninth was not.
