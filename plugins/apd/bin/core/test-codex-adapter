@@ -13917,6 +13917,61 @@ fi
 
 rm -rf "$PERMFIX_T"
 
+section "126. A scope must cover a directory that does not exist yet"
+
+# Found by repairing test-system, which had been reporting this as one of nine
+# failures — eight of which were the test's own fault, so nobody looked. On
+# macOS `realpath` returns nothing for a file that does not exist, and the
+# fallback (`cd "$(dirname)" && pwd -P`) needs the PARENT to exist. Writing the
+# FIRST file into a scoped directory therefore left ABS_PATH logical while
+# PROJ_CANON was physical (/tmp vs /private/tmp), the prefix strip failed, and
+# a file squarely inside scope was rejected as "outside the project".
+SCOPEDIR_T="$(mktemp -d -t apd-scopedir.XXXXXX)"
+mkdir -p "$SCOPEDIR_T/.claude" "$SCOPEDIR_T/apps/frontend"
+touch "$SCOPEDIR_T/.claude/.apd-config"
+_scope_exit() {  # <file> <scope> -> exit code
+    echo "{\"tool_input\":{\"file_path\":\"$1\"}}" \
+        | APD_PROJECT_DIR="$SCOPEDIR_T" bash "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-scope" "$2" >/dev/null 2>&1
+    echo $?
+}
+if [ "$(_scope_exit "$SCOPEDIR_T/src/foo.cs" 'src/')" -eq 0 ] \
+   && [ "$(_scope_exit "$SCOPEDIR_T/src/a/b/c/foo.cs" 'src/')" -eq 0 ]; then
+    pass "first file in a not-yet-created scope directory is ALLOWED"
+    PASSES=$((PASSES + 1))
+else
+    fail "guard-scope false-blocks the first file in a scoped directory that does not exist yet"
+    FAILS=$((FAILS + 1))
+fi
+
+# The relaxation must not open anything: every existing defence still holds.
+SCOPEDIR_LEAK=""
+[ "$(_scope_exit "$SCOPEDIR_T/apps/frontend/App.tsx" 'src/')" -eq 2 ] || SCOPEDIR_LEAK="$SCOPEDIR_LEAK out-of-scope"
+[ "$(_scope_exit "$SCOPEDIR_T/other/x.cs" 'src/')" -eq 2 ]            || SCOPEDIR_LEAK="$SCOPEDIR_LEAK out-of-scope-missing-dir"
+[ "$(_scope_exit "$SCOPEDIR_T/src-evil/x.cs" 'src/')" -eq 2 ]         || SCOPEDIR_LEAK="$SCOPEDIR_LEAK sibling-prefix"
+[ "$(_scope_exit "$SCOPEDIR_T/src/../../etc/passwd" 'src/')" -eq 2 ]  || SCOPEDIR_LEAK="$SCOPEDIR_LEAK traversal"
+[ "$(_scope_exit "$SCOPEDIR_T/Dockerfile.evil" 'Dockerfile')" -eq 2 ] || SCOPEDIR_LEAK="$SCOPEDIR_LEAK file-scope-collision"
+if [ -z "$SCOPEDIR_LEAK" ]; then
+    pass "missing-directory handling opens nothing (traversal, sibling prefix, out-of-scope all still blocked)"
+    PASSES=$((PASSES + 1))
+else
+    fail "scope relaxation leaked:$SCOPEDIR_LEAK"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$SCOPEDIR_T"
+
+# test-system is a second E2E surface and it must be GREEN, not merely present.
+# It sat at 27/9 for six weeks: its guard helper piped CC hook JSON at
+# `bin/core/<guard>`, whose contract is `--command`/`--file-path` arguments, so
+# the guards received nothing, exited 0, and the test read that as "enforcement
+# is broken" while the same guards were blocking in production.
+if grep -q 'adapter/cc/\$2' "$APD_PLUGIN_ROOT/bin/core/test-system"; then
+    pass "test-system drives guards through the adapter (the JSON-payload entry point)"
+    PASSES=$((PASSES + 1))
+else
+    fail "test-system pipes hook JSON at bin/core guards — they will exit 0 and it will read as a failed guard"
+    FAILS=$((FAILS + 1))
+fi
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"

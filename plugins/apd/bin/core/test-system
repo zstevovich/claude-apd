@@ -30,8 +30,14 @@ run_exit() {
     echo $?
 }
 
+# Guards take their input as a CC hook JSON payload — that is the ADAPTER's
+# contract. `bin/core/<guard>` takes `--command`/`--file-path` arguments and
+# ignores stdin, so piping JSON at it hands the guard nothing to inspect: it
+# exits 0 and the test reads that as "enforcement is broken". Six checks in this
+# file reported exactly that for weeks while the same guards were blocking in
+# production. Route through the adapter, which is what CC actually invokes.
 guard_test() {
-    echo "$1" | APD_PROJECT_DIR="$TEST_DIR" bash "$SCRIPT_DIR/$2" "${@:3}" >/dev/null 2>&1
+    echo "$1" | APD_PROJECT_DIR="$TEST_DIR" bash "$SCRIPT_DIR/../adapter/cc/$2" "${@:3}" >/dev/null 2>&1
     echo $?
 }
 
@@ -79,14 +85,22 @@ fi
 EXIT=$(run_exit pipeline-advance builder)
 [ "$EXIT" -ne 0 ] && pass "builder without plan → BLOCKED" || fail "builder without plan should BLOCK"
 
-# 1.7 Create implementation plan with Agents section
+# 1.7 Create implementation plan with Agents section.
+# Every spec R* must be claimed by a section: the plan-spec consistency gate has
+# been strict since v6.8.1, and this fixture predates it — the missing
+# `**Implements:**` header is why 1.10/1.13/1.15 failed for weeks.
 cat > "$TEST_DIR/.apd/pipeline/implementation-plan.md" << 'EOF'
 ## Plan
 
+### Section 1
+**Implements:** R1, R2, R3
+
 ### Agents
+**Implements:** none
 - backend-api
 
 ### Files to modify
+**Implements:** none
 - src/foo.cs — change something
 EOF
 

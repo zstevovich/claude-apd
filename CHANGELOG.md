@@ -1,5 +1,19 @@
 # Changelog
 
+## v7.0.4 — 2026-07-27
+
+**An outside review pointed at a test nobody runs; underneath it was a real guard bug.** `test-system` — a script whose own header says "run before every push" — sat at 27 PASS / 9 FAIL on a fresh clone for six weeks and was not in CI. Eight of those nine failures were the test's own fault. The ninth was not.
+
+- **`guard-scope` false-blocked the first file in a scoped directory that did not exist yet.** On macOS `realpath` resolves nothing for a file that is not on disk, and the fallback (`cd "$(dirname)" && pwd -P`) needs the PARENT to exist — so writing `src/foo.cs` before `src/` existed left `ABS_PATH` logical while `PROJ_CANON` was physical (`/tmp` vs `/private/tmp`), the prefix strip failed, and a file squarely inside scope was rejected as "outside the project". An agent scoped to `tests/` could not create the first test file. The normaliser now canonicalises the deepest ancestor that exists and re-attaches the missing tail. Same class as the v6.37.1 symlink fix, and the direction of risk is identical: it removes false blocks and opens nothing — proven on a 9-case matrix where traversal, sibling-prefix (`src-evil/` under `src`), out-of-scope and file-as-scope collisions all still block.
+
+- **`test-system` was measuring its own mistakes.** Its guard helper piped CC hook JSON at `bin/core/<guard>`, whose contract is `--command`/`--file-path` arguments — the JSON payload is the ADAPTER's protocol. The guards received nothing, exited 0, and six checks read that as "enforcement is broken" while the same guards were blocking in production. Separately, the plan fixture carried no `**Implements:**` header on any section, and the plan-spec gate has been strict since v6.8.1, so the spec never advanced and three more checks failed downstream. Both fixed: 27/9 → 36/0.
+
+- **`test-system` is now in CI.** That is the actual lesson. A second E2E surface that nobody runs does not decay into a missing test, it decays into a lying one — and it hid a live defect under eight false alarms for six weeks.
+
+- **The README no longer claims "No bypass from within Claude Code".** It states the threat model instead: APD defends against *drift*, not *intent*. Whoever runs the session owns the machine — `.apd/config` can be deleted, the plugin toggled off, a guard edited. APD makes those moves deliberate and auditable (`apd toggle off` mid-pipeline is itself blocked without a written reason) but cannot make them impossible. The enforcement table reads as "the natural shortcut is closed", not "the door is welded".
+
+Suite 1167 → 1170; `test-system` 27/9 → 36/0, both green in CI. Each fix has a mutation that flips exactly its own checks — removing the scope branch fails one check, and pointing the test helper back at `bin/core` reproduces the original 27/9 verbatim.
+
 ## v7.0.3 — 2026-07-26
 
 **Three checks that reported a project healthy while it was not, found by running v7.0.2 on a real project the day it shipped.** Bambi declared profile `cruise`, and: 7 of 9 agents sat on stale models, the supervisor on a model no profile names, and `workflow.md` was 103 lines behind — still instructing the orchestrator to raise `maxTurns`, a field v6.31 removed after a controlled test proved CC ignores it. `apd audit-drift` said CLEAN. Every mechanical check agreed.

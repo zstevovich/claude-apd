@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>v7.0.3</b> &middot; MIT &middot; macOS + Linux
+  <b>v7.0.4</b> &middot; MIT &middot; macOS + Linux
 </p>
 
 <p align="center">
@@ -88,7 +88,7 @@ codex plugin marketplace upgrade codex-apd                    # pulls latest mai
 To pin the upgrade to a specific tag or branch (e.g. for pre-release testing):
 ```bash
 codex plugin marketplace remove codex-apd
-codex plugin marketplace add zstevovich/claude-apd@v7.0.3     # or @<branch> for a feature branch
+codex plugin marketplace add zstevovich/claude-apd@v7.0.4     # or @<branch> for a feature branch
 ```
 
 **Codex — direct-drop install:**
@@ -207,7 +207,11 @@ Shows task info, step timing, spec coverage bar, adversarial findings, guard blo
 
 ## Mechanical enforcement
 
-Every rule is backed by a hook script that **blocks** violations. No bypass from within Claude Code.
+Every rule is backed by a hook script that **blocks** violations — the agent cannot talk its way past them, because they are not part of the conversation.
+
+**What this defends against, stated honestly.** The threat model is *drift*, not *intent*. An agent under pressure to finish reaches for the shortest path — writing the summary itself, committing without the review, editing the spec to fit what it built. Every guard below stops that, and the pipeline records what actually happened rather than what the agent says happened.
+
+It is not a security boundary. Whoever runs the session owns the machine: `.apd/config` can be deleted, the plugin can be toggled off, a guard can be edited. APD makes those moves deliberate and visible — `apd toggle off` mid-pipeline is itself blocked without a written reason, and lands in the audit log — but it does not, and cannot, make them impossible. Read the table as "the natural shortcut is closed", not "the door is welded".
 
 | What is blocked | Guard |
 |----------------|-------|

@@ -68,6 +68,15 @@ jobs:
           SW_MAX_ITERS: 1      # fixtures advancing `spec` launch a stall watcher
         run: bash plugins/apd/bin/core/test-codex-adapter
 
+      # Second E2E surface, and the reason it is here: it was never wired in, so
+      # it sat at 27 PASS / 9 FAIL for six weeks. Eight of those nine were the
+      # test's own fault — but the ninth was a real guard bug nobody could see
+      # underneath them. A test that is not in CI decays into noise.
+      - name: test-system
+        env:
+          SW_MAX_ITERS: 1
+        run: bash plugins/apd/bin/core/test-system
+
   # The guard is symmetric but each host can only prove one direction natively.
   # The force seam drives both from both, so a matcher that silently stops
   # matching on the other platform's grep still shows up here.

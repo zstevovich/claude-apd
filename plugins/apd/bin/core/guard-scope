@@ -36,6 +36,23 @@ if [ -z "$ABS_PATH" ]; then
   FP_DIR=$(dirname "$FILE_PATH")
   if [ -d "$FP_DIR" ]; then
     ABS_PATH="$(cd "$FP_DIR" 2>/dev/null && pwd -P)/$(basename "$FILE_PATH")"
+  else
+    # v7.0.4: the parent does not exist yet — the FIRST file in a scoped
+    # directory (`tests/`, a new module) is exactly this case. Without this
+    # branch ABS_PATH stayed LOGICAL while PROJ_CANON below is PHYSICAL, the
+    # prefix strip failed, and a file squarely inside scope was rejected as
+    # "outside the project" — a false BLOCK on legitimate work, same class as
+    # the v6.37.1 symlink fix. Canonicalise the deepest ancestor that DOES
+    # exist and re-attach the missing tail.
+    _anc="$FP_DIR"
+    _tail="$(basename "$FILE_PATH")"
+    while [ ! -d "$_anc" ] && [ "$_anc" != "/" ] && [ "$_anc" != "." ]; do
+      _tail="$(basename "$_anc")/$_tail"
+      _anc="$(dirname "$_anc")"
+    done
+    if [ -d "$_anc" ]; then
+      ABS_PATH="$(cd "$_anc" 2>/dev/null && pwd -P)/$_tail"
+    fi
   fi
 fi
 [ -z "$ABS_PATH" ] && ABS_PATH="$FILE_PATH"
