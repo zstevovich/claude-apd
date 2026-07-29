@@ -1,5 +1,21 @@
 # Changelog
 
+## v7.0.6 — 2026-07-29
+
+**The trace gate has been passing for months without measuring anything.** R-ids restart at R1 in every spec, so a marker written for an older task satisfies today's criterion of the same number. Counted on PLAZMA: **1429 `@trace R1` markers across 755 files**, against a commit touching two. Every criterion of every new spec resolves against inherited markers — the gate cannot fail no matter what the task does or omits. That is not a strict check passing; it is a dead one wearing a green tick.
+
+It also explains two findings that looked separate. The supervisor's case on 2026-07-27 — two untracked test files, the only proof of an accepted finding, and every gate green — was this. So was the migration lesson two days later: `EnsureCreatedAsync` builds the schema in every Testcontainers fixture, so no test ever executes a migration, while trace stayed green on markers from previous tasks. One root, two symptoms.
+
+- **Coverage now says whose evidence it counted.** `.reviewed-files` is already exactly "files this task touched", content-aware since v6.37 — traces are counted separately inside it, and each criterion is labelled `fresh(N)` or `inherited only`, with a summary line stating how many are green on inherited markers alone.
+
+- **Reported, not enforced.** A criterion legitimately covered by an untouched existing test must not start failing runs, so the exit code is unchanged. The numbers come first and the gate decision after a rollout window — the same staged approach as the regression-surface gate in v6.17. What this does remove is the false confidence: a run where every criterion is `inherited only` now says so out loud.
+
+- **The 4th field nearly repeated an old bug.** `pipeline-report` parsed the `TRACE:` line with exactly three variables, so the new count would have been absorbed into the missing-ids field — the same absorption that corrupted the metrics columns in v6.30. Sink added, and a check asserts the line stays parseable.
+
+Not fixed, and worth stating: `verify-trace` still knows nothing about migrations. For that class the rule stays human — a green suite does not prove DDL when the schema under test was never built by a migration.
+
+Suite 1176 → 1185.
+
 ## v7.0.5 — 2026-07-28
 
 **Two v7.0.4 pipelines ran on a real project, and the guards that started enforcing in v7.0 produced eighteen blocks between them. Three were false, and the supervisor found a gap no gate could see.**

@@ -124,6 +124,31 @@ if [ -n "$NON_TEST_CODE" ]; then
     done > "$CODE_COUNT_FILE"
 fi
 
+# --- v7.0.6: which traces did THIS run produce? ---
+# R-ids restart at R1 in every spec, so a marker written for last month's task
+# satisfies this month's criterion of the same number. Measured on PLAZMA:
+# 1429 `@trace R1` markers across 755 files, against a commit touching 2 —
+# every criterion of every new spec resolves against inherited markers, so the
+# gate cannot fail no matter what the task does or omits. That is not a strict
+# check passing; it is a dead one.
+#
+# `.reviewed-files` is already exactly "files this task touched", content-aware
+# (v6.37 #4: a file dirty before the spec was signed counts only if the task
+# changed its bytes). Counting traces inside that list separates evidence this
+# run produced from evidence it inherited. REPORTED, not enforced: a criterion
+# legitimately covered by an untouched existing test would otherwise false-block
+# — the numbers come first, the gate decision after a rollout window.
+FRESH_COUNT_FILE="$(mktemp -t apd-trace-fresh.XXXXXX)"
+: > "$FRESH_COUNT_FILE"
+REVIEWED_LIST="$PROJECT_DIR/.apd/pipeline/.reviewed-files"
+if [ -f "$REVIEWED_LIST" ]; then
+    while IFS= read -r rf; do
+        [ -z "$rf" ] && continue
+        [ -f "$PROJECT_DIR/$rf" ] || continue
+        grep '@trace' "$PROJECT_DIR/$rf" 2>/dev/null | grep -oE 'R[0-9]+' || true
+    done < "$REVIEWED_LIST" >> "$FRESH_COUNT_FILE"
+fi
+
 # --- Detect extra IDs (in tests but not in spec) ---
 if [ -s "$TEST_COUNT_FILE" ]; then
     SPEC_IDS=$(cut -d'|' -f1 "$SPEC_DATA")
@@ -142,17 +167,32 @@ if [ "$SUMMARY_MODE" = false ]; then
     apd_header "Spec Traceability" >&2
 fi
 
+STALE_ONLY=0
 while IFS='|' read -r id desc; do
-    tc=0; cc=0
+    tc=0; cc=0; fc=0
     [ -s "$TEST_COUNT_FILE" ] && tc=$(grep -cxF "$id" "$TEST_COUNT_FILE" 2>/dev/null) || tc=0
     [ -s "$CODE_COUNT_FILE" ] && cc=$(grep -cxF "$id" "$CODE_COUNT_FILE" 2>/dev/null) || cc=0
+    [ -s "$FRESH_COUNT_FILE" ] && fc=$(grep -cxF "$id" "$FRESH_COUNT_FILE" 2>/dev/null) || fc=0
 
     if [ "$tc" -gt 0 ]; then
         COVERED=$((COVERED + 1))
+        # v7.0.6: distinguish evidence this run produced from evidence it
+        # inherited. `inherited only` means the criterion is green because some
+        # earlier task wrote the same R-id — the marker proves nothing about
+        # THIS change. Reported, never blocking (yet): a criterion covered by an
+        # untouched existing test is legitimate and must not false-block.
+        [ "$fc" -eq 0 ] && [ -f "$REVIEWED_LIST" ] && STALE_ONLY=$((STALE_ONLY + 1))
         if [ "$SUMMARY_MODE" = false ]; then
             suffix=""
             [ "$cc" -gt 0 ] && suffix=" code($cc)"
             suffix="${suffix} test($tc)"
+            if [ -f "$REVIEWED_LIST" ]; then
+                if [ "$fc" -gt 0 ]; then
+                    suffix="${suffix} ${G}fresh($fc)${R}"
+                else
+                    suffix="${suffix} ${Y}inherited only${R}"
+                fi
+            fi
             pass "${id}: ${desc}${suffix}" >&2
         fi
     else
@@ -186,10 +226,19 @@ if [ "$SUMMARY_MODE" = false ]; then
             fail "${uid} missing test coverage" >&2
         done
     fi
+    # v7.0.6 — the number that says whether "covered" means anything here.
+    if [ -f "$REVIEWED_LIST" ] && [ "$STALE_ONLY" -gt 0 ]; then
+        echo "" >&2
+        warn "${STALE_ONLY}/${TOTAL} criteria are green on INHERITED markers only — this run added no trace for them" >&2
+        echo "    ${D}R-ids restart at R1 in every spec, so an older task's marker satisfies today's criterion.${R}" >&2
+        echo "    ${D}Green here does not mean this change is covered. Check the criteria above marked 'inherited only'.${R}" >&2
+    fi
 fi
 
 # Always emit summary on stdout (machine-readable, captured by pipeline-advance)
-echo "TRACE:${COVERED}/${TOTAL}:${UNCOVERED_IDS}"
+# Field 4 (v7.0.6) = criteria covered ONLY by inherited markers; empty when the
+# reviewed-files scope is unavailable (outside a run).
+echo "TRACE:${COVERED}/${TOTAL}:${UNCOVERED_IDS}:${STALE_ONLY}"
 
 # --- Exit code ---
 if [ "$COVERED" -lt "$TOTAL" ]; then

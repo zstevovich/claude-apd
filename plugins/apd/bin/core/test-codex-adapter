@@ -14154,6 +14154,105 @@ else
 fi
 rm -rf "$SANCT_T"
 
+section "130. Trace coverage must say whose evidence it counted"
+
+# R-ids restart at R1 in every spec, so a marker written months ago satisfies
+# today's criterion of the same number. Measured on PLAZMA 2026-07-29: 1429
+# `@trace R1` markers across 755 files, against a commit touching 2 — every
+# criterion of every new spec resolves against inherited markers and the gate
+# cannot fail. That is a dead check wearing a green tick, and it is the root of
+# two separate findings: the supervisor's untracked-evidence case (v7.0.5) and
+# the migration lesson (`EnsureCreatedAsync` builds the schema, so no test ever
+# runs a migration, while trace stays green on old markers).
+# Reported, NOT enforced: a criterion covered by an untouched existing test is
+# legitimate. The numbers come first; the gate decision after a rollout window.
+TRC_T="$(mktemp -d -t apd-tracefresh.XXXXXX)"
+mkdir -p "$TRC_T/.claude" "$TRC_T/.apd/pipeline" "$TRC_T/tests"
+touch "$TRC_T/.claude/.apd-config"
+printf '## Task\n**Acceptance criteria:**\n- R1: fresh one\n- R2: inherited one\n' > "$TRC_T/.apd/pipeline/spec-card.md"
+echo "// @trace R1" > "$TRC_T/tests/new_test.cs"
+echo "// @trace R2" > "$TRC_T/tests/old_test.cs"
+echo "tests/new_test.cs" > "$TRC_T/.apd/pipeline/.reviewed-files"
+TRC_OUT=$(APD_PROJECT_DIR="$TRC_T" bash "$APD_PLUGIN_ROOT/bin/core/verify-trace" 2>&1)
+TRC_RC=$?
+if echo "$TRC_OUT" | grep -q 'inherited only' && echo "$TRC_OUT" | grep -qE 'fresh\(1\)'; then
+    pass "criteria are labelled fresh vs inherited against .reviewed-files"
+    PASSES=$((PASSES + 1))
+else
+    fail "trace report does not distinguish this run's evidence from an older task's"
+    FAILS=$((FAILS + 1))
+fi
+
+if echo "$TRC_OUT" | grep -qE '1/2 criteria are green on INHERITED'; then
+    pass "the inherited-only count is stated, not left for the reader to notice"
+    PASSES=$((PASSES + 1))
+else
+    fail "no summary line naming how many criteria are green on inherited markers"
+    FAILS=$((FAILS + 1))
+fi
+
+# Reporting only — an inherited-only criterion must NOT start failing runs.
+if [ "$TRC_RC" -eq 0 ] && echo "$TRC_OUT" | grep -q 'TRACE:2/2'; then
+    pass "inherited-only coverage still passes (report first, gate after evidence)"
+    PASSES=$((PASSES + 1))
+else
+    fail "the report turned into a gate — legitimate existing-test coverage would false-block (rc=$TRC_RC)"
+    FAILS=$((FAILS + 1))
+fi
+
+# The 4th field must not corrupt the readers that parse this line positionally.
+TRC_LINE=$(echo "$TRC_OUT" | grep '^TRACE:')
+IFS=: read -r _p _cov _miss _stale _rest <<EOF
+$TRC_LINE
+EOF
+if [ "$_stale" = "1" ] && [ -z "$_miss" ] && [ -z "$_rest" ]; then
+    pass "TRACE line stays parseable: missing-ids field did not absorb the new count"
+    PASSES=$((PASSES + 1))
+else
+    fail "TRACE line parse broken (miss='$_miss' stale='$_stale' rest='$_rest')"
+    FAILS=$((FAILS + 1))
+fi
+
+# ...and every consumer that splits this line must sink the tail. `pipeline-report`
+# read it with exactly three variables, so the 4th field landed inside the
+# missing-ids string — the same absorption that corrupted the v6.30 metrics
+# columns. This asserts the SHAPE of every reader rather than one rendered
+# string: the render path needs a live pipeline state that a fixture cannot
+# reconstruct cheaply, and a check that cannot fail is worse than none.
+# Any `IFS=: read` over the trace summary must bind at least 5 fields
+# (prefix, coverage, missing, inherited, sink).
+TRC_READERS=$(grep -rn 'IFS=:[[:space:]]*read' "$APD_PLUGIN_ROOT/bin" 2>/dev/null | grep -i 'trace' || true)
+TRC_THIN=""
+while IFS= read -r ln; do
+    [ -z "$ln" ] && continue
+    _vars=$(echo "$ln" | sed -E 's/.*read -r //; s/<.*//' | wc -w | tr -d ' ')
+    [ "$_vars" -lt 5 ] && TRC_THIN="$TRC_THIN $(echo "$ln" | cut -d: -f1 | xargs basename):$(echo "$ln" | cut -d: -f2)"
+done <<EOF
+$TRC_READERS
+EOF
+if [ -n "$TRC_READERS" ] && [ -z "$TRC_THIN" ]; then
+    pass "every TRACE-summary reader binds a sink field (no positional absorption)"
+    PASSES=$((PASSES + 1))
+elif [ -z "$TRC_READERS" ]; then
+    fail "no TRACE-summary reader found — the check lost its target, fix the locator"
+    FAILS=$((FAILS + 1))
+else
+    fail "TRACE-summary reader without a sink field at:$TRC_THIN — the 4th field will be absorbed"
+    FAILS=$((FAILS + 1))
+fi
+
+# Outside a run there is no .reviewed-files — the labels must simply not appear.
+rm -f "$TRC_T/.apd/pipeline/.reviewed-files"
+TRC_OUT2=$(APD_PROJECT_DIR="$TRC_T" bash "$APD_PLUGIN_ROOT/bin/core/verify-trace" 2>&1)
+if ! echo "$TRC_OUT2" | grep -q 'inherited only' && echo "$TRC_OUT2" | grep -q 'TRACE:2/2'; then
+    pass "without a run scope the report degrades quietly (no false 'inherited' claims)"
+    PASSES=$((PASSES + 1))
+else
+    fail "verify-trace mislabels criteria when run outside a pipeline"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$TRC_T"
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"
