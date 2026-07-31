@@ -1,5 +1,21 @@
 # Changelog
 
+## v7.0.8 — 2026-07-31
+
+**The defect v7.0.7 fixed in a report also lived in the gate that blocks commits — and there it told the operator to delete the evidence.** `pipeline-gate` blocks when an unstaged or untracked file carries a `@trace` for an R-id this spec declares. It scanned whole files, and R-ids restart at R1 in every spec, so a marker committed by an older cycle carried today's number by coincidence: a tracked file touched for an unrelated reason was blocked as "tracing THIS spec", and the recovery text said to remove the marker that claimed it. That marker is legitimate and its test really exists — following the advice would have traded a blocked commit for silently lost coverage. Reproduced on the same shape the user hit on FiscalFusionAI: leftover markers sitting in files the diff touches.
+
+- **A tracked file now contributes only the surplus over its HEAD blob** — the same multiset rule `verify-trace` uses. Untracked files have no blob and still count in full, which is the case this check was born for. Red-green on five shapes: inherited-unrelated and moved-marker stop blocking; task-added, untracked-new and second-copy still block.
+
+- **A non-ASCII filename could smuggle this run's evidence past the gate.** git quotes such paths by default, so `ls-files` returned a literal `"tests/\305\241....cs"`, the `[ -f ]` test failed on that string, and the file was skipped — an untracked file carrying the run's only proof walked straight past the one check whose purpose is to stop exactly that. Pre-existing since v7.0.5, found while measuring this change, fixed with `core.quotePath=false`.
+
+- **The recovery text no longer contradicts itself.** A renamed file has no blob at its new path, so its inherited markers legitimately appear — and the old wording claimed nothing inherited could. It now speaks of markers not already in HEAD *at that path* and says plainly that staging is the fix and deleting a marker is not.
+
+**Limits, measured and stated:** a multiset counts how many, not which, so moving a marker from one test to another in the SAME file keeps the count and does not block — the surviving HEAD copy keeps `verify-trace` green while the new test that actually exercises the change is the one left out of the commit. And a rename reaches the block through the untracked branch: not an exotic corner, since a plain `mv` or writing-new-then-deleting-old (the usual agent pattern) both land there, while only `git mv` avoids it.
+
+The independent audit confirmed no path fails closed that used to pass, verified identical behaviour under bash 3.2.57 and 5.3.9, and caught one real error in this release's own documentation — the claim that reaching the rename case required a deliberate `git reset`. It does not, and the block message contradicted itself in exactly that case. Both corrected, and the rename behaviour is now locked in by tests. Every one of the nine checks in this area has a mutation that flips it.
+
+Suite 1201 → 1204.
+
 ## v7.0.7 — 2026-07-31
 
 **v7.0.6 shipped a signal that could not do the one thing it was written for, and the first real run said so.** A refactor on FiscalFusionAI reported `4/4` with R1 resting entirely on markers from older cycles — the gate would have been green had the new test not existed at all. The fresh/inherited split was supposed to catch exactly that and did not: it grepped the WHOLE file, so a marker counted as this run's evidence whenever it merely sat in a file the task touched. A refactor by definition touches existing files, and inherited markers live inside them. The label was right about which files, wrong about which evidence.

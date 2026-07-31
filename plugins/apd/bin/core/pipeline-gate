@@ -121,13 +121,51 @@ if command -v git >/dev/null 2>&1 && git -C "$PROJECT_DIR" rev-parse --is-inside
         while IFS= read -r f; do
             [ -z "$f" ] && continue
             [ -f "$PROJECT_DIR/$f" ] || continue
-            FILE_RIDS=$(grep -oE '@trace[[:space:]]+R[0-9]+' "$PROJECT_DIR/$f" 2>/dev/null | grep -oE 'R[0-9]+' | sort -u)
+            CUR_RIDS=$(grep -oE '@trace[[:space:]]+R[0-9]+' "$PROJECT_DIR/$f" 2>/dev/null | grep -oE 'R[0-9]+' || true)
+            [ -n "$CUR_RIDS" ] || continue
+            # v7.0.8: an INHERITED marker is not this run's evidence. R-ids restart
+            # at R1 in every spec, so a marker committed by an older cycle carries
+            # today's number by coincidence — and a tracked file touched for an
+            # unrelated reason would then be blocked as "tracing THIS spec", with
+            # the message advising removal of a marker that is legitimate and whose
+            # test really exists. Only the SURPLUS over the HEAD blob counts, the
+            # same multiset rule verify-trace uses. Untracked files have no blob,
+            # so they still count in full — that is the case this check was born for.
+            #
+            # Two limits, measured and stated rather than left to be rediscovered:
+            # (1) a multiset counts HOW MANY, not WHICH — a run that removes the
+            #     marker from one test and adds it to another IN THE SAME FILE keeps
+            #     the count and does not block. The surviving HEAD copy keeps
+            #     verify-trace green, but it may sit on the OLD test that does not
+            #     exercise the change while the NEW one is left out of the commit —
+            #     the same false comfort this check exists to defeat.
+            # (2) a RENAMED file has no blob at its new path, so it is treated as
+            #     untracked and its inherited markers block. This is NOT rare: a
+            #     plain `mv`, or writing the new file and deleting the old (what an
+            #     agent typically does), both reach it — only `git mv` avoids it by
+            #     staging the rename. The block itself is defensible (the new path
+            #     really is untracked and unstaged, and `git add` really is the fix),
+            #     which is why the message speaks of markers not already in HEAD AT
+            #     THIS PATH rather than claiming nothing inherited can appear.
+            if git -C "$PROJECT_DIR" ls-files --error-unmatch -- ":(literal)$f" >/dev/null 2>&1; then
+                HEAD_RIDS=$(git -C "$PROJECT_DIR" show "HEAD:./$f" 2>/dev/null \
+                            | grep -oE '@trace[[:space:]]+R[0-9]+' | grep -oE 'R[0-9]+' || true)
+                FILE_RIDS=$(printf '%s\n' "$CUR_RIDS" | sort -u | while IFS= read -r _r; do
+                    [ -z "$_r" ] && continue
+                    _c=$(printf '%s\n' "$CUR_RIDS" | grep -cxF "$_r" || true)
+                    _h=$(printf '%s\n' "$HEAD_RIDS" | grep -cxF "$_r" || true)
+                    [ "${_h:-0}" -lt "${_c:-0}" ] && printf '%s\n' "$_r"
+                done)
+            else
+                FILE_RIDS=$(printf '%s\n' "$CUR_RIDS" | sort -u)
+            fi
             [ -n "$FILE_RIDS" ] || continue
             HIT=$(printf '%s\n' $FILE_RIDS | grep -xF -f <(printf '%s\n' $SPEC_RIDS) 2>/dev/null | tr '\n' ' ')
             [ -n "$HIT" ] && ORPHAN_TRACE="${ORPHAN_TRACE}${f}|${HIT}
 "
         done <<EOF
-$(git -C "$PROJECT_DIR" ls-files --others --exclude-standard 2>/dev/null; git -C "$PROJECT_DIR" diff --name-only 2>/dev/null)
+$(git -C "$PROJECT_DIR" -c core.quotePath=false ls-files --others --exclude-standard 2>/dev/null; \
+  git -C "$PROJECT_DIR" -c core.quotePath=false diff --name-only 2>/dev/null)
 EOF
         if [ -n "$ORPHAN_TRACE" ]; then
             echo "" >&2
@@ -139,8 +177,12 @@ EOF
                 echo "    $f  (traces: ${rids% })" >&2
             done
             echo "" >&2
-            echo "  Stage them (git add <file>) or, if they are genuinely not part of this" >&2
-            echo "  change, remove the @trace marker that claims they are." >&2
+            echo "  Stage them (git add <file>). Listed markers are the ones not already" >&2
+            echo "  in HEAD at that path — a marker an older cycle committed to this same" >&2
+            echo "  path no longer triggers this block. A renamed or newly written file has" >&2
+            echo "  no HEAD blob at its new path, so its markers count as new here even if" >&2
+            echo "  the text is old; staging it is the right fix. Do NOT delete a marker to" >&2
+            echo "  get past this — that trades a blocked commit for lost coverage." >&2
             log_block "untraced-evidence-unstaged" "$(printf '%s' "$ORPHAN_TRACE" | head -3 | tr '\n' ' ')"
             exit 2
         fi

@@ -14087,6 +14087,145 @@ else
 fi
 rm -rf "$EVID_T"
 
+# v7.0.8: the same defect verify-trace carried, on the gate that BLOCKS.
+# R-ids restart at R1 in every spec, so a marker committed by an OLDER cycle
+# carries today's number by coincidence. Scanning whole files meant a tracked
+# file touched for an unrelated reason was blocked as "tracing THIS spec" — and
+# the message told the operator to delete a marker that is legitimate and whose
+# test really exists, which would silently drop coverage to get past the gate.
+# Only the SURPLUS over the HEAD blob is this run's evidence. Untracked files
+# have no blob and still count in full: that is the case the check was born for.
+_evid_case() {   # $1=label  $2=head content ('' = untracked)  $3=worktree  $4=expected rc
+    _E="$(mktemp -d -t apd-evid2.XXXXXX)"
+    mkdir -p "$_E/.apd/pipeline" "$_E/tests"
+    echo "PROJECT_NAME=evid2" > "$_E/.apd/config"
+    git -C "$_E" init -q >/dev/null 2>&1
+    git -C "$_E" config user.email "apd@test.local" >/dev/null 2>&1
+    git -C "$_E" config user.name "apd test" >/dev/null 2>&1
+    if [ -n "$2" ]; then
+        printf '%b' "$2" > "$_E/tests/legacy.cs"
+        git -C "$_E" add -A >/dev/null 2>&1
+        git -C "$_E" commit -qm base >/dev/null 2>&1
+    else
+        git -C "$_E" commit -q --allow-empty -m init >/dev/null 2>&1
+    fi
+    printf '%b' "$3" > "$_E/tests/legacy.cs"
+    printf '## Task\n**Acceptance criteria:**\n- R1: today\n' > "$_E/.apd/pipeline/spec-card.md"
+    for _s in spec builder reviewer verifier; do
+        "$EVID_VALIDATOR" advance -step "$_s" -task evid2 -pipeline-dir "$_E/.apd/pipeline" >/dev/null 2>&1
+    done
+    APD_PROJECT_DIR="$_E" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-gate" >/dev/null 2>&1
+    _rc=$?
+    rm -rf "$_E"
+    if [ "$_rc" -eq "$4" ]; then
+        pass "$1"
+        PASSES=$((PASSES + 1))
+    else
+        fail "$1 (rc=$_rc, expected $4)"
+        FAILS=$((FAILS + 1))
+    fi
+}
+_evid_case "an inherited marker in an unrelated change does not block the commit" \
+           '// @trace R1\nbody\n' '// @trace R1\nbody\n// unrelated touch\n' 0
+_evid_case "an inherited marker whose line only moved does not block either" \
+           '// @trace R1\na\nb\n' 'a\nb\n// @trace R1\n' 0
+_evid_case "a marker THIS run added still blocks until it is staged" \
+           'body\n' 'body\n// @trace R1\n' 2
+_evid_case "a second copy of an inherited marker is new evidence and blocks" \
+           '// @trace R1\n' '// @trace R1\n// @trace R1\n' 2
+_evid_case "an untracked file tracing this spec still blocks (no HEAD blob)" \
+           '' '// @trace R1\n' 2
+
+# A rename reaches this check through the untracked branch (no blob at the new
+# path) — and NOT only via an exotic reset: a plain `mv`, or writing the new file
+# and deleting the old (the usual agent pattern), both land here. Locked in
+# because the message and SPEC now describe exactly this.
+_evid_rename() {   # $1=label $2=how $3=expected rc
+    _RN="$(mktemp -d -t apd-evidrn.XXXXXX)"
+    mkdir -p "$_RN/.apd/pipeline" "$_RN/tests"
+    echo "PROJECT_NAME=evidrn" > "$_RN/.apd/config"
+    git -C "$_RN" init -q >/dev/null 2>&1
+    git -C "$_RN" config user.email "apd@test.local" >/dev/null 2>&1
+    git -C "$_RN" config user.name "apd test" >/dev/null 2>&1
+    printf '// @trace R1\nbody\n' > "$_RN/tests/old_name.cs"
+    git -C "$_RN" add -A >/dev/null 2>&1
+    git -C "$_RN" commit -qm base >/dev/null 2>&1
+    printf '## Task\n**Acceptance criteria:**\n- R1: today\n' > "$_RN/.apd/pipeline/spec-card.md"
+    for _s in spec builder reviewer verifier; do
+        "$EVID_VALIDATOR" advance -step "$_s" -task evidrn -pipeline-dir "$_RN/.apd/pipeline" >/dev/null 2>&1
+    done
+    case "$2" in
+        plain) mv "$_RN/tests/old_name.cs" "$_RN/tests/new_name.cs" ;;
+        gitmv) git -C "$_RN" mv tests/old_name.cs tests/new_name.cs >/dev/null 2>&1 ;;
+    esac
+    APD_PROJECT_DIR="$_RN" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-gate" >/dev/null 2>&1
+    _rnrc=$?
+    rm -rf "$_RN"
+    if [ "$_rnrc" -eq "$3" ]; then
+        pass "$1"
+        PASSES=$((PASSES + 1))
+    else
+        fail "$1 (rc=$_rnrc, expected $3)"
+        FAILS=$((FAILS + 1))
+    fi
+}
+_evid_rename "a plain mv rename blocks (new path has no HEAD blob)" plain 2
+_evid_rename "git mv stages the rename, so it does not block"       gitmv 0
+
+# git quotes non-ASCII paths by default (core.quotePath), so `ls-files` returned
+# a literal "tests/\305\241....cs" — the `[ -f ]` test failed on that string and
+# the file was skipped, i.e. the run's own evidence walked past the one check
+# whose entire purpose is to stop it. Pre-existing since v7.0.5, under-block.
+EVID_UNI="$(mktemp -d -t apd-eviduni.XXXXXX)"
+mkdir -p "$EVID_UNI/.apd/pipeline" "$EVID_UNI/tests"
+echo "PROJECT_NAME=eviduni" > "$EVID_UNI/.apd/config"
+git -C "$EVID_UNI" init -q >/dev/null 2>&1
+git -C "$EVID_UNI" config user.email "apd@test.local" >/dev/null 2>&1
+git -C "$EVID_UNI" config user.name "apd test" >/dev/null 2>&1
+printf 'base\n' > "$EVID_UNI/tests/base.cs"
+git -C "$EVID_UNI" add -A >/dev/null 2>&1
+git -C "$EVID_UNI" commit -qm base >/dev/null 2>&1
+printf '## Task\n**Acceptance criteria:**\n- R1: today\n' > "$EVID_UNI/.apd/pipeline/spec-card.md"
+for _s in spec builder reviewer verifier; do
+    "$EVID_VALIDATOR" advance -step "$_s" -task eviduni -pipeline-dir "$EVID_UNI/.apd/pipeline" >/dev/null 2>&1
+done
+printf '// @trace R1\n' > "$EVID_UNI/tests/šđčćž_test.cs"
+APD_PROJECT_DIR="$EVID_UNI" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-gate" >/dev/null 2>&1
+EVID_UNI_RC=$?
+rm -rf "$EVID_UNI"
+if [ "$EVID_UNI_RC" -eq 2 ]; then
+    pass "a non-ASCII filename cannot smuggle this run's evidence past the gate"
+    PASSES=$((PASSES + 1))
+else
+    fail "git-quoted path skipped — untracked evidence escaped the block (rc=$EVID_UNI_RC)"
+    FAILS=$((FAILS + 1))
+fi
+
+# The recovery text must not tell the operator to delete an existing marker —
+# that trades a blocked commit for lost coverage.
+EVID_MSG="$(mktemp -d -t apd-evidmsg.XXXXXX)"
+mkdir -p "$EVID_MSG/.apd/pipeline" "$EVID_MSG/tests"
+echo "PROJECT_NAME=evidmsg" > "$EVID_MSG/.apd/config"
+git -C "$EVID_MSG" init -q >/dev/null 2>&1
+git -C "$EVID_MSG" config user.email "apd@test.local" >/dev/null 2>&1
+git -C "$EVID_MSG" config user.name "apd test" >/dev/null 2>&1
+git -C "$EVID_MSG" commit -q --allow-empty -m init >/dev/null 2>&1
+printf '// @trace R1\n' > "$EVID_MSG/tests/new.cs"
+printf '## Task\n**Acceptance criteria:**\n- R1: today\n' > "$EVID_MSG/.apd/pipeline/spec-card.md"
+for _s in spec builder reviewer verifier; do
+    "$EVID_VALIDATOR" advance -step "$_s" -task evidmsg -pipeline-dir "$EVID_MSG/.apd/pipeline" >/dev/null 2>&1
+done
+EVID_MSG_OUT=$(APD_PROJECT_DIR="$EVID_MSG" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-gate" 2>&1)
+if printf '%s' "$EVID_MSG_OUT" | grep -q 'in HEAD at that path' \
+   && printf '%s' "$EVID_MSG_OUT" | grep -q 'Do NOT delete a marker'; then
+    pass "recovery text warns against deleting a marker to get past the block"
+    PASSES=$((PASSES + 1))
+else
+    fail "block message still suggests removing the marker (trades a block for lost coverage)"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$EVID_MSG"
+
 section "129. Two write targets are sanctioned, and only these two"
 
 # Both surfaced on PLAZMA the day v7.0.4 shipped, and both exist because v7.0
