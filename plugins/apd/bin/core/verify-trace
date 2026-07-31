@@ -22,7 +22,7 @@ SPEC_DATA=$(mktemp)
 TEST_COUNT_FILE=$(mktemp)
 CODE_COUNT_FILE=$(mktemp)
 EXTRA_IDS_FILE=$(mktemp)
-cleanup() { rm -f "$SPEC_DATA" "$TEST_COUNT_FILE" "$CODE_COUNT_FILE" "$EXTRA_IDS_FILE"; }
+cleanup() { rm -f "$SPEC_DATA" "$TEST_COUNT_FILE" "$CODE_COUNT_FILE" "$EXTRA_IDS_FILE" "${FRESH_COUNT_FILE:-}" "${HEAD_COUNT_FILE:-}"; }
 trap cleanup EXIT INT TERM
 
 # --- If no spec-card.md, exit 0 (backward compatible) ---
@@ -141,11 +141,72 @@ fi
 FRESH_COUNT_FILE="$(mktemp -t apd-trace-fresh.XXXXXX)"
 : > "$FRESH_COUNT_FILE"
 REVIEWED_LIST="$PROJECT_DIR/.apd/pipeline/.reviewed-files"
+# v7.0.7: freshness is per-LINE, not per-file. Grepping the whole file answers
+# "does a marker exist in a file this task touched" — but a refactor by
+# definition touches EXISTING files, and the markers inherited from older cycles
+# sit inside exactly those files, so every one of them was counted as fresh.
+# Found on the first real run after v7.0.6 (FFAI 2026-07-30): `verify-trace`
+# reported 4/4 with R1 green on inherited markers, and the fresh/inherited split
+# — the whole point of v7.0.6 — did not separate them. Only lines this task
+# ADDED are its own evidence.
+#
+# HOW freshness is decided: compare the marker MULTISET in the working file
+# against the same file's HEAD blob, per R-id, and count max(0, current - head).
+# A line-level diff was the obvious approach and is WRONG for the very case that
+# motivates this: `git diff HEAD` reports an inherited marker as added whenever
+# its line merely moved, got reindented, or the file changed line endings — and
+# moving/reindenting lines IS what a refactor does. Counting occurrences instead
+# is stable under all of those (verified: move, reindent, CRLF, and a marker
+# added-then-reverted all read as inherited, while a genuinely appended marker
+# still reads fresh).
+#
+# Pathspecs are `:(literal)` because `.reviewed-files` holds real filenames, and
+# a name containing glob metacharacters (`tests/a[1]_test.cs`) otherwise makes
+# git resolve a DIFFERENT file — pulling evidence from a file the task never
+# touched and reporting it as this run's.
+#
+# Untracked files have no HEAD blob, so they count in full. No git / no HEAD
+# falls back to the per-file scan.
+#
+# Known limits, stated rather than hidden: (1) a file RENAMED by the task has no
+# blob at its new path, so its inherited markers read as fresh; (2) a marker
+# added to a file that was already dirty when the spec was signed reads as fresh
+# (`.task-baseline` stores a hash written without `-w`, so the pre-task blob is
+# not in the object store); (3) `.reviewed-files` may contain git-quoted paths
+# for non-ASCII names, which are skipped here — the fix for that belongs where
+# the list is written, not here.
 if [ -f "$REVIEWED_LIST" ]; then
+    TRACE_GIT=0
+    if command -v git >/dev/null 2>&1 &&
+       git -C "$PROJECT_DIR" rev-parse --verify HEAD >/dev/null 2>&1; then
+        TRACE_GIT=1
+    fi
+    HEAD_COUNT_FILE="$(mktemp -t apd-trace-head.XXXXXX)"
     while IFS= read -r rf; do
         [ -z "$rf" ] && continue
         [ -f "$PROJECT_DIR/$rf" ] || continue
-        grep '@trace' "$PROJECT_DIR/$rf" 2>/dev/null | grep -oE 'R[0-9]+' || true
+        if [ "$TRACE_GIT" -eq 1 ] &&
+           git -C "$PROJECT_DIR" ls-files --error-unmatch -- ":(literal)$rf" >/dev/null 2>&1; then
+            : > "$HEAD_COUNT_FILE"
+            git -C "$PROJECT_DIR" show "HEAD:./$rf" 2>/dev/null \
+                | grep '@trace' | grep -oE 'R[0-9]+' >> "$HEAD_COUNT_FILE" || true
+            # Emit only the SURPLUS occurrences of each id (current minus HEAD).
+            grep '@trace' "$PROJECT_DIR/$rf" 2>/dev/null | grep -oE 'R[0-9]+' | sort -u \
+            | while IFS= read -r _rid; do
+                [ -z "$_rid" ] && continue
+                _cur=$(grep '@trace' "$PROJECT_DIR/$rf" 2>/dev/null | grep -oE 'R[0-9]+' | grep -cxF "$_rid" || true)
+                _old=$(grep -cxF "$_rid" "$HEAD_COUNT_FILE" 2>/dev/null || true)
+                [ -z "$_cur" ] && _cur=0
+                [ -z "$_old" ] && _old=0
+                _n=$((_cur - _old))
+                while [ "$_n" -gt 0 ]; do
+                    printf '%s\n' "$_rid"
+                    _n=$((_n - 1))
+                done
+            done
+        else
+            grep '@trace' "$PROJECT_DIR/$rf" 2>/dev/null | grep -oE 'R[0-9]+' || true
+        fi
     done < "$REVIEWED_LIST" >> "$FRESH_COUNT_FILE"
 fi
 

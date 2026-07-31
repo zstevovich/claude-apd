@@ -1,5 +1,25 @@
 # Changelog
 
+## v7.0.7 — 2026-07-31
+
+**v7.0.6 shipped a signal that could not do the one thing it was written for, and the first real run said so.** A refactor on FiscalFusionAI reported `4/4` with R1 resting entirely on markers from older cycles — the gate would have been green had the new test not existed at all. The fresh/inherited split was supposed to catch exactly that and did not: it grepped the WHOLE file, so a marker counted as this run's evidence whenever it merely sat in a file the task touched. A refactor by definition touches existing files, and inherited markers live inside them. The label was right about which files, wrong about which evidence.
+
+- **Freshness is a marker multiset against the HEAD blob, not a line diff.** The obvious fix — count `+` lines from `git diff HEAD` — is wrong for the motivating case: git reports an inherited marker as added whenever its line merely moved, got reindented, or the file's line endings changed, and moving and reindenting lines is what a refactor *is*. Comparing per-R-id occurrence counts against `HEAD:./<file>` and emitting only the surplus is stable under all of it. Verified across nine shapes: moved, reindented, CRLF-rewritten, added-then-reverted and out-of-scope all read `inherited only`; appended, second-copy, untracked and already-staged read `fresh`.
+
+- **A filename with glob metacharacters pulled evidence from a different file.** `.reviewed-files` entries were handed to git as pathspecs, so a scoped `tests/a[1]_test.cs` resolved `tests/a1_test.cs` — a criterion reported `fresh(1)` on a marker sitting in a file the task never touched, while the scoped file had none. Pathspecs are `:(literal)` now.
+
+- **Staging your own work no longer erases it.** `.reviewed-files` is built from `git diff --name-only HEAD`, which includes the index, so a builder that `git add`s mid-run stays in scope — but nothing asserted the freshness side survived staging, and one plausible mutation (`git diff` without `HEAD`) passed every check. It has its own check now.
+
+- **Still report-only.** The exit code is unchanged in every path, verified old-vs-new across seven shapes. What changes is that the number now means what it says.
+
+**What this does NOT fix, stated because the last release overstated its own reach:** a file the task RENAMES has no blob at its new path, so its inherited markers still read fresh; a marker added to a file that was already dirty when the spec was signed reads fresh (`.task-baseline` stores a hash written without `-w`, so the pre-task blob is not in the object store); and `.reviewed-files` can hold git-quoted paths for non-ASCII names, which are skipped — that one can *under*-report genuinely fresh evidence, and the fix belongs where the list is written, not here.
+
+**The root is still untouched and worth naming:** a marker carries only `R[0-9]+`, and R-ids restart at R1 in every spec, so `@trace R1` is ambiguous by construction. Every fix at this layer is a better approximation of a question the marker format cannot answer exactly. A stable suffix would end it; cleaning markers by hand would not.
+
+An independent audit found the glob defect, the staging gap and four overstated claims, and reproduced each by execution before it was accepted. Every mechanism has a mutation that flips exactly its own checks — except `:(literal)`, which flips none in isolation because the multiset path no longer uses a pathspec to count; it is kept as defence and that is said rather than claimed as covered.
+
+Suite 1190 → 1195; `test-system` 36/0.
+
 ## v7.0.6 — 2026-07-29
 
 **The trace gate has been passing for months without measuring anything.** R-ids restart at R1 in every spec, so a marker written for an older task satisfies today's criterion of the same number. Counted on PLAZMA: **1429 `@trace R1` markers across 755 files**, against a commit touching two. Every criterion of every new spec resolves against inherited markers — the gate cannot fail no matter what the task does or omits. That is not a strict check passing; it is a dead one wearing a green tick.

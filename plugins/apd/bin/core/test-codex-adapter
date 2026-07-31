@@ -14253,6 +14253,164 @@ else
 fi
 rm -rf "$TRC_T"
 
+# v7.0.7: the v7.0.6 split asked the wrong question. It grepped the WHOLE file,
+# so a marker counted as fresh whenever it merely sat in a file the task touched
+# — and a refactor touches existing files, which is exactly where inherited
+# markers live. FFAI 2026-07-30: 4/4 green, R1 resting on markers from older
+# cycles, and the fresh/inherited label did not catch it. Freshness is per-LINE.
+# These four run against a real git repo (the fixture above is not one, which is
+# why it could not see this).
+TRCG="$(mktemp -d -t apd-tracegit.XXXXXX)"
+mkdir -p "$TRCG/.claude" "$TRCG/tests"
+touch "$TRCG/.claude/.apd-config"
+git -C "$TRCG" init -q >/dev/null 2>&1
+git -C "$TRCG" config user.email "apd@test.local" >/dev/null 2>&1
+git -C "$TRCG" config user.name "apd test" >/dev/null 2>&1
+# An older cycle wrote R1 and committed it.
+printf '// @trace R1\nold assertion\n' > "$TRCG/tests/legacy_test.cs"
+git -C "$TRCG" add -A >/dev/null 2>&1
+git -C "$TRCG" commit -qm "older cycle" >/dev/null 2>&1
+mkdir -p "$TRCG/.apd/pipeline"
+# This task refactors that same file and adds NO marker of its own.
+printf '// @trace R1\nold assertion\nrefactored line\n' > "$TRCG/tests/legacy_test.cs"
+printf '## Task\n**Acceptance criteria:**\n- R1: the refactor\n' > "$TRCG/.apd/pipeline/spec-card.md"
+echo "tests/legacy_test.cs" > "$TRCG/.apd/pipeline/.reviewed-files"
+TRCG_OUT=$(APD_PROJECT_DIR="$TRCG" bash "$APD_PLUGIN_ROOT/bin/core/verify-trace" 2>&1)
+TRCG_RC=$?
+if echo "$TRCG_OUT" | grep -q 'inherited only'; then
+    pass "a committed marker in a touched file is inherited, not fresh (per-line)"
+    PASSES=$((PASSES + 1))
+else
+    fail "marker from an older cycle counted as this run's evidence — per-file scan is back"
+    FAILS=$((FAILS + 1))
+fi
+
+# Still reported, never enforced — same contract as v7.0.6.
+if [ "$TRCG_RC" -eq 0 ]; then
+    pass "inherited-only on a real repo still exits 0 (report first, gate after)"
+    PASSES=$((PASSES + 1))
+else
+    fail "per-line freshness turned into a gate (rc=$TRCG_RC)"
+    FAILS=$((FAILS + 1))
+fi
+
+# The opposite error matters just as much: a marker this task ADDED to an
+# existing file must still read as fresh, or everything becomes 'inherited'.
+printf '// @trace R1\nold assertion\nrefactored line\n// @trace R2\n' > "$TRCG/tests/legacy_test.cs"
+printf '## Task\n**Acceptance criteria:**\n- R1: the refactor\n- R2: the new one\n' > "$TRCG/.apd/pipeline/spec-card.md"
+TRCG_OUT2=$(APD_PROJECT_DIR="$TRCG" bash "$APD_PLUGIN_ROOT/bin/core/verify-trace" 2>&1)
+if echo "$TRCG_OUT2" | grep -qE 'R2.*fresh\(1\)' && echo "$TRCG_OUT2" | grep -qE 'R1.*inherited only'; then
+    pass "a marker added by THIS task is fresh while the inherited one stays inherited"
+    PASSES=$((PASSES + 1))
+else
+    fail "per-line freshness mislabels an added marker (over-corrected to inherited)"
+    FAILS=$((FAILS + 1))
+fi
+
+# An untracked file is new in full — every marker in it is this task's.
+printf '// @trace R3\n' > "$TRCG/tests/brand_new_test.cs"
+printf '## Task\n**Acceptance criteria:**\n- R3: the new file\n' > "$TRCG/.apd/pipeline/spec-card.md"
+echo "tests/brand_new_test.cs" > "$TRCG/.apd/pipeline/.reviewed-files"
+TRCG_OUT3=$(APD_PROJECT_DIR="$TRCG" bash "$APD_PLUGIN_ROOT/bin/core/verify-trace" 2>&1)
+if echo "$TRCG_OUT3" | grep -qE 'fresh\(1\)'; then
+    pass "an untracked new test file counts in full (no HEAD blob to diff against)"
+    PASSES=$((PASSES + 1))
+else
+    fail "markers in a brand-new untracked file were not counted as fresh"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$TRCG"
+
+# A line-level diff was the obvious way to answer "did this task add it" and it
+# is wrong for the case that motivates the whole mechanism: `git diff HEAD`
+# reports an inherited marker as ADDED whenever its line merely moved, got
+# reindented, or the file's line endings changed — and moving/reindenting lines
+# is what a refactor DOES. Freshness is therefore a marker-multiset comparison
+# against the HEAD blob. These three fixtures all fail under a line diff.
+_trc_probe() {   # $1 = label, $2 = head content, $3 = worktree content, $4 = expected
+    _P="$(mktemp -d -t apd-trcprobe.XXXXXX)"
+    mkdir -p "$_P/.claude" "$_P/tests" "$_P/.apd/pipeline"
+    touch "$_P/.claude/.apd-config"
+    git -C "$_P" init -q >/dev/null 2>&1
+    git -C "$_P" config user.email "apd@test.local" >/dev/null 2>&1
+    git -C "$_P" config user.name "apd test" >/dev/null 2>&1
+    printf '%b' "$2" > "$_P/tests/t.cs"
+    git -C "$_P" add -A >/dev/null 2>&1
+    git -C "$_P" commit -qm base >/dev/null 2>&1
+    printf '%b' "$3" > "$_P/tests/t.cs"
+    printf '## Task\n**Acceptance criteria:**\n- R1: %s\n' "$1" > "$_P/.apd/pipeline/spec-card.md"
+    echo 'tests/t.cs' > "$_P/.apd/pipeline/.reviewed-files"
+    _R=$(APD_PROJECT_DIR="$_P" bash "$APD_PLUGIN_ROOT/bin/core/verify-trace" 2>&1 \
+         | grep -oE 'fresh\([0-9]+\)|inherited only' | head -1)
+    rm -rf "$_P"
+    if [ "$_R" = "$4" ]; then
+        pass "$1 → $4"
+        PASSES=$((PASSES + 1))
+    else
+        fail "$1 → got '${_R:-none}', expected '$4'"
+        FAILS=$((FAILS + 1))
+    fi
+}
+_trc_probe "a marker whose line only MOVED is still inherited" \
+           '// @trace R1\na\nb\n' 'a\nb\n// @trace R1\n' 'inherited only'
+_trc_probe "a marker that was only REINDENTED is still inherited" \
+           '// @trace R1\na\n' '    // @trace R1\na\n' 'inherited only'
+_trc_probe "a second copy of an inherited marker is fresh" \
+           '// @trace R1\n' '// @trace R1\n// @trace R1\n' 'fresh(1)'
+
+# `.reviewed-files` holds real filenames. Passed to git unquoted, a name with
+# glob metacharacters resolves a DIFFERENT file — so a criterion could report
+# evidence from a file the task never touched. Pathspecs must be :(literal).
+TRCP="$(mktemp -d -t apd-trcglob.XXXXXX)"
+mkdir -p "$TRCP/.claude" "$TRCP/tests" "$TRCP/.apd/pipeline"
+touch "$TRCP/.claude/.apd-config"
+git -C "$TRCP" init -q >/dev/null 2>&1
+git -C "$TRCP" config user.email "apd@test.local" >/dev/null 2>&1
+git -C "$TRCP" config user.name "apd test" >/dev/null 2>&1
+printf 'in scope, no marker\n' > "$TRCP/tests/a[1]_test.cs"
+printf 'out of scope decoy\n'  > "$TRCP/tests/a1_test.cs"
+git -C "$TRCP" add -A >/dev/null 2>&1
+git -C "$TRCP" commit -qm base >/dev/null 2>&1
+printf 'in scope, no marker\ntouched\n' > "$TRCP/tests/a[1]_test.cs"
+printf 'out of scope decoy\n// @trace R1\n' > "$TRCP/tests/a1_test.cs"
+printf '## Task\n**Acceptance criteria:**\n- R1: only the DECOY carries this\n' > "$TRCP/.apd/pipeline/spec-card.md"
+echo 'tests/a[1]_test.cs' > "$TRCP/.apd/pipeline/.reviewed-files"
+TRCP_OUT=$(APD_PROJECT_DIR="$TRCP" bash "$APD_PLUGIN_ROOT/bin/core/verify-trace" 2>&1)
+if echo "$TRCP_OUT" | grep -q 'inherited only'; then
+    pass "a glob-metacharacter filename cannot pull evidence from another file"
+    PASSES=$((PASSES + 1))
+else
+    fail "pathspec not literal — evidence counted from a file outside the task scope"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$TRCP"
+
+# The builder may `git add` its work: .reviewed-files is built from
+# `git diff --name-only HEAD`, which includes the index. Freshness must survive
+# staging, or every added marker flips to inherited the moment the builder stages.
+TRCS="$(mktemp -d -t apd-trcstaged.XXXXXX)"
+mkdir -p "$TRCS/.claude" "$TRCS/tests" "$TRCS/.apd/pipeline"
+touch "$TRCS/.claude/.apd-config"
+git -C "$TRCS" init -q >/dev/null 2>&1
+git -C "$TRCS" config user.email "apd@test.local" >/dev/null 2>&1
+git -C "$TRCS" config user.name "apd test" >/dev/null 2>&1
+printf 'body\n' > "$TRCS/tests/t.cs"
+git -C "$TRCS" add -A >/dev/null 2>&1
+git -C "$TRCS" commit -qm base >/dev/null 2>&1
+printf 'body\n// @trace R1\n' > "$TRCS/tests/t.cs"
+git -C "$TRCS" add -A >/dev/null 2>&1
+printf '## Task\n**Acceptance criteria:**\n- R1: added and then STAGED\n' > "$TRCS/.apd/pipeline/spec-card.md"
+echo 'tests/t.cs' > "$TRCS/.apd/pipeline/.reviewed-files"
+TRCS_OUT=$(APD_PROJECT_DIR="$TRCS" bash "$APD_PLUGIN_ROOT/bin/core/verify-trace" 2>&1)
+if echo "$TRCS_OUT" | grep -qE 'fresh\(1\)'; then
+    pass "a marker the builder already staged still counts as this run's evidence"
+    PASSES=$((PASSES + 1))
+else
+    fail "staging the work flipped fresh evidence to inherited"
+    FAILS=$((FAILS + 1))
+fi
+rm -rf "$TRCS"
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"
