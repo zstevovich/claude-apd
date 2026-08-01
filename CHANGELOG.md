@@ -1,5 +1,17 @@
 # Changelog
 
+## v7.0.9 — 2026-08-01
+
+**APD was blocking commits on its own documentation.** `rules/workflow.md` ships `// @trace R1` and `// @trace R2 R3` as examples of what a builder should write, and it is copied into every project as `.claude/rules/workflow.md` — untracked on a fresh install, unstaged after any `apd init` that refreshes it. Since v7.0.5 `pipeline-gate` blocks when an unstaged or untracked file carries a `@trace` for an R-id the spec declares, and it scanned every candidate file. So the moment a spec declared R1, R2 or R3 — which is most specs — the gate refused the commit and pointed at APD's own instruction file as if it were the run's evidence.
+
+- **`.claude/`, `.apd/`, `.codex/` and `.agents/` are no longer candidates.** They are framework scaffold, never a task's proof. Real code, tests and documentation are unaffected: a marker in `tests/`, `src/` or `docs/` still blocks exactly as before.
+
+- **The self-test's own fixture had the same shape.** `verify-apd` writes `tests/apd-verify-trace-test.tmp` carrying `@trace R1` so the traceability step has something to find, then never removed it — so the later "gate must PASS when all four steps are done" check ran with a planted unstaged trace and failed. It also meant the "gate blocks after rollback" check passed for the wrong reason: blocking on the fixture rather than on the rollback. The fixture is now cleared once the verifier steps that need it are done.
+
+**Reported from a live project as a single failing check on `apd init`, and attributed to v7.0.8. A bisect says otherwise: v7.0.4 passes, v7.0.5 blocks** — the defect shipped with the original check and sat there for three days. It was not caught because `verify-apd` is a third E2E surface that no CI job runs, the same way `test-system` sat at 27/9 for six weeks until v7.0.4 put it in CI. Adding `verify-apd` to CI needs a scaffolded project and is filed rather than rushed.
+
+Suite 1204 → 1210, including a check that `workflow.md` still ships the markers that make the exemption necessary — if it ever stops, the exemption is guarding nothing and should be revisited.
+
 ## v7.0.8 — 2026-07-31
 
 **The defect v7.0.7 fixed in a report also lived in the gate that blocks commits — and there it told the operator to delete the evidence.** `pipeline-gate` blocks when an unstaged or untracked file carries a `@trace` for an R-id this spec declares. It scanned whole files, and R-ids restart at R1 in every spec, so a marker committed by an older cycle carried today's number by coincidence: a tracked file touched for an unrelated reason was blocked as "tracing THIS spec", and the recovery text said to remove the marker that claimed it. That marker is legitimate and its test really exists — following the advice would have traded a blocked commit for silently lost coverage. Reproduced on the same shape the user hit on FiscalFusionAI: leftover markers sitting in files the diff touches.

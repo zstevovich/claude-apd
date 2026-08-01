@@ -1051,6 +1051,15 @@ else
     fail "pipeline-advance verifier ERROR with opt-out: $RESULT"
 fi
 
+# The trace fixture has done its job (the verifier steps above needed it) and
+# must go before the gate checks below. Since v7.0.5 `pipeline-gate` BLOCKS when
+# an unstaged or untracked file carries a @trace for an R-id this spec declares —
+# which is exactly what this fixture is. Left in place it made the next check
+# fail on a healthy install (reported from a real project on v7.0.8; bisect says
+# it broke in v7.0.5), and it would also make the rollback check below pass for
+# the wrong reason: blocking on the fixture rather than on the rollback.
+rm -f "$PROJECT_DIR/tests/apd-verify-trace-test.tmp"
+
 # pipeline-gate: must pass (all 4 steps completed)
 RESULT=$(bash "$SCRIPT_DIR/pipeline-gate" 2>&1)
 EXIT_CODE=$?

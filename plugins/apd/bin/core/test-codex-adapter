@@ -14172,6 +14172,52 @@ _evid_rename() {   # $1=label $2=how $3=expected rc
 _evid_rename "a plain mv rename blocks (new path has no HEAD blob)" plain 2
 _evid_rename "git mv stages the rename, so it does not block"       gitmv 0
 
+# APD's OWN scaffold is not a task's evidence. `rules/workflow.md` SHIPS
+# `// @trace R1` and `// @trace R2 R3` as documentation examples and lands in
+# every project as an untracked file — so a fresh install (or any `apd init`
+# that refreshes it) blocked the commit on APD's own instructions the moment a
+# spec declared R1/R2/R3, which is most specs. Surfaced as a verify-apd self-test
+# failure on a real project; the self-test was merely the first place it showed.
+_evid_scaffold() {   # $1=path  $2=expected rc
+    _SC="$(mktemp -d -t apd-evidsc.XXXXXX)"
+    mkdir -p "$_SC/.apd/pipeline" "$(dirname "$_SC/$1")"
+    echo "PROJECT_NAME=evidsc" > "$_SC/.apd/config"
+    git -C "$_SC" init -q >/dev/null 2>&1
+    git -C "$_SC" config user.email "apd@test.local" >/dev/null 2>&1
+    git -C "$_SC" config user.name "apd test" >/dev/null 2>&1
+    git -C "$_SC" commit -q --allow-empty -m init >/dev/null 2>&1
+    printf '## Task\n**Acceptance criteria:**\n- R1: today\n' > "$_SC/.apd/pipeline/spec-card.md"
+    for _s in spec builder reviewer verifier; do
+        "$EVID_VALIDATOR" advance -step "$_s" -task evidsc -pipeline-dir "$_SC/.apd/pipeline" >/dev/null 2>&1
+    done
+    printf '// @trace R1\n' > "$_SC/$1"
+    APD_PROJECT_DIR="$_SC" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-gate" >/dev/null 2>&1
+    _screc=$?
+    rm -rf "$_SC"
+    if [ "$_screc" -eq "$2" ]; then
+        pass "$1 → $([ "$2" -eq 0 ] && echo 'does not block' || echo 'blocks')"
+        PASSES=$((PASSES + 1))
+    else
+        fail "$1 (rc=$_screc, expected $2)"
+        FAILS=$((FAILS + 1))
+    fi
+}
+_evid_scaffold ".claude/rules/workflow.md" 0
+_evid_scaffold ".apd/rules/workflow.md"    0
+_evid_scaffold ".codex/rules/tdd.md"       0
+_evid_scaffold "tests/real_test.cs"        2
+_evid_scaffold "docs/notes.md"             2
+
+# The shipped rules file really does carry the markers that make this reachable —
+# if that ever stops being true the exemption above is guarding nothing.
+if grep -qE '@trace[[:space:]]+R[0-9]+' "$APD_PLUGIN_ROOT/rules/workflow.md" 2>/dev/null; then
+    pass "workflow.md still ships @trace examples (the exemption has a real target)"
+    PASSES=$((PASSES + 1))
+else
+    fail "workflow.md no longer ships @trace examples — re-check whether the scaffold exemption is still needed"
+    FAILS=$((FAILS + 1))
+fi
+
 # git quotes non-ASCII paths by default (core.quotePath), so `ls-files` returned
 # a literal "tests/\305\241....cs" — the `[ -f ]` test failed on that string and
 # the file was skipped, i.e. the run's own evidence walked past the one check

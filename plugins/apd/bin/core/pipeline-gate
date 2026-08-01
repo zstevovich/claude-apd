@@ -121,6 +121,16 @@ if command -v git >/dev/null 2>&1 && git -C "$PROJECT_DIR" rev-parse --is-inside
         while IFS= read -r f; do
             [ -z "$f" ] && continue
             [ -f "$PROJECT_DIR/$f" ] || continue
+            # APD's own scaffold is never a task's evidence. `rules/workflow.md`
+            # SHIPS `// @trace R1` and `// @trace R2 R3` as documentation examples,
+            # and it lands in every project as an untracked/unstaged file — so a
+            # fresh install, or any `apd init` that refreshes it, blocked the commit
+            # on APD's own instructions the moment a spec declared R1/R2/R3. Which
+            # is most specs. Reported from a real project as a self-test failure;
+            # the self-test was only the first place it showed.
+            case "$f" in
+                .claude/*|.apd/*|.codex/*|.agents/*) continue ;;
+            esac
             CUR_RIDS=$(grep -oE '@trace[[:space:]]+R[0-9]+' "$PROJECT_DIR/$f" 2>/dev/null | grep -oE 'R[0-9]+' || true)
             [ -n "$CUR_RIDS" ] || continue
             # v7.0.8: an INHERITED marker is not this run's evidence. R-ids restart
