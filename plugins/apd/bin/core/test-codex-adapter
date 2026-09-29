@@ -10893,7 +10893,7 @@ fi
 # than copy the templates — so the aliases won over the pinned ids the checks
 # above protect. Guard the instructions, not only the artifacts.
 BARE_S=$(grep -rnE '`(opus|sonnet|haiku|fable)`|model: (opus|sonnet|haiku|fable)$' \
-    "$REPO_ROOT/skills/apd-setup" 2>/dev/null | grep -vi 'never the bare alias' || true)
+    "$REPO_ROOT/skills/apd-setup" 2>/dev/null | grep -vi 'bare alias' || true)
 if [ -z "$BARE_S" ]; then
     pass "apd-setup tells the generator to write full model ids"; PASSES=$((PASSES + 1))
 else
@@ -15609,6 +15609,257 @@ if grep -q 'wall-clock-nudge' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
     pass "Codex AGENTS.md template names wall-clock-nudge"; PASSES=$((PASSES + 1))
 else
     fail "Codex AGENTS.md template never mentions wall-clock-nudge — the Codex orchestrator meets the NOTE blind"; FAILS=$((FAILS + 1))
+fi
+
+section "136. Setup + audit skills, templates and README must track what init, drift and the conf actually do"
+
+# 2026-09-30 review of apd-setup + apd-audit (user: "no inconsistencies left").
+# Found: bare model aliases three releases after v7.0 pinned full ids (the
+# existing sweep matched `model: opus` but not `opus / max`); the setup skill
+# saying workflow.md is NOT generated while apd-init copies it and drift
+# dimension C audits it; a settings.json reference with no `permissions`, so a
+# hand-written file would drift on the spot; "three dimensions" for a script
+# with four; a dead drift marker (`DEPRECATED` left workflow.md in v7.0, so the
+# check could never flag); "eight" MCP tools for a server that registers ten;
+# a README profile table that contradicts model-profiles.conf. Every check
+# below is a join against the code or the conf — never against remembered prose.
+
+G136_SETUP="$REPO_ROOT/skills/apd-setup/SKILL.md"
+G136_SETUP_DIR="$REPO_ROOT/skills/apd-setup"
+G136_AUD_CC="$REPO_ROOT/skills/apd-audit/SKILL.md"
+G136_AUD_CDX="$APD_PLUGIN_ROOT/skills/apd-audit/SKILL.md"
+G136_INIT="$APD_PLUGIN_ROOT/bin/core/apd-init"
+G136_DRIFT="$APD_PLUGIN_ROOT/bin/core/pipeline-audit-drift"
+G136_WF="$APD_PLUGIN_ROOT/rules/workflow.md"
+G136_CLREF="$APD_PLUGIN_ROOT/templates/CLAUDE.md.reference"
+G136_CONF="$APD_PLUGIN_ROOT/templates/model-profiles.conf"
+G136_ICC="$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config"
+G136_MCP="$APD_PLUGIN_ROOT/mcp/apd_mcp_server.py"
+G136_README="$REPO_ROOT/README.md"
+
+# ---- S. apd-setup -----------------------------------------------------------
+# S1. "What does NOT get generated" must not list workflow.md — apd-init copies it.
+if grep -q 'rules/workflow.md' "$G136_INIT"; then
+    _s1=$(awk '/^## What does NOT get generated/{p=1;next} /^## /{p=0} p' "$G136_SETUP")
+    if echo "$_s1" | grep 'workflow.md' | grep -viq 'copied'; then
+        fail "apd-setup says workflow.md is NOT generated, but apd-init copies rules/workflow.md into the project (and drift dim C audits it)"; FAILS=$((FAILS + 1))
+    else
+        pass "apd-setup no longer claims workflow.md stays in the plugin"; PASSES=$((PASSES + 1))
+    fi
+else
+    fail "apd-init no longer copies workflow.md — revisit S1"; FAILS=$((FAILS + 1))
+fi
+# S2–S5. Every file apd-init writes that the setup table must name.
+_s_tbl=$(awk '/^## What gets generated/{p=1;next} /^## /{p=0} p' "$G136_SETUP")
+for _f in rules/workflow.md agents/code-reviewer.md agents/adversarial-reviewer.md agents/supervisor.md; do
+    if grep -q "$_f" "$G136_INIT"; then
+        if echo "$_s_tbl" | grep -q "$_f"; then
+            pass "setup 'What gets generated' names $_f (apd-init writes it)"; PASSES=$((PASSES + 1))
+        else
+            fail "apd-init writes $_f but the setup table does not name it"; FAILS=$((FAILS + 1))
+        fi
+    else
+        fail "apd-init no longer writes $_f — update S2–S5"; FAILS=$((FAILS + 1))
+    fi
+done
+# S6. Bare aliases in the two skills, in the `opus / max` shape the older sweep missed.
+_s6=$(grep -rnE '\b(opus|sonnet|haiku|fable) ?/ ?(max|high|xhigh|medium|low)\b|\(opus/max|`(opus|sonnet)`' "$G136_SETUP_DIR" "$G136_AUD_CC" "$G136_AUD_CDX" 2>/dev/null | grep -vi 'bare alias' || true)
+if [ -z "$_s6" ]; then
+    pass "apd-setup + apd-audit name models by full id only"; PASSES=$((PASSES + 1))
+else
+    fail "bare model alias in a skill:$(echo "$_s6" | head -3 | tr '\n' ' ')"; FAILS=$((FAILS + 1))
+fi
+# S7. The settings.json reference must not omit permissions — apd-init writes them.
+if grep -q 'required_allow' "$G136_INIT" && grep -q 'required_deny' "$G136_INIT"; then
+    if grep -q 'permissions' "$G136_SETUP_DIR/reference/rules-templates.md"; then
+        pass "rules-templates.md accounts for the permissions apd-init writes"; PASSES=$((PASSES + 1))
+    else
+        fail "rules-templates.md shows a settings.json with NO permissions — a hand-written file drifts on dim A immediately"; FAILS=$((FAILS + 1))
+    fi
+else
+    fail "apd-init lost required_allow/required_deny — revisit S7"; FAILS=$((FAILS + 1))
+fi
+# S8. Supported stacks == what ships; no version-dated roadmap promise.
+_s8_line=$(grep -n 'Supported stacks' "$G136_SETUP" | head -1)
+_s8_ok=1
+for _d in $(ls "$APD_PLUGIN_ROOT/templates/stack"); do echo "$_s8_line" | grep -q "\`$_d\`" || _s8_ok=0; done
+if [ -n "$_s8_line" ] && [ "$_s8_ok" = 1 ] && ! grep -qE 'Roadmap:.*\(v[0-9]+\.[0-9]+\+\)' "$G136_SETUP"; then
+    pass "setup 5b lists every shipped stack template and promises no dated roadmap"; PASSES=$((PASSES + 1))
+else
+    fail "setup 5b stacks line stale (shipped: $(ls "$APD_PLUGIN_ROOT/templates/stack" | tr '\n' ' ')) or carries a dated roadmap promise"; FAILS=$((FAILS + 1))
+fi
+# S9. Init seeds principles from en.md unconditionally; a Serbian choice needs a stated path.
+if grep -q 'principles/en.md' "$G136_INIT" && [ -f "$APD_PLUGIN_ROOT/templates/principles/sr.md" ]; then
+    if grep -rq 'sr\.md' "$G136_SETUP_DIR"; then
+        pass "setup states how a Serbian principles.md is produced (init seeds en.md)"; PASSES=$((PASSES + 1))
+    else
+        fail "setup offers English/Serbian but never says init already wrote en.md and how sr.md replaces it"; FAILS=$((FAILS + 1))
+    fi
+else
+    fail "principles seeding changed — revisit S9"; FAILS=$((FAILS + 1))
+fi
+
+# ---- A. apd-audit (CC) -------------------------------------------------------
+# A1. Every pipeline file apd-init pre-approves must be named in the audit's settings section.
+_a1_missing=""
+for _p in $(grep -oE "'Edit\(\.apd/pipeline/[^)]+\)'" "$G136_INIT" | sed "s/'Edit(\.apd\/pipeline\///; s/)'//" | sort -u); do
+    grep -q -- "$_p" "$G136_AUD_CC" || _a1_missing="$_a1_missing $_p"
+done
+if [ -z "$_a1_missing" ]; then
+    pass "CC audit names every pipeline file apd-init pre-approves"; PASSES=$((PASSES + 1))
+else
+    fail "CC audit misses pre-approved pipeline files:$_a1_missing"; FAILS=$((FAILS + 1))
+fi
+# A2. Deny-pattern count stated in both audits == required_deny length.
+_a2_n=$(awk '/^required_deny = \[/{p=1;next} /^\]/{p=0} p' "$G136_INIT" | grep -oE "'Bash\(mkdir[^']*\)'" | wc -l | tr -d ' ')
+for _pair in "CC:$G136_AUD_CC" "Codex:$G136_AUD_CDX"; do
+    if [ "$_a2_n" -gt 0 ] && grep -qE "$_a2_n mkdir patterns" "${_pair#*:}"; then
+        pass "${_pair%%:*} audit states the deny baseline as $_a2_n patterns (== apd-init)"; PASSES=$((PASSES + 1))
+    else
+        fail "${_pair%%:*} audit deny-pattern count disagrees with apd-init ($_a2_n)"; FAILS=$((FAILS + 1))
+    fi
+done
+# A3. Dimension count: script header, CC audit, Codex audit all spell the number of `# Dimension` blocks.
+_a3_n=$(grep -cE '^# Dimension [A-Z]' "$G136_DRIFT")
+case "$_a3_n" in 3) _a3_w=three ;; 4) _a3_w=four ;; 5) _a3_w=five ;; *) _a3_w="$_a3_n" ;; esac
+for _pair in "drift-script:$G136_DRIFT" "CC-audit:$G136_AUD_CC" "Codex-audit:$G136_AUD_CDX"; do
+    if grep -qiE "$_a3_w dimensions" "${_pair#*:}"; then
+        pass "${_pair%%:*} says '$_a3_w dimensions' ($_a3_n Dimension blocks in the script)"; PASSES=$((PASSES + 1))
+    else
+        fail "${_pair%%:*} does not say '$_a3_w dimensions' — the script has $_a3_n Dimension blocks"; FAILS=$((FAILS + 1))
+    fi
+done
+# A4. No dead markers: every marker the script greps must exist in the shipped workflow.md
+#     (framework_count 0 → the check can never flag → a marker that guards nothing).
+_a4_dead=""
+for _m in $(awk '/^[[:space:]]*MARKERS=\($/{p=1;next} /^[[:space:]]*\)/{p=0} p' "$G136_DRIFT" | grep -oE '"[^"]+"' | tr -d '"' | tr ' ' '_'); do
+    _mm=$(echo "$_m" | tr '_' ' ')
+    grep -q -- "$_mm" "$G136_WF" || _a4_dead="$_a4_dead [$_mm]"
+done
+if [ -z "$_a4_dead" ]; then
+    pass "every drift dim-C marker still exists in the shipped workflow.md"; PASSES=$((PASSES + 1))
+else
+    fail "dead drift markers (absent from rules/workflow.md, so they never flag):$_a4_dead"; FAILS=$((FAILS + 1))
+fi
+# A5. Both audits name every marker the script checks.
+for _pair in "CC:$G136_AUD_CC" "Codex:$G136_AUD_CDX"; do
+    _a5_missing=""
+    for _m in $(awk '/^[[:space:]]*MARKERS=\($/{p=1;next} /^[[:space:]]*\)/{p=0} p' "$G136_DRIFT" | grep -oE '"[^"]+"' | tr -d '"' | tr ' ' '_'); do
+        _mm=$(echo "$_m" | tr '_' ' ')
+        grep -q -- "$_mm" "${_pair#*:}" || _a5_missing="$_a5_missing [$_mm]"
+    done
+    if [ -z "$_a5_missing" ]; then
+        pass "${_pair%%:*} audit lists every dim-C marker the script checks"; PASSES=$((PASSES + 1))
+    else
+        fail "${_pair%%:*} audit marker list disagrees with the script:$_a5_missing"; FAILS=$((FAILS + 1))
+    fi
+done
+# A6. dim C byte-compare (v7.0.3) is real in the script → the CC audit must describe it.
+if grep -qE 'cmp |diff ' "$G136_DRIFT"; then
+    if grep -qiE 'byte' "$G136_AUD_CC"; then
+        pass "CC audit describes dim C's byte comparison"; PASSES=$((PASSES + 1))
+    else
+        fail "drift dim C byte-compares workflow.md since v7.0.3; the CC audit still describes markers only"; FAILS=$((FAILS + 1))
+    fi
+else
+    fail "drift script no longer byte-compares — revisit A6"; FAILS=$((FAILS + 1))
+fi
+# A7. Supervisor contract (v7.1): apd-init refreshes a supervisor.md lacking it → the audit must check for it.
+if grep -q 'Question/Notes contract' "$G136_INIT"; then
+    if grep -q 'Question:' "$G136_AUD_CC" && grep -q 'bak.pre-v7.1' "$G136_AUD_CC"; then
+        pass "CC audit checks supervisor.md for the v7.1 Question/Notes contract"; PASSES=$((PASSES + 1))
+    else
+        fail "apd-init refreshes supervisor.md for the v7.1 contract; the CC audit never checks it"; FAILS=$((FAILS + 1))
+    fi
+else
+    fail "apd-init lost the supervisor contract refresh — revisit A7"; FAILS=$((FAILS + 1))
+fi
+
+# ---- C. apd-audit (Codex) ----------------------------------------------------
+# C1. MCP tool count: server registrations == installer tuple == every documented number.
+_c1_n=$(grep -c '@mcp.tool' "$G136_MCP")
+_c1_t=$(awk '/^_APD_TOOLS = \(/{p=1;next} /^\)/{p=0} p' "$G136_ICC" | grep -oE '"apd_[a-z_]+"' | wc -l | tr -d ' ')
+if [ "$_c1_n" -ge 8 ] && [ "$_c1_n" -eq "$_c1_t" ]; then
+    pass "install-codex-config writes one approval block per registered MCP tool ($_c1_n)"; PASSES=$((PASSES + 1))
+else
+    fail "MCP tool count mismatch: server registers $_c1_n, installer tuple has $_c1_t"; FAILS=$((FAILS + 1))
+fi
+if grep -qE "$_c1_n (per-tool|\`?\[mcp_servers)" "$G136_AUD_CDX" && ! grep -qiE '\b(eight|nine)\b.*(tool|block)|[0-9]+ of (8|9) ' "$G136_AUD_CDX"; then
+    pass "Codex audit states $_c1_n per-tool blocks"; PASSES=$((PASSES + 1))
+else
+    fail "Codex audit states a stale per-tool block count (server has $_c1_n)"; FAILS=$((FAILS + 1))
+fi
+_c1_docs=""
+for _d in "$G136_README" "$REPO_ROOT/CLAUDE.md" "$REPO_ROOT/docs/SPEC.md"; do
+    _hit=$(grep -noE '\b[0-9]+ (MCP )?tools\b|[0-9]+ `?\[mcp_servers' "$_d" | grep -vE "\b$_c1_n (MCP )?tools|\b$_c1_n \`?\[mcp" || true)
+    [ -n "$_hit" ] && _c1_docs="$_c1_docs $(basename "$_d"):$(echo "$_hit" | cut -d: -f1 | tr '\n' ',')"
+done
+if [ -z "$_c1_docs" ]; then
+    pass "README, CLAUDE.md and SPEC state the MCP tool count as $_c1_n"; PASSES=$((PASSES + 1))
+else
+    fail "stale MCP tool counts (server has $_c1_n):$_c1_docs"; FAILS=$((FAILS + 1))
+fi
+# C2. Every Codex hook the installer wires is named in the Codex audit's hooks section.
+_c2_missing=""
+for _g in $(grep -oE 'bin/adapter/cdx/(guard-[a-z-]+|session-start)"' "$G136_ICC" | sed 's#bin/adapter/cdx/##; s/"//' | sort -u); do
+    grep -q -- "$_g" "$G136_AUD_CDX" || _c2_missing="$_c2_missing $_g"
+done
+if [ -z "$_c2_missing" ]; then
+    pass "Codex audit names every hook install-codex-config wires"; PASSES=$((PASSES + 1))
+else
+    fail "Codex audit hooks section misses:$_c2_missing"; FAILS=$((FAILS + 1))
+fi
+# C3. Drift on a pure-Codex project: dims A/C/D read .claude/ files and are skipped — the Codex audit must say so.
+if grep -q 'SETTINGS_FILE="$CLAUDE_DIR/settings.json"' "$G136_DRIFT" && grep -q 'WORKFLOW_FILE="$CLAUDE_DIR/rules/workflow.md"' "$G136_DRIFT"; then
+    if grep -qiE 'pure-Codex' "$G136_AUD_CDX" && ! grep -q 'or Codex equivalent' "$G136_AUD_CDX"; then
+        pass "Codex audit states which drift dimensions are CC-file checks"; PASSES=$((PASSES + 1))
+    else
+        fail "Codex audit claims a 'Codex equivalent' for settings.json drift; the script reads .claude/ only"; FAILS=$((FAILS + 1))
+    fi
+else
+    fail "drift file variables moved — revisit C3"; FAILS=$((FAILS + 1))
+fi
+
+# ---- T. templates + README ---------------------------------------------------
+_t_bare='\| (opus|sonnet|haiku|fable) \||\*\*Model:\*\* (opus|sonnet|haiku|fable)( |$)|\b(opus|sonnet) / (max|high|xhigh)\b'
+for _pair in "workflow.md:$G136_WF" "CLAUDE.md.reference:$G136_CLREF" "README:$G136_README"; do
+    _hit=$(grep -nE "$_t_bare" "${_pair#*:}" || true)
+    if [ -z "$_hit" ]; then
+        pass "${_pair%%:*} names models by full id only"; PASSES=$((PASSES + 1))
+    else
+        fail "${_pair%%:*} carries a bare model alias: $(echo "$_hit" | head -2 | cut -c1-80 | tr '\n' ' ')"; FAILS=$((FAILS + 1))
+    fi
+done
+# T2. workflow.md Builder effort == the shipped builder template's effort.
+_t2_eff=$(grep -E '^effort:' "$APD_PLUGIN_ROOT/templates/agent-template.md" | awk '{print $2}')
+if grep -qE "^\| Builder \|[^|]*\| $_t2_eff \|" "$G136_WF" && ! grep -qE '\*\*Effort:\*\* high$' "$G136_WF"; then
+    pass "workflow.md Builder effort matches the template ($_t2_eff) everywhere"; PASSES=$((PASSES + 1))
+else
+    fail "workflow.md Builder effort disagrees with agent-template.md ($_t2_eff)"; FAILS=$((FAILS + 1))
+fi
+# T3. README profile table vs model-profiles.conf: each profile row carries the conf's three ids.
+for _prof in burn cruise eco; do
+    _d=$(grep -E "^$_prof\|default\|" "$G136_CONF" | cut -d'|' -f3); _a=$(grep -E "^$_prof\|adversarial\|" "$G136_CONF" | cut -d'|' -f3); _s=$(grep -E "^$_prof\|supervisor\|" "$G136_CONF" | cut -d'|' -f3)
+    _row=$(grep -E "^\| \`$_prof\` \|" "$G136_README" | head -1)
+    if [ -n "$_row" ] && [ -n "$_d" ] && echo "$_row" | grep -q "$_d" && echo "$_row" | grep -q "$_a" && echo "$_row" | grep -q "$_s"; then
+        pass "README profile row '$_prof' matches model-profiles.conf ($_d / $_a / $_s)"; PASSES=$((PASSES + 1))
+    else
+        fail "README profile row '$_prof' disagrees with model-profiles.conf (conf: $_d / $_a / $_s)"; FAILS=$((FAILS + 1))
+    fi
+done
+# T4. The supervisor is a role in every profile (conf) → the three role tables must list it.
+if [ "$(grep -cE '^[a-z]+\|supervisor\|' "$G136_CONF")" -ge 3 ]; then
+    _t4_missing=""
+    for _pair in "workflow.md:$G136_WF" "CLAUDE.md.reference:$G136_CLREF" "README:$G136_README"; do
+        grep -qiE '^\| \*?\*?Supervisor' "${_pair#*:}" || _t4_missing="$_t4_missing ${_pair%%:*}"
+    done
+    if [ -z "$_t4_missing" ]; then
+        pass "workflow.md, CLAUDE.md.reference and README role tables list the supervisor"; PASSES=$((PASSES + 1))
+    else
+        fail "role tables without a Supervisor row while every profile carries one:$_t4_missing"; FAILS=$((FAILS + 1))
+    fi
+else
+    fail "model-profiles.conf lost its supervisor rows — revisit T4"; FAILS=$((FAILS + 1))
 fi
 
 section "Summary"

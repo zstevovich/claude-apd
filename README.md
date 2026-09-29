@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>v7.1.2</b> &middot; MIT &middot; macOS + Linux
+  <b>v7.1.3</b> &middot; MIT &middot; macOS + Linux
 </p>
 
 <p align="center">
@@ -88,7 +88,7 @@ codex plugin marketplace upgrade codex-apd                    # pulls latest mai
 To pin the upgrade to a specific tag or branch (e.g. for pre-release testing):
 ```bash
 codex plugin marketplace remove codex-apd
-codex plugin marketplace add zstevovich/claude-apd@v7.1.2     # or @<branch> for a feature branch
+codex plugin marketplace add zstevovich/claude-apd@v7.1.3     # or @<branch> for a feature branch
 ```
 
 **Codex — direct-drop install:**
@@ -102,14 +102,15 @@ bash .codex/bin/apd update                                    # git pull --ff-on
 
 See [Getting Started](GETTING-STARTED.md) for both walkthroughs.
 
-## Five roles
+## Six roles
 
-| Role | Model | Effort | Responsibility |
-|------|-------|--------|----------------|
-| **Orchestrator** | opus | max | Coordinates pipeline, writes spec, dispatches agents, commits |
-| **Builder** | sonnet | xhigh | Implements code per spec, scoped to specific files |
-| **Reviewer** | opus | max | Finds bugs, security issues, edge cases (read-only) |
-| **Adversarial Reviewer** | sonnet | max | Context-free review — no spec knowledge, fresh perspective |
+| Role | Model (template pin, full id) | Effort | Responsibility |
+|------|------|--------|----------------|
+| **Orchestrator** | your session's model — not APD-managed | — | Coordinates pipeline, writes spec, dispatches agents, commits |
+| **Builder** | `claude-sonnet-5` | xhigh | Implements code per spec, scoped to specific files |
+| **Reviewer** | `claude-opus-5` | max | Finds bugs, security issues, edge cases (read-only) |
+| **Adversarial Reviewer** | `claude-sonnet-5` | max | Context-free review — no spec knowledge, fresh perspective; one tier down on purpose |
+| **Supervisor** | `claude-opus-5` | max | Judges the FINAL diff after every fix, before the verifier (every profile since v7.0) |
 | **Verifier** | — | — | Script: build + test + spec traceability check |
 
 Model and effort per agent are per-project settings — and since v6.16 they are switchable as named profiles.
@@ -120,11 +121,13 @@ The model raises the average. APD guarantees the floor. The profile chooses what
 
 One command switches every pipeline agent's model/effort between named profiles:
 
-| Profile | Builders / Reviewer | Adversarial | When |
-|---------|--------------------|-------------|------|
-| `burn` | claude-fable-5 / high | opus / max | Launch-critical features — maximum quality, cost ignored |
-| `cruise` | opus / xhigh | sonnet / max | Daily default — strong builders, balanced cost |
-| `eco` | sonnet / xhigh | sonnet / max | Small, well-scoped tasks, copy fixes, Lean runs |
+| Profile | Builders / Reviewer | Adversarial | Supervisor | When |
+|---------|--------------------|-------------|------------|------|
+| `burn` | `claude-opus-5` / max | `claude-sonnet-5` / max | `claude-opus-5` / max | Launch-critical features — maximum quality, cost ignored |
+| `cruise` | `claude-opus-5` / high | `claude-sonnet-5` / max | `claude-opus-5` / max | Daily default — strong builders, balanced cost |
+| `eco` | `claude-sonnet-5` / xhigh | `claude-sonnet-5` / max | `claude-opus-5` / max | Small, well-scoped tasks, copy fixes, Lean runs |
+
+(`plugins/apd/templates/model-profiles.conf` is the authority; this table is checked against it by the test suite.)
 
 ```bash
 apd profile list              # profiles + role mappings
@@ -285,7 +288,7 @@ ${CLAUDE_PLUGIN_ROOT}/                # = repo root for CC; CC auto-discovers ho
 └── plugins/apd/                      # Plugin payload — single source of truth for both runtimes
     ├── .apd-version                  # CC version constraints (MIN_CC_VERSION, FUNC_CC_VERSION)
     ├── .codex-plugin/plugin.json     # Codex plugin manifest
-    ├── .mcp.json                     # Codex MCP self-registration (cwd: ".", 9 tools)
+    ├── .mcp.json                     # Codex MCP self-registration (cwd: ".", 10 tools)
     ├── VERSION                       # Plugin version (read by every script + MCP server)
     ├── bin/
     │   ├── apd                       # Single entry point
@@ -294,7 +297,7 @@ ${CLAUDE_PLUGIN_ROOT}/                # = repo root for CC; CC auto-discovers ho
     │   ├── adapter/cdx/              # Codex install + doctor + skills + agents
     │   ├── compiled/                 # Go binaries (validate-agent)
     │   └── lib/                      # resolve-project.sh + style.sh
-    ├── mcp/apd_mcp_server.py         # Codex MCP server (9 tools)
+    ├── mcp/apd_mcp_server.py         # Codex MCP server (10 tools)
     ├── rules/workflow.md             # Pipeline workflow rules (copied to project on init)
     ├── templates/                    # Agent + project templates (CC + Codex scaffold)
     └── skills/                       # 7 Codex skills (brainstorm, tdd, debug, finish, audit, github, miro)
@@ -394,7 +397,7 @@ Allowed paths: src/ tests/
 | `apd cdx doctor` | Runtime-aware audit of the pure-Codex setup |
 | `apd cdx test` | E2E smoke test (~75 checks, runs without Codex CLI) |
 
-Codex uses an MCP server (`mcp/apd_mcp_server.py`) that exposes the pipeline as 8 MCP tools: `apd_ping`, `apd_doctor`, `apd_advance_pipeline`, `apd_guard_write`, `apd_verify_step`, `apd_adversarial_pass`, `apd_list_agents`, `apd_pipeline_state`. The orchestrator on Codex plays all roles inline — there is no sub-agent dispatch like on CC — and scope enforcement happens through `apd_guard_write(apd_role, file_path)`, which reads each role's scope server-side from the agent registry instead of trusting client arguments.
+Codex uses an MCP server (`mcp/apd_mcp_server.py`) that exposes the pipeline as 10 MCP tools: `apd_ping`, `apd_doctor`, `apd_advance_pipeline`, `apd_guard_write`, `apd_verify_step`, `apd_adversarial_pass`, `apd_list_agents`, `apd_pipeline_state`, `apd_pipeline_metrics`, `apd_prepare_dispatch`. The orchestrator on Codex plays all roles inline — there is no sub-agent dispatch like on CC — and scope enforcement happens through `apd_guard_write(apd_role, file_path)`, which reads each role's scope server-side from the agent registry instead of trusting client arguments.
 
 ## Real-world results
 

@@ -69,6 +69,10 @@ For each agent in `.claude/agents/*.md`:
 - `memory:` — `project` for builders, but **`none` for `adversarial-reviewer` and
   `supervisor`**. Those two carry the decontextualization contract; flagging them for a
   missing `memory: project` inverts the thing that makes them worth dispatching.
+- `supervisor.md` body carries the **v7.1 contract**: the `**Question:** Q1 R<n> | Q2 <path> |
+  Q3 RS<n>` tagging rule and a `### Notes` section. `apd-init` refreshes a pre-v7.1 copy on
+  its own (previous copy kept as `supervisor.md.bak.pre-v7.1`), so a copy without it means
+  no session has run since the update — run `apd-init`, do not patch the body by hand.
 
 **Hook check:**
 - `if:` field must be inside hook objects, NOT at matcher level
@@ -115,10 +119,11 @@ Read `.claude/settings.json` and verify:
 - `enabledPlugins.superpowers@claude-plugins-official: false`
 - `attribution.commit: ""` (empty — no AI signatures)
 - `attribution.pr: ""` (empty)
-- `permissions.allow` includes `Edit(.claude/memory/**)` and every pipeline file the
-  framework mandates writing: `spec-card.md`, `implementation-plan.md`,
+- `permissions.allow` includes `Edit(.claude/memory/**)`, `Bash(bash .claude/bin/apd *)` and
+  every pipeline file the framework mandates writing: `spec-card.md`, `implementation-plan.md`,
   `.adversarial-summary`, `.adversarial-rationale.md`, `.supervision-summary`,
-  `.supervision-rationale.md`, `.guide-marker`
+  `.supervision-rationale.md`, `.guide-marker`; `permissions.deny` carries the 8 `mkdir
+  .apd/pipeline` patterns (drift dimension A checks exactly these)
 - **`Edit(...)` only — never ask for a `Write(...)` twin.** Since CC 2.1.208 `Edit(path)`
   covers every file-editing tool and a `Write(path)` rule is inert for file-permission
   checks; `apd-init` strips legacy APD Write twins on each run, so demanding them here
@@ -154,7 +159,7 @@ Check `.claude/memory/`:
 
 ### 8. Drift Detection (v6.10+)
 
-Run the dedicated drift script — it scans three dimensions where projects typically lag behind the framework baseline:
+Run the dedicated drift script — it scans four dimensions where projects typically lag behind the framework baseline:
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-audit-drift
@@ -164,7 +169,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-audit-drift
 
 1. **`.claude/settings.json` deny patterns** — compares against current framework baseline (8 mkdir patterns: 4 slash-prefixed + 4 bare-dir). Pre-v6.10 re-inits left projects with only 4 patterns; v6.10 closes the bypass vector by writing all 8 on re-init.
 2. **`.claude/.apd-config` APD_VERSION** — compares against the currently loaded plugin version. Stale `APD_VERSION` means the project was configured under an older minor and may carry stale workflow/agent templates. Patch-only drift is INFO; minor-or-major drift is IMPORTANT.
-3. **`.claude/rules/workflow.md` content markers** — checks presence of six guidance markers (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`, `apd-pipeline-guide`, `SUPERVISION`). Missing markers mean workflow.md was last refreshed under an older framework, so the orchestrator never sees plan-spec consistency, the rationale gate, the v6.15 guide gate or the v6.30 supervision layer. Read the marker list from the script rather than this page if they disagree — the script is the authority.
+3. **`.claude/rules/workflow.md` content** — first the presence of five guidance markers (`Implements:`, `rationale gate`, `unconditional`, `apd-pipeline-guide`, `SUPERVISION`); missing markers mean workflow.md was last refreshed under an older framework, so the orchestrator never sees plan-spec consistency, the rationale gate, the v6.15 guide gate or the v6.30 supervision layer. When every marker is present, the script **byte-compares** the copy against the shipped `rules/workflow.md` (v7.0.3) and reports the changed-line count — that is how a project carrying guidance the framework has since DELETED gets caught (a marker check only sees what was added, never what was retracted). Detection only: the refresh stays marker-based, recovery is `/apd-setup` step 5c. Read the marker list from the script rather than this page if they disagree — the script is the authority.
 
 4. **Feature claim drift** (v6.12.3+) — scans `workflow.md` and `CLAUDE.md` for orchestrator confabulation patterns claiming features the framework does not ship. Specifically: any line that mentions BOTH a contracts command (`verify-contracts`, `apd contracts`) AND an unsupported language (PHP/Python/Java/Go/Ruby/Kotlin/Rust). First documented instance: Festico apd-setup (2026-05-28) — orchestrator wrote "apd verify-contracts automatically checks PHP DTO ↔ TS types" which is false; framework supports TS ↔ C# only. Detection prevents silent gaps in cross-layer review coverage where humans rely on a feature that errors at runtime.
 
@@ -249,7 +254,7 @@ CRITICAL:
 You're done when:
 - Every agent has been opened and its frontmatter checked against the matrix in §2
 - Every required section in CLAUDE.md is present and free of unreplaced `{{PLACEHOLDER}}` values
-- `.claude/settings.json` has all four required keys (env, attribution, enabledPlugins, hooks)
+- `.claude/settings.json` has all five required keys (env, attribution, enabledPlugins, permissions, hooks)
 - `apd pipeline status` runs without error
 - Findings are sorted into CRITICAL / IMPORTANT / CLEAN buckets in the output format
 - If any CRITICAL is reported, the user has been told what to fix and in what order

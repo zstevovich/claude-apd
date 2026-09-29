@@ -449,10 +449,17 @@ mechanically checkable (gate: `verify-regression-surface`).
 
 The orchestrator MUST write the spec card to `.apd/pipeline/spec-card.md` before calling `bash .claude/bin/apd pipeline spec "Task name"`. This enables mechanical traceability verification.
 
-## 2. Five roles — strict model and effort enforcement
+## 2. Six roles — strict model and effort enforcement
+
+Models are named by FULL id (`claude-opus-5`, `claude-sonnet-5`), never by a bare
+alias — an alias resolves to whatever the runtime maps it to today, and on this
+corpus agents pinned to `opus` moved from 4.8 to 5 with no config change and no
+record. The values below are the shipped template pins; the declared
+`MODEL_PROFILE` (`apd profile status`, `model-profiles.conf`) may move the
+builder/reviewer tier per profile and is the authority for the roles it owns.
 
 ### Orchestrator (you — main session)
-- **Model:** opus | **Effort:** max
+- **Model:** your session's model — not APD-managed (`MODEL_PROFILE` governs dispatched agents only)
 - Creates the spec card and gets user approval
 - **Dispatches Builder agents — NEVER implements code directly**
 - Dispatches Reviewer after each Builder
@@ -462,7 +469,7 @@ The orchestrator MUST write the spec card to `.apd/pipeline/spec-card.md` before
 - **If you find yourself writing code: STOP. Dispatch an agent instead.**
 
 ### Builder (dispatched agent)
-- **Model:** sonnet | **Effort:** high
+- **Model:** `claude-sonnet-5` | **Effort:** xhigh (template pin; `cruise` moves builders to `claude-opus-5` / high)
 - Implements code according to the spec
 - Defined in `.claude/agents/` with scope guards
 - Max 3-4 edit operations per dispatch
@@ -470,7 +477,7 @@ The orchestrator MUST write the spec card to `.apd/pipeline/spec-card.md` before
 - **Must not** commit, push, or modify files outside its scope
 
 ### Reviewer (dispatched agent)
-- **Model:** opus | **Effort:** max
+- **Model:** `claude-opus-5` | **Effort:** max
 - Finds risks, bugs, omissions in Builder's work
 - Does NOT suggest style changes outside scope
 - Runs AUTOMATICALLY after every Builder — **never skip**
@@ -478,12 +485,18 @@ The orchestrator MUST write the spec card to `.apd/pipeline/spec-card.md` before
 - **Dispatch:** `Agent({ subagent_type: "code-reviewer", prompt: "Review..." })` — NEVER use superpowers:code-reviewer
 
 ### Adversarial Reviewer (dispatched agent)
-- **Model:** sonnet | **Effort:** max
+- **Model:** `claude-sonnet-5` | **Effort:** max — deliberately one tier below the reviewer on every profile: its value is positional (no context), not model strength
 - Context-free — sees only code changes, not the spec or task
 - Finds bugs that contextual reviewers miss by not knowing intent
 - Findings are advisory — orchestrator decides what to act on
 - Runs AFTER regular reviewer, BEFORE verifier
 - Orchestrator tracks hit rate: accepted vs dismissed findings
+
+### Supervisor (dispatched agent, v6.30; every profile since v7.0)
+- **Model:** `claude-opus-5` | **Effort:** max | `memory: none`
+- Judges the FINAL diff after adversarial fixes, before the verifier: R-criteria still met, fix-of-findings collateral, regression-surface claims vs the diff, commit verdict
+- Findings carry `**Question:** Q1|Q2|Q3` tags (v7.1); notes need no disposition
+- Its stop must be the last agent activity before the verifier (`supervision-not-final`)
 
 ### Verifier (script, not agent)
 - Runs `verify-all.sh` (build + test)
@@ -492,12 +505,13 @@ The orchestrator MUST write the spec card to `.apd/pipeline/spec-card.md` before
 
 ### Model and effort summary
 
-| Role | Model | Effort | Why |
-|------|-------|--------|-----|
-| Orchestrator | opus | max | Decisions, planning, coordination — expensive to reverse |
-| Builder | sonnet | xhigh | Implementation following clear spec — deep reasoning for coding tasks |
-| Reviewer | opus | max | Finding bugs, security issues — must be thorough |
-| Adversarial Reviewer | sonnet | max | Fresh eyes, different model = different blind spots |
+| Role | Model (template pin) | Effort | Why |
+|------|------|--------|-----|
+| Orchestrator | session model — not APD-managed | — | Decisions, planning, coordination — expensive to reverse |
+| Builder | `claude-sonnet-5` | xhigh | Implementation following clear spec — deep reasoning for coding tasks; `cruise` raises the tier |
+| Reviewer | `claude-opus-5` | max | Finding bugs, security issues — must be thorough |
+| Adversarial Reviewer | `claude-sonnet-5` | max | Fresh eyes, one tier down on purpose — positional value, not model strength |
+| Supervisor | `claude-opus-5` | max | Final-diff judgement after every fix; every profile carries it |
 | Verifier | — | — | Script, not a model — runs build + test |
 
 ## 3. Micro-tasks
@@ -645,13 +659,14 @@ When a task involves backend + frontend/mobile:
 
 | Role | Model | Effort | Dispatch example |
 |------|-------|--------|-----------------|
-| Orchestrator | opus | max | (main session — always opus max) |
-| Builder | sonnet | xhigh | `dispatch backend-builder` (model: sonnet, effort: xhigh in frontmatter) |
-| Reviewer | opus | max | `dispatch code-reviewer` (model: opus, effort: max in frontmatter) |
-| Adversarial Reviewer | sonnet | max | `dispatch adversarial-reviewer` (model: sonnet, effort: max in frontmatter) |
+| Orchestrator | session model — not APD-managed | — | (main session) |
+| Builder | `claude-sonnet-5` | xhigh | `dispatch backend-builder` (model: claude-sonnet-5, effort: xhigh in frontmatter) |
+| Reviewer | `claude-opus-5` | max | `dispatch code-reviewer` (model: claude-opus-5, effort: max in frontmatter) |
+| Adversarial Reviewer | `claude-sonnet-5` | max | `dispatch adversarial-reviewer` (model: claude-sonnet-5, effort: max in frontmatter) |
+| Supervisor | `claude-opus-5` | max | `dispatch supervisor` (model: claude-opus-5, effort: max, `memory: none` in frontmatter) |
 
-- **Never use sonnet for review** — it misses subtle bugs (exception: adversarial reviewer uses sonnet intentionally for perspective diversity)
-- **Never use opus for building** — it's slower and not needed for spec-driven work
+- **Never review on the builder tier** — it misses subtle bugs (exception: the adversarial reviewer sits one tier down on purpose — positional value, not model strength)
+- **Never build on the reviewer tier unless the profile says so** — `cruise` and `burn` raise builders deliberately; the template pin is the floor, `model-profiles.conf` is the authority
 - **Never use effort: low or medium** — APD uses high, xhigh (builder), and max
 - **`effort: xhigh` on Sonnet 4.6** falls back to `high` automatically — it takes effect when Sonnet 4.7 is available. Forward-compatible configuration.
 

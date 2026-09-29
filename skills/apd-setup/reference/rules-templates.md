@@ -31,13 +31,13 @@ Read the snippet from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/verify-all/{s
 
 ## Rules
 
-**`workflow.md`** — copy verbatim from the plugin (rules are NOT auto-loaded from plugins, they live per-project):
+**`workflow.md`** — `apd-init` (step 1) already copied it verbatim from the plugin (rules are NOT auto-loaded from plugins, they live per-project) and refreshes a stale copy with a `workflow.md.bak.preaudit` backup. Copy by hand only if init reported it missing:
 
 ```bash
 cp "${CLAUDE_PLUGIN_ROOT}/plugins/apd/rules/workflow.md" .claude/rules/workflow.md
 ```
 
-**`principles.md`** — read `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/principles/{language}.md`. Adapt for the stack — add the architectural pattern and port range. Place in `.claude/rules/principles.md`.
+**`principles.md`** — `apd-init` seeds `.claude/rules/principles.md` from `templates/principles/en.md`. If the user chose Serbian, regenerate it from `templates/principles/sr.md`; in both cases adapt for the stack — add the architectural pattern and port range.
 
 ## Memory files
 
@@ -52,34 +52,31 @@ Generate four files under `.claude/memory/`:
 
 ## Configuration
 
-**`.claude/settings.json`** — must include env, attribution, notification, AND disable superpowers:
+**`.claude/settings.json`** — written by `apd-init`, never by hand. Init writes the whole file on a fresh project and MERGES the required entries into an existing one (idempotent: it rewrites only when the result differs). The shape it produces:
 
 ```json
 {
-  "env": {
-    "APD_PROJECT_NAME": "{name}"
-  },
-  "enabledPlugins": {
-    "superpowers@claude-plugins-official": false
-  },
-  "attribution": {
-    "commit": "",
-    "pr": ""
+  "env": { "APD_PROJECT_NAME": "{name}" },
+  "enabledPlugins": { "superpowers@claude-plugins-official": false },
+  "attribution": { "commit": "", "pr": "" },
+  "permissions": {
+    "allow": [
+      "Edit(.claude/memory/**)",
+      "Edit(.apd/pipeline/spec-card.md)", "Edit(.apd/pipeline/implementation-plan.md)",
+      "Edit(.apd/pipeline/.adversarial-summary)", "Edit(.apd/pipeline/.adversarial-rationale.md)",
+      "Edit(.apd/pipeline/.supervision-summary)", "Edit(.apd/pipeline/.supervision-rationale.md)",
+      "Edit(.apd/pipeline/.guide-marker)",
+      "Bash(bash .claude/bin/apd *)"
+    ],
+    "deny": [ "Bash(mkdir .apd/pipeline)", "… 8 mkdir patterns in total (bare + */-prefixed, with and without -p)" ]
   },
   "hooks": {
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo '[{name}] Claude needs attention'"
-          }
-        ]
-      }
-    ]
+    "Notification": [ { "hooks": [ { "type": "command", "command": "echo '[{name}] Claude needs attention'" } ] } ]
   }
 }
 ```
+
+Why not hand-write it: a file without the `permissions` block drifts on `apd audit-drift` dimension A immediately, and every gate that MANDATES a write (`.guide-marker` at the spec advance, the rationale files at the verifier) prompts on a path the framework promised to pre-approve. `Edit(...)` only — never a `Write(...)` twin (CC 2.1.208+: `Edit(path)` covers every file-editing tool; init strips legacy Write twins). If the file is missing or damaged, re-run `apd-init`.
 
 **`.claude/.apd-config`:**
 

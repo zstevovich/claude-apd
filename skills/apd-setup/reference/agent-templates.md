@@ -67,7 +67,7 @@ ALWAYS generated, regardless of stack. Generated from `${CLAUDE_PLUGIN_ROOT}/plu
 
 **Body:** review checklist, output format (CRITICAL / IMPORTANT / SUGGESTIONS), final verdict (PASS / FAIL).
 
-The reviewer is mandatory because finding bugs requires deeper reasoning than writing code — opus/max is the right tool, not a cost shortcut.
+The reviewer is mandatory because finding bugs requires deeper reasoning than writing code — `claude-opus-5` / `max` is the right tool, not a cost shortcut.
 
 ## Generation rule
 

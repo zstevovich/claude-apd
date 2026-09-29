@@ -1,8 +1,14 @@
 #!/bin/bash
-# APD Audit Drift — qualitative drift detection across three dimensions:
-#   1. settings.json deny patterns (missing baseline entries)
-#   2. .apd-config APD_VERSION (stale vs current plugin)
-#   3. workflow.md content markers (missing v6.7+ guidance)
+# APD Audit Drift — qualitative drift detection across four dimensions:
+#   A. settings.json deny patterns (missing baseline entries)
+#   B. .apd-config APD_VERSION (stale vs current plugin)
+#   C. workflow.md content: guidance markers, then a byte comparison against
+#      the shipped copy once every marker is present (v7.0.3)
+#   D. feature-claim drift in workflow.md / CLAUDE.md (v6.12.3)
+# A, C and D read CC files and are skipped on a pure-Codex project; B reads
+# .apd/config there. Marker rule: a marker must exist in the SHIPPED
+# workflow.md, or it can never flag (test-codex-adapter §136 enforces this —
+# `DEPRECATED` sat in this list for two releases after v7.0 deleted it).
 #
 # Output: severity-bucketed findings (CRITICAL / IMPORTANT / INFO / CLEAN)
 # with per-item recovery action.
@@ -164,7 +170,6 @@ if [ -f "$WORKFLOW_FILE" ] && [ -f "$FRAMEWORK_WORKFLOW" ]; then
     MARKERS=(
         "Implements:"
         "rationale gate"
-        "DEPRECATED"
         "unconditional"
         "apd-pipeline-guide"
         "SUPERVISION"

@@ -26,7 +26,7 @@ Show the analysis to the user before fixing anything:
 APD gap analysis:
   ✓ CLAUDE.md exists
   ✓ 3 builder agents
-  ✗ code-reviewer.md MISSING — will generate (opus/max/read-only)
+  ✗ code-reviewer.md MISSING — will generate (claude-opus-5 / max / read-only)
   ✓ workflow.md exists
   ✓ verify-all.sh configured
   ✓ Memory files (4/4)

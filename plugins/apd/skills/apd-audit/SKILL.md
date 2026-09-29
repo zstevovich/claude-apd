@@ -89,7 +89,7 @@ Check that `AGENTS.md` does NOT contain:
 
 Verify `.codex/config.toml` has:
 - `[mcp_servers.apd]` block with `command = "bash"` and `args` pointing at the version-agnostic `.codex/bin/apd-mcp` launcher (v6.35 — NO pinned `cwd`; the launcher resolves the current plugin cache at runtime so the config survives a plugin upgrade). A pinned `cwd = ".../apd/<version>"` is a pre-v6.35 install → run `apd cdx init` to migrate.
-- All eight `[mcp_servers.apd.tools.<name>]` blocks (one per APD MCP tool)
+- All 10 `[mcp_servers.apd.tools.<name>]` blocks (one per APD MCP tool — `_APD_TOOLS` in `install-codex-config` is the authority; the count grew with `apd_pipeline_metrics` in v6.2 and `apd_prepare_dispatch` in v6.36)
 - Approval modes are appropriate for the project's risk profile
 
 Run `apd:apd_ping()` to confirm the MCP server actually answers.
@@ -98,6 +98,7 @@ Run `apd:apd_ping()` to confirm the MCP server actually answers.
 
 Verify `.codex/hooks.json` has:
 - `PreToolUse` Bash matcher → `bin/adapter/cdx/guard-bash-scope`
+- a second `PreToolUse` Bash hook → `bin/adapter/cdx/guard-bash-portability` (macOS/BSD vs Linux command forms; wired by `apd cdx init` alongside the scope guard — `apd doctor` does not check this one, so the audit must)
 - `PreToolUse` `apply_patch|Edit|Write` matcher → `bin/adapter/cdx/guard-file-edit`
 - `SessionStart` → `bin/adapter/cdx/session-start`
 - No stale paths from previous APD versions
@@ -130,12 +131,12 @@ bash ${APD_PLUGIN_ROOT}/bin/core/pipeline-audit-drift
 
 (Path resolution: `$APD_PLUGIN_ROOT` is the plugin's `plugins/apd/` directory; resolved automatically by `resolve-project.sh` which the script sources.)
 
-**Three dimensions:**
+**Four dimensions — and what they mean on Codex.** Dimensions A, C and D read CC files (`.claude/settings.json`, `.claude/rules/workflow.md`, `CLAUDE.md`). On a **pure-Codex** project those files do not exist and the script skips them silently — only dimension B applies there, and the Codex-side equivalents (`AGENTS.md`, `.codex/hooks.json`, `.codex/config.toml`) are covered by sections 3–5 of this audit, not by the script. On a hybrid CC+Codex project all four run.
 
-1. `.claude/settings.json` (or Codex equivalent) deny patterns — compares against current framework baseline (8 mkdir patterns: 4 slash-prefixed + 4 bare-dir). Pre-v6.10 re-inits left projects with only 4 patterns.
-2. `.claude/.apd-config` APD_VERSION — compares against currently loaded plugin version. Stale value (minor/major lag) means stale workflow/agent templates.
-3. `.claude/rules/workflow.md` content markers — checks six guidance markers (`Implements:`, `rationale gate`, `DEPRECATED`, `unconditional`, `apd-pipeline-guide`, `SUPERVISION`). Missing markers mean a stale workflow.md — the orchestrator never sees the v6.15 guide gate or the v6.30 supervision layer. If this list and the script disagree, the script is the authority.
-4. **Feature claim drift** (v6.12.3+) — scans workflow.md and CLAUDE.md for orchestrator confabulation: any line mentioning BOTH a contracts command (`verify-contracts`/`apd contracts`) AND an unsupported language (PHP/Python/Java/Go/Ruby/Kotlin/Rust). Festico apd-setup 2026-05-28 generated false "verify-contracts checks PHP automatically" claim; framework supports TS ↔ C# only. Prevents silent cross-layer review coverage gaps.
+1. **A — `.claude/settings.json` deny patterns** — compares against the current framework baseline (8 mkdir patterns: 4 slash-prefixed + 4 bare-dir). Pre-v6.10 re-inits left projects with only 4 patterns. CC file; skipped on pure-Codex.
+2. **B — `APD_VERSION`** (`.claude/.apd-config`, or `.apd/config` on pure-Codex) — compares against the currently loaded plugin version. Stale value (minor/major lag) means stale workflow/agent templates. The one dimension that always applies.
+3. **C — `.claude/rules/workflow.md` content** — five guidance markers (`Implements:`, `rationale gate`, `unconditional`, `apd-pipeline-guide`, `SUPERVISION`), then a byte comparison against the shipped copy when every marker is present (v7.0.3). If this list and the script disagree, the script is the authority. CC file; skipped on pure-Codex.
+4. **D — feature claim drift** (v6.12.3+) — scans workflow.md and CLAUDE.md for orchestrator confabulation: any line mentioning BOTH a contracts command (`verify-contracts`/`apd contracts`) AND an unsupported language (PHP/Python/Java/Go/Ruby/Kotlin/Rust). Festico apd-setup 2026-05-28 generated a false "verify-contracts checks PHP automatically" claim; the framework supports TS ↔ C# only. CC files; skipped on pure-Codex.
 
 Output buckets: CRITICAL / IMPORTANT (most common) / INFO / CLEAN. Recovery actions point to re-run of `apd cdx init` (Codex) or `/apd-setup` (CC); v6.10+ python merge fix writes all 8 deny patterns.
 
@@ -200,14 +201,14 @@ IMPORTANT:
 
 **Example 3 — Missing per-tool approval block.**
 
-*Input:* `.codex/config.toml` has `[mcp_servers.apd]` plus 7 of 8 `[mcp_servers.apd.tools.*]` blocks. `apd:apd_advance_pipeline` block is missing. Codex prompts "Allow tool" on every pipeline transition.
+*Input:* `.codex/config.toml` has `[mcp_servers.apd]` plus 9 of 10 `[mcp_servers.apd.tools.*]` blocks. `apd:apd_advance_pipeline` block is missing. Codex prompts "Allow tool" on every pipeline transition.
 
 *Output:*
 ```
 IMPORTANT:
   1. [.codex/config.toml] Missing approval block for apd:apd_advance_pipeline
      Effect: Codex prompts the user on every pipeline transition
-     Fix: re-run `apd cdx init` to rewrite all 8 per-tool blocks idempotently
+     Fix: re-run `apd cdx init` to rewrite all 10 per-tool blocks idempotently
 ```
 
 ## Exit criteria
@@ -215,7 +216,7 @@ IMPORTANT:
 You're done when:
 - Every agent under `.apd/agents/` has been opened and frontmatter checked
 - Every required section in `AGENTS.md` is present and free of unreplaced `{{PLACEHOLDER}}` values
-- `.codex/config.toml` has the `[mcp_servers.apd]` block plus 8 per-tool approval blocks
+- `.codex/config.toml` has the `[mcp_servers.apd]` block plus 10 per-tool approval blocks
 - `apd:apd_ping()` returns a valid response
 - `apd:apd_pipeline_state()` runs without error
 - Findings are sorted into CRITICAL / IMPORTANT / CLEAN buckets in the output format

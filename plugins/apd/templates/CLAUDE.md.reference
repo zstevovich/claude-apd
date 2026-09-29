@@ -96,14 +96,15 @@ Spec → Builder → Reviewer → Verifier → Commit → Finish
 
 ### Model discipline
 
-| Role | Model | Effort |
+| Role | Model (full id — never a bare alias) | Effort |
 |------|-------|--------|
-| Orchestrator (you) | opus | max |
-| Builder agents | sonnet | xhigh |
-| Reviewer | opus | max |
-| Adversarial Reviewer | sonnet | max |
+| Orchestrator (you) | session model — not APD-managed | — |
+| Builder agents | `claude-sonnet-5` (template pin; the declared `MODEL_PROFILE` may raise it) | xhigh |
+| Reviewer | `claude-opus-5` | max |
+| Adversarial Reviewer | `claude-sonnet-5` | max |
+| Supervisor | `claude-opus-5` | max |
 
-**Never use sonnet for review. Never use opus for building.** Exception: adversarial reviewer uses sonnet intentionally for perspective diversity.
+**Never review on the builder tier. Never build on the reviewer tier.** Exception: the adversarial reviewer sits one tier down on purpose — its value is positional (no context), not model strength. `apd profile status` says which roles the profile owns; `model-profiles.conf` is the authority for those.
 
 ### Human gate
 
