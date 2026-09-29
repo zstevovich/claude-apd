@@ -1,5 +1,12 @@
 # Changelog
 
+## v7.1.1 — 2026-09-29
+
+**The first Linux run of v7.1.0 failed on one class: a path whose only existing ancestor is `/`.** `_canon_abs` (the canonicaliser both scope guards share since v7.1.0) re-attached the missing tail to `$(cd / && pwd -P)/tail`, which is `//private/tmp/…` — the macOS-physical scratchpad form that §134 uses, on a system where `/private` does not exist. The scratchpad pattern never matched and eight scratchpad checks went red on `ubuntu-latest` and `ubuntu-24.04-arm` while `macos-latest` passed. Agents on Linux write to `/tmp/claude-<uid>/…/scratchpad`, whose ancestor exists, so the field was not affected; the bug is real for any path under a root component that does not exist.
+
+- `_canon_abs` strips the trailing slash of the ancestor before re-attaching the tail; a static check asserts `/zz-not-here/…` comes back with one leading slash, and a look-alike scratchpad under a foreign root is still refused.
+- Verified in an `ubuntu:24.04` container (mawk 1.3.4, bash 5.2): §134 128/0, full suite 1406/0 — 1409 on macOS, the three extra being Darwin-only: the §122 `/bin/bash` 3.x parse, the heredoc-in-`$( )` scan, and the real-Darwin `timeout` probe (verified by diffing the two runs' check names, not assumed).
+
 ## v7.1.0 — 2026-09-29
 
 **Four mechanisms, one cause.** Two production projects had pipelines running five to eight hours, and the logs said why: 86–97% of the wall time was agents, not the orchestrator idling, and the gates that should have bounded the churn were counting the wrong thing. Spec, evidence and the full audit trail: `docs/plans/v7.1-pipeline-leadership.md`.

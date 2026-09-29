@@ -15439,6 +15439,13 @@ _gb4 0 "orchestrator: a write elsewhere is not the guard's business (no scope)" 
 _gb4 0 "orchestrator: the guide marker stays writable"                     "printf 'task|ts' > .apd/pipeline/.guide-marker"
 rm -rf "$GB4_T/.apd"
 
+# a path whose only existing ancestor is `/` must not come back as `//…` (Linux CI, v7.1.0)
+GB4_CANON=$(bash -c 'source "$1"; _canon_abs /zz-not-here/claude-501/x/scratchpad/y' _ "$APD_PLUGIN_ROOT/bin/lib/path-canon.sh")
+[ "$GB4_CANON" = "/zz-not-here/claude-501/x/scratchpad/y" ] \
+    && { pass "_canon_abs keeps a single leading slash when only / exists above the path"; PASSES=$((PASSES + 1)); } \
+    || { fail "_canon_abs returned '$GB4_CANON' (double slash → scratchpad pattern never matches on Linux)"; FAILS=$((FAILS + 1)); }
+_gb4 2 "…and a look-alike under a different root is still not the scratchpad" "echo x > /zz-not-here/tmp/claude-501/-Users-x/abc/scratchpad/t.log" src/
+
 # 4a. the CC shim exports the caller's identity → the audit line names the agent
 cat > "$GB4_T/.claude/agents/frontend-builder.md" <<'EOF'
 ---

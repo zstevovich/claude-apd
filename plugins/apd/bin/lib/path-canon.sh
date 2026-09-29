@@ -42,7 +42,12 @@ _canon_abs() {
         anc=$(dirname "$anc")
       done
       if [ -d "$anc" ]; then
-        abs="$(cd "$anc" 2>/dev/null && pwd -P)/$tail"
+        abs="$(cd "$anc" 2>/dev/null && pwd -P)"
+        # `/` as the deepest existing ancestor gave `//private/tmp/…` (the
+        # macOS-physical scratchpad form on Linux CI, where /private does not
+        # exist) and the scratchpad pattern never matched — 8 red checks on the
+        # first Linux run of v7.1.0.
+        abs="${abs%/}/$tail"
       fi
     fi
   fi
