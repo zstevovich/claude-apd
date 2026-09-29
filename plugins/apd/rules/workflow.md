@@ -113,7 +113,21 @@
    → Write SUPERVISION:total:accepted:dismissed to .apd/pipeline/.supervision-summary
      (Write/Edit tool). If T>0: .apd/pipeline/.supervision-rationale.md — SAME
      per-finding contract as adversarial (Severity/Status/Rationale, spinoff
-     disposition available). Accepted → builder fix → ONE re-check (cap: 2 completed passes; an exhausted dispatch doesn't count).
+     disposition available) PLUS one line per finding (v7.1):
+     ```
+     **Question:** Q1 R<n> | Q2 <path>[:line] | Q3 RS<n>
+     ```
+     The supervisor tags each finding with the charter question it answers
+     and an anchor; the verifier checks the anchor (R-id in the spec, RS-id
+     declared, path inside `.reviewed-files`) — `supervision-rationale-untagged`
+     / `supervision-question-invalid`. Anything the supervisor lists under
+     `### Notes` (wording drift, a stale comment, a declaration gap with no
+     behaviour change) is NOT a finding: copy it verbatim under the
+     SUPERVISION line of `.supervision-summary`, give it no disposition, do
+     not count it in T, do not dispatch a builder for it. Before v7.1 those
+     notes were filed as findings — SUPERVISION:8:7:1 on one task, seven
+     spinoffs and a second supervisor pass for zero behaviour change.
+     Accepted → builder fix → ONE re-check (cap: 2 completed passes; an exhausted dispatch doesn't count).
    → NO spec-card opt-out (by design). Ways out: reset, or switch profile BEFORE spec.
    → Rollout: verifier WARNS now; becomes a hard BLOCK in a future release.
    ↓
@@ -279,10 +293,15 @@ adversarial: skip — <one-sentence reason>
 
 The reviewer step then advances straight to verifier without creating
 `.adversarial-pending`. **Mechanical cap: the opt-out is only honored
-when the spec has ≤ 2 `R*:` criteria.** A 3+ criterion spec is
-substantial enough that adversarial stays required; the opt-out line is
-ignored in that case. The cap is a deliberate nudge — if the spec
-doesn't fit in 2 criteria, it's not a Lean task.
+when the spec has ≤ 2 `R*:` criteria AND the reviewed scope holds fewer
+than 5 files** (`.reviewed-files`, measured at the reviewer step — v7.1;
+the file rule above was documented for months and never checked, and a
+164-file change went through Lean on a 2-criteria spec). A 3+ criterion
+spec is substantial enough that adversarial stays required; the opt-out
+line is ignored in that case, and so is it at 5+ files. Both denials are
+logged (`INFO|adversarial-opt-out-denied|criteria=N files=M`). The cap is
+a deliberate nudge — if the spec doesn't fit in 2 criteria and 4 files,
+it's not a Lean task.
 
 ## 0b. Phase cycle caps
 
@@ -306,6 +325,59 @@ bash .claude/bin/apd pipeline raise-cap reviewer <N|unlimited> "<reason>"
 ```
 
 Raises only, reason mandatory, logged as `INFO|cap-raise`, cleared on spec re-advance and reset. If the blocker is an accepted finding that is genuinely **out of this task's scope**, do NOT raise the cap and do NOT `apd toggle off` — **spin it off** to a follow-up task and continue in scope: `bash .claude/bin/apd pipeline spinoff-finding <id> "<reason>"`. When you surface this choice to the user, spinoff is the first, recommended option.
+
+## 0c. Dispatch budget (v7.1) — every dispatch counts, not every advance
+
+The cycle caps above count `pipeline-advance` calls. Runs measured in
+September 2026 dispatched 4–5 builder-class agents per advance and 20 of one
+type per task, with three cap-raises — the churn that costs hours lives
+BETWEEN advances and across phases. So there is a second budget, per TASK
+(the `spec.done` window), by ROLE CLASS, counted from the `.agents` ledger
+and enforced BEFORE the subagent spawns (`PreToolUse(Agent)`; CC-only —
+Codex has no dispatch hook, so the budget is honest-inert there):
+
+| Class | Who | Default per task |
+|---|---|---|
+| builder | every project agent that can write (builders, docs-writer, test-guardian, database…) | 12 |
+| reviewer | `code-reviewer` (any project agent named `*review*` that is not adversarial) | 6 |
+| adversarial | `adversarial-reviewer` | 2 (dispatches — a stuck pass counts; lift with `raise-cap dispatch adversarial`) |
+
+The supervisor keeps its own 2-completed-passes cap at the verifier. Agents
+APD does not own (`Explore`, `general-purpose`, `fork`, plugin agents) are
+not counted. `apd pipeline status` shows `dispatches: builder N/12 · …`.
+The class of each agent is SNAPSHOTTED at the spec advance
+(`.dispatch-classes`): editing an agent's frontmatter mid-task changes
+nothing for the count (CC runs the cached definition anyway). A spec
+re-advance of the same task wipes the ledger — that is its known cost — and
+is logged as `dispatch-budget-reset` with the counts it discarded.
+
+Spec-time form (any value, higher or lower; honoured only from the SIGNED
+spec — a line added after `apd pipeline spec` is ignored and the verifier
+refuses the edited card anyway):
+
+```
+dispatch_budget: builder=N reviewer=M adversarial=K
+```
+
+In flight, without re-signing the spec (raises only, reason mandatory,
+logged `INFO|cap-raise|phase=dispatch:<class>`, wiped on spec re-advance
+and reset):
+
+```
+bash .claude/bin/apd pipeline raise-cap dispatch <builder|reviewer|adversarial> <N|unlimited> "<reason>"
+```
+
+The BLOCK is `dispatch-budget-exceeded`; its message lists the ways forward
+in order — spinoff/decompose first, then `raise-cap dispatch`, then reset.
+Opt-out: `APD_SKIP_DISPATCH_BUDGET=1` (the risk is the operator's). Stated
+limit: parallel dispatches issued in ONE message each see the same ledger,
+so the budget can be exceeded by that message's parallel width.
+
+A separate, advisory signal on the same axis: past `APD_WALL_NUDGE_SEC`
+(default 90 min) the builder and reviewer advances and the first dispatch
+over the line print a NOTE naming the elapsed time and the dispatch counts
+(`INFO|wall-clock-nudge`). It never blocks. Long runs are where scope grows
+in flight — spin off, decompose, do not keep fixing forward.
 
 ### Lessons — the class, not the instance
 

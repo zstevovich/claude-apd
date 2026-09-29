@@ -1,39 +1,140 @@
 #!/bin/bash
-# APD agent-reload drift gate (v6.27) — PreToolUse(Agent) guard. CC-only.
+# APD PreToolUse(Agent) guard — agent-reload drift gate (v6.27) + dispatch
+# budget (v7.1). CC-only.
 #
-# CC caches agent definitions at session start. `apd profile` can rewrite them
-# mid-session, and /reload-plugins does NOT fire SessionStart (empirically
-# tested), so APD cannot observe a reload. While the .apd/.pending-reload marker
-# stands, EVERY subagent dispatch would run the STALE definition.
+# Both checks live at the ONE point that is pre-spawn: exit 2 here actually
+# PREVENTS the dispatch (the v6.26 version ran at SubagentStart, which is
+# post-spawn — exit 2 there only shows stderr while the agent runs anyway,
+# proven on FFAI 2026-06-28; PreToolUse(Agent) exit 2 was empirically verified
+# to block the spawn before SubagentStart fires).
 #
-# This guard runs at PreToolUse on the Agent tool — which is PRE-spawn, so
-# exit 2 actually PREVENTS the dispatch. (The v6.26 version ran at SubagentStart,
-# which is POST-spawn: exit 2 there only shows stderr while the agent spawns and
-# runs anyway — proven on FFAI 2026-06-28. PreToolUse(Agent) exit 2 was
-# empirically verified to block the spawn before SubagentStart fires.)
+# 1. RELOAD GATE — CC caches agent definitions at session start. `apd profile`
+#    can rewrite them mid-session, and /reload-plugins does NOT fire
+#    SessionStart (empirically tested), so APD cannot observe a reload. While
+#    the .apd/.pending-reload marker stands, EVERY subagent dispatch would run
+#    the STALE definition. Blocks until the human reloads (/reload-plugins +
+#    `apd reload-done`) or restarts the session. Opt-out: APD_SKIP_RELOAD_GATE=1.
 #
-# It blocks until the human reloads (/reload-plugins + `apd reload-done`) or
-# restarts the session (a cold `startup` session-start clears the marker).
+# 2. DISPATCH BUDGET (v7.1) — `max_cycles` counts pipeline-advance calls, and
+#    measured runs dispatched 4–5 builder-class agents per advance, 20 of one
+#    type per task. This counts DISPATCHES of a role class in the task window
+#    (`.agents` starts since spec.done) against a per-task budget: builder 12,
+#    reviewer 6, adversarial 2 by default; `dispatch_budget:` in the spec-card;
+#    `apd pipeline raise-cap dispatch <class> <N> "<reason>"` in flight. The
+#    class comes from `bin/lib/dispatch-budget.sh`; the type being dispatched
+#    comes from the payload (`tool_input.subagent_type`, forwarded by the shim
+#    as --subagent-type). Agents APD does not own are not counted.
+#    Limits, stated: parallel dispatches issued in ONE assistant message each
+#    see the same ledger, so the budget can be exceeded by that message's
+#    parallel width (same-type parallelism is already blocked by track-agent).
+#    Opt-out: APD_SKIP_DISPATCH_BUDGET=1 (the risk is the operator's).
 #
-# CC-only: model profiles + the Agent dispatch tool are CC concepts. The
-# APD_ACTIVE gate short-circuits for Codex / dormant / framework-self installs.
-# Opt-out: APD_SKIP_RELOAD_GATE=1 (the risk is the operator's).
+# 3. WALL-CLOCK NUDGE (v7.1, INFO only) — on the first dispatch after the task
+#    crosses APD_WALL_NUDGE_SEC (default 90 min): one advisory line + one
+#    `wall-clock-nudge` INFO entry. Never blocks.
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
-[ "${APD_SKIP_RELOAD_GATE:-}" = "1" ] && exit 0
-
-RELOAD_MARKER="$(dirname "$PIPELINE_DIR")/.pending-reload"
-[ -f "$RELOAD_MARKER" ] || exit 0
-
 source "$(dirname "$0")/../lib/style.sh"
-_changed=$(sed -n 's/.*agents: //p' "$RELOAD_MARKER" | head -1)
-echo "" >&2
-echo "  ${RED}${B}BLOCKED:${R} ${RED}agent definitions changed on disk (${_changed:-?}) but this${R}" >&2
-echo "  ${RED}session still has the OLD ones — CC caches agents at session start.${R}" >&2
-echo "  ${Y}The orchestrator cannot reload agents. You apply it, one of:${R}" >&2
-echo "    • /reload-plugins   then   bash $APD_SHORTCUT_DISPLAY reload-done" >&2
-echo "    • or restart the session (the marker clears itself on a fresh start)" >&2
-echo "  ${D}Then re-dispatch. (Override: APD_SKIP_RELOAD_GATE=1 — the risk is yours.)${R}" >&2
-echo "  ${Y}NOTE:${R} ${D}This dispatch was BLOCKED before the subagent spawned.${R}" >&2
-exit 2
+
+SUB_TYPE=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --subagent-type) SUB_TYPE="${2:-}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+# --- 1. reload gate (unchanged from v6.27) ------------------------------------
+if [ "${APD_SKIP_RELOAD_GATE:-}" != "1" ]; then
+  RELOAD_MARKER="$(dirname "$PIPELINE_DIR")/.pending-reload"
+  if [ -f "$RELOAD_MARKER" ]; then
+    _changed=$(sed -n 's/.*agents: //p' "$RELOAD_MARKER" | head -1)
+    echo "" >&2
+    echo "  ${RED}${B}BLOCKED:${R} ${RED}agent definitions changed on disk (${_changed:-?}) but this${R}" >&2
+    echo "  ${RED}session still has the OLD ones — CC caches agents at session start.${R}" >&2
+    echo "  ${Y}The orchestrator cannot reload agents. You apply it, one of:${R}" >&2
+    echo "    • /reload-plugins   then   bash $APD_SHORTCUT_DISPLAY reload-done" >&2
+    echo "    • or restart the session (the marker clears itself on a fresh start)" >&2
+    echo "  ${D}Then re-dispatch. (Override: APD_SKIP_RELOAD_GATE=1 — the risk is yours.)${R}" >&2
+    echo "  ${Y}NOTE:${R} ${D}This dispatch was BLOCKED before the subagent spawned.${R}" >&2
+    exit 2
+  fi
+fi
+
+# --- 2. dispatch budget (v7.1) --------------------------------------------------
+[ "${APD_SKIP_DISPATCH_BUDGET:-}" = "1" ] && exit 0
+[ -f "$PIPELINE_DIR/spec.done" ] || exit 0          # no active task → no budget
+source "$(dirname "$0")/../lib/agent-scope.sh"
+source "$(dirname "$0")/../lib/dispatch-budget.sh"
+
+_audit_info() {  # <reason> <detail>
+  local t
+  if [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ]; then t=SYNTHETIC; else t=INFO; fi
+  [ -d "${MEMORY_DIR:-}" ] && echo "$(date +"%Y-%m-%d %H:%M:%S")|${t}|orchestrator|$1|$2" >> "$MEMORY_DIR/guard-audit.log"
+  return 0
+}
+
+TASK=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f3)
+SPEC_EP=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f1)
+_audit_info_once() {  # <reason> <detail> — one line per task RUN (name + spec epoch, so a reused task name logs again; audit M6/N4)
+  grep -qF "|$1|task=$TASK@$SPEC_EP" "${MEMORY_DIR:-/nonexistent}/guard-audit.log" 2>/dev/null && return 0
+  _audit_info "$1" "task=$TASK@$SPEC_EP $2"
+}
+if [ -z "$SUB_TYPE" ]; then
+  # Older payload shape (no subagent_type) — the budget cannot be measured.
+  # Say so in the audit trail rather than silently passing.
+  _audit_info_once "dispatch-budget-unmeasured" "(no subagent_type in the PreToolUse payload)"
+  exit 0
+fi
+
+DISPATCH_SNAPSHOT_MISSING=0
+CLS=$(_dispatch_class "$SUB_TYPE")
+if [ -f "$PIPELINE_DIR/spec.done" ] && [ ! -s "$PIPELINE_DIR/.dispatch-classes" ]; then
+  _audit_info_once "dispatch-classes-missing" "(no class snapshot for a signed spec — deleted, truncated, or signed before v7.1; every non-review project agent counts as a builder until the next spec advance)"
+fi
+case "$CLS" in
+  builder|reviewer|adversarial) ;;
+  *) exit 0 ;;   # supervisor has its own churn cap at the verifier; non-APD agents are not counted
+esac
+BUDGET=$(_dispatch_budget "$CLS")
+COUNT=$(_dispatch_count "$CLS")
+# A `dispatch_budget:` line on a spec-card that no longer matches `.spec-hash`
+# is ignored (audit C1) — record that the run is carrying an edited spec.
+# (Checked here, not via a flag from _dispatch_budget: that runs in $(…).)
+if grep -qiE '^[-*_[:blank:]]*dispatch_budget[-*_[:blank:]]*:' "$PIPELINE_DIR/spec-card.md" 2>/dev/null && ! _spec_card_is_signed; then
+  _audit_info_once "dispatch-budget-spec-ignored" "(spec-card.md no longer matches .spec-hash — its dispatch_budget line is ignored; the verifier will refuse the edited spec)"
+fi
+if [ "$BUDGET" != "unlimited" ] && [ $((COUNT + 1)) -gt "$BUDGET" ] 2>/dev/null; then
+  echo "" >&2
+  echo "  ${RED}${B}BLOCKED:${R} ${RED}dispatch #$((COUNT + 1)) of a ${CLS}-class agent ('${SUB_TYPE}') exceeds this task's budget of ${BUDGET}.${R}" >&2
+  echo "  Task '$TASK' — dispatches so far: $(_dispatch_summary)" >&2
+  echo "" >&2
+  echo "  ${Y}This is the count the cycle cap never counted: every dispatch, not every advance.${R}" >&2
+  echo "  Ways forward, in this order:" >&2
+  echo "    1. Out-of-scope finding driving the next round? Spin it off and continue in scope:" >&2
+  echo "         bash $APD_SHORTCUT_DISPLAY pipeline spinoff-finding <id> \"<why out of scope + follow-up>\"" >&2
+  echo "       Task too big for one cycle? Decompose: reset, then two smaller specs." >&2
+  echo "    2. The extra rounds are genuinely warranted? Lift the budget in place (reason mandatory, logged):" >&2
+  echo "         bash $APD_SHORTCUT_DISPLAY pipeline raise-cap dispatch $CLS <N|unlimited> \"<reason>\"" >&2
+  echo "    3. Abandon the run: bash $APD_SHORTCUT_DISPLAY pipeline reset \"<learning>\"" >&2
+  echo "  ${D}(A 'dispatch_budget: builder=N reviewer=M adversarial=K' line is honoured only from the SIGNED spec —${R}" >&2
+  echo "  ${D} write it before 'apd pipeline spec'; an edit after signing is ignored here and refused at the verifier.)${R}" >&2
+  echo "  ${Y}NOTE:${R} ${D}This dispatch was BLOCKED before the subagent spawned; nothing is on record for it.${R}" >&2
+  log_block "dispatch-budget-exceeded" "class=$CLS agent=$SUB_TYPE count=$((COUNT + 1)) budget=$BUDGET task=$TASK"
+  exit 2
+fi
+
+# --- 3. wall-clock nudge (INFO, never blocks) -----------------------------------
+if _NUDGE=$(_wall_nudge_text); then
+  # First crossing only: the previous start was still under the line.
+  _last=$(grep '|start|' "$PIPELINE_DIR/.agents" 2>/dev/null | tail -1 | cut -d'|' -f1)
+  _spec_ep=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f1)
+  _last_ep=""; [ -n "$_last" ] && _last_ep=$(_human_to_epoch "$_last")
+  if [ -z "$_last_ep" ] || [ $((_last_ep - _spec_ep)) -le "$(_wall_nudge_sec)" ] 2>/dev/null; then
+    echo "" >&2
+    printf '%s\n' "$_NUDGE" >&2
+    _audit_info "wall-clock-nudge" "task=$TASK elapsed=$(_wall_elapsed)s $(_dispatch_summary)"
+  fi
+fi
+exit 0

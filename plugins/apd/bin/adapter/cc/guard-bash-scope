@@ -11,6 +11,14 @@
 #
 # Resolution mirrors bin/adapter/cc/guard-scope: caller identified by
 # `agent_type`, scope read from the registry, never from arguments.
+#
+# v7.1: the caller's identity is EXPORTED to the core, and the payload `cwd`
+# is forwarded. Until now this shim read `agent_type` for scope resolution and
+# dropped it on the floor, so every block the core logged read `orchestrator`
+# — measured on one project: 166 of 170 September blocks were subagents, and
+# the audit trail said the orchestrator did it. `cwd` is what a relative write
+# target is relative to (the Bash tool's working directory persists across
+# calls), which the core needs to resolve `cd sub && mv x y` correctly.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -25,17 +33,25 @@ fi
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
+AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null)
+HOOK_CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+# The audit label is `${AGENT_ID:-orchestrator}(${AGENT_TYPE})` (style.sh
+# log_block) — it can only be right if the core inherits both.
+export AGENT_TYPE AGENT_ID
+
+CWD_ARGS=()
+[ -n "$HOOK_CWD" ] && CWD_ARGS=(--cwd "$HOOK_CWD")
 
 # Legacy form: paths supplied by the caller (per-agent frontmatter).
 if [ "$#" -gt 0 ]; then
-  exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" "$@"
+  exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" ${CWD_ARGS[@]+"${CWD_ARGS[@]}"} "$@"
 fi
 
 # Orchestrator call, or a subagent APD does not own: run the core anyway so the
 # protected-path checks (pipeline state, plugin cache) still apply — they are
 # unconditional and do not depend on a scope list.
 if [ -z "$AGENT_TYPE" ]; then
-  exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND"
+  exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" ${CWD_ARGS[@]+"${CWD_ARGS[@]}"}
 fi
 
 # shellcheck source=/dev/null
@@ -46,7 +62,7 @@ source "$LIB_DIR/agent-scope.sh"
 
 AGENT_FILE="$(_agent_def_file "$AGENT_TYPE" || true)"
 if [ -z "$AGENT_FILE" ]; then
-  exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND"
+  exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" ${CWD_ARGS[@]+"${CWD_ARGS[@]}"}
 fi
 
 SCOPE_PATHS=()
@@ -66,9 +82,9 @@ done < <(_agent_scope_paths "$AGENT_FILE")
 # agent fails closed — same rule, same message shape as the Write/Edit path.
 if [ ${#SCOPE_PATHS[@]} -eq 0 ]; then
   if _agent_is_writable "$AGENT_FILE"; then
-    exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" --deny-all-writes
+    exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" ${CWD_ARGS[@]+"${CWD_ARGS[@]}"} --deny-all-writes
   fi
-  exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND"
+  exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" ${CWD_ARGS[@]+"${CWD_ARGS[@]}"}
 fi
 
-exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" ${SCOPE_PATHS[@]+"${SCOPE_PATHS[@]}"}
+exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" ${CWD_ARGS[@]+"${CWD_ARGS[@]}"} ${SCOPE_PATHS[@]+"${SCOPE_PATHS[@]}"}

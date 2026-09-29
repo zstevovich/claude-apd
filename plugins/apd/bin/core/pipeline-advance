@@ -65,11 +65,32 @@ STEP="${1:-}"
 ARG="${2:-}"
 ARG2="${3:-}"
 ARG3="${4:-}"
+ARG4="${5:-}"
 NOW=$(date +%s)
 NOW_HUMAN=$(date +"%Y-%m-%d %H:%M:%S")
 
 # --- Visual helpers ---
 source "$(dirname "$0")/../lib/style.sh"
+# v7.1 — dispatch budget (raise-cap dispatch, status line, wall-clock nudge)
+source "$(dirname "$0")/../lib/agent-scope.sh"
+source "$(dirname "$0")/../lib/dispatch-budget.sh"
+# _audit_info <reason> <detail> — one INFO line in guard-audit.log (SYNTHETIC under verify-apd)
+_audit_info() {
+    local _t
+    if [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ]; then _t=SYNTHETIC; else _t=INFO; fi
+    [ -d "${MEMORY_DIR:-}" ] && echo "$(date +"%Y-%m-%d %H:%M:%S")|${_t}|orchestrator|$1|$2" >> "$MEMORY_DIR/guard-audit.log"
+    return 0
+}
+# _wall_nudge_emit — advisory only; printed at phase advances (the output the
+# orchestrator actually reads) and logged once per emission
+_wall_nudge_emit() {
+    local _wn
+    if _wn=$(_wall_nudge_text); then
+        echo "" >&2; printf '%s\n' "$_wn" >&2
+        _audit_info "wall-clock-nudge" "task=${CURRENT_TASK:-$(head -1 "$PIPELINE_DIR/spec.done" 2>/dev/null | cut -d'|' -f3)} elapsed=$(_wall_elapsed)s $(_dispatch_summary)"
+    fi
+    return 0
+}
 
 # --- Agent validation ---
 # Delegates to compiled Go binary for tamper-proof validation.
@@ -224,6 +245,13 @@ print_pipeline_state() {
         _rc=$(grep -c . "$pd/.reviewed-files" 2>/dev/null)
         echo "    reviewed-files: ${_rc:-0} file(s) covered"
     fi
+    if [ -f "$pd/spec.done" ]; then
+        if [ "${APD_RUNTIME:-}" = "codex" ]; then
+            echo "    dispatches: $(_dispatch_summary)  (counted only — the budget is NOT enforced on the Codex runtime)"
+        else
+            echo "    dispatches: $(_dispatch_summary)  (per-task budget; raise: apd pipeline raise-cap dispatch <class> <N> \"<reason>\")"
+        fi
+    fi
     if [ -f "$pd/.adversarial-summary" ]; then
         local _adv
         _adv=$(grep '^ADVERSARIAL:' "$pd/.adversarial-summary" 2>/dev/null | head -1)
@@ -256,6 +284,54 @@ print_pipeline_state() {
     fi
 }
 
+# _supervision_question_invalid <rationale-file> — v7.1. Every supervision
+# finding carries `**Question:** Q1 R<n> | Q2 <path>[:line] | Q3 RS<n>`. The
+# anchor is what makes a note-dressed-as-finding a checkable false claim: Q1
+# must name a criterion of THIS spec, Q3 an RS item THIS spec declares, Q2 a
+# file inside the reviewed scope (`.reviewed-files`; skipped when absent — not
+# a git checkout). Prints the first problem, nothing when every anchor holds.
+_supervision_question_invalid() {
+    local rat="$1" spec="$PIPELINE_DIR/spec-card.md" rf="$PIPELINE_DIR/.reviewed-files"
+    local line q anchor path
+    while IFS= read -r line; do
+        q=$(printf '%s' "$line" | awk '{print $2}')
+        anchor=$(printf '%s' "$line" | awk '{print $3}')
+        case "$q" in
+            Q1)
+                # strict shape BEFORE the anchor reaches grep -E (audit M2: `R9|.*` matched everything)
+                printf '%s' "$anchor" | grep -qE '^R[0-9]+$' || { echo "Q1 needs an R-id anchor (got '${anchor:-none}')"; return 0; }
+                grep -qE "^[[:space:]]*-[[:space:]]+${anchor}[[:space:]]*:" "$spec" 2>/dev/null \
+                    || { echo "Q1 $anchor is not a criterion of this spec"; return 0; } ;;
+            Q2)
+                [ -n "$anchor" ] || { echo "Q2 needs a file path anchor"; return 0; }
+                path="${anchor%%:*}"
+                if [ -f "$rf" ]; then
+                    # An absolute path must be THIS project's (logical or physical
+                    # root); a relative one must equal a reviewed line exactly. A
+                    # suffix match had no path boundary (audit M3: `lib/notsrc/y.cs`
+                    # and `/etc/other/src/y.cs` both passed for `src/y.cs`).
+                    case "$path" in
+                        /*)
+                            _pc=$(cd "$PROJECT_DIR" 2>/dev/null && pwd -P)
+                            case "$path" in
+                                "$PROJECT_DIR"/*) path="${path#"$PROJECT_DIR"/}" ;;
+                                "$_pc"/*)         path="${path#"$_pc"/}" ;;
+                                *) echo "Q2 $path is outside this project"; return 0 ;;
+                            esac ;;
+                    esac
+                    grep -qxF -- "$path" "$rf" 2>/dev/null \
+                        || { echo "Q2 $path is not in the reviewed scope"; return 0; }
+                fi ;;
+            Q3)
+                printf '%s' "$anchor" | grep -qE '^RS[0-9]+$' || { echo "Q3 needs an RS-id anchor (got '${anchor:-none}')"; return 0; }
+                grep -qE "^[[:space:]]*-[[:space:]]+${anchor}[[:space:]]*:" "$spec" 2>/dev/null \
+                    || { echo "Q3 $anchor is not declared in this spec's regression surface"; return 0; } ;;
+            *) echo "unknown question '${q:-none}' (Q1|Q2|Q3)"; return 0 ;;
+        esac
+    done < <(grep -E '^\*\*Question:\*\*' "$rat" 2>/dev/null)
+    return 0
+}
+
 # _supervision_issue <summary-file> <rationale-file> — v6.30 supervision gate
 # structural checks, mirroring the adversarial rationale contract (count match,
 # valid fields, T/A/D accounting, 100%-orchestrator-dismiss pattern). Prints the
@@ -279,6 +355,17 @@ _supervision_issue() {
         if [ "$sev" -ne "$fc" ] || [ "$st" -ne "$fc" ] || [ "$ra" -ne "$fc" ]; then
             echo "supervision-rationale-malformed|sev=$sev stat=$st rat=$ra findings=$fc"; return
         fi
+        # v7.1 — one `**Question:**` per finding (untagged = a note filed as a
+        # finding), and every anchor must hold against the spec / reviewed scope.
+        local qc qbad
+        # per BLOCK, not per file: two tags in one block and none in the next
+        # summed to the right count and passed (audit M1)
+        qc=$(awk '/^## Finding /{ if (blk) { if (n != 1) bad++ } blk = 1; n = 0; next }
+                  blk && /^\*\*Question:\*\* Q[123]( |$)/ { n++ }
+                  END { if (blk && n != 1) bad++; print bad + 0 }' "$rat" 2>/dev/null); qc=${qc:-0}
+        if [ "$qc" -ne 0 ]; then echo "supervision-rationale-untagged|blocks_without_exactly_one_tag=$qc findings=$fc"; return; fi
+        qbad=$(_supervision_question_invalid "$rat")
+        if [ -n "$qbad" ]; then echo "supervision-question-invalid|$qbad"; return; fi
         af=$(grep -c '^\*\*Status:\*\* accepted$' "$rat" 2>/dev/null); af=${af:-0}
         s_do=$(grep -c '^\*\*Status:\*\* dismissed$' "$rat" 2>/dev/null); s_do=${s_do:-0}
         s_dr=$(grep -c '^\*\*Status:\*\* reviewer-self-dismissed$' "$rat" 2>/dev/null); s_dr=${s_dr:-0}
@@ -413,14 +500,31 @@ _count_criteria() {
         | grep -oE 'R[0-9]+' | sort -u | grep -c . || true
 }
 
+# v7.1 — the SECOND Lean condition, the one workflow.md §0 has promised since
+# v6.x ("fewer than 5 files in scope") and nothing measured: a 164-file change
+# went through Lean on a 2-criteria spec (StartLife "Barkoder scanner",
+# 2026-09-28, adversarial skipped, 2h50m). Measured on `.reviewed-files`, which
+# is regenerated at the reviewer step right before this decision, is not on any
+# Write/Edit allowlist and sits under the pipeline-state guard — so the count is
+# not the orchestrator's to shape. One constant; the doc says "fewer than 5".
+ADV_OPT_OUT_MAX_FILES=5
+
 _adversarial_opt_out_ok() {
     [ -f "$PIPELINE_DIR/spec-card.md" ] || return 1
     # v6.1.2: tolerate markdown bold/italic/list-item prefixes around the
     # directive — `**adversarial:** skip` opts out the same as `adversarial: skip`.
     grep -qiE '^[-*_[:blank:]]*adversarial[-*_[:blank:]]*:.*skip' "$PIPELINE_DIR/spec-card.md" 2>/dev/null || return 1
-    local _n
+    local _n _files
     _n=$(_count_criteria)
-    [ "$_n" -le 2 ] 2>/dev/null
+    [ "$_n" -le 2 ] 2>/dev/null || return 1
+    # Same function at the reviewer step and at the verifier, so both agree by
+    # construction. No `.reviewed-files` (not a git checkout) → unmeasured →
+    # the criteria rule alone decides, and the reviewer step logs that fact.
+    if [ -f "$PIPELINE_DIR/.reviewed-files" ]; then
+        _files=$(grep -c . "$PIPELINE_DIR/.reviewed-files" 2>/dev/null || true); _files=${_files:-0}
+        [ "$_files" -lt "$ADV_OPT_OUT_MAX_FILES" ] 2>/dev/null || return 1
+    fi
+    return 0
 }
 
 # v6.37 #4: snapshot the files already dirty when the spec is signed — as
@@ -457,6 +561,16 @@ _write_reviewed_files() {
     { git -C "$PROJECT_DIR" diff --name-only HEAD 2>/dev/null
       git -C "$PROJECT_DIR" ls-files --others --exclude-standard 2>/dev/null; } | sort -u | sed '/^$/d' \
     | while IFS= read -r _f; do
+        # Framework scaffold and its logs are never task evidence (same rule
+        # as the v7.0.9 pipeline-gate exemption). On the Codex layout
+        # `.apd/memory/guard-audit.log` is untracked and grew with every INFO
+        # line this release adds — it inflated the Lean file count (audit M8).
+        # Only what the FRAMEWORK writes is excluded; agent definitions and
+        # config under `.apd/` and `.claude/` stay reviewable (gates delta N3:
+        # excluding all of `.apd/` had hidden `.apd/agents/*.md` from review).
+        case "$_f" in
+            .apd/pipeline/*|.apd/memory/*|.apd/lessons.md|.apd/.pending-reload|.claude/memory/*|.claude/bin/*|.claude/rules/workflow.md|.claude/agents/*.bak.*|.claude/settings.local.json|.agents/*) continue ;;
+        esac
         if [ -f "$PIPELINE_DIR/.task-baseline" ]; then
             _base_h=$(awk -F'\t' -v p="$_f" '$2==p {print $1; exit}' "$PIPELINE_DIR/.task-baseline")
             if [ -n "$_base_h" ]; then
@@ -647,6 +761,15 @@ case "$STEP" in
             fi
         fi
 
+        # v7.1 — a spec re-advance of the SAME task wipes the dispatch counters
+        # (by design: the ledger is the count). That is cheaper than
+        # `raise-cap dispatch`, which needs a reason, so the reset is at least
+        # on record with the counts it discarded (gates delta audit N2).
+        if [ -f "$PIPELINE_DIR/spec.done" ] && [ -f "$PIPELINE_DIR/.agents" ] \
+           && [ "$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f3)" = "$ARG" ] \
+           && grep -q '|start|' "$PIPELINE_DIR/.agents" 2>/dev/null; then
+            _audit_info "dispatch-budget-reset" "task=$ARG same task re-advanced with dispatches on record: $(_dispatch_summary)"
+        fi
         # Archive agent log before clearing (permanent audit trail)
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
@@ -658,12 +781,13 @@ case "$STEP" in
         # v6.3 audit fix: also wipe .builder-count / .reviewer-count so a new
         # task doesn't inherit cycle counts from a prior task (would block first
         # dispatch with a misleading "task X has hit its budget" message).
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings" "$PIPELINE_DIR/.builder-cap-override" "$PIPELINE_DIR/.reviewer-cap-override" "$PIPELINE_DIR/.task-baseline" "$PIPELINE_DIR/.dispatch-pending.json" "$PIPELINE_DIR"/.dispatch-agent-*.json
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings" "$PIPELINE_DIR/.builder-cap-override" "$PIPELINE_DIR/.reviewer-cap-override" "$PIPELINE_DIR/.dispatch-cap-override" "$PIPELINE_DIR/.dispatch-classes" "$PIPELINE_DIR/.task-baseline" "$PIPELINE_DIR/.dispatch-pending.json" "$PIPELINE_DIR"/.dispatch-agent-*.json
         rmdir "$PIPELINE_DIR/.dispatch-prepare.lock" "$PIPELINE_DIR/.dispatch-hook.lock" 2>/dev/null || true
         create_done "spec" "$ARG"
         _write_task_baseline   # v6.37 #4: snapshot pre-existing dirty files for reviewer scoping
         # Freeze spec-card.md — hash for tamper detection
         shasum -a 256 "$PIPELINE_DIR/spec-card.md" | cut -d' ' -f1 > "$PIPELINE_DIR/.spec-hash"
+        _dispatch_class_snapshot_write   # v7.1: the budget counts against the classes as signed, not as later edited
         # (v7.0 removed the max_defects snapshot — the field it guarded is gone,
         # and the spec-hash above still freezes the card against direct edits.)
         apd_spec_header "$ARG"
@@ -955,6 +1079,7 @@ case "$STEP" in
         create_done "builder"
         _write_reviewed_files   # v6.37 #2/#4: task-scoped review list, ready BEFORE reviewer dispatch
         apd_header "Builder Complete" "+$ELAPSED"
+        _wall_nudge_emit
         show_pipeline "reviewer"
         # GitHub sync (best-effort)
         bash "$SCRIPT_DIR/gh-sync" builder 2>/dev/null || true
@@ -1072,12 +1197,34 @@ case "$STEP" in
         ELAPSED=$(format_duration $((NOW - BUILDER_TS)))
         # v7.0 — decide the adversarial requirement BEFORE signing reviewer.done,
         # so a BLOCK here leaves the phase un-advanced instead of half-done.
+        # v7.1 — the reviewed scope is measured BEFORE the opt-out decision. The
+        # primary list was written at the builder step (v6.37 #2); this refresh
+        # keeps it current for the adversarial pass and for the file-count rule.
+        _write_reviewed_files
         ADV_CRITERIA=$(_count_criteria)
+        ADV_FILES=""
+        if [ -f "$PIPELINE_DIR/.reviewed-files" ]; then
+            ADV_FILES=$(grep -c . "$PIPELINE_DIR/.reviewed-files" 2>/dev/null || true); ADV_FILES=${ADV_FILES:-0}
+        fi
         ADV_OPT_OUT=false
         if _adversarial_opt_out_ok; then
             ADV_OPT_OUT=true
+            if [ -z "$ADV_FILES" ]; then
+                if [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ]; then _agt=SYNTHETIC; else _agt=INFO; fi
+                [ -d "$MEMORY_DIR" ] && echo "$(date +"%Y-%m-%d %H:%M:%S")|${_agt}|orchestrator|adversarial-opt-out-files-unmeasured|criteria=$ADV_CRITERIA (no .reviewed-files — not a git checkout)" >> "$MEMORY_DIR/guard-audit.log"
+            fi
         elif [ -f "$PIPELINE_DIR/spec-card.md" ] && grep -qiE '^[-*_[:blank:]]*adversarial[-*_[:blank:]]*:.*skip' "$PIPELINE_DIR/spec-card.md" 2>/dev/null; then
-            warn "Adversarial opt-out DENIED: $ADV_CRITERIA criteria (max 2 for opt-out)" >&2
+            _why=""
+            [ "$ADV_CRITERIA" -gt 2 ] 2>/dev/null && _why="$ADV_CRITERIA criteria (max 2 for opt-out)"
+            if [ -n "$ADV_FILES" ] && [ "$ADV_FILES" -ge "$ADV_OPT_OUT_MAX_FILES" ] 2>/dev/null; then
+                _why="${_why:+$_why; }$ADV_FILES files in the reviewed scope (max $((ADV_OPT_OUT_MAX_FILES - 1)) for opt-out)"
+            fi
+            warn "Adversarial opt-out DENIED: ${_why:-does not qualify}" >&2
+            # The denial count is the strict-flip evidence for this rule, the
+            # same way supervision-warn was for the supervision gate. The R>2
+            # denial never logged anything before v7.1.
+            if [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ]; then _agt=SYNTHETIC; else _agt=INFO; fi
+            [ -d "$MEMORY_DIR" ] && echo "$(date +"%Y-%m-%d %H:%M:%S")|${_agt}|orchestrator|adversarial-opt-out-denied|criteria=$ADV_CRITERIA files=${ADV_FILES:-unmeasured}" >> "$MEMORY_DIR/guard-audit.log"
         fi
 
         # The requirement no longer depends on the agent EXISTING (see
@@ -1095,18 +1242,14 @@ case "$STEP" in
             echo "    (a) Restore the agent — /apd-setup (CC) or 'apd cdx init' (Codex)" >&2
             echo "        scaffolds it from the shipped template." >&2
             echo "    (b) Opt out for this task, if it genuinely qualifies (<=2 R-criteria," >&2
-            echo "        this task declares $ADV_CRITERIA): add to spec-card.md" >&2
+            echo "        this task declares $ADV_CRITERIA; and fewer than $ADV_OPT_OUT_MAX_FILES reviewed files," >&2
+            echo "        this task has ${ADV_FILES:-an unmeasured number}): add to spec-card.md" >&2
             echo "          adversarial: skip — <reason>" >&2
             log_block "adversarial-agent-missing" "criteria=$ADV_CRITERIA dir=$APD_AGENTS_DIR"
             exit 1
         fi
 
         create_done "reviewer"
-
-        # Refresh the task-scoped review list. The primary scope was already
-        # written at the builder step (so it existed BEFORE the reviewer ran —
-        # v6.37 #2); this refresh keeps it current for the adversarial pass.
-        _write_reviewed_files
 
         if [ "$ADV_OPT_OUT" = true ]; then
             ok "Adversarial reviewer: skipped (opt-out, $ADV_CRITERIA criteria)"
@@ -1116,6 +1259,7 @@ case "$STEP" in
         fi
 
         apd_header "Reviewer Complete" "+$ELAPSED"
+        _wall_nudge_emit
         show_pipeline "verifier"
         # GitHub sync (best-effort)
         bash "$SCRIPT_DIR/gh-sync" reviewer 2>/dev/null || true
@@ -1140,6 +1284,14 @@ case "$STEP" in
         SPEC_TS=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f1)
         ELAPSED=$(format_duration $((NOW - REVIEWER_TS)))
         TOTAL=$(format_duration $((NOW - SPEC_TS)))
+        # v7.1 — the verifier judges the FINAL state, so the reviewed scope is
+        # refreshed here too: fix-of-findings rounds after reviewer.done add
+        # files that the Lean file rule (`_adversarial_opt_out_ok`), the
+        # supervision Q2 anchor and verify-trace all read from this list.
+        # Measured (audit 2026-09-29 I1/I2): 4 files at the reviewer + 40 after
+        # it verified as Lean on the stale list; a Q2 anchor on a file the fix
+        # created was refused as "not in the reviewed scope".
+        _write_reviewed_files
         # Verify spec-card.md was not modified after spec step (frozen)
         if [ -f "$PIPELINE_DIR/.spec-hash" ] && [ -f "$PIPELINE_DIR/spec-card.md" ]; then
             ORIGINAL_HASH=$(cat "$PIPELINE_DIR/.spec-hash")
@@ -1176,7 +1328,8 @@ case "$STEP" in
             echo "BLOCKED: the adversarial phase is unaccounted for." >&2
             echo "" >&2
             echo "  No .adversarial-pending marker, and spec-card.md carries no valid" >&2
-            echo "  'adversarial: skip' opt-out (honoured at <=2 R-criteria only)." >&2
+            echo "  'adversarial: skip' opt-out (honoured at <=2 R-criteria AND fewer" >&2
+            echo "  than $ADV_OPT_OUT_MAX_FILES files in the reviewed scope)." >&2
             echo "  That combination means the layer was dropped rather than run or" >&2
             echo "  waived — most often because the adversarial-reviewer definition" >&2
             echo "  went missing after the reviewer step." >&2
@@ -1526,7 +1679,8 @@ function _check() {
                     echo "" >&2
                     echo "  1. Dispatch: Agent({ subagent_type: \"supervisor\", prompt: \"Final review per charter\" })" >&2
                     echo "  2. Record:   .apd/pipeline/.supervision-summary   (SUPERVISION:T:A:D + Notes)" >&2
-                    echo "  3. Triage:   .apd/pipeline/.supervision-rationale.md (same contract as adversarial)" >&2
+                    echo "  3. Triage:   .apd/pipeline/.supervision-rationale.md (same contract as adversarial," >&2
+                    echo "               plus **Question:** Q1 R<n> | Q2 <path> | Q3 RS<n> per finding; notes need none)" >&2
                     echo "  Then re-run: bash $APD_SHORTCUT_DISPLAY pipeline verifier" >&2
                     echo "" >&2
                     echo "  No spec-card opt-out. Ways out: apd pipeline reset, or switch profile BEFORE spec." >&2
@@ -1902,7 +2056,7 @@ EOF
         # .agents was already archived above (before metrics write).
         # GitHub sync — mark done (best-effort, before cleanup removes .gh-issue)
         bash "$SCRIPT_DIR/gh-sync" done 2>/dev/null || true
-        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings" "$PIPELINE_DIR/.builder-cap-override" "$PIPELINE_DIR/.reviewer-cap-override" "$PIPELINE_DIR/.task-baseline" "$PIPELINE_DIR/.dispatch-pending.json" "$PIPELINE_DIR"/.dispatch-agent-*.json
+        rm -f "$PIPELINE_DIR"/*.done "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.agents" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-pending" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md" "$PIPELINE_DIR/spec-card.md" "$PIPELINE_DIR/implementation-plan.md" "$PIPELINE_DIR/.spec-hash" "$PIPELINE_DIR/.spec-max-defects-history" "$PIPELINE_DIR/.builder-count" "$PIPELINE_DIR/.reviewer-count" "$PIPELINE_DIR/.reviewed-files" "$PIPELINE_DIR/.guarded-writes" "$PIPELINE_DIR/.guide-marker" "$PIPELINE_DIR/.brainstorm-marker" "$PIPELINE_DIR/.deferred-findings" "$PIPELINE_DIR/.builder-cap-override" "$PIPELINE_DIR/.reviewer-cap-override" "$PIPELINE_DIR/.dispatch-cap-override" "$PIPELINE_DIR/.dispatch-classes" "$PIPELINE_DIR/.task-baseline" "$PIPELINE_DIR/.dispatch-pending.json" "$PIPELINE_DIR"/.dispatch-agent-*.json
         rmdir "$PIPELINE_DIR/.dispatch-prepare.lock" "$PIPELINE_DIR/.dispatch-hook.lock" 2>/dev/null || true
         # Reset completed cleanly — drop the in-progress marker.
         rm -f "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
@@ -1917,18 +2071,29 @@ EOF
         # completed builder/reviewer evidence and, on Codex, forces a redundant
         # re-dispatch). This path preserves that evidence. Raises only; needs a
         # reason; logged INFO. Cleared on spec re-advance / reset (new task).
-        _rc_phase="$ARG"; _rc_val="$ARG2"
+        _rc_phase="$ARG"; _rc_val="$ARG2"; _rc_reason_raw="$ARG3"; _rc_class=""
+        # v7.1: `raise-cap dispatch <builder|reviewer|adversarial> <N|unlimited> "<reason>"`
+        # lifts the per-task DISPATCH budget (bin/lib/dispatch-budget.sh) the same
+        # way — in place, raises only, reason mandatory, logged.
+        if [ "$_rc_phase" = "dispatch" ]; then
+            _rc_class="$ARG2"; _rc_val="$ARG3"; _rc_reason_raw="$ARG4"
+            case "$_rc_class" in
+                builder|reviewer|adversarial) ;;
+                *) echo "usage: apd pipeline raise-cap dispatch <builder|reviewer|adversarial> <N|unlimited> \"<reason>\"" >&2; exit 1 ;;
+            esac
+        fi
         # Sanitize the reason — it is written into the pipe-delimited guard-audit
         # log, so a newline / CR / `|` could forge audit lines (telemetry honesty;
         # mirrors toggle-apd's --force reason handling).
-        _rc_reason="${ARG3//$'\n'/ }"; _rc_reason="${_rc_reason//$'\r'/ }"; _rc_reason="${_rc_reason//|/ }"
+        _rc_reason="${_rc_reason_raw//$'\n'/ }"; _rc_reason="${_rc_reason//$'\r'/ }"; _rc_reason="${_rc_reason//|/ }"
         if [ ! -f "$PIPELINE_DIR/spec.done" ]; then
             echo "BLOCKED: no active pipeline — raise-cap needs a signed spec (run 'apd pipeline spec' first)." >&2
             exit 1
         fi
         case "$_rc_phase" in
-            builder|reviewer) ;;
-            *) echo "usage: apd pipeline raise-cap <builder|reviewer> <N|unlimited> \"<reason>\"" >&2; exit 1 ;;
+            builder|reviewer|dispatch) ;;
+            *) echo "usage: apd pipeline raise-cap <builder|reviewer> <N|unlimited> \"<reason>\"" >&2
+               echo "       apd pipeline raise-cap dispatch <builder|reviewer|adversarial> <N|unlimited> \"<reason>\"" >&2; exit 1 ;;
         esac
         case "$_rc_val" in
             unlimited) ;;
@@ -1937,8 +2102,22 @@ EOF
         esac
         if [ -z "$_rc_reason" ]; then
             echo "BLOCKED: raise-cap requires a reason." >&2
-            echo "  apd pipeline raise-cap $_rc_phase $_rc_val \"why the extra cycles are warranted\"" >&2
+            echo "  apd pipeline raise-cap $_rc_phase ${_rc_class:+$_rc_class }$_rc_val \"why the extra cycles are warranted\"" >&2
             exit 1
+        fi
+        if [ "$_rc_phase" = "dispatch" ]; then
+            _rc_cur=$(_dispatch_budget "$_rc_class")
+            if [ "$_rc_val" != "unlimited" ] && { [ "$_rc_cur" = "unlimited" ] || [ "$_rc_val" -le "$_rc_cur" ] 2>/dev/null; }; then
+                echo "raise-cap: the $_rc_class dispatch budget is already $_rc_cur — raises only (got $_rc_val)." >&2
+                exit 1
+            fi
+            echo "$_rc_class=$_rc_val" >> "$PIPELINE_DIR/.dispatch-cap-override"
+            _audit_info "cap-raise" "phase=dispatch:$_rc_class new=$_rc_val reason=$_rc_reason"
+            echo "Set dispatch budget override: $_rc_class = $_rc_val — evidence preserved (no spec re-sign)."
+            echo "  Effective budget = the higher of the spec-card dispatch_budget and this; the gate never lowers it."
+            echo "  Dispatches so far: $(_dispatch_summary)"
+            echo "  Reason: $_rc_reason"
+            exit 0
         fi
         echo "$_rc_val" > "$PIPELINE_DIR/.${_rc_phase}-cap-override"
         if [ -n "${MEMORY_DIR:-}" ] && [ -d "$MEMORY_DIR" ]; then

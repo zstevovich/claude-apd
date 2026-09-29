@@ -4375,7 +4375,11 @@ _gbs_check "dd of= out-of-scope BLOCKS"                      2 "dd if=src/foo of
 # Legitimate in-scope cases — must ALLOW (rc=0)
 _gbs_check "cp in-scope ALLOWS"                              0 "cp src/foo src/bar"             src/
 _gbs_check "redirect in-scope ALLOWS"                        0 "echo data > src/file"           src/
-_gbs_check "mv into scope from /tmp ALLOWS"                  0 "mv /tmp/file src/file"          src/
+# v7.1: `mv` counts its SOURCE too (the file leaves its place). /tmp is not a
+# sanctioned location — nothing may have written there — so moving FROM it
+# blocks; the session scratchpad is sanctioned, so moving from it allows.
+_gbs_check "mv into scope from an unsanctioned /tmp path BLOCKS (source)" 2 "mv /tmp/file src/file"          src/
+_gbs_check "mv into scope from the session scratchpad ALLOWS"          0 "mv /private/tmp/claude-501/-Users-x/abc/scratchpad/file src/file" src/
 _gbs_check "sed -i (BSD) in-scope ALLOWS"                    0 "sed -i '' 's/a/b/' src/file"    src/
 _gbs_check "sed -i.bak in-scope ALLOWS"                      0 "sed -i.bak 's/a/b/' src/file"   src/
 _gbs_check "multi-file sed both in-scope ALLOWS"             0 "sed -i '' 's/a/b/' src/f1 src/f2" src/
@@ -10550,6 +10554,7 @@ _v95_sup_agents "$_T" 1
 printf 'SUPERVISION:1:1:0\nNotes: fix-of-findings collateral in handler X, accepted and fixed\n' > "$_T/.apd/pipeline/.supervision-summary"
 cat > "$_T/.apd/pipeline/.supervision-rationale.md" <<'EOF_SVR'
 ## Finding 1 — fix-of-findings collateral in handler X
+**Question:** Q2 src/handler_x.cs:41
 **Severity:** important
 **Status:** accepted
 **Rationale:** the adversarial fix removed the cancellation guard next to it; restored and covered by the existing handler test
@@ -14595,6 +14600,897 @@ else
     FAILS=$((FAILS + 1))
 fi
 rm -rf "$TRCS"
+
+section "131. Dispatch budget — every dispatch counts, not every advance"
+
+# v7.1 — `max_cycles` counts pipeline-advance calls; measured runs dispatched
+# 4–5 builder-class agents per advance and 20 of one type per task with three
+# cap-raises. The budget below is per TASK by role class, counted from the
+# `.agents` ledger, enforced PRE-spawn in the PreToolUse(Agent) guard (the one
+# point where exit 2 prevents the dispatch). Defaults 12 / 6 / 2.
+if [ -x "$VALIDATOR" ]; then
+DB_GUARD="$APD_PLUGIN_ROOT/bin/core/guard-agent-reload"
+DB_SHIM="$APD_PLUGIN_ROOT/bin/adapter/cc/guard-agent-reload"
+DB_ADV="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+_db_fixture() {  # <dir> [extra spec line]
+    local d="$1"
+    mkdir -p "$d/.apd/agents" "$d/.apd/pipeline" "$d/.apd/memory"
+    printf 'PROJECT_NAME=db\nAPD_VERSION=test\n' > "$d/.apd/config"
+    printf -- '---\nname: backend-builder\nscope: [src/]\n---\nBuilder.\n' > "$d/.apd/agents/backend-builder.md"
+    printf -- '---\nname: docs-writer\ntools: Read, Write, Edit, Bash\nscope: [docs/]\n---\nWriter.\n' > "$d/.apd/agents/docs-writer.md"
+    printf -- '---\nname: code-reviewer\ntools: Read, Grep, Bash\n---\nReviewer.\n' > "$d/.apd/agents/code-reviewer.md"
+    printf -- '---\nname: adversarial-reviewer\ntools: Read, Grep\n---\nBlind.\n' > "$d/.apd/agents/adversarial-reviewer.md"
+    printf -- '---\nname: supervisor\ntools: Read\n---\nFinal.\n' > "$d/.apd/agents/supervisor.md"
+    printf '# DB task\nplan_consistency_gate: off\n**Acceptance criteria:**\n- R1: x\n%s\n' "${2:-}" > "$d/.apd/pipeline/spec-card.md"
+    printf '# Plan\n### Agents\n- backend-builder\n' > "$d/.apd/pipeline/implementation-plan.md"
+    _guide_marker "$d" "db-task"
+    APD_PROJECT_DIR="$d" APD_RUNTIME=codex bash "$DB_ADV" spec "db-task" >/dev/null 2>&1
+}
+_db_starts() {  # <dir> <type> <n> [offset-seconds]  — n post-spec start events
+    local d="$1" t="$2" n="$3" off="${4:-5}" i
+    for ((i = 1; i <= n; i++)); do
+        printf '%s|start|%s|a%s%05d\n' "$(_codex_test_ts $((off + i)))" "$t" "$(printf '%s' "$t" | tr -dc 'a-z' | cut -c1-6)" "$i" >> "$d/.apd/pipeline/.agents"
+    done
+}
+_db_guard() {  # <dir> <type> → rc
+    APD_PROJECT_DIR="$1" bash "$DB_GUARD" --subagent-type "$2" </dev/null >/dev/null 2>&1; echo $?
+}
+
+DB1="$(mktemp -d -t apd-db1.XXXXXX)"; _db_fixture "$DB1"
+# builder class: 11 starts → 12th allowed; 12 → 13th blocked with the audit reason
+_db_starts "$DB1" backend-builder 7; _db_starts "$DB1" docs-writer 4
+[ "$(_db_guard "$DB1" backend-builder)" = "0" ] && { pass "builder-class dispatch #12 of 12 is allowed (7 backend + 4 docs-writer on record)"; PASSES=$((PASSES + 1)); } || { fail "12th builder-class dispatch wrongly blocked"; FAILS=$((FAILS + 1)); }
+_db_starts "$DB1" backend-builder 1 20
+DB1_OUT=$(APD_PROJECT_DIR="$DB1" bash "$DB_GUARD" --subagent-type docs-writer </dev/null 2>&1); DB1_RC=$?
+if [ "$DB1_RC" = "2" ] && echo "$DB1_OUT" | grep -q 'dispatch #13 of a builder-class agent' \
+   && grep -q '|dispatch-budget-exceeded|class=builder agent=docs-writer count=13 budget=12' "$DB1/.apd/memory/guard-audit.log"; then
+    pass "builder-class dispatch #13 is BLOCKED pre-spawn (exit 2) and logged with class/count/budget"; PASSES=$((PASSES + 1))
+else
+    fail "13th dispatch: rc=$DB1_RC log=$(tail -1 "$DB1/.apd/memory/guard-audit.log" 2>/dev/null)"; FAILS=$((FAILS + 1))
+fi
+echo "$DB1_OUT" | grep -q 'spinoff-finding' && echo "$DB1_OUT" | grep -q 'raise-cap dispatch builder' \
+    && { pass "block message offers spinoff first, then raise-cap dispatch"; PASSES=$((PASSES + 1)); } \
+    || { fail "block message misses the recovery order"; FAILS=$((FAILS + 1)); }
+# other classes are counted separately: reviewer 6/6, adversarial 2/2, supervisor/non-APD never
+_db_starts "$DB1" code-reviewer 6 30
+[ "$(_db_guard "$DB1" code-reviewer)" = "2" ] && { pass "reviewer-class dispatch #7 of 6 is blocked"; PASSES=$((PASSES + 1)); } || { fail "reviewer budget not enforced"; FAILS=$((FAILS + 1)); }
+_db_starts "$DB1" adversarial-reviewer 2 40
+[ "$(_db_guard "$DB1" adversarial-reviewer)" = "2" ] && { pass "adversarial-class dispatch #3 of 2 is blocked"; PASSES=$((PASSES + 1)); } || { fail "adversarial budget not enforced"; FAILS=$((FAILS + 1)); }
+_db_starts "$DB1" supervisor 5 50; _db_starts "$DB1" Explore 30 60
+[ "$(_db_guard "$DB1" supervisor)" = "0" ] && [ "$(_db_guard "$DB1" Explore)" = "0" ] \
+    && { pass "supervisor (own churn cap) and non-APD agents (Explore) are never budget-blocked"; PASSES=$((PASSES + 1)); } \
+    || { fail "supervisor/Explore wrongly counted"; FAILS=$((FAILS + 1)); }
+rm -rf "$DB1"
+
+# pre-spec starts do not count
+DB2="$(mktemp -d -t apd-db2.XXXXXX)"; _db_fixture "$DB2"
+for ((i = 1; i <= 12; i++)); do printf '2020-01-01 00:00:%02d|start|backend-builder|aold%05d\n' "$i" "$i" >> "$DB2/.apd/pipeline/.agents"; done
+[ "$(_db_guard "$DB2" backend-builder)" = "0" ] && { pass "starts dated before spec.done do not spend the budget"; PASSES=$((PASSES + 1)); } || { fail "pre-spec starts counted"; FAILS=$((FAILS + 1)); }
+rm -rf "$DB2"
+
+# spec-time override + raise-cap dispatch (reason mandatory, raises only, logged)
+DB3="$(mktemp -d -t apd-db3.XXXXXX)"; _db_fixture "$DB3" "dispatch_budget: builder=20 reviewer=2"
+_db_starts "$DB3" backend-builder 12
+[ "$(_db_guard "$DB3" backend-builder)" = "0" ] && { pass "spec-card dispatch_budget: builder=20 lifts the default"; PASSES=$((PASSES + 1)); } || { fail "spec-time budget ignored"; FAILS=$((FAILS + 1)); }
+_db_starts "$DB3" code-reviewer 2 30
+[ "$(_db_guard "$DB3" code-reviewer)" = "2" ] && { pass "spec-card dispatch_budget: reviewer=2 may also LOWER a class (spec-time is authoritative)"; PASSES=$((PASSES + 1)); } || { fail "spec-time lower budget ignored"; FAILS=$((FAILS + 1)); }
+DB3_OUT=$(APD_PROJECT_DIR="$DB3" APD_RUNTIME=codex bash "$DB_ADV" raise-cap dispatch reviewer 4 2>&1); DB3_RC=$?
+[ "$DB3_RC" = "1" ] && echo "$DB3_OUT" | grep -q 'requires a reason' && [ ! -f "$DB3/.apd/pipeline/.dispatch-cap-override" ] \
+    && { pass "raise-cap dispatch without a reason is refused and writes nothing"; PASSES=$((PASSES + 1)); } || { fail "reason-less raise accepted (rc=$DB3_RC)"; FAILS=$((FAILS + 1)); }
+DB3_OUT=$(APD_PROJECT_DIR="$DB3" APD_RUNTIME=codex bash "$DB_ADV" raise-cap dispatch reviewer 1 "lower" 2>&1); DB3_RC=$?
+[ "$DB3_RC" = "1" ] && echo "$DB3_OUT" | grep -q 'raises only' \
+    && { pass "raise-cap dispatch refuses a value at or below the current budget"; PASSES=$((PASSES + 1)); } || { fail "lower raise accepted (rc=$DB3_RC)"; FAILS=$((FAILS + 1)); }
+DB3_OUT=$(APD_PROJECT_DIR="$DB3" APD_RUNTIME=codex bash "$DB_ADV" raise-cap dispatch reviewer 4 "re-review after an accepted finding" 2>&1); DB3_RC=$?
+if [ "$DB3_RC" = "0" ] && grep -q '^reviewer=4$' "$DB3/.apd/pipeline/.dispatch-cap-override" \
+   && grep -q '|cap-raise|phase=dispatch:reviewer new=4 reason=re-review' "$DB3/.apd/memory/guard-audit.log" \
+   && [ "$(_db_guard "$DB3" code-reviewer)" = "0" ]; then
+    pass "raise-cap dispatch reviewer 4 \"<reason>\" lifts the budget in place (override file + INFO) and the next dispatch passes"; PASSES=$((PASSES + 1))
+else
+    fail "raise-cap dispatch failed: rc=$DB3_RC out=${DB3_OUT:0:100}"; FAILS=$((FAILS + 1))
+fi
+DB3_OUT=$(APD_PROJECT_DIR="$DB3" APD_RUNTIME=codex bash "$DB_ADV" raise-cap dispatch frontend 9 "x" 2>&1); DB3_RC=$?
+[ "$DB3_RC" = "1" ] && echo "$DB3_OUT" | grep -q 'usage: apd pipeline raise-cap dispatch' \
+    && { pass "raise-cap dispatch rejects an unknown class"; PASSES=$((PASSES + 1)); } || { fail "unknown class accepted"; FAILS=$((FAILS + 1)); }
+# status shows the counters
+DB3_ST=$(APD_PROJECT_DIR="$DB3" APD_RUNTIME=codex bash "$DB_ADV" status 2>&1)
+echo "$DB3_ST" | grep -q 'dispatches: builder 12/20 · reviewer 2/4 · adversarial 0/2' \
+    && { pass "pipeline status shows dispatches per class against the effective budget"; PASSES=$((PASSES + 1)); } \
+    || { fail "status line missing/wrong: $(echo "$DB3_ST" | grep dispatches)"; FAILS=$((FAILS + 1)); }
+# reset wipes the override
+APD_PROJECT_DIR="$DB3" APD_RUNTIME=codex bash "$DB_ADV" reset "done" >/dev/null 2>&1
+[ ! -f "$DB3/.apd/pipeline/.dispatch-cap-override" ] && { pass "reset wipes .dispatch-cap-override"; PASSES=$((PASSES + 1)); } || { fail "override survived reset"; FAILS=$((FAILS + 1)); }
+rm -rf "$DB3"
+
+# spec re-advance wipes the override too
+DB4="$(mktemp -d -t apd-db4.XXXXXX)"; _db_fixture "$DB4"
+APD_PROJECT_DIR="$DB4" APD_RUNTIME=codex bash "$DB_ADV" raise-cap dispatch builder 30 "big task" >/dev/null 2>&1
+_guide_marker "$DB4" "db-task-2"
+APD_PROJECT_DIR="$DB4" APD_RUNTIME=codex bash "$DB_ADV" spec "db-task-2" >/dev/null 2>&1
+[ ! -f "$DB4/.apd/pipeline/.dispatch-cap-override" ] && { pass "spec re-advance wipes .dispatch-cap-override (new task = fresh budget)"; PASSES=$((PASSES + 1)); } || { fail "override survived spec re-advance"; FAILS=$((FAILS + 1)); }
+# no active pipeline → no budget; missing subagent_type → unmeasured INFO, never a block
+APD_PROJECT_DIR="$DB4" APD_RUNTIME=codex bash "$DB_ADV" reset "done" >/dev/null 2>&1
+[ "$(_db_guard "$DB4" backend-builder)" = "0" ] && { pass "no active pipeline → dispatch guard passes"; PASSES=$((PASSES + 1)); } || { fail "guard blocked outside a pipeline"; FAILS=$((FAILS + 1)); }
+rm -rf "$DB4"
+DB5="$(mktemp -d -t apd-db5.XXXXXX)"; _db_fixture "$DB5"
+[ -f "$DB5/.apd/pipeline/spec.done" ] || { fail "DB5 fixture: spec advance did not sign spec.done — the next two checks test the fixture, not the guard"; FAILS=$((FAILS + 1)); }
+_db_starts "$DB5" backend-builder 12
+APD_PROJECT_DIR="$DB5" bash "$DB_GUARD" </dev/null >/dev/null 2>&1; DB5_RC=$?
+[ "$DB5_RC" = "0" ] && grep -q '|dispatch-budget-unmeasured|' "$DB5/.apd/memory/guard-audit.log" \
+    && { pass "a payload without subagent_type passes and logs dispatch-budget-unmeasured"; PASSES=$((PASSES + 1)); } \
+    || { fail "unmeasured path wrong (rc=$DB5_RC spec.done=$([ -f "$DB5/.apd/pipeline/spec.done" ] && echo y || echo n) memdir=$(ls -d "$DB5"/.apd/memory "$DB5"/.claude/memory 2>/dev/null | tr '\n' ' ') log=$(cat "$DB5/.apd/memory/guard-audit.log" 2>/dev/null | tail -1))"; FAILS=$((FAILS + 1)); }
+# the CC shim forwards tool_input.subagent_type
+DB5_RC=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"backend-builder","prompt":"x"}}' | { APD_PROJECT_DIR="$DB5" bash "$DB_SHIM" >/dev/null 2>&1; echo $?; })
+[ "$DB5_RC" = "2" ] && { pass "CC shim forwards subagent_type → the 13th builder dispatch is blocked through the real hook path"; PASSES=$((PASSES + 1)); } || { fail "shim did not forward subagent_type (rc=$DB5_RC)"; FAILS=$((FAILS + 1)); }
+DB5_RC=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"Explore","prompt":"x"}}' | { APD_PROJECT_DIR="$DB5" bash "$DB_SHIM" >/dev/null 2>&1; echo $?; })
+[ "$DB5_RC" = "0" ] && { pass "CC shim: a non-APD agent passes at any count"; PASSES=$((PASSES + 1)); } || { fail "Explore blocked through shim"; FAILS=$((FAILS + 1)); }
+# opt-out env
+[ "$(APD_PROJECT_DIR="$DB5" APD_SKIP_DISPATCH_BUDGET=1 bash "$DB_GUARD" --subagent-type backend-builder </dev/null >/dev/null 2>&1; echo $?)" = "0" ] \
+    && { pass "APD_SKIP_DISPATCH_BUDGET=1 bypasses the budget (operator's risk)"; PASSES=$((PASSES + 1)); } || { fail "opt-out env ignored"; FAILS=$((FAILS + 1)); }
+# the reload gate still comes first and is unchanged
+touch "$DB5/.apd/.pending-reload"
+DB5_OUT=$(APD_PROJECT_DIR="$DB5" bash "$DB_GUARD" --subagent-type Explore </dev/null 2>&1); DB5_RC=$?
+[ "$DB5_RC" = "2" ] && echo "$DB5_OUT" | grep -q 'reload-plugins' && { pass "reload gate still blocks first, with its own message"; PASSES=$((PASSES + 1)); } || { fail "reload gate regressed (rc=$DB5_RC)"; FAILS=$((FAILS + 1)); }
+rm -f "$DB5/.apd/.pending-reload"
+rm -rf "$DB5"
+
+# wall-clock nudge: INFO only, at the first dispatch past the line and at phase advances
+DB6="$(mktemp -d -t apd-db6.XXXXXX)"; _db_fixture "$DB6"
+sleep 2
+DB6_OUT=$(APD_PROJECT_DIR="$DB6" APD_WALL_NUDGE_SEC=1 bash "$DB_GUARD" --subagent-type backend-builder </dev/null 2>&1); DB6_RC=$?
+if [ "$DB6_RC" = "0" ] && echo "$DB6_OUT" | grep -q 'has been open for' \
+   && grep -q '|wall-clock-nudge|' "$DB6/.apd/memory/guard-audit.log"; then
+    pass "wall-clock nudge fires at the first dispatch past the line (exit 0, INFO logged)"; PASSES=$((PASSES + 1))
+else
+    fail "dispatch-time nudge wrong (rc=$DB6_RC)"; FAILS=$((FAILS + 1))
+fi
+_db_starts "$DB6" backend-builder 1 5
+DB6_OUT=$(APD_PROJECT_DIR="$DB6" APD_WALL_NUDGE_SEC=1 bash "$DB_GUARD" --subagent-type backend-builder </dev/null 2>&1)
+[ "$(grep -c '|wall-clock-nudge|' "$DB6/.apd/memory/guard-audit.log")" = "1" ] \
+    && { pass "a later dispatch (previous start already past the line) does not re-log the nudge"; PASSES=$((PASSES + 1)); } \
+    || { fail "nudge re-logged on every dispatch"; FAILS=$((FAILS + 1)); }
+DB6_OUT=$(APD_PROJECT_DIR="$DB6" bash "$DB_GUARD" --subagent-type backend-builder </dev/null 2>&1)
+echo "$DB6_OUT" | grep -q 'has been open for' && { fail "nudge fired under the default 90-minute threshold"; FAILS=$((FAILS + 1)); } || { pass "under the default threshold nothing is printed"; PASSES=$((PASSES + 1)); }
+_seed_codex_pair "$DB6" backend-builder aabbccddeeff1311 1 11
+DB6_OUT=$(APD_PROJECT_DIR="$DB6" APD_RUNTIME=codex APD_WALL_NUDGE_SEC=1 bash "$DB_ADV" builder 2>&1); DB6_RC=$?
+[ "$DB6_RC" = "0" ] && echo "$DB6_OUT" | grep -q 'has been open for' \
+    && { pass "builder advance prints the nudge past the line and still exits 0"; PASSES=$((PASSES + 1)); } \
+    || { fail "advance-time nudge wrong (rc=$DB6_RC): $(echo "$DB6_OUT" | grep -c 'open for')"; FAILS=$((FAILS + 1)); }
+rm -rf "$DB6"
+
+# --- audit 2026-09-29 (gates): findings turned into checks ---------------------
+# C1: a `dispatch_budget:` line counts only from the SIGNED spec — an edit after
+# signing is ignored (and logged once), so the budget cannot be lifted mid-run
+DB7="$(mktemp -d -t apd-db7.XXXXXX)"; _db_fixture "$DB7"
+_db_starts "$DB7" backend-builder 12
+printf 'dispatch_budget: builder=unlimited\n' >> "$DB7/.apd/pipeline/spec-card.md"
+DB7_RC=$(_db_guard "$DB7" backend-builder)
+if [ "$DB7_RC" = "2" ] && grep -q '|dispatch-budget-spec-ignored|task=db-task' "$DB7/.apd/memory/guard-audit.log"; then
+    pass "a dispatch_budget line appended AFTER signing is ignored: 13th dispatch still blocked, spec-ignored INFO logged"; PASSES=$((PASSES + 1))
+else
+    fail "C1 regressed: edited spec-card lifted the budget (rc=$DB7_RC) or no INFO"; FAILS=$((FAILS + 1))
+fi
+_db_guard "$DB7" backend-builder >/dev/null
+[ "$(grep -c '|dispatch-budget-spec-ignored|' "$DB7/.apd/memory/guard-audit.log")" = "1" ] \
+    && { pass "spec-ignored is logged once per task, not once per dispatch"; PASSES=$((PASSES + 1)); } \
+    || { fail "spec-ignored re-logged on every dispatch"; FAILS=$((FAILS + 1)); }
+echo "$DB1_OUT" | grep -q 'honoured only from the SIGNED spec' \
+    && { pass "the block message no longer advertises editing the spec mid-run"; PASSES=$((PASSES + 1)); } \
+    || { fail "block message still points at editing spec-card.md"; FAILS=$((FAILS + 1)); }
+# defense in depth: a hand-lowered override file cannot lower the budget
+printf 'builder=3\n' > "$DB7/.apd/pipeline/.dispatch-cap-override"
+git -C "$DB7" init -q 2>/dev/null; : # (no git needed; keep fixture simple)
+sed -i.bak '$d' "$DB7/.apd/pipeline/spec-card.md" && rm -f "$DB7/.apd/pipeline/spec-card.md.bak"   # restore the signed card
+: > "$DB7/.apd/pipeline/.agents"; _db_starts "$DB7" backend-builder 5
+[ "$(_db_guard "$DB7" backend-builder)" = "0" ] \
+    && { pass "an override file lowered by hand (builder=3) does not lower the budget (6th dispatch passes)"; PASSES=$((PASSES + 1)); } \
+    || { fail "override file can LOWER the budget"; FAILS=$((FAILS + 1)); }
+rm -rf "$DB7"
+# M4a: an agent that writes only through Bash is a builder; M4b: frontmatter name ≠ file name still classifies
+DB8="$(mktemp -d -t apd-db8.XXXXXX)"; _db_fixture "$DB8"
+printf -- '---\nname: shell-writer\ntools: Read, Grep, Bash\n---\nWrites via bash.\n' > "$DB8/.apd/agents/shell-writer.md"
+printf -- '---\nname: kotlin-builder\nscope: [app/]\n---\nFile is named differently.\n' > "$DB8/.apd/agents/builder-v2.md"
+_db_starts "$DB8" shell-writer 8; _db_starts "$DB8" kotlin-builder 4 20
+[ "$(_db_guard "$DB8" shell-writer)" = "2" ] && [ "$(_db_guard "$DB8" kotlin-builder)" = "2" ] \
+    && { pass "a Bash-only writer and a frontmatter-named agent both spend the builder budget (8 + 4 → 13th blocked)"; PASSES=$((PASSES + 1)); } \
+    || { fail "M4: bash-only writer or frontmatter-named agent not counted"; FAILS=$((FAILS + 1)); }
+rm -rf "$DB8"
+# M6: unmeasured logged once per task
+DB9="$(mktemp -d -t apd-db9.XXXXXX)"; _db_fixture "$DB9"
+for _i in 1 2 3; do APD_PROJECT_DIR="$DB9" bash "$DB_GUARD" </dev/null >/dev/null 2>&1; done
+[ "$(grep -c '|dispatch-budget-unmeasured|' "$DB9/.apd/memory/guard-audit.log")" = "1" ] \
+    && { pass "dispatch-budget-unmeasured is logged once per task (3 dispatches → 1 line)"; PASSES=$((PASSES + 1)); } \
+    || { fail "unmeasured logged $(grep -c '|dispatch-budget-unmeasured|' "$DB9/.apd/memory/guard-audit.log") times"; FAILS=$((FAILS + 1)); }
+# shim sanitisation: a subagent_type with shell characters reaches the core as empty → unmeasured, never a crash
+DB9_RC=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"x; rm -rf /","prompt":"x"}}' | { APD_PROJECT_DIR="$DB9" bash "$DB_SHIM" >/dev/null 2>&1; echo $?; })
+[ "$DB9_RC" = "0" ] && { pass "shim drops a subagent_type with shell characters (exit 0, unmeasured path)"; PASSES=$((PASSES + 1)); } || { fail "shim sanitisation rc=$DB9_RC"; FAILS=$((FAILS + 1)); }
+# M7: on the Codex runtime the status line says the budget is not enforced
+DB9_ST=$(APD_PROJECT_DIR="$DB9" APD_RUNTIME=codex bash "$DB_ADV" status 2>&1)
+echo "$DB9_ST" | grep -q 'NOT enforced on the Codex runtime' \
+    && { pass "pipeline status on Codex labels the dispatch counters as not enforced"; PASSES=$((PASSES + 1)); } \
+    || { fail "Codex status line presents the budget as enforced"; FAILS=$((FAILS + 1)); }
+rm -rf "$DB9"
+
+# --- gates delta audit: N1 (frontmatter edit mid-task), N2 (same-task re-advance), N4 (reused task name) ---
+DBN="$(mktemp -d -t apd-dbn.XXXXXX)"; _db_fixture "$DBN"
+[ -f "$DBN/.apd/pipeline/.dispatch-classes" ] && grep -q '^backend-builder|builder$' "$DBN/.apd/pipeline/.dispatch-classes" \
+    && { pass "spec advance snapshots every agent's class into .dispatch-classes"; PASSES=$((PASSES + 1)); } \
+    || { fail "no class snapshot at spec advance"; FAILS=$((FAILS + 1)); }
+_db_starts "$DBN" backend-builder 12
+printf -- '---\nname: backend-builder\ntools: Read, Grep\n---\nedited mid-task to look read-only\n' > "$DBN/.apd/agents/backend-builder.md"
+[ "$(_db_guard "$DBN" backend-builder)" = "2" ] \
+    && { pass "rewriting the agent's frontmatter mid-task does not change its class: 13th dispatch still blocked (N1)"; PASSES=$((PASSES + 1)); } \
+    || { fail "N1 regressed: a mid-task frontmatter edit defeated the budget"; FAILS=$((FAILS + 1)); }
+printf -- '---\nname: late-builder\nscope: [src/]\n---\ncreated after the spec\n' > "$DBN/.apd/agents/late-builder.md"
+[ "$(_db_guard "$DBN" late-builder)" = "2" ] \
+    && { pass "an agent created after the spec is classified live and still spends the builder budget"; PASSES=$((PASSES + 1)); } \
+    || { fail "late agent not counted"; FAILS=$((FAILS + 1)); }
+# N2: re-advancing the SAME task with dispatches on record is logged with the discarded counts
+_guide_marker "$DBN" "db-task"
+APD_PROJECT_DIR="$DBN" APD_RUNTIME=codex bash "$DB_ADV" spec "db-task" >/dev/null 2>&1
+grep -q '|dispatch-budget-reset|task=db-task same task re-advanced with dispatches on record: builder 12/12' "$DBN/.apd/memory/guard-audit.log" \
+    && { pass "a spec re-advance of the same task logs dispatch-budget-reset with the counts it discarded (N2)"; PASSES=$((PASSES + 1)); } \
+    || { fail "N2: same-task re-advance left no trace: $(grep -c 'dispatch-budget-reset' "$DBN/.apd/memory/guard-audit.log")"; FAILS=$((FAILS + 1)); }
+# N4: the once-per-task key carries the spec epoch, so a reused task name logs again
+APD_PROJECT_DIR="$DBN" bash "$DB_GUARD" </dev/null >/dev/null 2>&1
+DBN_N4_1=$(grep -c '|dispatch-budget-unmeasured|' "$DBN/.apd/memory/guard-audit.log")
+APD_PROJECT_DIR="$DBN" APD_RUNTIME=codex bash "$DB_ADV" reset "done" >/dev/null 2>&1
+_guide_marker "$DBN" "db-task"; printf '# DB task\nplan_consistency_gate: off\n**Acceptance criteria:**\n- R1: x\n' > "$DBN/.apd/pipeline/spec-card.md"
+sleep 1; APD_PROJECT_DIR="$DBN" APD_RUNTIME=codex bash "$DB_ADV" spec "db-task" >/dev/null 2>&1
+APD_PROJECT_DIR="$DBN" bash "$DB_GUARD" </dev/null >/dev/null 2>&1
+DBN_N4_2=$(grep -c '|dispatch-budget-unmeasured|' "$DBN/.apd/memory/guard-audit.log")
+[ "$DBN_N4_1" = "1" ] && [ "$DBN_N4_2" = "2" ] \
+    && { pass "once-per-task INFO is keyed by task name + spec epoch: a reused task name logs again (N4)"; PASSES=$((PASSES + 1)); } \
+    || { fail "N4: reused task name suppressed the INFO ($DBN_N4_1 → $DBN_N4_2)"; FAILS=$((FAILS + 1)); }
+rm -rf "$DBN"
+
+# --- delta2 audit: R1 (snapshot gone → strict fallback), R2 (freeze at first sight) ---
+DBR="$(mktemp -d -t apd-dbr.XXXXXX)"; _db_fixture "$DBR"
+_db_starts "$DBR" backend-builder 12
+rm -f "$DBR/.apd/pipeline/.dispatch-classes"
+printf -- '---\nname: backend-builder\ntools: Read, Grep\n---\ndowngraded after the snapshot was deleted\n' > "$DBR/.apd/agents/backend-builder.md"
+DBR_RC=$(_db_guard "$DBR" backend-builder)
+[ "$DBR_RC" = "2" ] && grep -q '|dispatch-classes-missing|' "$DBR/.apd/memory/guard-audit.log" \
+    && { pass "snapshot deleted + frontmatter downgraded → still counted as builder (13th blocked) and the missing snapshot is logged (R1 floor)"; PASSES=$((PASSES + 1)); } \
+    || { fail "R1: a deleted snapshot reopened the live-read hole (rc=$DBR_RC)"; FAILS=$((FAILS + 1)); }
+rm -rf "$DBR"
+DBR2="$(mktemp -d -t apd-dbr2.XXXXXX)"; _db_fixture "$DBR2"
+printf -- '---\nname: late-builder\nscope: [src/]\n---\ncreated after the spec\n' > "$DBR2/.apd/agents/late-builder.md"
+_db_starts "$DBR2" late-builder 12
+_db_guard "$DBR2" late-builder >/dev/null
+grep -q '^late-builder|builder$' "$DBR2/.apd/pipeline/.dispatch-classes" \
+    && { pass "an agent unknown at spec time is classified once and frozen into the snapshot (R2)"; PASSES=$((PASSES + 1)); } \
+    || { fail "R2: late agent not frozen: $(cat "$DBR2/.apd/pipeline/.dispatch-classes")"; FAILS=$((FAILS + 1)); }
+printf -- '---\nname: late-builder\ntools: Read, Grep\n---\ndowngraded after first sight\n' > "$DBR2/.apd/agents/late-builder.md"
+[ "$(_db_guard "$DBR2" late-builder)" = "2" ] \
+    && { pass "…and a later downgrade of that agent changes nothing (13th blocked)"; PASSES=$((PASSES + 1)); } \
+    || { fail "R2: downgrade after first sight reopened the count"; FAILS=$((FAILS + 1)); }
+rm -rf "$DBR2"
+fi
+
+
+section "132. Supervisor contract — a finding names the question it answers; notes need no disposition"
+
+# v7.1 — the charter limited the supervisor to four questions, the output
+# format only knew "findings", and the rationale gate forced a disposition on
+# each. Measured: SUPERVISION:8:7:1 with seven accepted findings that were
+# notes ("deviation from spec wording", "stale comment"), seven spinoffs and a
+# second supervisor pass. Now each finding carries `**Question:** Q1 R<n> | Q2
+# <path> | Q3 RS<n>`; the anchor is checked against the spec / reviewed scope;
+# a `### Notes` section carries the rest with no disposition and no count.
+if [ -x "$VALIDATOR" ]; then
+SC_ADV="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+_sc_state() {  # <dir> "<SUPERVISION line>" <rationale body>   — Full-mode fixture + supervisor on record, final
+    local d="$1"
+    _v67_make_state "$d" "ADVERSARIAL:0:0:0"
+    echo "MODEL_PROFILE=eco" >> "$d/.apd/config"
+    printf 'src/y.cs\nsrc/z.cs\n' > "$d/.apd/pipeline/.reviewed-files"
+    printf '%s\n' "$2" > "$d/.apd/pipeline/.supervision-summary"
+    printf '%s\n' "$3" > "$d/.apd/pipeline/.supervision-rationale.md"
+    printf '%s|start|supervisor|aabbccddeeff9001\n%s|stop|supervisor|aabbccddeeff9001\n' "$(_v67_ts 52)" "$(_v67_ts 53)" >> "$d/.apd/pipeline/.agents"
+}
+_sc_verifier() { APD_PROJECT_DIR="$1" APD_SUPERVISION_GATE=strict bash "$SC_ADV" verifier 2>&1; }
+SC_OK_BLOCK='## Finding 1 — R1 no longer holds
+**Question:** Q1 R1
+**Severity:** minor
+**Status:** accepted
+**Rationale:** the fix moved the check; accepted and re-fixed by the builder, re-supervised
+
+## Finding 2 — collateral next to the fix
+**Question:** Q2 src/y.cs:12
+**Severity:** minor
+**Status:** dismissed
+**Rationale:** the neighbouring branch is covered by the existing test and the diff does not reach it'
+
+# A: two tagged findings with valid anchors → the supervision gate is satisfied (strict passes)
+SCA="$(mktemp -d -t apd-sca.XXXXXX)"; _sc_state "$SCA" "SUPERVISION:2:1:1" "$SC_OK_BLOCK"
+SCA_OUT=$(_sc_verifier "$SCA"); SCA_RC=$?
+if [ "$SCA_RC" = "0" ] && ! echo "$SCA_OUT" | grep -q 'Supervision gate' && grep -q '|supervision-pass|' "$SCA/.claude/memory/guard-audit.log" 2>/dev/null; then
+    pass "tagged findings with valid anchors (Q1 R1, Q2 in reviewed scope) pass the strict gate"; PASSES=$((PASSES + 1))
+else
+    fail "valid tagged rationale rejected (rc=$SCA_RC): $(echo "$SCA_OUT" | grep -i 'supervision' | head -1)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$SCA"
+
+# B: a finding without **Question:** → supervision-rationale-untagged
+SCB="$(mktemp -d -t apd-scb.XXXXXX)"
+_sc_state "$SCB" "SUPERVISION:2:1:1" "$(printf '%s' "$SC_OK_BLOCK" | grep -v '^\*\*Question:\*\* Q2')"
+SCB_OUT=$(_sc_verifier "$SCB"); SCB_RC=$?
+[ "$SCB_RC" = "1" ] && echo "$SCB_OUT" | grep -q 'supervision-rationale-untagged' \
+    && { pass "a finding without **Question:** is refused as untagged (a note filed as a finding)"; PASSES=$((PASSES + 1)); } \
+    || { fail "untagged finding accepted (rc=$SCB_RC)"; FAILS=$((FAILS + 1)); }
+rm -rf "$SCB"
+
+# C: anchors are checked — R-id not in spec, RS-id not declared, path outside the reviewed scope
+_sc_invalid() {  # <label> <question line>
+    local d; d="$(mktemp -d -t apd-scc.XXXXXX)"
+    _sc_state "$d" "SUPERVISION:2:1:1" "$(printf '%s' "$SC_OK_BLOCK" | sed "s#^\*\*Question:\*\* Q2 src/y.cs:12\$#$2#")"
+    local out rc; out=$(_sc_verifier "$d"); rc=$?
+    if [ "$rc" = "1" ] && echo "$out" | grep -q 'supervision-question-invalid'; then pass "$1 → supervision-question-invalid"; PASSES=$((PASSES + 1))
+    else fail "$1 accepted (rc=$rc): $(echo "$out" | grep -i 'supervision' | head -1)"; FAILS=$((FAILS + 1)); fi
+    rm -rf "$d"
+}
+_sc_invalid "Q1 R9 on a one-criterion spec" '**Question:** Q1 R9'
+_sc_invalid "Q3 RS1 with no regression surface declared" '**Question:** Q3 RS1'
+_sc_invalid "Q2 docs/other.md outside the reviewed scope" '**Question:** Q2 docs/other.md'
+# a tag outside Q1–Q3 is not a tag at all: the block is refused as untagged
+SCQ="$(mktemp -d -t apd-scq.XXXXXX)"
+_sc_state "$SCQ" "SUPERVISION:2:1:1" "$(printf '%s' "$SC_OK_BLOCK" | sed "s|^\*\*Question:\*\* Q2 src/y.cs:12$|**Question:** Q4 R1|")"
+SCQ_OUT=$(_sc_verifier "$SCQ"); SCQ_RC=$?
+[ "$SCQ_RC" = "1" ] && echo "$SCQ_OUT" | grep -q 'supervision-rationale-untagged' \
+    && { pass "Q4 (no such question) is refused as untagged"; PASSES=$((PASSES + 1)); } \
+    || { fail "Q4 accepted (rc=$SCQ_RC)"; FAILS=$((FAILS + 1)); }
+rm -rf "$SCQ"
+# …and an absolute path that ENDS in a reviewed file still holds (the orchestrator often writes absolute paths)
+SCD="$(mktemp -d -t apd-scd.XXXXXX)"
+_sc_state "$SCD" "SUPERVISION:2:1:1" "$(printf '%s' "$SC_OK_BLOCK" | sed "s|^\*\*Question:\*\* Q2 src/y.cs:12$|**Question:** Q2 $SCD/src/z.cs:40|")"
+SCD_OUT=$(_sc_verifier "$SCD"); SCD_RC=$?
+[ "$SCD_RC" = "0" ] && ! echo "$SCD_OUT" | grep -q 'supervision-question-invalid' \
+    && { pass "Q2 with an absolute path ending in a reviewed file is accepted"; PASSES=$((PASSES + 1)); } \
+    || { fail "absolute Q2 path rejected (rc=$SCD_RC)"; FAILS=$((FAILS + 1)); }
+rm -rf "$SCD"
+
+# D: T counts findings only — notes live in the summary, not in the rationale
+SCE="$(mktemp -d -t apd-sce.XXXXXX)"
+_sc_state "$SCE" "SUPERVISION:3:1:1
+Notes:
+- wording of the R2 sentence drifted; no behaviour change" "$SC_OK_BLOCK"
+SCE_OUT=$(_sc_verifier "$SCE"); SCE_RC=$?
+[ "$SCE_RC" = "1" ] && echo "$SCE_OUT" | grep -q 'supervision-rationale-count-mismatch' \
+    && { pass "SUPERVISION:3 over two tagged findings + a note is a count mismatch (notes do not count)"; PASSES=$((PASSES + 1)); } \
+    || { fail "note counted as a finding (rc=$SCE_RC)"; FAILS=$((FAILS + 1)); }
+rm -rf "$SCE"
+
+# E: template carries the contract; apd-init refreshes a copy that predates it, keeping a profile-managed model
+SC_TPL="$APD_PLUGIN_ROOT/templates/supervisor-template.md"
+if grep -q '^### Notes' "$SC_TPL" && grep -q '\[Q1 R3 / ' "$SC_TPL" && grep -q '\[Q3 RS1 / ' "$SC_TPL" \
+   && grep -qi 'Notes need no disposition' "$SC_TPL" && grep -q 'memory: none' "$SC_TPL"; then
+    pass "supervisor template: Q-tagged finding shape + ### Notes + the no-disposition rule (memory: none kept)"; PASSES=$((PASSES + 1))
+else
+    fail "supervisor template missing the Question/Notes contract"; FAILS=$((FAILS + 1))
+fi
+SCF="$(mktemp -d -t apd-scf.XXXXXX)"
+mkdir -p "$SCF/.claude/agents" "$SCF/.claude/memory"
+printf 'PROJECT_NAME=scf\nAPD_VERSION=test\nMODEL_PROFILE=burn\n' > "$SCF/.claude/.apd-config"
+printf -- '---\nname: supervisor\nmodel: claude-fable-5-1\neffort: max\nmemory: none\n---\nOld charter without the section.\n' > "$SCF/.claude/agents/supervisor.md"
+( cd "$SCF" && APD_PROJECT_DIR="$SCF" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick >/dev/null 2>&1 ) || true
+if grep -q '^### Notes' "$SCF/.claude/agents/supervisor.md" && grep -q '^model: claude-fable-5-1' "$SCF/.claude/agents/supervisor.md"; then
+    pass "apd-init refreshes a supervisor.md lacking ### Notes and keeps the profile-managed model pin"; PASSES=$((PASSES + 1))
+else
+    fail "apd-init refresh: notes=$(grep -c '^### Notes' "$SCF/.claude/agents/supervisor.md") model=$(grep -m1 '^model:' "$SCF/.claude/agents/supervisor.md")"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$SCF"
+
+# --- audit 2026-09-29 (gates): findings turned into checks ---------------------
+# M1: tags are counted per BLOCK — two tags in one block and none in the next is untagged
+SCM1="$(mktemp -d -t apd-scm1.XXXXXX)"
+_sc_state "$SCM1" "SUPERVISION:2:1:1" "$(printf '%s' "$SC_OK_BLOCK" | sed 's|^\*\*Question:\*\* Q2 src/y.cs:12$|**Question:** Q2 src/y.cs:12\
+**Question:** Q1 R1|' | awk 'BEGIN{skip=0} /^## Finding 1/{f1=1} /^## Finding 2/{f1=0} { if (f1 && $0 ~ /^\*\*Question:\*\*/) next; print }')"
+SCM1_OUT=$(_sc_verifier "$SCM1"); SCM1_RC=$?
+[ "$SCM1_RC" = "1" ] && echo "$SCM1_OUT" | grep -q 'supervision-rationale-untagged' \
+    && { pass "two Question lines in one block + none in the next is untagged (per-block count)"; PASSES=$((PASSES + 1)); } \
+    || { fail "M1: per-file tag count accepted a mis-tagged rationale (rc=$SCM1_RC)"; FAILS=$((FAILS + 1)); }
+rm -rf "$SCM1"
+# M2: an anchor is validated for shape before it reaches grep -E
+_sc_invalid "Q1 with a regex in the anchor (R9|.*)" '**Question:** Q1 R9|.*'
+# M3: Q2 path boundary — a suffix without a path boundary, and an absolute path outside the project, are refused
+_sc_invalid "Q2 lib/notsrc/y.cs (suffix without a boundary)" '**Question:** Q2 lib/notsrc/y.cs'
+_sc_invalid "Q2 /etc/other/src/y.cs (absolute, outside the project)" '**Question:** Q2 /etc/other/src/y.cs'
+# I2: a Q2 anchor on a file the fix-of-findings round CREATED after reviewer.done is valid (the verifier refreshes the scope)
+if command -v git >/dev/null 2>&1; then
+SCI2="$(mktemp -d -t apd-sci2.XXXXXX)"
+( cd "$SCI2" && git init -q && git config user.email t@t.io && git config user.name t && mkdir -p src && echo base > src/base.cs && printf '.apd/\n.claude/\n' > .gitignore && git add -A && git commit -qm base )
+_sc_state "$SCI2" "SUPERVISION:2:1:1" "$(printf '%s' "$SC_OK_BLOCK" | sed "s|^\*\*Question:\*\* Q2 src/y.cs:12$|**Question:** Q2 src/new.cs:3|")"
+echo "created by the fix round, after reviewer.done" > "$SCI2/src/new.cs"
+SCI2_OUT=$(_sc_verifier "$SCI2"); SCI2_RC=$?
+if [ "$SCI2_RC" = "0" ] && ! echo "$SCI2_OUT" | grep -q 'supervision-question-invalid' && grep -q '^src/new.cs$' "$SCI2/.apd/pipeline/.reviewed-files"; then
+    pass "Q2 on a file created after reviewer.done is valid — the verifier refreshes .reviewed-files on the final state"; PASSES=$((PASSES + 1))
+else
+    fail "I2 regressed: fix-round file refused as out of scope (rc=$SCI2_RC): $(echo "$SCI2_OUT" | grep -i 'supervision' | head -1)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$SCI2"
+fi
+# I4: the refresh keeps the previous copy beside the file
+SCI4="$(mktemp -d -t apd-sci4.XXXXXX)"
+mkdir -p "$SCI4/.claude/agents" "$SCI4/.claude/memory"
+printf 'PROJECT_NAME=sci4\nAPD_VERSION=test\n' > "$SCI4/.claude/.apd-config"
+printf -- '---\nname: supervisor\nmodel: claude-opus-5\neffort: max\nmemory: none\n---\nLOCAL EDIT the project made.\n' > "$SCI4/.claude/agents/supervisor.md"
+( cd "$SCI4" && APD_PROJECT_DIR="$SCI4" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick >/dev/null 2>&1 ) || true
+if grep -q '^### Notes' "$SCI4/.claude/agents/supervisor.md" && grep -q 'LOCAL EDIT the project made' "$SCI4/.claude/agents/supervisor.md.bak.pre-v7.1" 2>/dev/null; then
+    pass "apd-init keeps the pre-refresh supervisor.md as supervisor.md.bak.pre-v7.1 (nothing deleted)"; PASSES=$((PASSES + 1))
+else
+    fail "I4: refresh without a backup of the project's copy"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$SCI4"
+
+# gates delta audit: Q3 anchor shape is validated before grep -E; the first pre-refresh backup wins
+_sc_invalid "Q3 with a regex in the anchor (RS9|.*)" '**Question:** Q3 RS9|.*'
+SCI4B="$(mktemp -d -t apd-sci4b.XXXXXX)"
+mkdir -p "$SCI4B/.claude/agents" "$SCI4B/.claude/memory"
+printf 'PROJECT_NAME=sci4b\nAPD_VERSION=test\n' > "$SCI4B/.claude/.apd-config"
+printf -- '---\nname: supervisor\nmodel: claude-opus-5\neffort: max\nmemory: none\n---\nFIRST local copy.\n' > "$SCI4B/.claude/agents/supervisor.md"
+( cd "$SCI4B" && APD_PROJECT_DIR="$SCI4B" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick >/dev/null 2>&1 ) || true
+printf -- '---\nname: supervisor\nmodel: claude-opus-5\neffort: max\nmemory: none\n---\nSECOND local copy without the section.\n' > "$SCI4B/.claude/agents/supervisor.md"
+( cd "$SCI4B" && APD_PROJECT_DIR="$SCI4B" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick >/dev/null 2>&1 ) || true
+grep -q 'FIRST local copy' "$SCI4B/.claude/agents/supervisor.md.bak.pre-v7.1" 2>/dev/null \
+    && { pass "the pre-refresh backup is first-wins: a second refresh does not overwrite it"; PASSES=$((PASSES + 1)); } \
+    || { fail "backup overwritten by a later refresh: $(head -c 80 "$SCI4B/.claude/agents/supervisor.md.bak.pre-v7.1" 2>/dev/null)"; FAILS=$((FAILS + 1)); }
+rm -rf "$SCI4B"
+fi
+
+
+section "133. Lean opt-out honours the file count the doc already promises"
+
+# v7.1 — workflow.md §0 has said "fewer than 5 files in scope" for Lean since
+# v6.x; the gate checked only R≤2. A 164-file change went through Lean on a
+# 2-criteria spec (2026-09-28). The count comes from `.reviewed-files`, which
+# the reviewer step regenerates right before deciding and which no allowlist
+# lets the orchestrator edit. Both the reviewer step and the verifier call the
+# SAME predicate, so the two ends of the pipeline cannot disagree.
+if [ -x "$VALIDATOR" ] && command -v git >/dev/null 2>&1; then
+_l3_fixture() {  # <dir> <ncrit> [git=1] — a Codex-style project, spec advanced, no task files yet
+    local d="$1" nc="$2" usegit="${3:-1}" i crit=""
+    mkdir -p "$d/.apd/agents" "$d/.apd/pipeline" "$d/.apd/memory" "$d/src"
+    printf 'PROJECT_NAME=l3\nAPD_VERSION=test\n' > "$d/.apd/config"
+    printf -- '---\nname: backend-builder\nscope: [src/]\n---\nBuilder.\n' > "$d/.apd/agents/backend-builder.md"
+    printf -- '---\nname: code-reviewer\nreadonly: true\nscope: []\n---\n' > "$d/.apd/agents/code-reviewer.md"
+    printf -- '---\nname: adversarial-reviewer\nreadonly: true\nscope: []\n---\n' > "$d/.apd/agents/adversarial-reviewer.md"
+    if [ "$usegit" = 1 ]; then
+        ( cd "$d" && git init -q && git config user.email t@t.io && git config user.name t \
+            && printf '.apd/\n' > .gitignore && echo base > src/base.txt && git add -A && git commit -qm base )
+    fi
+    for ((i = 1; i <= nc; i++)); do crit="${crit}- R${i}: criterion ${i}"$'\n'; done
+    # Trace markers exist BEFORE the spec advance: baselined (not a reviewed file)
+    # yet enough for the verifier's trace gate, so the verifier reaches the
+    # opt-out question instead of stopping at coverage.
+    mkdir -p "$d/tests"; printf '// @trace R1 R2 R3\n' > "$d/tests/test_l3.py"
+    cat > "$d/.apd/pipeline/spec-card.md" <<EOF
+# L3 task
+plan_consistency_gate: off
+adversarial: skip — small contained change
+**Acceptance criteria:**
+$crit
+EOF
+    printf '# Plan\n### Section 1\n**Implements:** R1\n- src/x — change\n\n### Agents\n- backend-builder\n' > "$d/.apd/pipeline/implementation-plan.md"
+    _guide_marker "$d" "l3-task"
+    APD_PROJECT_DIR="$d" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" spec "l3-task" >/dev/null 2>&1
+}
+_l3_run() {  # <dir> <nfiles> → prints reviewer-advance output; touches nfiles AFTER spec (so they count)
+    local d="$1" nf="$2" i
+    for ((i = 1; i <= nf; i++)); do echo "task $i" > "$d/src/task$i.txt"; done
+    _seed_codex_pair "$d" backend-builder aabbccddeeff1331 1 11
+    APD_PROJECT_DIR="$d" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder >/dev/null 2>&1
+    _seed_codex_pair "$d" code-reviewer aabbccddeeff1332 13 23
+    APD_PROJECT_DIR="$d" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reviewer 2>&1
+}
+
+# A: 2 R + 4 files → opt-out honoured, no pending marker, no denial logged
+L3A="$(mktemp -d -t apd-l3a.XXXXXX)"; _l3_fixture "$L3A" 2
+L3A_OUT=$(_l3_run "$L3A" 4)
+if [ ! -f "$L3A/.apd/pipeline/.adversarial-pending" ] && echo "$L3A_OUT" | grep -q 'skipped (opt-out' \
+   && ! grep -q 'adversarial-opt-out-denied' "$L3A/.apd/memory/guard-audit.log" 2>/dev/null; then
+    pass "2 R + 4 reviewed files → Lean opt-out honoured"; PASSES=$((PASSES + 1))
+else
+    fail "4-file opt-out not honoured: $(echo "$L3A_OUT" | grep -i 'opt-out' | head -1)"; FAILS=$((FAILS + 1))
+fi
+# A2: verifier symmetry — with the marker deliberately absent, the verifier does NOT
+# call this run unaccounted (the same predicate says the opt-out is valid)
+L3A_V=$(APD_PROJECT_DIR="$L3A" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" verifier 2>&1)
+if ! echo "$L3A_V" | grep -q 'adversarial phase is unaccounted'; then
+    pass "verifier agrees: a 4-file opt-out is not 'unaccounted'"; PASSES=$((PASSES + 1))
+else
+    fail "verifier disagrees with the reviewer step on a valid 4-file opt-out"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$L3A"
+
+# B: 2 R + 5 files → DENIED on files: pending marker written, warn names the count, INFO logged
+L3B="$(mktemp -d -t apd-l3b.XXXXXX)"; _l3_fixture "$L3B" 2
+L3B_OUT=$(_l3_run "$L3B" 5)
+if [ -f "$L3B/.apd/pipeline/.adversarial-pending" ] && echo "$L3B_OUT" | grep -q 'DENIED: 5 files in the reviewed scope (max 4' \
+   && grep -q '|adversarial-opt-out-denied|criteria=2 files=5' "$L3B/.apd/memory/guard-audit.log" 2>/dev/null; then
+    pass "2 R + 5 reviewed files → opt-out DENIED, adversarial required, denial logged with both counts"; PASSES=$((PASSES + 1))
+else
+    fail "5-file denial wrong: pending=$([ -f "$L3B/.apd/pipeline/.adversarial-pending" ] && echo y || echo n) out=$(echo "$L3B_OUT" | grep -i 'opt-out' | head -1) log=$(grep 'opt-out' "$L3B/.apd/memory/guard-audit.log" 2>/dev/null | tail -1)"; FAILS=$((FAILS + 1))
+fi
+# B2: verifier symmetry — remove the marker (simulate the layer being dropped) →
+# the verifier must refuse: the SAME predicate says 5 files do not qualify
+rm -f "$L3B/.apd/pipeline/.adversarial-pending"
+L3B_V=$(APD_PROJECT_DIR="$L3B" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" verifier 2>&1); L3B_RC=$?
+if [ "$L3B_RC" = "1" ] && echo "$L3B_V" | grep -q 'adversarial phase is unaccounted' && echo "$L3B_V" | grep -q 'fewer'; then
+    pass "verifier agrees: a dropped layer on a 5-file task is 'unaccounted' (message names the file rule)"; PASSES=$((PASSES + 1))
+else
+    fail "verifier symmetry broken on 5 files (rc=$L3B_RC)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$L3B"
+
+# C: 3 R + 2 files → DENIED on criteria (unchanged rule) and now LOGGED with both counts
+L3C="$(mktemp -d -t apd-l3c.XXXXXX)"; _l3_fixture "$L3C" 3
+L3C_OUT=$(_l3_run "$L3C" 2)
+if [ -f "$L3C/.apd/pipeline/.adversarial-pending" ] && echo "$L3C_OUT" | grep -q 'DENIED: 3 criteria (max 2' \
+   && grep -q '|adversarial-opt-out-denied|criteria=3 files=2' "$L3C/.apd/memory/guard-audit.log" 2>/dev/null; then
+    pass "3 R + 2 files → denied on criteria, and the denial is logged (it never was before v7.1)"; PASSES=$((PASSES + 1))
+else
+    fail "criteria denial not logged: $(grep 'opt-out' "$L3C/.apd/memory/guard-audit.log" 2>/dev/null | tail -1)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$L3C"
+
+# D: no git checkout → no .reviewed-files → unmeasured: R-rule alone, and the fact is logged
+L3D="$(mktemp -d -t apd-l3d.XXXXXX)"; _l3_fixture "$L3D" 2 0
+L3D_OUT=$(_l3_run "$L3D" 9)
+if [ ! -f "$L3D/.apd/pipeline/.adversarial-pending" ] && grep -q '|adversarial-opt-out-files-unmeasured|criteria=2' "$L3D/.apd/memory/guard-audit.log" 2>/dev/null; then
+    pass "no git checkout → file rule unmeasured: opt-out honoured on R alone and logged as unmeasured"; PASSES=$((PASSES + 1))
+else
+    fail "unmeasured path wrong: pending=$([ -f "$L3D/.apd/pipeline/.adversarial-pending" ] && echo y || echo n) log=$(grep 'opt-out' "$L3D/.apd/memory/guard-audit.log" 2>/dev/null | tail -1)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$L3D"
+
+# E: the constant is ONE place and the doc number is the code number
+if [ "$(grep -c '^ADV_OPT_OUT_MAX_FILES=5$' "$APD_PLUGIN_ROOT/bin/core/pipeline-advance")" = "1" ] \
+   && grep -q 'fewer than 5 files' "$APD_PLUGIN_ROOT/rules/workflow.md"; then
+    pass "ADV_OPT_OUT_MAX_FILES=5 is one constant and workflow.md carries the same number"; PASSES=$((PASSES + 1))
+else
+    fail "file-count constant and workflow.md disagree or are duplicated"; FAILS=$((FAILS + 1))
+fi
+# F: lock-in for verify-apd Section 8 — its synthetic opt-out task must stay under
+# the file rule, or `apd verify` starts requiring an adversarial pass it never runs
+L3_V8=$(awk '/pipeline-advance" spec "APD-VERIFY-OPT-OUT"/{f=1; next} f && /pipeline-advance" reviewer/{exit} f' "$APD_PLUGIN_ROOT/bin/core/verify-apd" \
+    | grep -E '>>? *"?\$PROJECT_DIR/' | grep -vc '\.apd/pipeline' || true)
+if [ "${L3_V8:-0}" -eq 0 ]; then
+    pass "verify-apd Section 8 opt-out fixture writes no project files between its spec and reviewer advances — stays Lean-eligible"; PASSES=$((PASSES + 1))
+else
+    fail "verify-apd Section 8 opt-out fixture writes $L3_V8 project file(s) after its spec advance — the file rule would deny Lean"; FAILS=$((FAILS + 1))
+fi
+
+# --- audit 2026-09-29 (gates): findings turned into checks ---------------------
+# I3: files added BETWEEN builder.done and the reviewer advance count (the reviewer step measures before deciding)
+L3I3="$(mktemp -d -t apd-l3i3.XXXXXX)"; _l3_fixture "$L3I3" 2
+for i in 1 2 3 4; do echo "b $i" > "$L3I3/src/b$i.txt"; done
+_seed_codex_pair "$L3I3" backend-builder aabbccddeeff1341 1 11
+APD_PROJECT_DIR="$L3I3" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" builder >/dev/null 2>&1
+for i in 1 2 3; do echo "fix $i" > "$L3I3/src/fix$i.txt"; done     # review-fix round, after builder.done
+_seed_codex_pair "$L3I3" code-reviewer aabbccddeeff1342 13 23
+L3I3_OUT=$(APD_PROJECT_DIR="$L3I3" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reviewer 2>&1)
+[ -f "$L3I3/.apd/pipeline/.adversarial-pending" ] && echo "$L3I3_OUT" | grep -q 'DENIED: 7 files' \
+    && { pass "4 files at builder.done + 3 in the review-fix round = 7 → denied (measured at the decision, not at the builder step)"; PASSES=$((PASSES + 1)); } \
+    || { fail "I3: reviewer step decided on the builder-time list: $(echo "$L3I3_OUT" | grep -i 'opt-out' | head -1)"; FAILS=$((FAILS + 1)); }
+rm -rf "$L3I3"
+# I1: the verifier re-measures — a Lean run that grew past the limit AFTER reviewer.done is refused as unaccounted
+L3I1="$(mktemp -d -t apd-l3i1.XXXXXX)"; _l3_fixture "$L3I1" 2
+L3I1_OUT=$(_l3_run "$L3I1" 4)
+[ ! -f "$L3I1/.apd/pipeline/.adversarial-pending" ] || fail "I1 fixture: 4-file opt-out should have been honoured"
+for i in $(seq 1 40); do echo "late $i" > "$L3I1/src/late$i.txt"; done   # written after reviewer.done, no adversarial ran
+_seed_codex_pair "$L3I1" backend-builder aabbccddeeff1343 25 35
+L3I1_V=$(APD_PROJECT_DIR="$L3I1" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" verifier 2>&1); L3I1_RC=$?
+if [ "$L3I1_RC" = "1" ] && echo "$L3I1_V" | grep -q 'adversarial phase is unaccounted' && [ ! -f "$L3I1/.apd/pipeline/verifier.done" ]; then
+    pass "44 files at the verifier (4 reviewed + 40 after) → the Lean opt-out no longer holds: unaccounted, not signed"; PASSES=$((PASSES + 1))
+else
+    fail "I1 regressed: verifier signed a Lean run on a stale 4-file list (rc=$L3I1_RC)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$L3I1"
+# M8: APD's own logs on the Codex layout are not task files
+L3M8="$(mktemp -d -t apd-l3m8.XXXXXX)"; _l3_fixture "$L3M8" 2
+( cd "$L3M8" && printf '' > .gitignore && git add -A >/dev/null 2>&1 && git commit -qm "no ignore" >/dev/null 2>&1 )   # Codex-style: .apd/ NOT ignored
+L3M8_OUT=$(_l3_run "$L3M8" 4)
+if [ ! -f "$L3M8/.apd/pipeline/.adversarial-pending" ] && ! grep -q '^\.apd/' "$L3M8/.apd/pipeline/.reviewed-files"; then
+    pass "untracked .apd/ state and logs do not count as reviewed files (4 task files stay Lean-eligible)"; PASSES=$((PASSES + 1))
+else
+    fail "M8: framework files inflate the reviewed scope: $(grep -c . "$L3M8/.apd/pipeline/.reviewed-files") lines, $(grep -c '^\.apd/' "$L3M8/.apd/pipeline/.reviewed-files") under .apd/"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$L3M8"
+
+# gates delta audit N3: only what the framework writes is excluded; agent definitions stay reviewable
+L3N3="$(mktemp -d -t apd-l3n3.XXXXXX)"; _l3_fixture "$L3N3" 2
+( cd "$L3N3" && printf '.apd/pipeline/\n.apd/memory/\n' > .gitignore && git add -A >/dev/null 2>&1 && git commit -qm "narrow ignore" >/dev/null 2>&1 )
+mkdir -p "$L3N3/.claude/rules"; echo "refreshed by apd init" > "$L3N3/.claude/rules/workflow.md"
+printf -- '---\nname: new-agent\nscope: [src/]\n---\n' > "$L3N3/.apd/agents/new-agent.md"
+L3N3_OUT=$(_l3_run "$L3N3" 3)
+if grep -q '^\.apd/agents/new-agent.md$' "$L3N3/.apd/pipeline/.reviewed-files" && ! grep -q '^\.claude/rules/workflow.md$' "$L3N3/.apd/pipeline/.reviewed-files"; then
+    pass "a changed Codex agent definition IS a reviewed file; a framework-refreshed workflow.md is NOT"; PASSES=$((PASSES + 1))
+else
+    fail "N3: exclusion too wide or too narrow: $(tr '\n' ' ' < "$L3N3/.apd/pipeline/.reviewed-files")"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$L3N3"
+fi
+
+
+section "134. guard-bash-scope reads shell as shell, and names the caller it blocked"
+
+# v7.1 — measured on one project in September 2026: 170 out-of-scope-bash-write
+# blocks, 166 of them on subagents, and the audit log attributed EVERY one to
+# the orchestrator (the CC shim read agent_type for scope resolution and never
+# exported it). Three agents had written themselves memory notes on how to
+# phrase commands around the guard: a `>` inside a quoted grep pattern, a
+# generic `IReadOnlyList<string>`, `$SP/out.txt`, `cd sub && mv x y`, an
+# ABSOLUTE path inside the agent's own scope, a python heredoc that only reads.
+# Each row below is a pair: the field shape must ALLOW, and a true write of the
+# same shape must still BLOCK. The old scanner fails the allow side of every
+# class; a scanner that stops reading targets fails the block side.
+GB4_T="$(mktemp -d -t apd-gb4.XXXXXX)"
+mkdir -p "$GB4_T/.claude/agents" "$GB4_T/.claude/memory" "$GB4_T/src/sub" "$GB4_T/Tests/T" "$GB4_T/WebClients/Mobile"
+touch "$GB4_T/.claude/.apd-config"
+GB4_SP="/private/tmp/claude-501/-Users-x/abc/scratchpad"
+GB4="$APD_PLUGIN_ROOT/bin/core/guard-bash-scope"
+GB4_SHIM="$APD_PLUGIN_ROOT/bin/adapter/cc/guard-bash-scope"
+_gb4() {  # <expected rc> <label> <command> <scope...>
+    local exp="$1" label="$2" cmd="$3"; shift 3
+    APD_PROJECT_DIR="$GB4_T" bash "$GB4" --command "$cmd" "$@" >/dev/null 2>&1
+    local rc=$?
+    if [ "$rc" = "$exp" ]; then pass "$label (rc=$rc)"; PASSES=$((PASSES + 1))
+    else fail "$label: want rc=$exp got rc=$rc — ${cmd:0:80}"; FAILS=$((FAILS + 1)); fi
+}
+
+# 1. quote-aware operators: a `>` inside quotes, a generic, an arrow, `>=`, `==` are text
+_gb4 0 "generic <string> in a quoted grep pattern is not a redirect" "grep -n 'IReadOnlyList<string>' Tests/T/x.cs" Tests/
+_gb4 0 "'^> Task' in a quoted pattern is not a redirect"             "grep -E '^> Task' build.log" src/
+_gb4 0 "NR>=420 inside quotes is not a redirect"                     "awk 'NR>=420 && NR<=900' Tests/T/x.cs" Tests/
+_gb4 0 "== inside a quoted echo is not a target"                     'echo "== KORAK x =="' src/
+_gb4 0 "unquoted generic in a double-quoted grep is not a redirect"  "grep -n \"public async Task<ActivateUserDto> ActivateUser\" -A 45 src/U.cs" src/
+_gb4 2 "…but a real redirect after a quoted '>' still blocks"       "grep 'a>b' f > /etc/out" src/
+_gb4 2 "a QUOTED out-of-scope target is still extracted and blocked" 'echo x > "/tmp/o.txt"' src/
+_gb4 2 "stderr to a file is a write (2>/etc/err.log)"                "cmd 2>/etc/err.log" src/
+_gb4 0 "2>&1 and >&2 and >/dev/null are not writes"                  "pytest -q 2>&1 | tail -20; make >&2; npm test >/dev/null" src/
+
+# 2. heredoc bodies are data; an interpreter's body is scanned for WRITE calls only
+_gb4 0 "python heredoc that only reads is allowed"       "python3 - <<'PY'
+t=open('Tests/T/x.cs',encoding='utf-8').read(); print(len(t))
+PY" Tests/
+_gb4 2 "python heredoc that writes out of scope blocks"  "python3 - <<'PY'
+open('/etc/x','w').write('boom')
+PY" src/
+_gb4 0 "cat > scratchpad <<heredoc: body text with '> /etc/x' is data" "cat > $GB4_SP/ui.py <<'PY'
+print('> /etc/x')
+PY" src/
+_gb4 2 "cat > /etc/x <<heredoc still blocks on the real target"        "cat > /etc/x <<'EOF'
+hello
+EOF" src/
+
+# 3. $VAR from a same-command assignment resolves; an unknown one fails closed
+_gb4 0 "SP=<scratchpad>; cmd > \$SP/x resolves to the scratchpad"      "SP=$GB4_SP; npx tsc > \$SP/tsc.txt" src/
+_gb4 2 "SP=/tmp/evil; cmd > \$SP/x resolves and blocks"                "SP=/tmp/evil; echo > \$SP/x" src/
+_gb4 2 "an unresolvable \$UNSET target blocks (fail-closed unchanged)" "echo > \$UNSET/x" src/
+
+# 4. relative targets resolve against the last cd; subshells push/pop it
+_gb4 0 "cd Tests/T && mv x.cs x.cs.pre stays in scope"                 "cd Tests/T && mv x.cs x.cs.pre" Tests/
+_gb4 2 "cd Tests/T && mv x.cs ../../etc/x leaves it"                   "cd Tests/T && mv x.cs ../../etc/x" Tests/
+_gb4 0 "cd <scratchpad> && echo > red1.txt is a scratchpad write"      "cd $GB4_SP && echo hi > red1.txt" src/
+_gb4 2 "cd /etc && echo > passwd blocks"                               "cd /etc && echo > passwd" src/
+_gb4 0 "(cd /etc && ls) && echo > src/out.txt — the subshell cd does not leak" "(cd /etc && ls) && echo > src/out.txt" src/
+_gb4 2 "cd - && echo > out.txt — unknown cwd fails closed"             "cd - && echo > out.txt" src/
+
+# 5. absolute path inside the agent's own scope is in scope
+_gb4 0 "mkdir -p <abs>/WebClients/Mobile/build is in scope"            "mkdir -p $GB4_T/WebClients/Mobile/build" WebClients/
+_gb4 0 "sed -i on <abs>/Tests/T/X.cs is in scope"                       "sed -i '' 's/a/b/' $GB4_T/Tests/T/X.cs" Tests/
+_gb4 2 "<abs>/src/../../etc/x canonicalises out and blocks"            "echo > $GB4_T/src/../../etc/x" src/
+
+# 6. mv: the source leaves its place, so it counts too
+_gb4 2 "mv /etc/hosts <scratchpad>/ blocks on the source"              "mv /etc/hosts $GB4_SP/" src/
+_gb4 0 "mv Tests/T/a.cs <scratchpad>/a.cs.pre allowed when Tests/ is the scope" "mv Tests/T/a.cs $GB4_SP/a.cs.pre" Tests/
+_gb4 2 "mv Tests/T/a.cs <scratchpad>/ blocks when Tests/ is NOT the scope"     "mv Tests/T/a.cs $GB4_SP/a.cs.pre" src/
+_gb4 0 "cp /etc/hosts src/hosts.txt allowed (a copy only reads its source)"    "cp /etc/hosts src/hosts.txt" src/
+
+# 7. runtime heuristics keyed to write calls
+_gb4 0 "python -c that only READS a file outside its scope is not a runtime write" "python3 -c 'import re; t=open(\"Tests/T/x.cs\").read(); print(len(t))'" src/
+_gb4 0 "Path(...) alone is not a runtime write"                          "python3 -c 'from pathlib import Path; print(Path(\"src\").exists())'" src/
+_gb4 2 "python -c open(...,'w') out of scope blocks"                     "python3 -c \"open('/etc/x','w').write('')\"" src/
+_gb4 2 "node -e writeFileSync out of scope blocks"                       "node -e \"require('fs').writeFileSync('/etc/x','')\"" src/
+
+# 8. the fallback only sees path-shaped tokens
+_gb4 0 "python -c 'n=3; print(n>2)' — a bare word is never a target"    "python3 -c 'import sys; n=3; print(n>2)'" src/
+_gb4 2 "python -c shutil.copy(...,'/etc/b') still caught"              "python3 -c \"import shutil; shutil.copy('a','/etc/b')\"" src/
+
+# unchanged: the scratchpad exemption stays narrow (§129 pattern, on the canonical form)
+_gb4 0 "logical /tmp/claude-<uid>/…/scratchpad still passes after canonicalisation" "pytest > /tmp/claude-501/-Users-x/abc/scratchpad/p.log" src/
+_gb4 2 "/tmp/scratchpad/evil.txt still blocks"                                       "echo x > /tmp/scratchpad/evil.txt" src/
+_gb4 2 "a writable agent with no scope is still refused any write"                   "echo x > src/a" --deny-all-writes
+
+
+# --- independent parser audit 2026-09-29: four fail-open classes + thirteen more, each now a pair ---
+_gb4c() {  # <expected rc> <label> <cwd> <command> <scope...>
+    local exp="$1" label="$2" cwd="$3" cmd="$4"; shift 4
+    APD_PROJECT_DIR="$GB4_T" bash "$GB4" --command "$cmd" --cwd "$cwd" "$@" >/dev/null 2>&1
+    local rc=$?
+    if [ "$rc" = "$exp" ]; then pass "$label (rc=$rc)"; PASSES=$((PASSES + 1))
+    else fail "$label: want rc=$exp got rc=$rc — ${cmd:0:80}"; FAILS=$((FAILS + 1)); fi
+}
+touch "$GB4_T/src/a.cs" "$GB4_T/src/list"
+# C1 keywords in command position hid the write op
+_gb4 2 "for … do sed -i on /etc/hosts still blocks (do is not a command)" "for f in /etc/hosts; do sed -i 's/a/b/' \"\$f\"; done" src/
+_gb4 2 "if … then cp to /etc still blocks (then is not a command)"       "if true; then cp src/a.cs /etc/x; fi" src/
+_gb4 2 "{ cp … } still blocks"                                             "{ cp src/a.cs /etc/x; }" src/
+_gb4 2 "! rm /etc/x still blocks"                                          "! rm /etc/x" src/
+_gb4c 2 "cd inside then/fi is tracked" "$GB4_T/src"                        "if true; then cd /etc; fi; echo boom > x" src/
+_gb4 0 "for f in src/*.cs; do sed -i … \$f — the loop variable resolves in scope" "for f in src/*.cs; do sed -i 's/a/b/' \"\$f\"; done" src/
+# C2 backslash-newline continuation
+_gb4 2 "cp src/a.cs \\⏎ /etc/a.cs — a continued line is one statement"    "cp src/a.cs \\
+   /etc/a.cs" src/
+_gb4 2 "echo x > \\⏎/etc/x — a continued redirect target"                  "echo x > \\
+/etc/x" src/
+_gb4 0 "grep -n foo \\⏎ src/a.cs stays a read"                             "grep -n foo \\
+   src/a.cs" src/
+# C3 heredoc followed by a separator on the same line
+_gb4 2 "python3 - <<PY | head with a writing body blocks"                  "python3 - <<'PY' | head
+open('/etc/x','w').write('boom')
+PY" src/
+_gb4 2 "bash <<EOF | cat with a writing body is re-parsed and blocks"      "bash <<'EOF' | cat
+echo boom > /etc/x
+EOF" src/
+_gb4 0 "python3 - <<PY 2>&1 | tail with a reading body allows"             "python3 - <<'PY' 2>&1 | tail
+t=open('src/a.cs').read(); print(len(t))
+PY" src/
+# C4 sed combined flags
+_gb4 2 "sed -Ei on /etc/x blocks"   "sed -Ei 's/a/b/' /etc/x" src/
+_gb4 2 "sed -ri on /etc/x blocks"   "sed -ri 's/a/b/' /etc/x" src/
+_gb4 0 "sed -nE (no i) is a read"   "sed -nE 's/a/b/p' /etc/x" src/
+# I1/I4 nested shell text is re-parsed by the guard itself
+_gb4 2 "eval 'echo x > /etc/x' blocks"                          "eval 'echo x > /etc/x'" src/
+_gb4 2 "bash -c 'echo x > /etc/x; ls src/' blocks (no in-scope token whitelists the string)" "bash -c 'echo x > /etc/x; ls src/'" src/
+_gb4 0 "bash -c 'echo x > src/x; ls /etc' allows"               "bash -c 'echo x > src/x; ls /etc'" src/
+# I2 wrappers that take arguments
+_gb4 2 "timeout 10 tee /etc/x blocks"        "timeout 10 tee /etc/x < src/a.cs" src/
+_gb4 2 "nice -n 5 cp … /etc/x blocks"        "nice -n 5 cp src/a.cs /etc/x" src/
+_gb4 2 "sudo -u root cp … /etc/x blocks"     "sudo -u root cp src/a.cs /etc/x" src/
+_gb4 0 "timeout 300 dotnet test > scratchpad allows" "timeout 300 dotnet test src/ > $GB4_SP/t.log" src/
+# I3 xargs (targets from stdin: fail-closed) and find -exec/-delete (roots are the targets)
+_gb4 2 "… | xargs sed -i blocks (targets not visible)"   "git ls-files | xargs sed -i 's/a/b/'" src/
+_gb4 2 "find /etc -exec rm blocks"                        "find /etc -name x -exec rm {} \\;" src/
+_gb4 2 "find /etc -delete blocks"                         "find /etc -name x -delete" src/
+_gb4 0 "find src -delete allows"                          "find src -name '*.orig' -delete" src/
+_gb4 0 "… | xargs grep is a read"                         "git ls-files | xargs grep -l foo" src/
+# I4/I5 runtime writes: every path in the program must be in scope, argv included
+_gb4 2 "shutil.copy(src, /tmp/…) blocks (the in-scope source no longer whitelists the program)" "python3 -c \"import shutil; shutil.copy('src/a.cs','/tmp/a.cs.bak')\"" src/
+_gb4 2 "open(sys.argv[1],'w') with /etc/x in argv blocks"   "python3 -c 'import sys; open(sys.argv[1],\"w\").write(\"x\")' /etc/x" src/
+_gb4 0 "open(sys.argv[1],'w') with src/x in argv allows"    "python3 -c 'import sys; open(sys.argv[1],\"w\").write(\"x\")' src/x" src/
+# I6 bare names land in the working directory
+_gb4 2 "cd /etc && python3 -c open('passwd','w') blocks"  "cd /etc && python3 -c \"open('passwd','w').write('')\"" src/
+_gb4 0 "cd src && python3 -c open('x','w') allows"        "cd src && python3 -c \"open('x','w').write('')\"" src/
+_gb4 2 "cd Tests && python3 -c open('x','w') blocks with scope src/" "cd Tests && python3 -c \"open('x','w').write('')\"" src/
+# I7 popd, I8 PWD=
+_gb4c 2 "cd /etc; pushd src; popd; echo > passwd — popd restores /etc" "$GB4_T/src" "cd /etc; pushd $GB4_T/src; popd; echo boom > passwd" src/
+_gb4c 2 "PWD=/etc set in the command wins over the tracked cwd"          "$GB4_T/src" "PWD=/etc; echo x > \$PWD/passwd" src/
+_gb4 0 "\$HOME_DIR is not eaten by \$HOME"                              "HOME_DIR=src; echo > \$HOME_DIR/x" src/
+# I9 process substitution, I10 heredoc tag forms, arithmetic
+_gb4 2 "exec > >(tee /etc/x) blocks — tee is a command, not a target"   "exec > >(tee /etc/x)" src/
+_gb4 0 "make > >(tee -a src/log) allows"                                 "make > >(tee -a src/log)" src/
+_gb4 2 "cat <<\\EOF …; echo boom > /etc/x — the backslash tag closes"    "cat <<\\EOF > src/ok.txt
+hello
+EOF
+echo boom > /etc/x" src/
+_gb4 2 "echo \$((1<<3)); echo boom > /etc/x — arithmetic is not a heredoc" "echo \$((1<<3))
+echo boom > /etc/x" src/
+_gb4 0 "(( 3 > 2 )) is arithmetic, not a redirect"                       "(( 3 > 2 ))" src/
+# I11 perl -pi
+_gb4 2 "perl -pi -e on /etc/x blocks"        "perl -pi -e 's/a/b/' /etc/x" src/
+_gb4 2 "perl -0777 -pi -e on /etc/x blocks"  "perl -0777 -pi -e 's/a/b/' /etc/x" src/
+_gb4 0 "perl -ne print is a read"            "perl -ne 'print if /x/' /etc/hosts" src/
+# I13 git paths
+_gb4 2 "git rm README.md blocks"                 "git rm README.md" src/
+_gb4 2 "git mv src/a.cs docs/a.cs blocks"        "git mv src/a.cs docs/a.cs" src/
+_gb4 0 "git mv within src/ allows"               "git mv src/a.cs src/b.cs" src/
+_gb4 2 "git checkout -- README.md blocks"        "git checkout -- README.md" src/
+_gb4 0 "git status / git diff are reads"         "git status && git diff HEAD -- src/" src/
+# M3/M4 false blocks named by the audit
+_gb4 2 "cp -t /etc src/a.cs blocks (GNU target dir)"   "cp -t /etc src/a.cs" src/
+_gb4 0 "mkdir -m 755 src/x allows (mode is not a target)" "mkdir -m 755 src/x" src/
+_gb4 0 "touch -t STAMP src/x.cs allows"                 "touch -t 202601010000 src/x.cs" src/
+_gb4 0 "cd -P src && echo > x allows"                    "cd -P src && echo > x" src/
+_gb4 0 "a scope-less writable agent may still write to the scratchpad" "make > $GB4_SP/x" --deny-all-writes
+# tool-level writers now in the model
+_gb4 2 "ln -s … /etc/link blocks"     "ln -s src/a.cs /etc/link" src/
+_gb4 2 "truncate -s0 /etc/x blocks"   "truncate -s0 /etc/x" src/
+_gb4 2 "rsync … /etc/backup/ blocks"  "rsync -a src/ /etc/backup/" src/
+_gb4 2 "curl -o /etc/x blocks"        "curl -o /etc/x https://example.com" src/
+_gb4 2 "tar -xf … -C /etc blocks"     "tar -xf a.tar -C /etc" src/
+_gb4 2 "chmod 600 /etc/x blocks"      "chmod 600 /etc/x" src/
+_gb4 0 "chmod 600 src/a.cs allows"    "chmod 600 src/a.cs" src/
+
+
+# --- delta re-audit 2026-09-29: two regressions my own fixes introduced, plus the leftovers ---
+# N1: bash 3.2 keeps the quotes of a QUOTED replacement in ${s//pat/"$v"} — a relative
+# $VAR value became `"src"` and the guard read it back as relative-under-cwd. The suite
+# runs the inner scripts under /bin/bash in CI, so these rows are what catches it.
+_gb4 0 "D=src; echo > \$D/o.txt — a RELATIVE same-command value resolves in scope"      "D=src; echo > \$D/o.txt" src/
+_gb4 0 "log=src/build.log; echo hi > \$log resolves in scope"                          "log=src/build.log; echo hi > \$log" src/
+_gb4c 2 "for d in /etc; do cd \$d; done; echo > x — the loop cd leaves the scope" "$GB4_T/src" "for d in /etc; do cd \$d; done; echo > x" src/
+_gb4 0 "D='src/a&b'; echo > \$D/x — an & in the value is literal on every bash"       "D='src/a&b'; echo > \$D/x" src/
+# N2: a symlink at the last path component escapes through the directory cache
+mkdir -p "$GB4_T/outside"; echo secret > "$GB4_T/outside/secret.txt"; ln -sf "$GB4_T/outside/secret.txt" "$GB4_T/src/link"
+_gb4 2 "echo > src/link (link → outside/secret.txt) blocks on the symlink's target"   "echo PWNED > src/link" src/
+_gb4 2 "sed -i on src/link (→ outside) blocks"                                        "sed -i '' 's/a/b/' src/link" src/
+_gb4 0 "rm src/link (link → outside) removes the LINK, which is in scope — allowed" "rm src/link" src/
+_gb4 2 "…but writing THROUGH src/link still blocks"                                "echo x > src/link" src/
+rm -f "$GB4_T/src/link"
+# leftovers from the delta audit
+_gb4 2 "echo x > \`echo /etc/x\` — a backtick target is unresolvable, refused"         "echo x > \`echo /etc/x\`" src/
+_gb4 2 "python3 -c\"…\" glued flag is still scanned"                                    "python3 -c\"open('/etc/x','w').write('')\"" src/
+_gb4 2 "eval \$'… \\x3e /etc/x' — ANSI-C escapes in shell text are refused"           "eval \$'echo x \\x3e /etc/x'" src/
+_gb4 2 "tar -C /etc -xf a.tar — the extract flag after -C is seen"                     "tar -C /etc -xf a.tar" src/
+
+
+# --- delta2 audit R1: the orchestrator (no scope) cannot reach the pipeline dir through cd / rm -rf / truncate ---
+mkdir -p "$GB4_T/.apd/pipeline"; printf 'x\n' > "$GB4_T/.apd/pipeline/.agents"; printf 'backend-builder|builder\n' > "$GB4_T/.apd/pipeline/.dispatch-classes"
+_gb4 2 "orchestrator: cd .apd/pipeline && rm .dispatch-classes blocks"    "cd .apd/pipeline && rm .dispatch-classes"
+_gb4 2 "orchestrator: cd .apd && rm pipeline/.agents blocks"              "cd .apd && rm pipeline/.agents"
+_gb4 2 "orchestrator: rm -rf .apd/pipeline blocks"                        "rm -rf .apd/pipeline"
+_gb4 2 "orchestrator: truncate -s0 .apd/pipeline/.agents blocks"          "truncate -s0 .apd/pipeline/.agents"
+_gb4 2 "orchestrator: D=.apd/pipeline; rm -rf \$D blocks"                "D=.apd/pipeline; rm -rf \$D"
+_gb4 2 "orchestrator: python3 -c open('.apd/pipeline/.agents','w') blocks" "python3 -c \"open('.apd/pipeline/.agents','w').write('')\""
+_gb4 0 "orchestrator: bash .claude/bin/apd pipeline reset is APD's own tool" "bash .claude/bin/apd pipeline reset \"learning\""
+_gb4 0 "orchestrator: reading the pipeline dir is not a write"             "cat .apd/pipeline/.agents | wc -l"
+_gb4 0 "orchestrator: a write elsewhere is not the guard's business (no scope)" "echo x > notes.txt"
+_gb4 0 "orchestrator: the guide marker stays writable"                     "printf 'task|ts' > .apd/pipeline/.guide-marker"
+rm -rf "$GB4_T/.apd"
+
+# 4a. the CC shim exports the caller's identity → the audit line names the agent
+cat > "$GB4_T/.claude/agents/frontend-builder.md" <<'EOF'
+---
+name: frontend-builder
+tools: Read, Write, Edit, Bash
+scope: [src/]
+---
+EOF
+: > "$GB4_T/.claude/memory/guard-audit.log"
+printf '{"tool_input":{"command":"echo x > /etc/hosts"},"agent_type":"frontend-builder","agent_id":"abc12345","cwd":"%s"}' "$GB4_T" \
+    | APD_PROJECT_DIR="$GB4_T" bash "$GB4_SHIM" >/dev/null 2>&1; GB4_RC=$?
+if [ "$GB4_RC" = "2" ] && grep -q '|abc12345(frontend-builder)|out-of-scope-bash-write|' "$GB4_T/.claude/memory/guard-audit.log"; then
+    pass "a subagent's block is logged under its own agent id and type"; PASSES=$((PASSES + 1))
+else
+    fail "attribution: rc=$GB4_RC log=$(tail -1 "$GB4_T/.claude/memory/guard-audit.log" 2>/dev/null)"; FAILS=$((FAILS + 1))
+fi
+printf '{"tool_input":{"command":"echo x > .apd/pipeline/spec-card.md"},"cwd":"%s"}' "$GB4_T" \
+    | APD_PROJECT_DIR="$GB4_T" bash "$GB4_SHIM" >/dev/null 2>&1
+if grep -q '|orchestrator|pipeline-state-write|' "$GB4_T/.claude/memory/guard-audit.log"; then
+    pass "the orchestrator's own block still reads 'orchestrator'"; PASSES=$((PASSES + 1))
+else
+    fail "orchestrator attribution lost: $(tail -1 "$GB4_T/.claude/memory/guard-audit.log" 2>/dev/null)"; FAILS=$((FAILS + 1))
+fi
+# the logged excerpt is 200 chars, not 100 — the shorter cut hid every cause
+GB4_LONG="echo $(printf 'x%.0s' $(seq 1 150)) > /etc/hosts"
+: > "$GB4_T/.claude/memory/guard-audit.log"
+printf '{"tool_input":{"command":"%s"},"agent_type":"frontend-builder","agent_id":"abc12345"}' "$GB4_LONG" \
+    | APD_PROJECT_DIR="$GB4_T" bash "$GB4_SHIM" >/dev/null 2>&1
+if grep -q '> /etc/hosts' "$GB4_T/.claude/memory/guard-audit.log"; then
+    pass "the audit excerpt keeps the target of a 160-char command"; PASSES=$((PASSES + 1))
+else
+    fail "audit excerpt still truncated before the target"; FAILS=$((FAILS + 1))
+fi
+# the payload cwd is what a relative target is relative to
+printf '{"tool_input":{"command":"mv x.cs x.cs.pre"},"agent_type":"frontend-builder","agent_id":"abc12345","cwd":"%s/src/sub"}' "$GB4_T" \
+    | APD_PROJECT_DIR="$GB4_T" bash "$GB4_SHIM" >/dev/null 2>&1; GB4_A=$?
+printf '{"tool_input":{"command":"mv x.cs x.cs.pre"},"agent_type":"frontend-builder","agent_id":"abc12345","cwd":"/etc"}' \
+    | APD_PROJECT_DIR="$GB4_T" bash "$GB4_SHIM" >/dev/null 2>&1; GB4_B=$?
+if [ "$GB4_A" = "0" ] && [ "$GB4_B" = "2" ]; then
+    pass "relative targets resolve against the hook payload cwd (in-scope cwd allows, /etc blocks)"; PASSES=$((PASSES + 1))
+else
+    fail "cwd forwarding: in-scope rc=$GB4_A (want 0), /etc rc=$GB4_B (want 2)"; FAILS=$((FAILS + 1))
+fi
+# both guards share one canonicaliser
+if grep -q 'path-canon.sh' "$APD_PLUGIN_ROOT/bin/core/guard-scope" && grep -q 'path-canon.sh' "$GB4" \
+   && [ -f "$APD_PLUGIN_ROOT/bin/lib/path-canon.sh" ]; then
+    pass "guard-scope and guard-bash-scope source the same path canonicaliser"; PASSES=$((PASSES + 1))
+else
+    fail "path-canon.sh not shared by both scope guards"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$GB4_T"
+
 
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"

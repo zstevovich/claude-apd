@@ -34,8 +34,10 @@ Two independent spec-card switches, routinely confused:
   **NOT** skip adversarial: the full builder → reviewer → adversarial → verifier
   sequence still runs, just once through.
 - `adversarial: skip — <reason>` — the Lean opt-out, and the ONLY way to skip
-  adversarial. Honoured only at **≤2 R-criteria**; at 3+ the opt-out is DENIED
-  (warning) and adversarial stays required at the verifier.
+  adversarial. Honoured only at **≤2 R-criteria AND fewer than 5 files in the
+  reviewed scope** (`.reviewed-files`, measured at the reviewer step — v7.1);
+  otherwise the opt-out is DENIED (warning + `INFO|adversarial-opt-out-denied`)
+  and adversarial stays required at the verifier.
 
 Lean vs Full is declared in the spec; this guide applies to BOTH.
 
@@ -214,6 +216,7 @@ Edit/apply_patch channel cleared by `apd:apd_guard_write` — shell redirects to
 | `rationale-count-mismatch` / `rationale-accepted-mismatch` / `rationale-status-mismatch` | The rationale must RECONCILE with `ADVERSARIAL:T:A:D`: one `## Finding` block per T, blocks with `Status: accepted` = A, `dismissed` + `reviewer-self-dismissed` = D. Fix the file or fix the recorded pass — whichever is wrong |
 | `rationale-malformed-fields` | Every block needs all three of `**Severity:**` / `**Status:**` / `**Rationale:**`, and a dismissal needs ≥40 chars of reasoning |
 | `max_builder_cycles-exceeded` / `max_reviewer_cycles-exceeded` | First ask why: is the plan complete, the spec ambiguous, the same finding coming back? Then either decompose into 2+ tasks, or lift the budget in place: `apd pipeline raise-cap builder\|reviewer <N> "<reason>"`. **Do NOT edit `max_cycles` in the signed spec** — that forces a spec re-advance, which WIPES `.agents`, destroys the evidence already earned and (on Codex) forces a redundant re-dispatch |
+| `dispatch-budget-exceeded` | CC-only (v7.1): a per-task budget of DISPATCHES by role class, enforced pre-spawn by the CC Agent hook. The Codex runtime has no dispatch hook, so this is honest-inert here — the discipline it enforces (spin off, decompose, do not fix forward past the caps) is yours to keep |
 | `adversarial-before-reviewer` | Dispatch code-reviewer first; advance reviewer; THEN adversarial |
 | `adversarial-agent-missing` | No `adversarial-reviewer` definition and no valid opt-out, so the layer cannot run. Restore the agent (`apd cdx init`) — or, only if the task genuinely qualifies (≤2 R-criteria), declare `adversarial: skip — <reason>`. A missing agent is a setup fault, never an opt-out |
 | `adversarial-unaccounted` | Reached the verifier with no `.adversarial-pending` and no valid opt-out — the layer was dropped rather than run or waived, usually because the agent definition went missing after the reviewer step. Restore it and re-advance the reviewer |
@@ -229,7 +232,8 @@ These are not phase gates. They stop the individual call and the run continues.
 | BLOCK reason | What it means |
 |---|---|
 | write not cleared (`guard-file-edit`) | Every implementation write goes through `apd:apd_guard_write(apd_role, file_path)` FIRST. Scope comes from the role definition; a writable role with no scope anywhere fails CLOSED |
-| `out-of-scope-bash-write` | A shell write outside the role's scope. Give the work to the role that owns that path — routing the same write through the shell to dodge the check is the bypass the guard exists for |
+| `out-of-scope-bash-write` | A shell write outside the role's scope (v7.1: the guard reads the command as the shell does — quoted `>`, generics, heredoc bodies are text; `$VAR`, `cd`, absolute-in-scope paths resolve; `mv` counts its source). Give the work to the role that owns that path — routing the same write through the shell to dodge the check is the bypass the guard exists for |
+| `pipeline-state-write` | A shell write reached `.apd/pipeline/` — through `cd`, a variable, `rm -rf` or `truncate` as much as through a literal path (v7.1). Pipeline state changes only through `apd pipeline <phase>`; the files you may write go through the Write/Edit tool; reads go through `apd pipeline show` |
 | `portability-<cmd>` | A GNU-ism on macOS, or a BSD-ism on Linux. `apd env` prints the platform and the portable form of each blocked command |
 | `pipeline-state-write` on a read | You used shell `cat`/`ls` on pipeline state — use `apd pipeline show` |
 

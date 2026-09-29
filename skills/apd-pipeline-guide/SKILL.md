@@ -36,8 +36,10 @@ Two independent spec-card switches, routinely confused:
   **NOT** skip adversarial: the full builder → reviewer → adversarial → verifier
   sequence still runs, just once through.
 - `adversarial: skip — <reason>` — the Lean opt-out, and the ONLY way to skip
-  adversarial. Honoured only at **≤2 R-criteria**; at 3+ the opt-out is DENIED
-  (warning) and adversarial stays required at the verifier.
+  adversarial. Honoured only at **≤2 R-criteria AND fewer than 5 files in the
+  reviewed scope** (`.reviewed-files`, measured at the reviewer step — v7.1);
+  otherwise the opt-out is DENIED (warning + `INFO|adversarial-opt-out-denied`)
+  and adversarial stays required at the verifier.
 
 Lean vs Full is declared in the spec; this guide applies to BOTH.
 
@@ -207,7 +209,12 @@ Sequence, AFTER all adversarial findings are triaged and fixed:
    `SUPERVISION:T:A:D` + Notes — same shape as the adversarial summary.
 3. If T>0: triage into `.apd/pipeline/.supervision-rationale.md` — the SAME
    per-finding contract as the adversarial rationale (Severity/Status/Rationale,
-   three dispositions incl. spinoff, ≥40-char dismissals). Accepted findings →
+   three dispositions incl. spinoff, ≥40-char dismissals) **plus, per finding
+   (v7.1), `**Question:** Q1 R<n> | Q2 <path>[:line] | Q3 RS<n>`** — the
+   charter question it answers and an anchor the verifier checks. The
+   supervisor's `### Notes` are NOT findings: copy them under the SUPERVISION
+   line of the summary, no disposition, not counted in T, no builder dispatch.
+   Accepted findings →
    builder fix → ONE supervisor re-check (cap: 2 COMPLETED passes — an
    exhausted dispatch doesn't count; the supervisor's stop must also be the
    LAST agent activity before the verifier, or the gate flags
@@ -257,6 +264,8 @@ redirects to `.apd/pipeline/` are blocked by design.
 | `supervision-summary-without-dispatch` | Summary written but no supervisor in agent log — actually dispatch the agent first |
 | `supervision-not-final` | Agent activity after the last supervisor stop — re-dispatch supervisor on the FINAL state |
 | `supervision-cycle-cap` | >2 completed supervisor passes — the loop is the problem; reset or finish the fix properly |
+| `supervision-rationale-untagged` (v7.1) | A `## Finding` block has no `**Question:** Q1 R<n> \| Q2 <path> \| Q3 RS<n>` line. Either it answers one of the charter questions — tag it — or it is a Note: move it under the summary line and drop the block |
+| `supervision-question-invalid` (v7.1) | The anchor does not hold: the R-id is not a criterion of this spec, the RS-id is not declared, or the Q2 path is not in `.reviewed-files`. Fix the anchor or reclassify as a Note |
 
 ### Guard BLOCKs — fire on a tool call, at any point in the run
 
@@ -265,7 +274,9 @@ These are not phase gates. They stop the individual call and the run continues.
 | BLOCK reason | What it means |
 |---|---|
 | `orchestrator-code-write` | **You** tried to write a code file. The orchestrator writes spec, plan, docs and config — production code goes through a builder agent. This is the pipeline's whole premise, not a formality |
-| `out-of-scope-write` / `out-of-scope-bash-write` | An agent wrote outside its declared scope. Give the work to the agent that owns that path, or widen that agent's scope deliberately — routing the same write through bash to dodge it is the bypass the guard exists for |
+| `out-of-scope-write` / `out-of-scope-bash-write` | An agent wrote outside its declared scope. Give the work to the agent that owns that path, or widen that agent's scope deliberately — routing the same write through bash to dodge it is the bypass the guard exists for. Since v7.1 the bash guard reads the command as the shell does: a quoted `>`, a generic `<T>`, `->`/`=>`/`>=`, a heredoc body are text; `$VAR` set in the same command, `cd`, absolute paths inside the scope and the session scratchpad all resolve. A block you still get names the resolved target — it is a real out-of-scope write (`mv` counts its source too; `xargs <writer>` is refused because its targets are not visible — name the files; `bash -c`/`eval` text is re-parsed). The audit line names the agent |
+| `pipeline-state-write` | A shell write reached `.apd/pipeline/` — through `cd`, a variable, `rm -rf` or `truncate` as much as through a literal path (v7.1). Pipeline state changes only through `apd pipeline <phase>`; the files you may write go through the Write/Edit tool; reads go through `apd pipeline show` |
+| `dispatch-budget-exceeded` (v7.1, CC) | This task has dispatched its per-task budget of that role class (builder 12 / reviewer 6 / adversarial 2 by default) — counted per DISPATCH, not per advance. In order: spin off the out-of-scope finding (`apd pipeline spinoff-finding`) or decompose; lift in place with `apd pipeline raise-cap dispatch <class> <N> "<reason>"`; or reset. `apd pipeline status` shows the counters |
 | `secret-access` | A call touched `.env*`, a key, a cert or a keystore. Nothing in the pipeline needs them |
 | `spec-blind` | The adversarial reviewer reached for the spec / plan / a rationale / the memory dir. Working as intended — see the blind-dispatch section above. Fires for that role only |
 | `portability-<cmd>` | A GNU-ism on macOS, or a BSD-ism on Linux. `apd env` prints the platform and the portable form of each blocked command |

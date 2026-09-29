@@ -1,16 +1,31 @@
 #!/bin/bash
 # CC adapter shim for guard-agent-reload (PreToolUse on the Agent tool).
-# The agent-reload drift gate keys on the .apd/.pending-reload marker, not on
-# any tool_input field, so this shim just drains the stdin payload and forwards
-# to core. NOTE: at PreToolUse only exit 2 blocks — if core were missing, `exec`
-# fails with 127, which CC treats as a non-blocking error (fails OPEN). Both
-# files ship together (always present), so this is moot in practice; the shim
-# does not, however, guarantee fail-closed.
+#
+# v6.27: the reload gate keys on the .apd/.pending-reload marker, so this shim
+# only drained stdin. v7.1: the dispatch budget needs to know WHICH agent is
+# being dispatched — `tool_input.subagent_type` in the PreToolUse payload — so
+# the payload is read and the type forwarded as --subagent-type. No jq
+# dependency: the field is a plain JSON string on one line.
+#
+# NOTE: at PreToolUse only exit 2 blocks — if core were missing, `exec` fails
+# with 127, which CC treats as a non-blocking error (fails OPEN). Both files
+# ship together (always present), so this is moot in practice; the shim does
+# not, however, guarantee fail-closed.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CORE_DIR="$SCRIPT_DIR/../../core"
 
-# Drain the PreToolUse JSON payload (we gate on marker presence, not its fields).
-cat >/dev/null 2>&1 || true
+INPUT=$(cat 2>/dev/null || true)
+SUB_TYPE=""
+if command -v jq >/dev/null 2>&1; then
+  SUB_TYPE=$(printf '%s' "$INPUT" | jq -r '.tool_input.subagent_type // empty' 2>/dev/null || true)
+else
+  SUB_TYPE=$(printf '%s' "$INPUT" | sed -n 's/.*"subagent_type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+fi
+# A bare identifier only (the core resolver rejects anything else anyway).
+case "$SUB_TYPE" in *[!A-Za-z0-9_.:-]*) SUB_TYPE="" ;; esac
 
+if [ -n "$SUB_TYPE" ]; then
+  exec "$CORE_DIR/guard-agent-reload" --subagent-type "$SUB_TYPE" "$@"
+fi
 exec "$CORE_DIR/guard-agent-reload" "$@"

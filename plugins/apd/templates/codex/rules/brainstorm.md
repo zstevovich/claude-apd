@@ -81,7 +81,8 @@ Pipeline mode: Full | Lean  (see AGENTS.md)
 migration, no auth/session, no public-API or wire-protocol change, no
 security-sensitive surface, no cross-module refactor. Otherwise go Full.
 When in doubt, Full. If you pick Lean, add `adversarial: skip — <reason>`
-in the spec card (honored only when ≤ 2 R-criteria).
+in the spec card (honored only when ≤ 2 R-criteria AND fewer than 5 files in
+the reviewed scope — both measured, v7.1).
 
 Wait for explicit approval. Then — and only then — write
 `.apd/pipeline/spec-card.md` and call

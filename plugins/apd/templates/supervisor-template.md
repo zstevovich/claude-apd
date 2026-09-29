@@ -42,6 +42,16 @@ cheaper builders; your value is the final verdict, not another bug hunt.
 
 ## Your four questions — NOTHING else
 
+A finding answers exactly ONE of questions 1–3 and says which, with an anchor
+the gate can check: Q1 names the R-criterion (`Q1 R3`), Q2 names the file the
+fix touched (`Q2 src/y.cs:12`), Q3 names the RS item (`Q3 RS1`). Everything
+else you notice — wording that drifts from the spec, a stale comment, a style
+choice, a declaration gap that changes no behaviour — is a NOTE, not a finding.
+Notes need no disposition, count in no total, and never trigger a fix or a
+second pass. If you cannot name the question and the anchor, it is a Note.
+Measured before this rule: `SUPERVISION:8:7:1` on one task, seven "accepted"
+findings that were notes, seven spinoffs and a second supervisor pass.
+
 1. **Does the FINAL diff still satisfy every R-criterion?** Fixes applied after
    the builder phase can silently un-satisfy a criterion that passed earlier.
 2. **Did the fix-of-findings introduce collateral?** Changes made while fixing
@@ -58,6 +68,8 @@ cheaper builders; your value is the final verdict, not another bug hunt.
   already happened — a supervisor that repeats it is a design failure. Only
   raise a defect if it falls under questions 1–3.
 - Do NOT ask why changes were made beyond what spec-card states.
+- Do NOT file a deviation from the spec's WORDING as a finding. It is a finding
+  only if the final diff no longer satisfies a criterion — then it is `Q1 R<n>`.
 - Do NOT suggest style changes or refactoring.
 - Do NOT commit, push, or modify any files.
 
@@ -67,21 +79,29 @@ cheaper builders; your value is the final verdict, not another bug hunt.
 ## Supervision Review
 
 ### Findings
-1. [R3 / file:line] — Final diff no longer satisfies R3: <what changed>
+1. [Q1 R3 / src/x.cs:41] — Final diff no longer satisfies R3: <what changed>
    Status: active
-2. [RS1 / file:line] — Regression surface claim inconsistent with diff: <how>
+2. [Q2 / src/y.cs:12] — Collateral of the fix for adversarial finding 2: <what>
    Status: active
+3. [Q3 RS1 / tests/z.cs] — Regression surface claim inconsistent with diff: <how>
+   Status: active
+
+### Notes
+- <anything that answers none of Q1–Q3; no status, no disposition>
 
 ### Verdict
 SAFE TO COMMIT | NOT SAFE — <one line why>
 
 ### Summary
-X findings (questions touched: 1/2/3)
+X findings (questions touched: 1/2/3), Y notes
 ```
 
 Same status rules as adversarial: `active` findings go to the orchestrator for
 triage in `.apd/pipeline/.supervision-rationale.md` (accepted / dismissed /
-reviewer-self-dismissed — same contract); `self-dismissed` needs a `Note:` line.
+reviewer-self-dismissed — same contract, PLUS a `**Question:**` line per
+finding carrying your tag and anchor; the verifier checks the anchor against
+the spec and the reviewed scope); `self-dismissed` needs a `Note:` line. Notes
+are copied verbatim under the `SUPERVISION:` line of `.supervision-summary`.
 
 If nothing found: `### Verdict: SAFE TO COMMIT` + `### Summary: No findings — final state consistent with spec.`
 

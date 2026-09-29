@@ -7,18 +7,22 @@
 #   2. Runtime write operations: node -e, python -c, ruby -e, php -r, perl -e
 #      with write functions (writeFileSync, open().write, file_put_contents...)
 #
-# Interface: --command <cmd> [allowed_path_1] [allowed_path_2] ...
+# Interface: --command <cmd> [--cwd <dir>] [--deny-all-writes] [allowed_path_1] [allowed_path_2] ...
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
 COMMAND=""
+CWD_ARG=""
 DENY_ALL_WRITES=false
 ALLOWED_PATHS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --command) COMMAND="$2"; shift 2 ;;
+    # v7.1: the Bash tool's working directory (hook payload `cwd`). Relative
+    # write targets and `cd` operands resolve against it; default PROJECT_DIR.
+    --cwd) CWD_ARG="$2"; shift 2 ;;
     # A writable agent whose scope did not resolve. The caller cannot name a
     # path, but "no scope" must not read as "every path": this keeps the write
     # DETECTION here, where it already lives, so the agent is stopped at writes
@@ -73,7 +77,7 @@ for ppath in "${PROTECTED_PLUGIN[@]}"; do
       if [[ "$COMMAND" == *"$wp"*"$ppath"* ]] || [[ "$COMMAND" == *"$wp"*plugin* ]]; then
         echo "BLOCKED: Bash write to plugin cache directory." >&2
         echo "  Plugin files are read-only. Do not modify." >&2
-        log_block "plugin-cache-write" "${COMMAND:0:100}"
+        log_block "plugin-cache-write" "${COMMAND:0:200}"
         exit 2
       fi
     done
@@ -81,13 +85,13 @@ for ppath in "${PROTECTED_PLUGIN[@]}"; do
     if echo "$COMMAND" | grep -qE '>[^&].*plugins/cache|>>.*plugins/cache' 2>/dev/null; then
       echo "BLOCKED: Bash write to plugin cache directory." >&2
       echo "  Plugin files are read-only. Do not modify." >&2
-      log_block "plugin-cache-write" "${COMMAND:0:100}"
+      log_block "plugin-cache-write" "${COMMAND:0:200}"
       exit 2
     fi
     if _runtime_write_detected "$COMMAND"; then
       echo "BLOCKED: Runtime write to plugin cache directory." >&2
       echo "  Plugin files are read-only. Do not modify." >&2
-      log_block "plugin-cache-write" "${COMMAND:0:100}"
+      log_block "plugin-cache-write" "${COMMAND:0:200}"
       exit 2
     fi
   fi
@@ -136,7 +140,7 @@ for ppath in "${PROTECTED_PIPELINE[@]}"; do
       if [[ "$COMMAND" == *"$wp"*"$ppath"* ]] || [[ "$COMMAND" == *"$wp"*".apd/pipeline/"* ]]; then
         echo "BLOCKED: Bash write to protected pipeline state directory." >&2
         _pipeline_block_guidance
-        log_block "pipeline-state-write" "${COMMAND:0:100}"
+        log_block "pipeline-state-write" "${COMMAND:0:200}"
         exit 2
       fi
     done
@@ -144,118 +148,98 @@ for ppath in "${PROTECTED_PIPELINE[@]}"; do
     if echo "$COMMAND" | grep -qE '>[^&].*\.apd/pipeline/|>>.*\.apd/pipeline/' 2>/dev/null; then
       echo "BLOCKED: Bash redirect to protected pipeline state directory." >&2
       _pipeline_block_guidance
-      log_block "pipeline-state-write" "${COMMAND:0:100}"
+      log_block "pipeline-state-write" "${COMMAND:0:200}"
       exit 2
     fi
     if _runtime_write_detected "$COMMAND"; then
       echo "BLOCKED: Runtime write to protected pipeline state directory." >&2
       _pipeline_block_guidance
-      log_block "pipeline-state-write" "${COMMAND:0:100}"
+      log_block "pipeline-state-write" "${COMMAND:0:200}"
       exit 2
     fi
   fi
 done
 
+# v7.1 (gates delta audit R1): the substring checks above need the literal
+# `.apd/pipeline/` in the command. `cd .apd/pipeline && rm .dispatch-classes`,
+# `cd .apd && rm pipeline/.agents`, `rm -rf .apd/pipeline`, `truncate -s0 …`
+# reached the ledger and the class snapshot untouched — the `rm -rf
+# .apd/pipeline` bypass class known since 2026-05-23, now carrying the budget.
+# A caller with NO scope (the orchestrator) therefore still runs the parser
+# below, in PROTECT_ONLY mode: nothing is judged except targets that resolve
+# under the pipeline dir. APD's own tools are exempt as before.
+PROTECT_ONLY=false
 if [ ${#ALLOWED_PATHS[@]} -eq 0 ] && [ "$DENY_ALL_WRITES" = false ]; then
-  exit 0
+  case "$COMMAND" in
+    *pipeline-advance*|*"apd pipeline"*|*verify-apd*|*pipeline-post-commit*|*pipeline-gate*|*".guide-marker"*) exit 0 ;;
+  esac
+  PROTECT_ONLY=true
 fi
 
-# --- 1. Shell write operations ---
-# Add destructive ops too (rm, mkdir, touch, rmdir) — scope guard covers
-# any filesystem modification, not just creation.
+# --- 1. Read the command the way the shell reads it (v7.1) --------------------
 #
-# `>` and `>>` are NOT in this list, and that is the fix for a false positive
-# that mattered the moment this guard started running on CC. A bare `>` match
-# counts `2>&1` as a write: no target can be extracted from a file-descriptor
-# duplication, so the code fell through to the strict per-token check and
-# blocked whenever nothing else in the line happened to be in scope. Measured:
-# `pytest -q 2>&1 | tail -20` and `npm test 2>&1 | tail -5` — the ordinary test
-# command of an ordinary builder — were BLOCKED as out-of-scope writes. The
-# guard had never fired on CC before this release, so nobody had met it.
-# Redirects are now judged by their TARGET (below), which is what a write is.
-SHELL_WRITE_PATTERNS=('tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ' 'rm ' 'rmdir ' 'mkdir ' 'touch ')
-
-# Redirect targets that are not files: fd duplications (`2>&1`, `>&2`) and the
-# null/tty sinks. A command whose only redirects are these writes nothing.
+# Everything below replaces a substring scanner. That scanner grepped the raw
+# command for `>` and for op names, so it could not tell a redirect from a
+# generic (`IReadOnlyList<string>`), a quoted pattern (`'^> Task'`) or the body
+# of a heredoc from shell, and it compared the raw token against relative scope
+# roots by string prefix, so an absolute path INSIDE the agent's scope, a path
+# relative to a `cd`, or `$SP/out.txt` all read as "outside". Measured on one
+# project in September 2026: 170 blocks, 166 on subagents, and three agents had
+# written themselves memory notes on how to phrase commands around the guard.
+# CC tried the same substring idea (Read-deny on Bash arguments, 2.1.259) and
+# reverted it one release later for the same reason.
 #
-# v7.0.5: lambda arrows are stripped first. `>` inside `=>` or `->` is not a
-# redirection — it is C#/JS/Java/Kotlin source, and it reaches this guard inside
-# a quoted search pattern. Measured on PLAZMA the day v7.0.4 shipped:
-#   grep -rn "RuleFor(x => x.Value)" --include=*.cs src/   → BLOCKED
-# The regex matched `> x.Value)`, extracted a "target" that is neither `&` nor a
-# sink, and a read-only grep was refused as an out-of-scope write. Twice in one
-# run, and it would fire on any codebase with lambdas.
+# So: a single-pass tokenizer (awk, POSIX, bash-3.2-safe) that tracks quote,
+# escape, arithmetic and heredoc state, emits words with quotes removed,
+# separators, redirect TARGETS (only where the shell would redirect: outside
+# quotes and arithmetic, not `=>`/`->`/`>=`, not fd dups, not `>(…)`), and
+# heredoc bodies as data. Then, per statement: shell keywords and wrappers
+# (`then`, `do`, `{`, `!`, `sudo -u x`, `timeout 10`, `nice -n 5`, `env -i`,
+# `xargs`) are stepped over, same-command assignments resolve `$VAR`, `cd` /
+# `pushd` / `popd` move the working directory (subshells push and pop it),
+# every write target is canonicalised through bin/lib/path-canon.sh and
+# compared against the canonical scope roots, `bash -c` / `eval` / a heredoc
+# fed to a shell are re-parsed by this same guard, and an interpreter fed by
+# `-c` / `-e` or a heredoc is scanned for WRITE calls only (a read `open(p)` is
+# not a write). The fail-closed direction is kept: an unresolvable variable, an
+# unknown `cd`, a `popd` past the stack, targets that come from stdin
+# (`xargs`), or a surviving `..` block.
 #
-# Stripping the arrows rather than teaching the regex about quoting is the
-# narrow fix: a real redirect written as `x =>file` or `x ->file` is the only
-# thing it could miss, and nobody writes that. Quote-aware parsing was the
-# alternative and it is worse — removing quoted spans would also erase the
-# TARGET in `echo x > "/tmp/out.txt"`, turning a false block into a miss.
-_file_redirect_targets() {
-  local _cmd="${COMMAND//=>/ }"
-  _cmd="${_cmd//->/ }"
-  echo "$_cmd" | grep -oE '[0-9]?>{1,2}[[:space:]]*[^&[:space:]|;`"]+' 2>/dev/null \
-    | sed -E 's/^[0-9]?>+[[:space:]]*//' \
-    | grep -vE '^&' \
-    | grep -vE '^/dev/(null|stdout|stderr|tty)$' || true
-}
+# Independent audit 2026-09-29 (parser): four fail-open classes and thirteen
+# more were found in the first cut — keywords in command position, `\`-newline
+# continuation, a heredoc followed by `|`, `sed -Ei`, `eval`, wrappers with
+# arguments, `xargs`/`find -exec`, `popd`, `PWD=`, `> >(…)`, `<<\EOF`,
+# `$((1<<3))`, `perl -pi`, `git rm/mv`, interpreter argv. Each is a paired
+# check in §134 now.
+#
+# Still not read, and said so: `[[ $a > $b ]]` outside quotes reads as a
+# redirect; tool-level writers outside the model (`patch`, `ex`, `gzip`,
+# `split`, `mkfifo`, `os.system`/`subprocess`/`child_process` inside a program,
+# `dotnet format`, `prettier --write`) are not seen; two heredocs on one line
+# keep only the first.
 
-HAS_WRITE_OP=false
-WRITE_TYPE=""
+source "$(dirname "$0")/../lib/path-canon.sh"
 
-for pattern in "${SHELL_WRITE_PATTERNS[@]}"; do
-  if [[ "$COMMAND" == *"$pattern"* ]]; then
-    HAS_WRITE_OP=true
-    WRITE_TYPE="shell"
-    break
-  fi
-done
+# bash 5.2+ expands `&` in a ${var//pat/repl} REPLACEMENT to the matched text
+# (patsub_replacement); bash 3.2 keeps a QUOTED replacement's quote characters
+# in the result. The only form that is literal on both is an unquoted
+# replacement with the option off — so turn it off where it exists.
+shopt -u patsub_replacement 2>/dev/null || true
 
-if [ "$HAS_WRITE_OP" = false ] && [ -n "$(_file_redirect_targets)" ]; then
-  HAS_WRITE_OP=true
-  WRITE_TYPE="shell"
-fi
-
-# --- 2. Runtime write operations ---
-if [ "$HAS_WRITE_OP" = false ]; then
-
-  if _runtime_write_detected "$COMMAND"; then
-    HAS_WRITE_OP=true
-    WRITE_TYPE="runtime"
-  fi
-fi
-
-if [ "$HAS_WRITE_OP" = false ]; then
-  exit 0
-fi
-
-# --- Check WRITE TARGETS against allowed scope ---
-# Previous implementation extracted ALL path-shaped tokens and allowed if ANY
-# matched scope — meant `cp src/innocent /etc/passwd` passed because "src/innocent"
-# matched. v6.3 audit fix: identify the actual destination of each write op and
-# check ONLY those. For runtime writes (node -e / python -c) the target lives
-# inside a string literal we can't parse safely; fall back to strict per-token
-# check there.
-
-_scope_hint() {
-  if [ "$DENY_ALL_WRITES" = true ] && [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
-    echo "  This agent declares no writable scope, so it may not write anywhere —" >&2
-    echo "  not through Write/Edit and not through the shell. Fix the scope in its" >&2
-    echo "  agent definition (an unfilled {{SCOPE_PATHS}} reads as 'no scope')." >&2
-  else
-    echo "  Allowed paths: ${ALLOWED_PATHS[*]}" >&2
-  fi
-}
+APD_GBS_DEPTH="${APD_GBS_DEPTH:-0}"
+BASE_CWD="${CWD_ARG:-$PROJECT_DIR}"
+[ -d "$BASE_CWD" ] || BASE_CWD="$PROJECT_DIR"
+PROJ_CANON=$(_proj_canon)
+CUR_CWD=$(_canon_abs "$BASE_CWD")     # physical form, like every target and PROJ_CANON
+CWD_UNKNOWN=false
 
 # v7.0.5: the session scratchpad is a sanctioned write target. Claude Code hands
 # each session a private directory under the per-uid temp root and instructs the
 # agent to use it for exactly this — capturing a test log instead of scrolling
-# it. Measured on PLAZMA: five blocks in one backend run, every one of the shape
-# `dotnet test … -v q > /private/tmp/claude-501/<slug>/<session>/scratchpad/x.log`.
-# Refusing it protects nothing; it pushes build output into the repo instead.
-# The match is deliberately narrow — the path must sit under a `claude-<uid>`
+# it. The match is deliberately narrow — the path must sit under a `claude-<uid>`
 # temp root AND name a `scratchpad` segment, so `/tmp/out.txt` and even
-# `/tmp/scratchpad/evil.txt` remain blocked.
+# `/tmp/scratchpad/evil.txt` remain blocked. Checked on the CANONICAL form, so
+# `/tmp/claude-…` (logical) and `/private/tmp/claude-…` (physical) both pass.
 _is_session_scratchpad() {
   case "$1" in
     /tmp/claude-[0-9]*/*/scratchpad/*|/private/tmp/claude-[0-9]*/*/scratchpad/*) return 0 ;;
@@ -264,111 +248,751 @@ _is_session_scratchpad() {
   return 1
 }
 
-_path_in_scope() {
-  local clean="$1"
-  _is_session_scratchpad "$clean" && return 0
-  clean="${clean#./}"
-  clean="${clean#~/}"
-  local allowed
-  for allowed in "${ALLOWED_PATHS[@]}"; do
-    allowed="${allowed%/}/"
-    case "$clean/" in
-      "$allowed"*) return 0 ;;
-    esac
+_scope_hint() {
+  if [ "$DENY_ALL_WRITES" = true ] && [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
+    echo "  This agent declares no writable scope, so it may not write anywhere —" >&2
+    echo "  not through Write/Edit and not through the shell (the session scratchpad" >&2
+    echo "  is the one exception). Fix the scope in its agent definition (an unfilled" >&2
+    echo "  {{SCOPE_PATHS}} reads as 'no scope')." >&2
+  else
+    echo "  Allowed paths: ${ALLOWED_PATHS[*]} (relative to the project root; absolute forms of the same paths are fine)" >&2
+    echo "  Session scratchpad writes are always allowed. 'mv' counts its SOURCE too (use cp to bring a file in)." >&2
+  fi
+}
+
+# Canonical scope roots, computed once. A root that does not exist yet still
+# resolves (deepest existing ancestor + tail), same as a target.
+SCOPE_CANON=()
+for _r in ${ALLOWED_PATHS[@]+"${ALLOWED_PATHS[@]}"}; do
+  _r="${_r%/}"
+  case "$_r" in
+    /*) SCOPE_CANON+=("$(_canon_abs "$_r")") ;;
+    *)  SCOPE_CANON+=("$(_canon_abs "$_r" "$PROJ_CANON")") ;;
+  esac
+done
+
+# _in_scope <canonical-abs-path> → 0 when under a scope root or the scratchpad
+_in_scope() {
+  local p="$1" r
+  _is_session_scratchpad "$p" && return 0
+  for r in ${SCOPE_CANON[@]+"${SCOPE_CANON[@]}"}; do
+    [ "$p" = "$r" ] && return 0
+    case "$p/" in "$r/"*) return 0 ;; esac
   done
   return 1
 }
 
-# Collect candidate write targets (one per line)
-WRITE_TARGETS=$(
-  # 1. Redirect targets: > or >> followed by a path (fd dups and sinks dropped)
-  _file_redirect_targets
-  # 2. tee <file>: target is the first non-flag arg
-  echo "$COMMAND" | grep -oE '\btee\b[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*[^-[:space:]|;&]+' 2>/dev/null \
-    | awk '{for(i=2;i<=NF;i++) if ($i !~ /^-/) {print $i; exit}}' || true
-  # 3. cp/mv/install <flags> src dst: target is the LAST positional arg
-  echo "$COMMAND" | grep -oE '\b(cp|mv|install)\b[[:space:]]+[^|;&]+' 2>/dev/null \
-    | while IFS= read -r seg; do
-        # strip leading op name + flags, keep positional tail
-        echo "$seg" | awk '{
-          for (i=2; i<=NF; i++) if ($i !~ /^-/) tail=tail" "$i
-          n = split(tail, a, /[[:space:]]+/)
-          if (n >= 2) print a[n]  # last positional
-        }'
-      done || true
-  # 4. dd ... of=<target>
-  echo "$COMMAND" | grep -oE '\bof=[^[:space:]|;&]+' 2>/dev/null | cut -d= -f2 || true
-  # 5. mkdir/touch/rm/rmdir: every non-flag arg is a target
-  echo "$COMMAND" | grep -oE '\b(mkdir|touch|rm|rmdir)\b[[:space:]]+[^|;&]+' 2>/dev/null \
-    | while IFS= read -r seg; do
-        echo "$seg" | awk '{for(i=2;i<=NF;i++) if ($i !~ /^-/) print $i}'
-      done || true
-  # 6. sed -i <pattern> <files...>: every non-flag arg AFTER the pattern is a target.
-  # Handles GNU (`-i 'pat' file`) and BSD (`-i '' 'pat' file`, `-i.bak 'pat' file`).
-  # \47 is octal for '. \42 is octal for ". Bash single-quoting prevents literal
-  # quote characters in the awk source, so we encode them as octal.
-  echo "$COMMAND" | grep -oE '\bsed\b[[:space:]]+(-i[^[:space:]|;&]*|--in-place[^|;&]*)[^|;&]*' 2>/dev/null \
-    | while IFS= read -r seg; do
-        echo "$seg" | awk '{
-          seen_pattern = 0
-          for (i=1; i<=NF; i++) {
-            if ($i ~ /^(sed|--in-place|-i)/) continue
-            if ($i ~ /^-/) continue
-            if ($i == "\47\47" || $i == "\42\42") continue
-            if (!seen_pattern) { seen_pattern = 1; continue }
-            print $i
-          }
-        }'
-      done || true
-)
+# Canonicalisation with a per-directory cache: realpath + `cd && pwd -P` per
+# target cost 9–14 s on a 700-target command (audit I12); most targets share a
+# handful of directories.
+CD_K=(); CD_V=()
+_canon_cached() {  # <path> [<base>] [nofollow]
+  local p="$1" base="${2:-$CUR_CWD}" nofollow="${3:-}" d b i abs
+  case "$p" in
+    /*) ;;
+    "~") p="$HOME" ;;
+    "~/"*) p="$HOME/${p#\~/}" ;;
+    *) p="$base/$p" ;;
+  esac
+  case "$p" in */..|*/../*|*/.|*/./*|*//*) _canon_abs "$p"; return 0 ;; esac
+  # a symlink as the LAST component points wherever it likes (audit N2:
+  # `echo > src/link` with link → outside/secret.txt escaped through the cache)
+  # `rm`/`unlink`/`rmdir` act on the link itself, never on what it points to
+  # (delta audit: `rm src/link` false-blocked once the target was followed).
+  if [ -z "$nofollow" ] && [ -L "$p" ]; then _canon_abs "$p"; return 0; fi
+  d="${p%/*}"; b="${p##*/}"
+  [ -z "$d" ] && d="/"
+  for ((i = 0; i < ${#CD_K[@]}; i++)); do
+    if [ "${CD_K[$i]}" = "$d" ]; then
+      abs="${CD_V[$i]%/}/$b"
+      if [ -z "$nofollow" ] && [ -L "$abs" ]; then _canon_abs "$abs"; else printf '%s\n' "$abs"; fi
+      return 0
+    fi
+  done
+  abs=$(_canon_abs "$d")
+  CD_K+=("$d"); CD_V+=("$abs")
+  abs="${abs%/}/$b"
+  if [ -z "$nofollow" ] && [ -L "$abs" ]; then _canon_abs "$abs"; else printf '%s\n' "$abs"; fi
+}
 
-# If we identified at least one target, check ONLY those.
-TARGETS_FOUND=$(echo "$WRITE_TARGETS" | grep -v '^$' | grep -v '^/dev/null$' | head -50)
+# --- same-command variables (bash 3.2: no associative arrays) ---
+VN=(); VV=(); SUBST_ORDER=""
+_setvar() {
+  local i
+  for ((i = 0; i < ${#VN[@]}; i++)); do
+    if [ "${VN[$i]}" = "$1" ]; then VV[$i]="$2"; return; fi
+  done
+  VN+=("$1"); VV+=("$2"); SUBST_ORDER=""
+}
+# _subst <string> — expand $NAME/${NAME} from this command's assignments, then
+# HOME/PWD/TMPDIR; longest name first (so $HOME_DIR is not eaten by $HOME —
+# audit M4) and a same-command PWD= wins over the tracked cwd (audit I8).
+_subst() {
+  local s="$1" i n v
+  case "$s" in *\$*) ;; *) printf '%s' "$s"; return 0 ;; esac
+  if [ ${#VN[@]} -gt 0 ]; then
+    if [ -z "$SUBST_ORDER" ]; then
+      SUBST_ORDER=$(for ((i = 0; i < ${#VN[@]}; i++)); do printf '%d %d\n' "${#VN[$i]}" "$i"; done | sort -rn | awk '{print $2}')
+    fi
+    for i in $SUBST_ORDER; do
+      n="${VN[$i]}"; v="${VV[$i]}"
+      s="${s//\$\{$n\}/$v}"; s="${s//\$$n/$v}"
+    done
+  fi
+  # builtins, only where the command did not redefine them (order: longest first)
+  v="${TMPDIR:-/tmp}"; s="${s//\$\{TMPDIR\}/$v}"; s="${s//\$TMPDIR/$v}"
+  v="$HOME";           s="${s//\$\{HOME\}/$v}";   s="${s//\$HOME/$v}"
+  v="$CUR_CWD";        s="${s//\$\{PWD\}/$v}";    s="${s//\$PWD/$v}"
+  printf '%s' "$s"
+}
+_unresolved() { case "$1" in *\$*|*\`*) return 0 ;; esac; return 1; }
 
-if [ -n "$TARGETS_FOUND" ]; then
-  while IFS= read -r target; do
-    [ -z "$target" ] && continue
-    if ! _path_in_scope "$target"; then
-      if [ "$WRITE_TYPE" = "shell" ]; then
-        echo "BLOCKED: Bash command writes outside the allowed scope." >&2
-        echo "  Out-of-scope target: $target" >&2
-      else
-        echo "BLOCKED: Runtime write ($WRITE_TYPE) detected outside the allowed scope." >&2
+# --- targets ---
+TARGET_RAW=(); TARGET_ABS=(); TARGET_NOTE=()
+RUNTIME_WRITE=false; RUNTIME_TEXT=""; WRITE_TYPE=""
+
+_add_target() {   # <raw word> [nofollow]
+  local raw="$1" nofollow="${2:-}" s abs
+  case "$raw" in ''|/dev/null|/dev/stdout|/dev/stderr|/dev/tty|'&'*) return 0 ;; esac
+  s=$(_subst "$raw")
+  if _unresolved "$s"; then
+    TARGET_RAW+=("$raw"); TARGET_ABS+=(""); TARGET_NOTE+=("unresolved variable or substitution"); return 0
+  fi
+  case "$s" in
+    /*|"~"|"~/"*) abs=$(_canon_cached "$s" "$CUR_CWD" "$nofollow") ;;
+    *)
+      if [ "$CWD_UNKNOWN" = true ]; then
+        TARGET_RAW+=("$raw"); TARGET_ABS+=(""); TARGET_NOTE+=("relative to a working directory the guard could not resolve (cd to a substitution, cd -, or popd past the stack)"); return 0
       fi
-      _scope_hint
-      log_block "out-of-scope-bash-write" "${COMMAND:0:100}"
+      abs=$(_canon_cached "$s" "$CUR_CWD" "$nofollow") ;;
+  esac
+  TARGET_RAW+=("$raw"); TARGET_ABS+=("$abs"); TARGET_NOTE+=("")
+}
+_add_unknown_target() {  # <what> — a write whose targets the guard cannot see
+  TARGET_RAW+=("$1"); TARGET_ABS+=(""); TARGET_NOTE+=("its targets are not visible to the guard — name the files instead")
+}
+
+# --- runtime write heuristics, keyed to WRITE calls ---
+_rt_write() {  # <lang> <text> → 0 when the text performs a filesystem write
+  local lang="$1" t="$2"
+  case "$lang" in
+    python) printf '%s' "$t" | grep -qiE "open[[:space:]]*\([^)]*,[[:space:]]*['\"][rwax+b]*[wax]|mode[[:space:]]*=[[:space:]]*['\"][rwax+b]*[wax]|\.write\(|write_text\(|write_bytes\(|shutil\.|os\.(rename|replace|remove|unlink|makedirs|mkdir|rmdir|link|symlink|system)|subprocess|\.unlink\(|rmtree\(|\.mkdir\(|\.touch\(|\.rename\(|\.replace\(" ;;
+    node)   printf '%s' "$t" | grep -qiE "writeFile|appendFile|createWriteStream|mkdirSync|\.mkdir\(|copyFile|renameSync|\.rename\(|unlink|rmSync|\.rm\(|rmdir|truncate|child_process|execSync" ;;
+    ruby)   printf '%s' "$t" | grep -qiE "File\.(write|open\([^)]*,[[:space:]]*['\"][rwax+b]*[wax]|rename|delete|unlink)|FileUtils\.|IO\.write|system\(|\`" ;;
+    php)    printf '%s' "$t" | grep -qiE "file_put_contents|fwrite|fopen\([^)]*,[[:space:]]*['\"][rwax+b]*[wax]|rename\(|copy\(|mkdir\(|unlink\(|rmdir\(|exec\(|shell_exec|system\(" ;;
+    perl)   printf '%s' "$t" | grep -qiE "open[[:space:]]*\([^)]*,[[:space:]]*['\"]?[[:space:]]*>|open[[:space:]]+[A-Z_]+[[:space:]]*,[[:space:]]*['\"]>|File::Copy|rename\(|unlink|mkdir\(|rmdir\(|system\(|\`" ;;
+    *) return 1 ;;
+  esac
+}
+_rt_mark() {  # <text>
+  RUNTIME_WRITE=true; WRITE_TYPE="runtime"
+  RUNTIME_TEXT="${RUNTIME_TEXT}${1}"$'\n'
+}
+
+# Re-parse shell text with THIS guard (bash -c, eval, a heredoc fed to a shell).
+# Depth-limited; a nested refusal is this refusal.
+_recurse_shell() {  # <shell text>
+  local text="$1" rc
+  [ -n "$text" ] || return 0
+  if printf '%s' "$text" | grep -qE '\\x[0-9a-fA-F]|\\[0-7]{3}|\\u[0-9a-fA-F]|\\U[0-9a-fA-F]'; then
+    _add_unknown_target "shell text with ANSI-C escapes"; return 0
+  fi
+  if [ "$APD_GBS_DEPTH" -ge 3 ] 2>/dev/null; then
+    _add_unknown_target "nested shell (depth > 3)"; return 0
+  fi
+  APD_GBS_DEPTH=$((APD_GBS_DEPTH + 1)) bash "$0" --command "$text" --cwd "$CUR_CWD" \
+      $( [ "$DENY_ALL_WRITES" = true ] && printf -- '--deny-all-writes' ) \
+      ${ALLOWED_PATHS[@]+"${ALLOWED_PATHS[@]}"} >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    TARGET_RAW+=("${text:0:60}"); TARGET_ABS+=(""); TARGET_NOTE+=("nested shell text writes outside the scope")
+  fi
+  return 0
+}
+
+# --- per-statement processing ---
+ST=(); RT=(); HB=""; ST_HAS_HD=false; HD_PENDING=false
+DEF_ST=(); DEF_RT=(); DEF_SET=false
+CWD_STACK=(); DIR_STACK=()
+NF=()
+
+# _positionals <flags-with-values regex> — fills NF[] from A[]; a flag that
+# matches the regex consumes the next word; `--` ends flags; `-` alone is data.
+_positionals() {
+  local vflags="${1:-^$}" a flags_done=false skip=false
+  NF=()
+  for a in ${A[@]+"${A[@]}"}; do
+    if [ "$skip" = true ]; then skip=false; continue; fi
+    if [ "$flags_done" = false ]; then
+      case "$a" in
+        --) flags_done=true; continue ;;
+        -?*)
+          if printf '%s' "$a" | grep -qE "$vflags"; then skip=true; fi
+          continue ;;
+      esac
+    fi
+    NF+=("$a")
+  done
+}
+
+_process_stmt() {
+  local n=${#ST[@]} i=0 w name cmd a last lang text has_expr seen_pat expect_expr inplace body abs
+  [ "$n" -eq 0 ] && [ ${#RT[@]} -eq 0 ] && return 0
+  # leading assignments, shell keywords, and wrappers (with their own arguments)
+  while [ $i -lt $n ]; do
+    w="${ST[$i]}"
+    case "$w" in
+      *=*)
+        name="${w%%=*}"
+        case "$name" in ''|*[!A-Za-z0-9_]*) break ;; esac
+        _setvar "$name" "$(_subst "${w#*=}")"; i=$((i + 1)); continue ;;
+      for|select)
+        # `for NAME in a b c`: the loop variable takes the candidate that is NOT
+        # in scope if there is one (so the body's write on it is refused), else
+        # the first — a glob like `src/*.cs` is judged as the path string it is.
+        if [ $((i + 2)) -lt $n ] && [ "${ST[$((i + 2))]}" = "in" ]; then
+          name="${ST[$((i + 1))]}"; w=""; last=""
+          for ((a = i + 3; a < n; a++)); do
+            [ -z "$last" ] && last="${ST[$a]}"
+            body=$(_subst "${ST[$a]}")
+            if _unresolved "$body"; then w="${ST[$a]}"; break; fi
+            case "$body" in /*|"~"|"~/"*) abs=$(_canon_cached "$body") ;; *) abs=$(_canon_cached "$body" "$CUR_CWD") ;; esac
+            if ! _in_scope "$abs"; then w="${ST[$a]}"; break; fi
+          done
+          case "$name" in ''|*[!A-Za-z0-9_]*) ;; *) _setvar "$name" "${w:-$last}" ;; esac
+          i=$n; continue
+        fi
+        i=$((i + 1)); continue ;;
+      if|then|else|elif|fi|while|until|do|done|in|case|esac|'{'|'}'|'!'|function|coproc|time|export|local|declare|typeset|readonly|command|builtin|exec|nohup|caffeinate)
+        i=$((i + 1)); continue ;;
+      sudo|doas)
+        i=$((i + 1))
+        while [ $i -lt $n ]; do
+          case "${ST[$i]}" in
+            -u|-g|-p|-h|-C|-D|-r|-t|-U) i=$((i + 2)) ;;
+            -*) i=$((i + 1)) ;;
+            *) break ;;
+          esac
+        done; continue ;;
+      nice|ionice)
+        i=$((i + 1))
+        while [ $i -lt $n ]; do
+          case "${ST[$i]}" in -n|-c|-p) i=$((i + 2)) ;; -*) i=$((i + 1)) ;; *) break ;; esac
+        done; continue ;;
+      timeout)
+        i=$((i + 1))
+        while [ $i -lt $n ]; do
+          case "${ST[$i]}" in -k|-s|--kill-after|--signal) i=$((i + 2)) ;; -*) i=$((i + 1)) ;; *) i=$((i + 1)); break ;; esac   # last: the DURATION
+        done; continue ;;
+      env)
+        i=$((i + 1))
+        while [ $i -lt $n ]; do
+          case "${ST[$i]}" in -u|-C|-S|--unset|--chdir) i=$((i + 2)) ;; -*) i=$((i + 1)) ;; *) break ;; esac
+        done; continue ;;
+      xargs)
+        # the command's targets come from stdin: not visible → fail closed
+        i=$((i + 1))
+        while [ $i -lt $n ]; do
+          case "${ST[$i]}" in -I|-n|-P|-L|-s|-d|-E|-a) i=$((i + 2)) ;; -*) i=$((i + 1)) ;; *) break ;; esac
+        done
+        case "${ST[$i]:-}" in
+          cp|mv|rm|rmdir|mkdir|touch|tee|sed|perl|install|dd|ln|truncate|chmod|chown|rsync|git)
+            _add_unknown_target "xargs ${ST[$i]}" ;;
+        esac
+        continue ;;
+    esac
+    break
+  done
+  cmd=""; [ $i -lt $n ] && cmd="${ST[$i]}"
+  A=()
+  if [ $((i + 1)) -lt $n ]; then A=("${ST[@]:$((i + 1))}"); fi
+
+  case "$cmd" in
+    cd)
+      _positionals '^$'
+      w=""; [ ${#NF[@]} -gt 0 ] && w="${NF[0]}"
+      case "$w" in
+        ''|'~') CUR_CWD="$HOME"; CWD_UNKNOWN=false ;;
+        -)      CWD_UNKNOWN=true ;;
+        *)      w=$(_subst "$w")
+                if _unresolved "$w"; then CWD_UNKNOWN=true
+                else CUR_CWD=$(_canon_cached "$w" "$CUR_CWD"); CWD_UNKNOWN=false; fi ;;
+      esac ;;
+    pushd)
+      _positionals '^$'
+      w=""; [ ${#NF[@]} -gt 0 ] && w="${NF[0]}"
+      DIR_STACK+=("$CUR_CWD|$CWD_UNKNOWN")
+      case "$w" in
+        '') ;;   # pushd with no operand swaps the top two: keep it simple, cwd unknown
+        *)  w=$(_subst "$w")
+            if _unresolved "$w"; then CWD_UNKNOWN=true
+            else CUR_CWD=$(_canon_cached "$w" "$CUR_CWD"); CWD_UNKNOWN=false; fi ;;
+      esac
+      [ -z "$w" ] && CWD_UNKNOWN=true ;;
+    popd)
+      if [ ${#DIR_STACK[@]} -gt 0 ]; then
+        w="${DIR_STACK[$((${#DIR_STACK[@]} - 1))]}"
+        CUR_CWD="${w%|*}"; CWD_UNKNOWN="${w##*|}"
+        unset "DIR_STACK[$((${#DIR_STACK[@]} - 1))]"
+      else
+        CWD_UNKNOWN=true
+      fi ;;
+    cp|install)
+      # GNU `-t DIR` / `--target-directory=DIR`: the directory is the target
+      w=""
+      for ((last = 0; last < ${#A[@]}; last++)); do
+        case "${A[$last]}" in
+          -t|--target-directory) w="${A[$((last + 1))]:-}" ;;
+          --target-directory=*)  w="${A[$last]#--target-directory=}" ;;
+        esac
+      done
+      if [ -n "$w" ]; then _add_target "$w"
+      else
+        _positionals '^(-t|--target-directory|-m|-o|-g|--mode|--owner|--group)$'
+        [ ${#NF[@]} -gt 0 ] && _add_target "${NF[$((${#NF[@]} - 1))]}"
+      fi ;;
+    mv)
+      # every positional: the source leaves its place, so it is a write too
+      _positionals '^(-t|--target-directory)$'
+      for a in ${NF[@]+"${NF[@]}"}; do _add_target "$a"; done
+      for ((last = 0; last < ${#A[@]}; last++)); do
+        case "${A[$last]}" in
+          -t|--target-directory) _add_target "${A[$((last + 1))]:-}" ;;
+          --target-directory=*)  _add_target "${A[$last]#--target-directory=}" ;;
+        esac
+      done ;;
+    mkdir)
+      _positionals '^(-m|--mode)$'
+      for a in ${NF[@]+"${NF[@]}"}; do _add_target "$a"; done ;;
+    touch)
+      _positionals '^(-t|-r|-d|--date|--reference)$'
+      for a in ${NF[@]+"${NF[@]}"}; do _add_target "$a"; done ;;
+    rm|rmdir|tee|unlink|chmod|chown|chgrp|truncate|ln|rsync|shred)
+      case "$cmd" in
+        chmod|chown|chgrp) _positionals '^(--reference)$'; NF=(${NF[@]+"${NF[@]:1}"}) ;;   # first positional is the mode/owner
+        truncate)          _positionals '^(-s|-r|--size|--reference)$' ;;
+        rsync)             _positionals '^(-e|--rsh|--exclude|--include|--filter|--files-from|--log-file)$'
+                           [ ${#NF[@]} -gt 0 ] && NF=("${NF[$((${#NF[@]} - 1))]}") ;;   # destination only
+        ln)                _positionals '^(-t|--target-directory|-S|--suffix)$'
+                           # `ln [-s] target linkname`: the LINK is created; with one operand it lands in cwd
+                           if [ ${#NF[@]} -ge 2 ]; then NF=("${NF[$((${#NF[@]} - 1))]}"); elif [ ${#NF[@]} -eq 1 ]; then NF=("${NF[0]##*/}"); fi ;;
+        *)                 _positionals '^$' ;;
+      esac
+      case "$cmd" in
+        rm|rmdir|unlink) for a in ${NF[@]+"${NF[@]}"}; do _add_target "$a" nofollow; done ;;
+        *)               for a in ${NF[@]+"${NF[@]}"}; do _add_target "$a"; done ;;
+      esac ;;
+    dd)
+      for a in ${A[@]+"${A[@]}"}; do case "$a" in of=*) _add_target "${a#of=}" ;; esac; done ;;
+    curl|wget)
+      for ((last = 0; last < ${#A[@]}; last++)); do
+        case "${A[$last]}" in
+          -o|--output|-O|--output-document) _add_target "${A[$((last + 1))]:-}" ;;
+          --output=*|--output-document=*)   _add_target "${A[$last]#*=}" ;;
+          -o*) [ "$cmd" = curl ] && _add_target "${A[$last]#-o}" ;;
+          -O*) [ "$cmd" = wget ] && [ "${A[$last]}" != "-O" ] && _add_target "${A[$last]#-O}" ;;
+        esac
+      done
+      { [ "$cmd" = wget ] && ! printf '%s\n' ${A[@]+"${A[@]}"} | grep -qE '^(-O|--output-document)'; } && _add_target "./" ;;
+    sort)
+      for ((last = 0; last < ${#A[@]}; last++)); do
+        case "${A[$last]}" in -o|--output) _add_target "${A[$((last + 1))]:-}" ;; --output=*) _add_target "${A[$last]#*=}" ;; -o?*) _add_target "${A[$last]#-o}" ;; esac
+      done ;;
+    tar|unzip)
+      w=""
+      for ((last = 0; last < ${#A[@]}; last++)); do
+        case "${A[$last]}" in
+          -C|--directory|-d) w="${A[$((last + 1))]:-}" ;;
+          --directory=*) w="${A[$last]#*=}" ;;
+        esac
+      done
+      body=false
+      case "$cmd" in
+        tar) for a in ${A[@]+"${A[@]}"}; do case "$a" in --extract|-*x*) body=true ;; [a-zA-Z]*x*) body=true ;; esac; done ;;   # `tar xf`, `tar -xf`, `tar -C d -xf`
+        unzip) body=true ;;
+      esac
+      if [ "$body" = true ]; then _add_target "${w:-./}"; fi ;;
+    sed)
+      inplace=false; has_expr=false
+      for a in ${A[@]+"${A[@]}"}; do
+        case "$a" in
+          --in-place*) inplace=true ;;
+          -e|--expression|-f|--file) has_expr=true ;;
+          -e?*|-f?*) has_expr=true ;;
+          -[A-Za-z]*) case "$a" in *i*) inplace=true ;; esac ;;     # -i, -Ei, -ri, -ni, -i.bak …
+        esac
+      done
+      if [ "$inplace" = true ]; then
+        seen_pat=false; expect_expr=false
+        for a in ${A[@]+"${A[@]}"}; do
+          if [ "$expect_expr" = true ]; then expect_expr=false; continue; fi
+          case "$a" in
+            '') continue ;;                                   # BSD `-i ''` empty suffix
+            -e|--expression|-f|--file) expect_expr=true; continue ;;
+            -*) continue ;;
+          esac
+          if [ "$has_expr" = false ] && [ "$seen_pat" = false ]; then seen_pat=true; continue; fi
+          _add_target "$a"
+        done
+      fi ;;
+    perl)
+      inplace=false
+      for a in ${A[@]+"${A[@]}"}; do case "$a" in -i*|-[a-zA-Z0-9]*i*) case "$a" in -e|-E) ;; *) inplace=true ;; esac ;; esac; done
+      if [ "$inplace" = true ]; then
+        expect_expr=false
+        for a in ${A[@]+"${A[@]}"}; do
+          if [ "$expect_expr" = true ]; then expect_expr=false; continue; fi
+          case "$a" in -e|-E|-M|-m) expect_expr=true; continue ;; -*) continue ;; esac
+          _add_target "$a"
+        done
+      else
+        text=""; expect_expr=false
+        for a in ${A[@]+"${A[@]}"}; do
+          if [ "$expect_expr" = true ]; then text="${text}${a}"$'\n'; expect_expr=false; continue; fi
+          case "$a" in -e|-E) expect_expr=true ;; esac
+        done
+        [ -n "$HB" ] && text="${text}${HB}"
+        [ -n "$text" ] && _rt_write perl "$text" && _rt_mark "$text"$'\n'"${A[*]}"
+      fi ;;
+    git)
+      w=""; [ ${#A[@]} -gt 0 ] && w="${A[0]}"
+      case "$w" in
+        rm|mv|restore|clean)
+          A=(${A[@]+"${A[@]:1}"}); _positionals '^(--source|--pathspec-from-file)$'
+          for a in ${NF[@]+"${NF[@]}"}; do _add_target "$a"; done
+          [ "$w" = clean ] && [ ${#NF[@]} -eq 0 ] && _add_target "./" ;;
+        checkout)
+          # `git checkout -- <paths>` / `git checkout <ref> -- <paths>` overwrite working files
+          if printf '%s\n' ${A[@]+"${A[@]}"} | grep -qx -- '--'; then
+            body=false
+            for a in ${A[@]+"${A[@]:1}"}; do
+              if [ "$body" = true ]; then _add_target "$a"; elif [ "$a" = "--" ]; then body=true; fi
+            done
+          fi ;;
+      esac ;;
+    eval)
+      _recurse_shell "${A[*]}" ;;
+    bash|sh|zsh|dash)
+      # `-c <string>` is shell; a heredoc-fed shell is shell; a script file is not readable here
+      text=""; w=false
+      for a in ${A[@]+"${A[@]}"}; do
+        if [ "$w" = true ]; then text="$a"; break; fi
+        case "$a" in -c) w=true ;; -c?*) text="${a#-c}"; break ;; esac
+      done
+      [ -z "$text" ] && [ -n "$HB" ] && text="$HB"
+      [ -n "$text" ] && _recurse_shell "$text" ;;
+    python|python2|python3|node|nodejs|ruby|php)
+      case "$cmd" in python*) lang=python ;; node*) lang=node ;; ruby) lang=ruby ;; php) lang=php ;; esac
+      text=""; w=false
+      for a in ${A[@]+"${A[@]}"}; do
+        if [ "$w" = true ]; then text="${text}${a}"$'\n'; w=false; continue; fi
+        case "$a" in
+          -c|-e|-r|--eval|--print|-p) w=true ;;
+          --eval=*|--print=*) text="${text}${a#*=}"$'\n' ;;
+          -c?*|-e?*|-r?*) text="${text}${a#-?}"$'\n' ;;       # glued: python3 -c"…", node -e"…"
+        esac
+      done
+      # program on stdin: heredoc body, unless a script file was named
+      if [ -n "$HB" ]; then
+        _positionals '^(-c|-e|-r|--eval|-m|-W|-X|-r|-d)$'
+        last=""; for a in ${NF[@]+"${NF[@]}"}; do [ "$a" != "-" ] && last="$a"; done
+        [ -z "$last" ] && text="${text}${HB}"
+      fi
+      # argv after the program is part of the write surface (audit I5)
+      [ -n "$text" ] && _rt_write "$lang" "$text" && _rt_mark "$text"$'\n'"${A[*]}" ;;
+    find)
+      # `find <roots> … -delete | -exec <writeop> …`: the roots are what gets written
+      body=false
+      for a in ${A[@]+"${A[@]}"}; do
+        case "$a" in
+          -delete) body=true ;;
+          -exec|-execdir|-ok|-okdir)
+            last=$(printf '%s\n' ${A[@]+"${A[@]}"} | grep -A1 -x -- "$a" | tail -1)
+            case "$last" in cp|mv|rm|rmdir|mkdir|touch|tee|sed|perl|install|dd|ln|truncate|chmod|chown|rsync|sh|bash) body=true ;; esac ;;
+        esac
+      done
+      if [ "$body" = true ]; then
+        NF=()
+        for a in ${A[@]+"${A[@]}"}; do case "$a" in -*|'('|'!') break ;; *) NF+=("$a") ;; esac; done
+        [ ${#NF[@]} -eq 0 ] && NF=("./")
+        for a in "${NF[@]}"; do _add_target "$a"; done
+      fi ;;
+  esac
+  for a in ${RT[@]+"${RT[@]}"}; do _add_target "$a"; done
+  return 0
+}
+
+_TOKENIZER='
+function emit_word() {
+  if (have) { if (rd) { print "R " tok; rd = 0 } else { print "W " tok } }
+  tok = ""; have = 0
+}
+function emit(t, v) { print t " " v }
+BEGIN { q = 0; esc = 0; tok = ""; have = 0; rd = 0; skip = 0; pending = 0; hd_tag = ""; hd_strip = 0; arith = 0 }
+{
+  line = $0
+  sub(/\r$/, "", line)
+  if (skip) {
+    chk = line
+    if (hd_strip) sub(/^\t+/, "", chk)
+    if (chk == hd_tag) { skip = 0; emit("HE", ""); next }
+    emit("HB", line); next
+  }
+  n = length(line); i = 1
+  while (i <= n) {
+    c = substr(line, i, 1)
+    if (q == 1) { if (c == "\047") q = 0; else tok = tok c; have = 1; i++; continue }
+    if (q == 2) {
+      if (esc) { tok = tok c; esc = 0 }
+      else if (c == "\\") { esc = 1 }
+      else if (c == "\042") { q = 0 }
+      else { tok = tok c }
+      have = 1; i++; continue
+    }
+    if (esc) { tok = tok c; have = 1; esc = 0; i++; continue }
+    if (c == "\\") { esc = 1; i++; continue }
+    if (c == "\047") { q = 1; have = 1; i++; continue }
+    if (c == "\042") { q = 2; have = 1; i++; continue }
+    if (arith > 0) {
+      if (c == ")" && substr(line, i + 1, 1) == ")") { arith--; tok = tok "))"; have = 1; i += 2; continue }
+      if (c == "(" && substr(line, i + 1, 1) == "(") { arith++; tok = tok "(("; have = 1; i += 2; continue }
+      if (c == " " || c == "\t") { tok = tok c; have = 1; i++; continue }
+      tok = tok c; have = 1; i++; continue
+    }
+    if (c == "$" && substr(line, i + 1, 2) == "((") { arith++; tok = tok "$(("; have = 1; i += 3; continue }
+    if (c == "(" && substr(line, i + 1, 1) == "(" && !have) { arith++; tok = "(("; have = 1; i += 2; continue }
+    if (c == "#" && !have) break
+    if (c == " " || c == "\t") { emit_word(); i++; continue }
+    if (c == ";") { emit_word(); emit("S", ";"); i++; continue }
+    if (c == "(") { emit_word(); emit("S", "("); i++; continue }
+    if (c == ")") { emit_word(); emit("S", ")"); i++; continue }
+    if (c == "{" && !have && (substr(line, i + 1, 1) == " " || substr(line, i + 1, 1) == "\t" || i == n)) { emit("W", "{"); i++; continue }
+    if (c == "}" && !have && (i == n || substr(line, i + 1, 1) ~ /[ \t;&|)]/)) { emit("W", "}"); i++; continue }
+    if (c == "|") {
+      emit_word()
+      if (substr(line, i + 1, 1) == "|") { emit("S", "||"); i += 2 } else if (substr(line, i + 1, 1) == "&") { emit("S", "|"); i += 2 } else { emit("S", "|"); i++ }
+      continue
+    }
+    if (c == "&") {
+      nx = substr(line, i + 1, 1)
+      if (nx == "&") { emit_word(); emit("S", "&&"); i += 2; continue }
+      if (nx == ">") {
+        emit_word(); i += 2
+        if (substr(line, i, 1) == ">") i++
+        while (substr(line, i, 1) == " " || substr(line, i, 1) == "\t") i++
+        rd = 1; continue
+      }
+      emit_word(); emit("S", "&"); i++; continue
+    }
+    if (c == "<") {
+      if (substr(line, i + 1, 2) == "<<") { i += 3; continue }
+      if (substr(line, i + 1, 1) == "<") {
+        i += 2; strip = 0
+        if (substr(line, i, 1) == "-") { strip = 1; i++ }
+        while (substr(line, i, 1) == " " || substr(line, i, 1) == "\t") i++
+        tag = ""; qq = substr(line, i, 1)
+        if (qq == "\\") { i++; qq = "" }
+        if (qq == "\047" || qq == "\042") {
+          i++
+          while (i <= n && substr(line, i, 1) != qq) { tag = tag substr(line, i, 1); i++ }
+          i++
+        } else {
+          while (i <= n && substr(line, i, 1) !~ /[ \t;|&<>()]/) { tag = tag substr(line, i, 1); i++ }
+        }
+        if (!pending) { hd_tag = tag; hd_strip = strip; pending = 1; emit("HS", tag) }
+        continue
+      }
+      if (substr(line, i + 1, 1) == "(") { i++; continue }
+      i++; continue
+    }
+    if (c == ">") {
+      prev = (i > 1) ? substr(line, i - 1, 1) : ""
+      nx = substr(line, i + 1, 1)
+      if (prev == "=" || prev == "-" || nx == "=") { tok = tok c; have = 1; i++; continue }
+      if (have && tok ~ /^[0-9]+$/) { tok = ""; have = 0 } else if (have && tok ~ /^\{[A-Za-z_][A-Za-z0-9_]*\}$/) { tok = ""; have = 0 } else emit_word()
+      i++
+      if (substr(line, i, 1) == ">") i++
+      if (substr(line, i, 1) == "|") i++
+      if (substr(line, i, 1) == "&") {
+        i++
+        if (substr(line, i, 1) ~ /[0-9-]/) { i++; continue }
+      }
+      while (substr(line, i, 1) == " " || substr(line, i, 1) == "\t") i++
+      if (substr(line, i, 1) == "(") { rd = 0; continue }
+      rd = 1; continue
+    }
+    tok = tok c; have = 1; i++
+  }
+  if (esc && q != 1) { esc = 0; next }        # backslash-newline: the word continues on the next line
+  emit_word(); rd = 0
+  emit("S", "NL")
+  if (pending) { skip = 1; pending = 0 }
+}
+END { emit_word() }
+'
+
+_flush_stmt() {
+  if [ "$ST_HAS_HD" = true ] && [ "$DEF_SET" = false ]; then
+    # this statement owns the heredoc: defer until its body has arrived
+    DEF_ST=(${ST[@]+"${ST[@]}"}); DEF_RT=(${RT[@]+"${RT[@]}"}); DEF_SET=true
+  else
+    _process_stmt
+  fi
+  ST=(); RT=(); ST_HAS_HD=false
+}
+_flush_deferred() {
+  if [ "$DEF_SET" = true ]; then
+    ST=(${DEF_ST[@]+"${DEF_ST[@]}"}); RT=(${DEF_RT[@]+"${DEF_RT[@]}"})
+    _process_stmt
+    ST=(); RT=(); DEF_ST=(); DEF_RT=(); DEF_SET=false
+  fi
+  HB=""; HD_PENDING=false
+}
+
+while IFS= read -r _tline; do
+  _ttype="${_tline%% *}"
+  case "$_tline" in *" "*) _tval="${_tline#* }" ;; *) _tval="" ;; esac
+  case "$_ttype" in
+    W)  ST+=("$_tval") ;;
+    R)  RT+=("$_tval") ;;
+    HS) HD_PENDING=true; ST_HAS_HD=true ;;
+    HB) HB="${HB}${_tval}"$'\n' ;;
+    HE) _flush_deferred ;;
+    S)
+      case "$_tval" in
+        NL) _flush_stmt
+            [ "$HD_PENDING" = true ] || _flush_deferred ;;
+        "(") _flush_stmt; CWD_STACK+=("$CUR_CWD|$CWD_UNKNOWN") ;;
+        ")") _flush_stmt
+             if [ ${#CWD_STACK[@]} -gt 0 ]; then
+               _top="${CWD_STACK[$((${#CWD_STACK[@]} - 1))]}"
+               CUR_CWD="${_top%|*}"; CWD_UNKNOWN="${_top##*|}"
+               unset "CWD_STACK[$((${#CWD_STACK[@]} - 1))]"
+             fi ;;
+        *)  _flush_stmt ;;
+      esac ;;
+  esac
+done < <(printf '%s\n' "$COMMAND" | awk "$_TOKENIZER")
+_flush_stmt
+_flush_deferred
+
+# --- 2. Decide ------------------------------------------------------------------
+if [ ${#TARGET_RAW[@]} -eq 0 ] && [ "$RUNTIME_WRITE" = false ]; then
+  exit 0
+fi
+
+# PROTECT_ONLY (no scope = the orchestrator): only the pipeline dir is fenced.
+if [ "$PROTECT_ONLY" = true ]; then
+  _PIPE_CANON="$PROJ_CANON/.apd/pipeline"
+  _under_pipeline() { case "$1/" in "$_PIPE_CANON/"*) return 0 ;; esac; [ "$1" = "$_PIPE_CANON" ] && return 0; return 1; }
+  _i=0
+  while [ $_i -lt ${#TARGET_RAW[@]} ]; do
+    _raw="${TARGET_RAW[$_i]}"; _abs="${TARGET_ABS[$_i]}"; _i=$((_i + 1))
+    [ -n "$_abs" ] || continue                      # unresolved: the orchestrator is not scoped
+    case "${_abs##*/}" in .guide-marker) continue ;; esac
+    if _under_pipeline "$_abs"; then
+      echo "BLOCKED: Bash write to protected pipeline state directory." >&2
+      echo "  Target: $_raw (resolves to $_abs)" >&2
+      _pipeline_block_guidance
+      log_block "pipeline-state-write" "${COMMAND:0:200}"
       exit 2
     fi
-  done <<< "$TARGETS_FOUND"
-  exit 0
-fi
-
-# No identifiable write targets found — fall back to strict per-token check.
-# This catches runtime writes (node -e, python -c) where the target lives in
-# a string literal; require every path-shaped token to be in scope.
-PATHS_IN_CMD=$(echo "$COMMAND" | grep -oE '([~/./]?[a-zA-Z0-9_./-]{2,})' 2>/dev/null || true)
-ANY_PATH=false
-while IFS= read -r path; do
-  [ -z "$path" ] && continue
-  case "$path" in
-    -*|/dev/null|/dev/stdin|/dev/stdout|/dev/stderr) continue ;;
-  esac
-  ANY_PATH=true
-  if _path_in_scope "$path"; then
-    exit 0
+  done
+  if [ "$RUNTIME_WRITE" = true ]; then
+    while IFS= read -r _p; do
+      [ -z "$_p" ] && continue
+      case "$_p" in */*|"~"*|.apd*) ;; *) continue ;; esac
+      _s=$(_subst "$_p"); _unresolved "$_s" && continue
+      case "$_s" in /*|"~"|"~/"*) _abs=$(_canon_cached "$_s") ;; *) _abs=$(_canon_cached "$_s" "$CUR_CWD") ;; esac
+      if _under_pipeline "$_abs"; then
+        echo "BLOCKED: Runtime write to protected pipeline state directory." >&2
+        _pipeline_block_guidance
+        log_block "pipeline-state-write" "${COMMAND:0:200}"
+        exit 2
+      fi
+    done < <(printf '%s' "$RUNTIME_TEXT" | grep -oE "[~./A-Za-z0-9_-][A-Za-z0-9_./~-]*" 2>/dev/null || true)
   fi
-done <<< "$PATHS_IN_CMD"
-
-if [ "$ANY_PATH" = false ]; then
-  # No path-shaped tokens at all (e.g. `mkdir` with no arg) — allow
   exit 0
 fi
 
-if [ "$WRITE_TYPE" = "shell" ]; then
+_block() {  # <detail line>
   echo "BLOCKED: Bash command writes outside the allowed scope." >&2
-else
-  echo "BLOCKED: Runtime write ($WRITE_TYPE) detected outside the allowed scope." >&2
+  [ -n "$1" ] && echo "  $1" >&2
+  _scope_hint
+  log_block "out-of-scope-bash-write" "${COMMAND:0:200}"
+  exit 2
+}
+
+_i=0
+while [ $_i -lt ${#TARGET_RAW[@]} ]; do
+  _raw="${TARGET_RAW[$_i]}"; _abs="${TARGET_ABS[$_i]}"; _note="${TARGET_NOTE[$_i]}"
+  _i=$((_i + 1))
+  if [ -n "$_note" ]; then
+    # a write the guard cannot place is refused, unless a writable agent with no
+    # scope is involved (then everything is refused anyway, below)
+    _block "Out-of-scope target: $_raw ($_note — cannot be resolved, so it is refused)"
+  fi
+  if _has_traversal "$_abs"; then
+    _block "Out-of-scope target: $_raw (unresolved path traversal in $_abs)"
+  fi
+  if [ "$DENY_ALL_WRITES" = true ] && [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
+    # no writable scope at all: only the session scratchpad is sanctioned
+    _is_session_scratchpad "$_abs" && continue
+    echo "BLOCKED: Bash command writes, and this agent has no writable scope." >&2
+    echo "  Target: $_raw" >&2
+    _scope_hint
+    log_block "out-of-scope-bash-write" "${COMMAND:0:200}"
+    exit 2
+  fi
+  if ! _in_scope "$_abs"; then
+    if [ "$_raw" = "$_abs" ]; then _block "Out-of-scope target: $_raw"
+    else _block "Out-of-scope target: $_raw (resolves to $_abs)"; fi
+  fi
+done
+
+# Runtime writes: the target lives inside a program. Every path-shaped token
+# the program mentions must be in scope or in the scratchpad (a read of an
+# out-of-scope file inside a WRITING program is refused too — fail-closed; the
+# old "any in-scope token allows" rule let `shutil.copy('src/a','/tmp/a')`
+# through, audit I4), and the program must run from a working directory that
+# is itself in scope, because a bare file name resolves there (audit I6).
+if [ "$RUNTIME_WRITE" = true ]; then
+  if [ "$DENY_ALL_WRITES" = true ] && [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
+    echo "BLOCKED: Runtime write (runtime) detected, and this agent has no writable scope." >&2
+    _scope_hint; log_block "out-of-scope-bash-write" "${COMMAND:0:200}"; exit 2
+  fi
+  # Where would a BARE file name land? In the working directory. A cwd outside
+  # the project (or unknown) refuses the program outright; a cwd inside the
+  # project but outside the scope refuses it only when the program names no
+  # path at all (then every name is bare). Named paths are judged one by one.
+  _cwd_ok=false; _in_scope "$CUR_CWD" && _cwd_ok=true
+  _cwd_in_proj=false; case "$CUR_CWD/" in "$PROJ_CANON/"*) _cwd_in_proj=true ;; esac
+  if [ "$CWD_UNKNOWN" = true ] || { [ "$_cwd_ok" = false ] && [ "$_cwd_in_proj" = false ]; }; then
+    echo "BLOCKED: Runtime write (runtime) detected from a working directory outside the project ($CUR_CWD)." >&2
+    _scope_hint; log_block "out-of-scope-bash-write" "${COMMAND:0:200}"; exit 2
+  fi
+  _any=false
+  while IFS= read -r _p; do
+    [ -z "$_p" ] && continue
+    case "$_p" in
+      */*|"~"*) ;;
+      *) continue ;;
+    esac
+    _any=true
+    _s=$(_subst "$_p")
+    _unresolved "$_s" && continue
+    case "$_s" in /*|"~"|"~/"*) _abs=$(_canon_cached "$_s") ;; *) _abs=$(_canon_cached "$_s" "$CUR_CWD") ;; esac
+    if ! _in_scope "$_abs"; then
+      echo "BLOCKED: Runtime write (runtime) detected outside the allowed scope." >&2
+      echo "  Out-of-scope path in the program: $_p" >&2
+      _scope_hint; log_block "out-of-scope-bash-write" "${COMMAND:0:200}"; exit 2
+    fi
+  done < <(printf '%s' "$RUNTIME_TEXT" | grep -oE "[~./A-Za-z0-9_-][A-Za-z0-9_./~-]*" 2>/dev/null || true)
+  if [ "$_any" = false ] && [ "$_cwd_ok" = false ]; then
+    echo "BLOCKED: Runtime write (runtime) with bare file names, from a working directory outside the allowed scope ($CUR_CWD)." >&2
+    _scope_hint; log_block "out-of-scope-bash-write" "${COMMAND:0:200}"; exit 2
+  fi
+  exit 0
 fi
-_scope_hint
-log_block "out-of-scope-bash-write" "${COMMAND:0:100}"
-exit 2
+
+exit 0

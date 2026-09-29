@@ -60,6 +60,7 @@ these tools:
 - After `apd_adversarial_pass` with `total > 0`, write `.apd/pipeline/.adversarial-rationale.md` BEFORE running `apd_advance_pipeline("verifier")`. Format: `## Finding N — <title>` + `**Severity:** critical|important|minor` + `**Status:** accepted|dismissed|reviewer-self-dismissed` + `**Rationale:** <text ≥40 chars for dismissed/self-dismissed>`. Verifier hard-blocks on missing file, count mismatch, malformed fields, or the 100%-orchestrator-dismiss pattern.
 - **Keep the adversarial child blind.** Its value is positional — it judges the diff without knowing the intent. On CC that is enforced (`guard-spec-blind` closes `.apd/pipeline/` and the memory dir to that role); the Codex payload carries no per-call role tag, so here it is DISCIPLINE. Do NOT paste the spec, the R-criteria or the design intent into its prompt, and do NOT tell it to read `spec-card.md` or the plan. Point it at `.apd/pipeline/.reviewed-files` — that is its scope. A finding phrased as "this does not match the spec" means the intent leaked in.
 - **Cycle cap hit?** Lift it IN PLACE: `apd pipeline raise-cap <builder|reviewer> <N|unlimited> "<reason>"` (raises only, reason mandatory, `INFO|cap-raise`). Do NOT edit `max_cycles` in the signed spec-card — that forces a spec re-advance, which wipes `.agents`, destroys the evidence already earned and forces a redundant re-dispatch.
+- **Dispatch budget (v7.1, CC-only):** on CC a per-task budget of DISPATCHES by role class (builder 12 / reviewer 6 / adversarial 2) is enforced before a subagent spawns. Codex has no dispatch hook, so nothing enforces it here — keep the same discipline by hand: an out-of-scope finding is a spinoff, not another round.
 - Three finding dispositions: **accept** (real + in scope) / **dismiss** (not real) / **spinoff** (real BUT out of THIS task's declared scope — often the ones surfacing AT the cycle cap). Do NOT expand the task and do NOT disable APD to cram an out-of-scope fix in; record a follow-up task seed and continue in scope: `apd pipeline spinoff-finding <id> "<why out of scope + the follow-up>"` (backlog: `apd pipeline show deferred`). In `.adversarial-rationale.md` a spun-off finding is still `**Status:** accepted` (it's real — counts in `A`); `spinoff-finding` is the deferral record, NOT a rationale status (the gate only knows accepted/dismissed/reviewer-self-dismissed). The spinoff becomes its own APD task next (spec + fresh adversarial + red-green). When you ask the user what to do about an out-of-scope finding at the cap, list spinoff FIRST and recommend it.
 - **Orthogonal to the disposition: does the finding generalize?** A disposition settles the instance; the class outlives it. If the same shape can appear in another module or handler, record it once — `apd pipeline lesson "<rule as a class>" "<what it cost>"` (read back: `apd pipeline show lessons`). Builders read `.apd/lessons.md` before they start, so a recorded class becomes education on every future dispatch instead of knowledge that leaves with the run. Write the RULE not the patch, and not one per finding — past ~20 entries the file gets skimmed rather than read.
 
@@ -137,7 +138,9 @@ The reviewer gate then advances straight to verifier without setting the
 adversarial-pending flag. **Mechanical cap: the opt-out is only honored
 when the spec has ≤ 2 `R*:` criteria.** A 3+ criterion spec is
 substantial enough that the adversarial gate stays on regardless — the
-`adversarial: skip` line is ignored in that case.
+`adversarial: skip` line is ignored in that case, and equally at 5 or more
+files in the reviewed scope (`.reviewed-files`, v7.1 — the "fewer than 5
+files" rule above is now measured, not assumed).
 
 ## Order of operations for a task
 

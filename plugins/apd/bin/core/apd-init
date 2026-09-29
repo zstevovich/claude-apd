@@ -438,6 +438,27 @@ if [ "$MODE" = "update" ]; then
         else
             warn "supervisor: missing 'memory: none' (decontextualization contract)"
         fi
+        # v7.1 content marker: `### Notes` — findings carry the question they
+        # answer, notes need no disposition. A copy without it still files every
+        # observation as a finding (the SUPERVISION:8:7:1 pattern). Same refresh
+        # idiom as the adversarial markers: profile-managed model/effort survive.
+        if ! grep -q '### Notes' "$CLAUDE_DIR/agents/supervisor.md" 2>/dev/null \
+           && [ -f "$APD_PLUGIN_ROOT/templates/supervisor-template.md" ]; then
+            PREV_MODEL=$(grep -m1 '^model:' "$CLAUDE_DIR/agents/supervisor.md" 2>/dev/null || true)
+            PREV_EFFORT=$(grep -m1 '^effort:' "$CLAUDE_DIR/agents/supervisor.md" 2>/dev/null || true)
+            # The project copy may carry local edits; a rewrite that drops them is
+            # a deletion. Keep the first pre-refresh copy beside it (first-wins,
+            # never overwritten) and name it in the fix line.
+            [ -f "$CLAUDE_DIR/agents/supervisor.md.bak.pre-v7.1" ] || cp "$CLAUDE_DIR/agents/supervisor.md" "$CLAUDE_DIR/agents/supervisor.md.bak.pre-v7.1" 2>/dev/null || true
+            sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/supervisor-template.md" > "$CLAUDE_DIR/agents/supervisor.md"
+            if _profile_owns supervisor; then
+                [ -n "$PREV_MODEL" ] && sed -i.bak "s|^model:.*|$PREV_MODEL|" "$CLAUDE_DIR/agents/supervisor.md" 2>/dev/null
+                [ -n "$PREV_EFFORT" ] && sed -i.bak "s|^effort:.*|$PREV_EFFORT|" "$CLAUDE_DIR/agents/supervisor.md" 2>/dev/null
+                rm -f "$CLAUDE_DIR/agents/supervisor.md.bak"
+            fi
+            fix "supervisor: refreshed from template (added the Question/Notes contract; previous copy kept as supervisor.md.bak.pre-v7.1)"
+            FIXES=$((FIXES + 1))
+        fi
     else
         if [ -f "$APD_PLUGIN_ROOT/templates/supervisor-template.md" ]; then
             sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/supervisor-template.md" > "$CLAUDE_DIR/agents/supervisor.md"
