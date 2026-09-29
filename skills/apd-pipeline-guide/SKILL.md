@@ -43,6 +43,28 @@ Two independent spec-card switches, routinely confused:
 
 Lean vs Full is declared in the spec; this guide applies to BOTH.
 
+**Dispatch budget (v7.1, CC).** Every `Agent()` call counts against a per-TASK
+budget by role class — **builder 12 / reviewer 6 / adversarial 2** by default —
+counted from the `.agents` ledger and refused BEFORE the spawn
+(`dispatch-budget-exceeded`). The cycle caps count advances; measured runs
+spent 4–5 builder dispatches per advance and 20 per task, and that is where
+the hours went. `apd pipeline status` shows `dispatches: builder N/12 ·
+reviewer M/6 · adversarial K/2`. **Size at the spec:** a plan that needs more
+than half the builder budget is two tasks — decompose now, not at dispatch 12.
+A different budget belongs in the spec card (`dispatch_budget: builder=N
+reviewer=M adversarial=K`, honoured only from the SIGNED card). In flight,
+`apd pipeline raise-cap dispatch <class> <N|unlimited> "<reason>"` is the LAST
+resort (raises only, logged `INFO|cap-raise`). Re-advancing the spec of the
+same task is not a way to reset the counters: it wipes them and the `.agents`
+ledger, and is logged `dispatch-budget-reset` with what it discarded.
+
+**Wall-clock nudge (v7.1).** Past 90 min in a task, the builder and reviewer
+advances and the first dispatch over the line print a NOTE with the elapsed
+time and the dispatch counts (`INFO|wall-clock-nudge`). It never blocks, and
+it is not a prompt to raise a cap: finish the declared scope, spin off what
+arrived in flight, or decompose. A run that is still growing at minute 90 is
+the run this signal exists for.
+
 ## Implementation plan contract
 
 Write `.apd/pipeline/implementation-plan.md` BEFORE `apd pipeline builder`.
@@ -142,6 +164,18 @@ block per finding:
 - `adversarial: max_defects=...` was REMOVED in v7.0 and is ignored if present.
   This gate is its replacement, and always did the stronger job: a count cap could
   be satisfied by dismissing fewer findings without justifying any of them.
+
+## Scope is signed — findings that arrive in flight
+
+The spec card is hashed at the spec advance and the verifier refuses an edited
+card, so a task's scope is fixed the moment it starts. A finding that arrives
+later — from the reviewer, the adversarial pass or the supervisor alike — and
+is not covered by the R-criteria does not widen the task: it becomes a spinoff
+(`bash .claude/bin/apd pipeline spinoff-finding <id> "<reason>"`, below) and the task finishes
+what it declared. Re-advancing the spec to absorb it is not a shortcut: it
+wipes the dispatch counters and the `.agents` ledger (`dispatch-budget-reset`),
+and the run starts over on a bigger scope with the clock already spent. The
+September runs that grew in flight ran five to eight hours.
 
 ## Finding dispositions — accept / dismiss / SPINOFF
 

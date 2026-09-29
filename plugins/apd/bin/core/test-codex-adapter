@@ -15499,6 +15499,118 @@ fi
 rm -rf "$GB4_T"
 
 
+section "135. The guide must carry the signals the orchestrator sees, not only the BLOCKs"
+
+# v7.1 shipped a dispatch budget and a wall-clock nudge. A review of the guide
+# the day after (2026-09-30) found the nudge mentioned NOWHERE in it and the
+# budget present only as a BLOCK row: §114 joins the guide against `log_block`
+# reasons, and both signals are INFO — a NOTE at minute 90 the orchestrator
+# meets with no idea what is expected of it, on exactly the run the mechanism
+# exists for. So: a second join, on the signals that are not blocks, and on
+# the numbers, asserted against what the code emits and what the lib declares
+# — never against remembered prose.
+
+G135_CC="$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md"
+G135_CDX="$APD_PLUGIN_ROOT/skills/apd-pipeline-guide/SKILL.md"
+G135_ADV="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+G135_LIB="$APD_PLUGIN_ROOT/bin/lib/dispatch-budget.sh"
+
+# A. Two-way join on the orchestrator-facing INFO signals: each name must still
+#    be emitted by pipeline-advance (so this list cannot rot) AND appear in
+#    BOTH guides (so the orchestrator is told what it means before it happens).
+for _sig in wall-clock-nudge dispatch-budget-reset cap-raise adversarial-opt-out-denied; do
+    if grep -q -- "$_sig" "$G135_ADV"; then
+        pass "pipeline-advance still emits $_sig"; PASSES=$((PASSES + 1))
+    else
+        fail "pipeline-advance no longer emits $_sig — retire it from this list, not from the guide"; FAILS=$((FAILS + 1))
+    fi
+    for _pair in "CC:$G135_CC" "Codex:$G135_CDX"; do
+        if grep -q -- "$_sig" "${_pair#*:}"; then
+            pass "${_pair%%:*} guide names $_sig"; PASSES=$((PASSES + 1))
+        else
+            fail "${_pair%%:*} guide never mentions $_sig — the orchestrator meets it blind"; FAILS=$((FAILS + 1))
+        fi
+    done
+done
+
+# B. The numbers come from the lib, not from memory: the default budget triple
+#    and the nudge threshold in minutes must appear as the guide states them.
+G135_B=$(grep -E '^DISPATCH_BUDGET_BUILDER_DEFAULT=' "$G135_LIB" | cut -d= -f2)
+G135_R=$(grep -E '^DISPATCH_BUDGET_REVIEWER_DEFAULT=' "$G135_LIB" | cut -d= -f2)
+G135_A=$(grep -E '^DISPATCH_BUDGET_ADVERSARIAL_DEFAULT=' "$G135_LIB" | cut -d= -f2)
+G135_W=$(grep -E '^WALL_NUDGE_SEC_DEFAULT=' "$G135_LIB" | cut -d= -f2)
+if [ -n "$G135_B" ] && [ -n "$G135_R" ] && [ -n "$G135_A" ] && [ -n "$G135_W" ] && [ $((G135_W % 60)) -eq 0 ]; then
+    pass "dispatch-budget.sh declares the defaults ($G135_B/$G135_R/$G135_A, nudge ${G135_W}s)"; PASSES=$((PASSES + 1))
+else
+    fail "could not read the defaults from dispatch-budget.sh (B=$G135_B R=$G135_R A=$G135_A W=$G135_W) — the extractor is broken, not the docs"; FAILS=$((FAILS + 1))
+fi
+G135_MIN=$((G135_W / 60))
+for _pair in "CC:$G135_CC" "Codex:$G135_CDX"; do
+    _g="${_pair#*:}"; _l="${_pair%%:*}"
+    if grep -qE "builder $G135_B / reviewer $G135_R / adversarial $G135_A" "$_g"; then
+        pass "$_l guide states the default budget triple $G135_B/$G135_R/$G135_A"; PASSES=$((PASSES + 1))
+    else
+        fail "$_l guide does not state the budget triple as the lib declares it ($G135_B/$G135_R/$G135_A)"; FAILS=$((FAILS + 1))
+    fi
+    if grep -qE "$G135_MIN min" "$_g"; then
+        pass "$_l guide states the nudge threshold ($G135_MIN min)"; PASSES=$((PASSES + 1))
+    else
+        fail "$_l guide does not state the nudge threshold ($G135_MIN min = WALL_NUDGE_SEC_DEFAULT/60)"; FAILS=$((FAILS + 1))
+    fi
+done
+
+# C. Proactive, not reactive: the budget must be introduced in the phase-map
+#    part of the guide, BEFORE the BLOCK tables — a row in the recovery table
+#    reaches the orchestrator only after the budget is spent.
+for _pair in "CC:$G135_CC" "Codex:$G135_CDX"; do
+    _g="${_pair#*:}"; _l="${_pair%%:*}"
+    _first=$(grep -n 'Dispatch budget' "$_g" | head -1 | cut -d: -f1)
+    _blocks=$(grep -n '^## Common BLOCK' "$_g" | head -1 | cut -d: -f1)
+    if [ -n "$_first" ] && [ -n "$_blocks" ] && [ "$_first" -lt "$_blocks" ]; then
+        pass "$_l guide introduces the dispatch budget before the BLOCK tables (line $_first < $_blocks)"; PASSES=$((PASSES + 1))
+    else
+        fail "$_l guide has no 'Dispatch budget' paragraph ahead of the BLOCK tables (first=${_first:-none}, blocks=${_blocks:-none})"; FAILS=$((FAILS + 1))
+    fi
+done
+
+# D. The scope rule must be stated once for every source of in-flight findings,
+#    and point at the command that exists.
+if grep -q 'spinoff-finding' "$G135_ADV"; then
+    pass "pipeline-advance still implements spinoff-finding"; PASSES=$((PASSES + 1))
+else
+    fail "spinoff-finding is gone from pipeline-advance — the scope section would point at nothing"; FAILS=$((FAILS + 1))
+fi
+for _pair in "CC:$G135_CC" "Codex:$G135_CDX"; do
+    _g="${_pair#*:}"; _l="${_pair%%:*}"
+    if grep -q '^## Scope is signed' "$_g" && awk '/^## Scope is signed/{p=1;next} /^## /{p=0} p' "$_g" | grep -q 'supervisor' \
+       && awk '/^## Scope is signed/{p=1;next} /^## /{p=0} p' "$_g" | grep -q 'spinoff-finding'; then
+        pass "$_l guide states the signed-scope rule for reviewer/adversarial/supervisor findings alike"; PASSES=$((PASSES + 1))
+    else
+        fail "$_l guide lacks a 'Scope is signed' section naming the supervisor and spinoff-finding"; FAILS=$((FAILS + 1))
+    fi
+done
+
+# E. Runtime honesty: the budget is enforced by a CC PreToolUse(Agent) hook;
+#    Codex has no such hook. The Codex mirror must say so; the CC guide must not.
+if grep -q 'budget is honest-inert' "$G135_CDX"; then
+    pass "Codex guide says the dispatch budget is honest-inert there"; PASSES=$((PASSES + 1))
+else
+    fail "Codex guide does not tell the orchestrator the budget is counted only, never enforced, on Codex"; FAILS=$((FAILS + 1))
+fi
+if grep -q 'budget is honest-inert' "$G135_CC"; then
+    fail "CC guide calls the budget honest-inert — on CC it BLOCKS"; FAILS=$((FAILS + 1))
+else
+    pass "CC guide does not describe the budget as inert"; PASSES=$((PASSES + 1))
+fi
+
+# F. The nudge lives in the advance, so it prints on Codex too — the Codex
+#    operator doc (AGENTS.md template, always loaded there) must name it.
+if grep -q 'wall-clock-nudge' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"; then
+    pass "Codex AGENTS.md template names wall-clock-nudge"; PASSES=$((PASSES + 1))
+else
+    fail "Codex AGENTS.md template never mentions wall-clock-nudge — the Codex orchestrator meets the NOTE blind"; FAILS=$((FAILS + 1))
+fi
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"

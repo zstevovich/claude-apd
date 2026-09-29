@@ -41,6 +41,29 @@ Two independent spec-card switches, routinely confused:
 
 Lean vs Full is declared in the spec; this guide applies to BOTH.
 
+**Dispatch budget (v7.1).** APD counts every subagent dispatch against a
+per-TASK budget by role class — **builder 12 / reviewer 6 / adversarial 2** by
+default — from the `.agents` ledger; the pipeline state shows `dispatches:
+builder N/12 · reviewer M/6 · adversarial K/2`. On CC a `PreToolUse(Agent)`
+hook refuses the spawn past the budget; Codex has no dispatch hook, so here
+the budget is honest-inert — the line reads `counted only`, nothing refuses a
+spawn, and the sizing rule is yours to hold: **a plan that needs more than
+half the builder budget is two tasks** — decompose at the spec, not at
+dispatch 12. Measured runs spent 4–5 builder dispatches per advance and 20 per
+task; that is where the hours went. A different budget belongs in the spec
+card (`dispatch_budget: builder=N reviewer=M adversarial=K`, honoured only
+from the SIGNED card); in flight `apd pipeline raise-cap dispatch <class>
+<N|unlimited> "<reason>"` (raises only, logged `INFO|cap-raise`). Re-advancing
+the spec of the same task is not a way to reset the counters: it wipes them
+and the `.agents` ledger, and is logged `dispatch-budget-reset`.
+
+**Wall-clock nudge (v7.1).** Past 90 min in a task, the builder and reviewer
+advances print a NOTE with the elapsed time and the dispatch counts
+(`INFO|wall-clock-nudge`). It lives in the advance, not in a hook, so it
+reaches Codex runs too. It never blocks, and it is not a prompt to raise a
+cap: finish the declared scope, spin off what arrived in flight, or decompose.
+A run that is still growing at minute 90 is the run this signal exists for.
+
 Note: the v6.30 supervision layer (frontier review of the FINAL diff) is
 CC-owned and **honest-inert on the Codex runtime since v6.33** — a Codex run
 structurally cannot dispatch the CC supervisor, so the gate never passes and
@@ -142,6 +165,18 @@ block per finding:
 - `adversarial: max_defects=...` was REMOVED in v7.0 and is ignored if present.
   This gate is its replacement, and always did the stronger job: a count cap could
   be satisfied by dismissing fewer findings without justifying any of them.
+
+## Scope is signed — findings that arrive in flight
+
+The spec card is hashed at the spec advance and the verifier refuses an edited
+card, so a task's scope is fixed the moment it starts. A finding that arrives
+later — from the reviewer, the adversarial pass or the supervisor alike — and
+is not covered by the R-criteria does not widen the task: it becomes a spinoff
+(`apd pipeline spinoff-finding <id> "<reason>"`, below) and the task finishes
+what it declared. Re-advancing the spec to absorb it is not a shortcut: it
+wipes the dispatch counters and the `.agents` ledger (`dispatch-budget-reset`),
+and the run starts over on a bigger scope with the clock already spent. The
+September runs that grew in flight ran five to eight hours.
 
 ## Finding dispositions — accept / dismiss / SPINOFF
 
