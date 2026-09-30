@@ -15638,6 +15638,22 @@ if [ "$GB4_A" = "0" ] && [ "$GB4_B" = "2" ]; then
 else
     fail "cwd forwarding: in-scope rc=$GB4_A (want 0), /etc rc=$GB4_B (want 2)"; FAILS=$((FAILS + 1))
 fi
+# (v7.1.5, audit pass #3 — found while fixing guard-git; the SAME class lives in this guard)
+# A quoted word spanning lines was cut at the line end: a multi-line interpreter body
+# arrived EMPTY (`python3 -c '⏎…⏎'`), a multi-line `bash -c` body became one command
+# word, and the writes inside were never scanned — fail-open since v7.1.0. The tokenizer
+# now keeps reading the word across the newline, as bash does; nested bodies get their
+# newlines back before the nested parse. Red 6/10 at v7.1.4.
+_gb4 2 "python -c body spanning lines: the remove inside is scanned (arrived as an empty body)" $'python3 -c \'\nimport os\nos.remove("/etc/x")\n\'' src/
+_gb4 2 "node -e body spanning lines: writeFileSync out of scope blocks"           $'node -e "\nrequire(\'fs\').writeFileSync(\'/etc/x\',\'y\')\n"' src/
+_gb4 2 "bash -c body spanning lines: the rm -rf inside is recursed and blocks"    $'bash -c \'\nrm -rf /etc/x\n\'' src/
+_gb4 2 "sh -c double-quoted body spanning lines: the redirect inside blocks"      $'sh -c "\necho hi > /etc/x\n"' src/
+_gb4 2 "eval text spanning lines: the rm inside blocks"                           $'eval \'\nrm /etc/x\n\'' src/
+_gb4 2 "a heredoc after a word spanning lines: the body starts after the closing quote, the redirect is seen" $'cat <<EOF \'a\nb\' > /etc/x\ntext\nEOF' src/
+_gb4 0 "python -c body spanning lines writing IN scope is allowed"                $'python3 -c \'\nopen("src/o.txt","w").write("x")\n\'' src/
+_gb4 0 "bash -c body spanning lines writing IN scope is allowed"                  $'bash -c \'\necho hi > src/ok.txt\n\'' src/
+_gb4 0 "a multi-line commit message is one word and not a write"                  $'git commit -m \'a\nb\'' src/
+_gb4 2 "a redirect after a word spanning lines, out of scope, still blocks"       $'printf \'%s\' \'a\nb\' > /etc/x' src/
 # both guards share one canonicaliser
 if grep -q 'path-canon.sh' "$APD_PLUGIN_ROOT/bin/core/guard-scope" && grep -q 'path-canon.sh' "$GB4" \
    && [ -f "$APD_PLUGIN_ROOT/bin/lib/path-canon.sh" ]; then
@@ -16141,6 +16157,178 @@ if grep -qE '"Memory files" +"\$SUM_MEMORY/\$SUM_MEMORY_TOTAL"' "$G137_VA" && gr
 else
     fail "verify-apd's memory denominator is not derived from the loop"; FAILS=$((FAILS + 1))
 fi
+
+section "138. guard-git judges git STATEMENTS, not the command text"
+
+# 2026-09-30, user-reported and reproduced: `grep -rn "git commit" src/`,
+# `cat x | grep "git commit"` and `echo "run: git commit -m x" > src/notes.txt`
+# were refused as unprefixed commits — guard-git grepped the raw string. The
+# CC hook gate (`if: Bash(git *)`) hid most of it, but `git log --oneline |
+# grep "git commit"` starts with git and fell through. Now guard-bash-scope
+# lends its tokenizer (`--emit-git`): one line per git STATEMENT, words
+# tab-separated, nested shells recursed; guard-git judges those. Quoted text
+# is data; a git word in a pipeline is a statement of its own.
+
+G138_T="$(mktemp -d -t apd-g138.XXXXXX)"; mkdir -p "$G138_T/.claude" "$G138_T/src"; touch "$G138_T/.claude/.apd-config"
+G138="$APD_PLUGIN_ROOT/bin/core/guard-git"
+_g138() {  # <expected rc> <label> <command> [<stderr must contain>] [<stderr must NOT contain>]
+    local exp="$1" label="$2" cmd="$3" must="${4:-}" mustnot="${5:-}" rc=0 err
+    err=$(APD_PROJECT_DIR="$G138_T" bash "$G138" --command "$cmd" 2>&1 >/dev/null) || rc=$?
+    if [ "$rc" = "$exp" ] && { [ -z "$must" ] || printf '%s' "$err" | grep -q -- "$must"; } && { [ -z "$mustnot" ] || ! printf '%s' "$err" | grep -q -- "$mustnot"; }; then
+        pass "$label (rc=$rc)"; PASSES=$((PASSES + 1))
+    else fail "$label: want rc=$exp got rc=$rc${must:+ (stderr must have '$must')}${mustnot:+ (must not have '$mustnot')} — ${cmd:0:70}"; FAILS=$((FAILS + 1)); fi
+}
+# --- text that mentions git is not a git statement ---
+_g138 0 "grep for 'git commit' in files is a read"                         'grep -rn "git commit" src/'
+_g138 0 "a pipeline that greps 'git commit' after git log is a read"        'git log --oneline -20 | grep "git commit"'
+_g138 0 "cat | grep 'git commit' is a read"                                 'cat docs/release.md | grep "git commit"'
+_g138 0 "echo of a line mentioning git commit into a notes file"           'echo "run: git commit -m x" > src/notes.txt'
+_g138 0 "git log --grep co-authored-by is a read, not a signature"          'git log --grep="co-authored-by" --oneline'
+_g138 2 "a commit message that MENTIONS git push --force is data (the gate, not the text, refuses)" 'APD_ORCHESTRATOR_COMMIT=1 git commit -m "docs: never git push --force"' "Pipeline steps are not completed" "force"
+_g138 2 "a commit message that mentions --no-verify is data (the gate, not the text, refuses)" 'APD_ORCHESTRATOR_COMMIT=1 git commit -m "hooks: drop --no-verify from docs"' "Pipeline steps are not completed" "Hooks must pass"
+_g138 0 "git status / diff / log are reads"                                 'git status && git diff HEAD -- src/ && git log -3'
+_g138 0 "git add of named files is allowed"                                 'git add src/a.cs src/b.cs'
+# --- real git statements keep their verdicts (every reason name unchanged) ---
+_g138 2 "commit without the prefix blocks"                                  'git commit -m "x"'
+_g138 2 "commit through git -C without the prefix blocks"                   'git -C src commit -m "x"'
+_g138 2 "commit after cd && without the prefix blocks"                      'cd src && git commit -m "x"'
+_g138 2 "commit inside sh -c is a statement (recursed) and blocks"          'sh -c "git commit -m x"'
+_g138 2 "commit inside eval is a statement (recursed) and blocks"           'eval "git commit -m x"'
+_g138 2 "commit in the second statement of a pipeline chain blocks"         'git status; git commit -m "x"'
+_g138 2 "--no-verify on a commit blocks even with the prefix"               'APD_ORCHESTRATOR_COMMIT=1 git commit --no-verify -m x' "Hooks must pass"
+_g138 2 "--no-verify on an unprefixed commit is refused AS --no-verify"       'git commit --no-verify -m x' "Hooks must pass"
+_g138 2 "--no-verify on a push is refused AS --no-verify"                     'APD_ORCHESTRATOR_COMMIT=1 git push --no-verify' "Hooks must pass"
+_g138 2 "an unresolvable variable in command position falls back to the raw scan (fail closed)" '$X git commit -m x'
+_g138 2 "eval of an unresolvable variable beside a git word falls back to the raw scan" 'eval "$V"; echo git commit'
+_g138 2 "commit -a blocks even with the prefix"                             'APD_ORCHESTRATOR_COMMIT=1 git commit -a -m x'
+_g138 2 "commit --all blocks even with the prefix"                          'APD_ORCHESTRATOR_COMMIT=1 git commit --all -m x'
+_g138 2 "git add . blocks"                                                  'git add .'
+_g138 2 "git add -A blocks"                                                 'git add -A'
+_g138 2 "git add --all blocks"                                              'git add --all'
+_g138 2 "git add -u blocks"                                                 'git add -u'
+_g138 2 "git add of .claude/ without the prefix blocks"                     'git add .claude/settings.json'
+_g138 2 "push without the prefix blocks"                                    'git push'
+_g138 2 "push --force blocks even with the prefix"                          'APD_ORCHESTRATOR_COMMIT=1 git push --force origin main'
+_g138 2 "push -f blocks"                                                    'git push -f'
+_g138 2 "push --force-with-lease blocks"                                    'git push --force-with-lease'
+_g138 2 "a Co-Authored-By trailer in a commit message blocks AS a signature (v7.1.5 — it used to pass the check by exiting first)" 'APD_ORCHESTRATOR_COMMIT=1 git commit -m "x" -m "Co-Authored-By: bot <b@x>"' "AI signature"
+_g138 2 "a Co-Authored-By trailer in a heredoc-fed commit blocks AS a signature" $'APD_ORCHESTRATOR_COMMIT=1 git commit -F - <<EOF\nfix: x\n\nCo-Authored-By: bot\nEOF' "AI signature"
+_g138 2 "git reset --hard blocks"                                           'git reset --hard HEAD'
+_g138 2 "git clean -fd blocks"                                              'git clean -fd'
+_g138 2 "git checkout -- blocks"                                            'git checkout -- src/a.cs'
+_g138 2 "git checkout . blocks"                                             'git checkout .'
+_g138 2 "git restore blocks"                                                'git restore src/a.cs'
+_g138 2 "git stash drop blocks"                                             'git stash drop'
+_g138 2 "git tag -d blocks"                                                 'git tag -d v1'
+_g138 2 "git branch -D blocks"                                              'git branch -D feature'
+_g138 0 "git branch -d (safe) is allowed"                                   'git branch -d feature'
+_g138 2 "sudo git commit without the prefix blocks (wrapper stepped)"       'sudo git commit -m x'
+_g138 2 "git add -v . blocks (every arg is judged, not only the first)"    'git add -v .'
+_g138 0 "--no-verify outside a git statement is not git's business"        'npm test -- --no-verify'
+_g138 2 "commit -am blocks even with the prefix (the -a cluster)"          'APD_ORCHESTRATOR_COMMIT=1 git commit -am "x"'
+_g138 2 "env X=1 git push without the prefix blocks (wrapper stepped)"      'env X=1 git push'
+
+# --- (audit, fresh agent, pass #1) fail-opens vs HEAD, each red before the fix ---
+_g138 2 "git clean -f (single-letter cluster) blocks"                          'git clean -f'
+_g138 2 "git clean -X blocks (case)"                                            'git clean -X'
+_g138 2 "git clean -f -d blocks"                                                'git clean -f -d'
+_g138 2 "git -C src clean -f blocks"                                            'git -C src clean -f'
+_g138 0 "git clean -nd is a dry run"                                            'git clean -nd'
+_g138 2 "git -C \"\" commit (empty global option value) is still a commit"       'git -C "" commit -m x'
+_g138 2 "git -C \"\" push --force is still a force push"                        'git -C "" push --force'
+_g138 2 "git -c with a tab inside the value does not lose the subcommand"       $'git -c \'user.name=a\tb\' commit -m x'
+_g138 2 "a git commit inside a double-quoted substitution is opaque → raw scan"  'git status && echo "$(git commit -m x)"'
+_g138 2 "a git clean inside test -n \"\$(…)\" is opaque → raw scan"               'test -n "$(git clean -f)"'
+_g138 2 "a git commit in backticks is opaque → raw scan"                        'echo `git commit -m x`'
+_g138 2 "git by absolute path is a git statement"                               '/usr/bin/git commit -m x'
+_g138 2 "git by absolute path: push --force"                                    '/usr/bin/git push --force'
+_g138 2 "git after an unknown wrapper (xcrun) is a git statement"               'xcrun git commit -m x'
+_g138 2 "git after stdbuf is a git statement"                                   'git add src/a.c && stdbuf -o0 git commit -m x'
+_g138 2 "git inside find -exec is a git statement"                              'git status; find . -maxdepth 0 -exec git commit -m x \;'
+_g138 2 "git after su -c is a git statement"                                    'su -c "git commit -m x"'
+_g138 2 "a shell nested deeper than the recursion cap is opaque → raw scan"     'bash -c '"'"'bash -c "bash -c \"bash -c \\\"git commit -m x\\\"\""'"'"
+_g138 2 "sixty nested shells are opaque, not parsed one by one"                 "$(printf 'bash -c "git status"; %.0s' $(seq 1 60))git push --force"
+# --- false blocks the first cut introduced ---
+_g138 0 "git add of a glob with a path prefix is targeted staging"              'git add src/*.cs'
+_g138 2 "git add of a *-leading glob, quoted or not, is mass staging (git expands it)" 'git add "*.md"'
+_g138 2 "git add of a bare * is mass staging"                                   'git add *'
+_g138 2 "git add ./ is mass staging"                                            'git add ./'
+_g138 2 "git add :/ is mass staging"                                            'git add :/'
+_g138 2 "git add --update is mass staging"                                      'git add --update'
+_g138 2 "prefixed commit -m \"-baseline\": the MESSAGE is not a flag (gate refuses, not commit-all)" 'APD_ORCHESTRATOR_COMMIT=1 git commit -m "-baseline"' "Pipeline steps are not completed" "commit -a"
+_g138 2 "git add -Av blocks (cluster with A anywhere)"                          'git add -Av'
+_g138 2 "git push -fu blocks (cluster with f anywhere)"                         'git push -fu origin main'
+_g138 2 "prefixed commit -n (short --no-verify) is refused AS --no-verify"      'APD_ORCHESTRATOR_COMMIT=1 git commit -n -m x' "Hooks must pass"
+_g138 2 "git -c core.hooksPath=… commit is a --no-verify equivalent"            'APD_ORCHESTRATOR_COMMIT=1 git -c core.hooksPath=/dev/null commit -m x' "Hooks must pass"
+
+# --- (audit pass #2) newline in a word, the wrong "git" word, clean -e values, total nested budget, stuck values ---
+_g138 2 "a multi-line -m does not truncate the statement: --no-verify after it is still seen" $'APD_ORCHESTRATOR_COMMIT=1 git commit -m "subject\n\nbody" --no-verify' "Hooks must pass"
+_g138 2 "runuser -u git -- git commit: the REAL git word is judged, not the user name" 'runuser -u git -- git commit -m x'
+_g138 2 "ssh -l git host git push --force: every git word is a statement"       'ssh -l git host git push --force'
+_g138 2 "flock /tmp/git git commit: the lock path is not the git word"           'flock /tmp/git git commit -m x'
+_g138 2 "docker … alpine/git push --force: the image name ends in /git"         'docker run -v $PWD:/git alpine/git push --force'
+_g138 2 "git clean -fd -e -n: -n is the VALUE of -e, not a dry run"              'git clean -fd -e -n'
+_g138 2 "git clean -f -e --dry-run: --dry-run is the value of -e"                'git clean -f -e --dry-run'
+# --- (audit pass #3) a quoted word spanning lines is ONE word, exactly as bash reads it ---
+# The pass-2 fix counted quotes per LINE and made an odd count opaque; mixed quotes
+# (`"it's" 'body⏎rest'`) and a backslash before a closing single quote (`'a\'`)
+# give even counts and the split came back → `--no-verify` after the break lost.
+# Now the tokenizer keeps reading a quoted word across the newline (bash does).
+_g138 2 "mixed quotes across a line break: --no-verify after the break is seen (pass-3 bypass)" $'APD_ORCHESTRATOR_COMMIT=1 git commit -m "it\'s" \'body\nrest\' --no-verify "x\'y"' "Hooks must pass"
+_g138 2 "a backslash before the closing single quote is literal: --no-verify after the break is seen" $'APD_ORCHESTRATOR_COMMIT=1 git commit -m \'a\\\' \'body\nrest\' --no-verify' "Hooks must pass"
+_g138 2 "a multi-line -m, then a force push in the next statement, is refused AS a force push" $'APD_ORCHESTRATOR_COMMIT=1 git commit -m \'a\nb\' && git push --force' "[Ff]orce"
+_g138 2 "a quote left open at the end of the text: the raw scan judges it (rc 2 on --no-verify)" $'APD_ORCHESTRATOR_COMMIT=1 git commit -m \'a\nb --no-verify' "Hooks must pass"
+if APD_PROJECT_DIR="$G138_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --emit-git --command $'git commit -m "it\'s" \'body\nrest\' --no-verify "x\'y"' 2>/dev/null | grep -q $'^GIT\x1fcommit\x1f-m\x1fit\'s\x1fbody\x1erest\x1f--no-verify\x1fx\'y$'; then
+    pass "--emit-git carries a word spanning lines as ONE word (newline as 0x1e), the words after it intact"; PASSES=$((PASSES + 1))
+else
+    fail "--emit-git split a word spanning lines (or lost the words after it)"; FAILS=$((FAILS + 1))
+fi
+if APD_PROJECT_DIR="$G138_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --emit-git --command $'git commit -m "it\'s" \'body\nrest\' --no-verify "x\'y"' 2>/dev/null | grep -q '^OPAQUE'; then
+    fail "--emit-git made a readable multi-line statement OPAQUE (the raw scan would judge text, not the statement)"; FAILS=$((FAILS + 1))
+else
+    pass "--emit-git reads a multi-line statement precisely (no OPAQUE for a closed quote spanning lines)"; PASSES=$((PASSES + 1))
+fi
+if APD_PROJECT_DIR="$G138_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --emit-git --command $'git commit -m \'a\nb --no-verify' 2>/dev/null | grep -q '^OPAQUE$'; then
+    pass "--emit-git reports a quote still open at the END of the text as OPAQUE"; PASSES=$((PASSES + 1))
+else
+    fail "--emit-git did not report an unterminated quote as OPAQUE"; FAILS=$((FAILS + 1))
+fi
+_g138 2 "a wall of nested shells is refused within the hook budget (total, not per level)" "$(printf 'bash -c "%s"; ' "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))")git push --force"
+_g138 2 "a literal unit separator inside a word is opaque → raw scan"            $'git -C "x\x1fy" commit -m x'
+_g138 2 "prefixed commit -uno: the stuck VALUE of -u is not a cluster (gate refuses, not --no-verify)" 'APD_ORCHESTRATOR_COMMIT=1 git commit -uno -m x' "Pipeline steps are not completed" "Hooks must pass"
+_g138 2 "prefixed commit -mfinal: a stuck message is not a cluster (gate refuses)" 'APD_ORCHESTRATOR_COMMIT=1 git commit -mfinal' "Pipeline steps are not completed" "commit -a"
+_g138 2 "prefixed commit -Snakey: a stuck key id is not a cluster (gate refuses)" 'APD_ORCHESTRATOR_COMMIT=1 git commit -Snakey -m x' "Pipeline steps are not completed" "Hooks must pass"
+_g138 2 "prefixed commit -qam x: letters BEFORE the stuck message count (-a)"    'APD_ORCHESTRATOR_COMMIT=1 git commit -qam x' "commit -a"
+_g138 2 "git -c core.hookspath=… (config keys are case-insensitive) is --no-verify" 'APD_ORCHESTRATOR_COMMIT=1 git -c core.hookspath=/dev/null commit -m x' "Hooks must pass"
+G138_T0=$(date +%s); APD_PROJECT_DIR="$G138_T" bash "$G138" --command "$(printf 'bash -c "%s"; ' "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))")git push --force" >/dev/null 2>&1; G138_T1=$(date +%s)
+if [ $((G138_T1 - G138_T0)) -le 4 ]; then
+    pass "a 7×7 wall of nested shells is judged in $((G138_T1 - G138_T0))s (hook budget is 5s)"; PASSES=$((PASSES + 1))
+else
+    fail "a 7×7 wall of nested shells took $((G138_T1 - G138_T0))s — past the 5s hook timeout, which does not block on CC"; FAILS=$((FAILS + 1))
+fi
+# --- the emit contract itself ---
+if APD_PROJECT_DIR="$G138_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --emit-git --command 'git -C src commit -m "a b"; echo "git push" | cat; sh -c "git push -f"' 2>/dev/null | grep -c '^GIT' | grep -qx 2; then
+    pass "--emit-git emits exactly the two git statements (quoted text and the pipeline are not statements)"; PASSES=$((PASSES + 1))
+else
+    fail "--emit-git did not emit exactly two git statements for a 3-statement command"; FAILS=$((FAILS + 1))
+fi
+if APD_PROJECT_DIR="$G138_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --emit-git --command 'git commit -m "a b"' 2>/dev/null | grep -q $'^GIT\x1fcommit\x1f-m\x1fa b$'; then
+    pass "--emit-git keeps a quoted argument as ONE word (unit-separator delimited)"; PASSES=$((PASSES + 1))
+else
+    fail "--emit-git split or lost a quoted argument"; FAILS=$((FAILS + 1))
+fi
+if APD_PROJECT_DIR="$G138_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --emit-git --command 'git -C "" commit -m x' 2>/dev/null | grep -q $'^GIT\x1f-C\x1f\x1fcommit'; then
+    pass "--emit-git keeps an EMPTY word (git -C \"\")"; PASSES=$((PASSES + 1))
+else
+    fail "--emit-git dropped an empty word — the subcommand after -C \"\" is misread"; FAILS=$((FAILS + 1))
+fi
+# fallback: if the tokenizer path cannot run, guard-git must fail CLOSED to its raw scan, not open
+if grep -q '_raw_scan_fallback\|raw scan' "$G138"; then
+    pass "guard-git keeps a raw-scan fallback for when the tokenizer cannot run"; PASSES=$((PASSES + 1))
+else
+    fail "guard-git has no fallback when --emit-git is unavailable (would fail open)"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$G138_T"
 
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
