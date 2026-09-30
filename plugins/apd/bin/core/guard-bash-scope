@@ -40,7 +40,6 @@ fi
 # .apd/pipeline/ state files must only be modified by pipeline-advance (not direct Bash writes)
 # Plugin cache must never be modified by orchestrator
 PROTECTED_PIPELINE=(".apd/pipeline/")
-PROTECTED_PLUGIN=(".claude/plugins/cache/" "plugins/cache/")
 SHELL_WRITE_CHECK=('>>' '>' 'tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ' 'mkdir ' 'mkdir -p' 'touch ' 'rm ' 'rm -f' 'rm -rf' 'rmdir ')
 # Write checks for plugin cache — exclude '>' and '>>' (false positives from 2>&1 redirects)
 PLUGIN_WRITE_CHECK=('tee ' 'sed -i' 'sed --in-place' 'cp ' 'mv ' 'dd ' 'install ' 'mkdir ' 'mkdir -p' 'touch ' 'rm ' 'rm -f' 'rm -rf' 'rmdir ')
@@ -70,32 +69,11 @@ _runtime_write_detected() {
   return 1
 }
 
-# Block writes to plugin cache (executing scripts from cache is allowed)
-for ppath in "${PROTECTED_PLUGIN[@]}"; do
-  if [[ "$COMMAND" == *"$ppath"* ]]; then
-    for wp in "${PLUGIN_WRITE_CHECK[@]}"; do
-      if [[ "$COMMAND" == *"$wp"*"$ppath"* ]] || [[ "$COMMAND" == *"$wp"*plugin* ]]; then
-        echo "BLOCKED: Bash write to plugin cache directory." >&2
-        echo "  Plugin files are read-only. Do not modify." >&2
-        log_block "plugin-cache-write" "${COMMAND:0:200}"
-        exit 2
-      fi
-    done
-    # Check redirect operators only when they TARGET the cache path (not 2>&1)
-    if echo "$COMMAND" | grep -qE '>[^&].*plugins/cache|>>.*plugins/cache' 2>/dev/null; then
-      echo "BLOCKED: Bash write to plugin cache directory." >&2
-      echo "  Plugin files are read-only. Do not modify." >&2
-      log_block "plugin-cache-write" "${COMMAND:0:200}"
-      exit 2
-    fi
-    if _runtime_write_detected "$COMMAND"; then
-      echo "BLOCKED: Runtime write to plugin cache directory." >&2
-      echo "  Plugin files are read-only. Do not modify." >&2
-      log_block "plugin-cache-write" "${COMMAND:0:200}"
-      exit 2
-    fi
-  fi
-done
+# v7.1.4: the plugin cache is fenced by the PARSER, on canonical targets —
+# see the block after the tokenizer. The raw-string scan that stood here
+# (`<writer>…plugins/cache`, `>[^&].*plugins/cache`, a runtime regex) refused
+# read-only commands whenever `2>/dev/null`, a quoted `>` or a quoted `rm `
+# appeared anywhere before a plugin path (reported and reproduced 2026-09-30).
 
 # v6.15 (#5) — three-way channel guidance for pipeline-state BLOCKs.
 # The guard cannot tell a read from a write from a fabrication attempt, so it
@@ -170,9 +148,11 @@ done
 # under the pipeline dir. APD's own tools are exempt as before.
 PROTECT_ONLY=false
 if [ ${#ALLOWED_PATHS[@]} -eq 0 ] && [ "$DENY_ALL_WRITES" = false ]; then
-  case "$COMMAND" in
-    *pipeline-advance*|*"apd pipeline"*|*verify-apd*|*pipeline-post-commit*|*pipeline-gate*|*".guide-marker"*) exit 0 ;;
-  esac
+  # v7.1.4 (audit C1, M-a): this used to `exit 0` here, BEFORE the parser,
+  # on a substring match — so "# apd pipeline status" in a comment unlocked
+  # every fence below. APD's own tools are now recognised by a command WORD
+  # inside _process_stmt (comments never reach it), and they are exempt from
+  # the PIPELINE fence only; the parser and the cache fence always run.
   PROTECT_ONLY=true
 fi
 
@@ -233,20 +213,9 @@ PROJ_CANON=$(_proj_canon)
 CUR_CWD=$(_canon_abs "$BASE_CWD")     # physical form, like every target and PROJ_CANON
 CWD_UNKNOWN=false
 
-# v7.0.5: the session scratchpad is a sanctioned write target. Claude Code hands
-# each session a private directory under the per-uid temp root and instructs the
-# agent to use it for exactly this — capturing a test log instead of scrolling
-# it. The match is deliberately narrow — the path must sit under a `claude-<uid>`
-# temp root AND name a `scratchpad` segment, so `/tmp/out.txt` and even
-# `/tmp/scratchpad/evil.txt` remain blocked. Checked on the CANONICAL form, so
-# `/tmp/claude-…` (logical) and `/private/tmp/claude-…` (physical) both pass.
-_is_session_scratchpad() {
-  case "$1" in
-    /tmp/claude-[0-9]*/*/scratchpad/*|/private/tmp/claude-[0-9]*/*/scratchpad/*) return 0 ;;
-    /tmp/claude-[0-9]*/*/scratchpad|/private/tmp/claude-[0-9]*/*/scratchpad)     return 0 ;;
-  esac
-  return 1
-}
+# v7.0.5: the session scratchpad is a sanctioned write target — the rule
+# (`_is_session_scratchpad`) lives in bin/lib/path-canon.sh since v7.1.4 and
+# is shared with guard-scope and guard-orchestrator.
 
 _scope_hint() {
   if [ "$DENY_ALL_WRITES" = true ] && [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
@@ -341,35 +310,61 @@ _subst() {
   fi
   # builtins, only where the command did not redefine them (order: longest first)
   v="${TMPDIR:-/tmp}"; s="${s//\$\{TMPDIR\}/$v}"; s="${s//\$TMPDIR/$v}"
+  v="${CLAUDE_PLUGIN_ROOT:-}"; [ -n "$v" ] && { s="${s//\$\{CLAUDE_PLUGIN_ROOT\}/$v}"; s="${s//\$CLAUDE_PLUGIN_ROOT/$v}"; }
   v="$HOME";           s="${s//\$\{HOME\}/$v}";   s="${s//\$HOME/$v}"
   v="$CUR_CWD";        s="${s//\$\{PWD\}/$v}";    s="${s//\$PWD/$v}"
   printf '%s' "$s"
 }
 _unresolved() { case "$1" in *\$*|*\`*) return 0 ;; esac; return 1; }
+# v7.1.4 (audit F1): inside a writing PROGRAM, `$name` is a shell variable only
+# when this command assigned it or the guard expands it (HOME, PWD, TMPDIR,
+# CLAUDE_PLUGIN_ROOT). Perl's `$fh`, PHP's `$f`, Ruby's `$stdin`, a JS `${n}`
+# template and a literal `\$5` are the program's own business.
+_known_var() {
+  local i
+  for ((i = 0; i < ${#VN[@]}; i++)); do [ "${VN[$i]}" = "$1" ] && return 0; done
+  case "$1" in HOME|PWD|TMPDIR) return 0 ;; CLAUDE_PLUGIN_ROOT) [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && return 0 ;; esac
+  return 1
+}
+# (audit F-a) does the raw command name a fenced directory? The cache by its
+# literal, the pipeline dir anchored to a path segment (`.apd/pipeline-notes.md`
+# and `my.apd/pipelines.md` are not it).
+_PIPE_MENTION_RE='\.apd/pipeline(/|[^A-Za-z0-9_./-]|$)'
+_names_fenced_dir() {
+  case "$COMMAND" in *plugins/cache*) return 0 ;; esac
+  [[ "$COMMAND" =~ $_PIPE_MENTION_RE ]] && return 0
+  return 1
+}
+_var_name() { local v="${1#\$}"; v="${v#\{}"; printf '%s' "$v" | sed -E 's/[^A-Za-z0-9_].*$//'; }
+# (audit R2) `$ENV{HOME}/.bashrc`, `${process.env.HOME}/x`: the variable head is
+# the program's, the path glued after it is still a path — judge the remainder.
+_var_tail() { printf '%s' "$1" | sed -E 's/^\$\{[^}]*\}//; s/^\$[A-Za-z0-9_]*(\{[^}]*\})?//'; }
 
 # --- targets ---
-TARGET_RAW=(); TARGET_ABS=(); TARGET_NOTE=()
+TARGET_RAW=(); TARGET_ABS=(); TARGET_NOTE=(); TARGET_APD=()   # TARGET_APD: registered by an APD tool's own statement (audit M-a2)
+STMT_APD=false
 RUNTIME_WRITE=false; RUNTIME_TEXT=""; WRITE_TYPE=""
+RT_CWD_CACHE=false; RT_CWD_UNKNOWN=false; RT_CWD_ALL_IN_SCOPE=true; RT_CWD_ALL_IN_PROJ=true
 
 _add_target() {   # <raw word> [nofollow]
   local raw="$1" nofollow="${2:-}" s abs
   case "$raw" in ''|/dev/null|/dev/stdout|/dev/stderr|/dev/tty|'&'*) return 0 ;; esac
   s=$(_subst "$raw")
   if _unresolved "$s"; then
-    TARGET_RAW+=("$raw"); TARGET_ABS+=(""); TARGET_NOTE+=("unresolved variable or substitution"); return 0
+    TARGET_RAW+=("$raw"); TARGET_ABS+=(""); TARGET_NOTE+=("unresolved variable or substitution"); TARGET_APD+=("${STMT_APD:-false}"); return 0
   fi
   case "$s" in
     /*|"~"|"~/"*) abs=$(_canon_cached "$s" "$CUR_CWD" "$nofollow") ;;
     *)
       if [ "$CWD_UNKNOWN" = true ]; then
-        TARGET_RAW+=("$raw"); TARGET_ABS+=(""); TARGET_NOTE+=("relative to a working directory the guard could not resolve (cd to a substitution, cd -, or popd past the stack)"); return 0
+        TARGET_RAW+=("$raw"); TARGET_ABS+=(""); TARGET_NOTE+=("relative to a working directory the guard could not resolve (cd to a substitution, cd -, or popd past the stack)"); TARGET_APD+=("${STMT_APD:-false}"); return 0
       fi
       abs=$(_canon_cached "$s" "$CUR_CWD" "$nofollow") ;;
   esac
-  TARGET_RAW+=("$raw"); TARGET_ABS+=("$abs"); TARGET_NOTE+=("")
+  TARGET_RAW+=("$raw"); TARGET_ABS+=("$abs"); TARGET_NOTE+=(""); TARGET_APD+=("${STMT_APD:-false}")
 }
 _add_unknown_target() {  # <what> — a write whose targets the guard cannot see
-  TARGET_RAW+=("$1"); TARGET_ABS+=(""); TARGET_NOTE+=("its targets are not visible to the guard — name the files instead")
+  TARGET_RAW+=("$1"); TARGET_ABS+=(""); TARGET_NOTE+=("its targets are not visible to the guard — name the files instead"); TARGET_APD+=("${STMT_APD:-false}")
 }
 
 # --- runtime write heuristics, keyed to WRITE calls ---
@@ -387,6 +382,13 @@ _rt_write() {  # <lang> <text> → 0 when the text performs a filesystem write
 _rt_mark() {  # <text>
   RUNTIME_WRITE=true; WRITE_TYPE="runtime"
   RUNTIME_TEXT="${RUNTIME_TEXT}${1}"$'\n'
+  # v7.1.4 (audit N2): the working directory that matters is the one at the
+  # moment the program runs — `(cd <cache> && python …)` or `cd <cache>; … ; cd /tmp`
+  # ended the parse somewhere else and the old final-cwd test missed it.
+  _is_plugin_cache "$CUR_CWD" && RT_CWD_CACHE=true
+  [ "$CWD_UNKNOWN" = true ] && RT_CWD_UNKNOWN=true
+  _in_scope "$CUR_CWD" || RT_CWD_ALL_IN_SCOPE=false
+  case "$CUR_CWD/" in "$PROJ_CANON/"*) ;; *) RT_CWD_ALL_IN_PROJ=false ;; esac
 }
 
 # Re-parse shell text with THIS guard (bash -c, eval, a heredoc fed to a shell).
@@ -394,6 +396,22 @@ _rt_mark() {  # <text>
 _recurse_shell() {  # <shell text>
   local text="$1" rc
   [ -n "$text" ] || return 0
+  # v7.1.4 (audit C2): `sh -c "$CMD"` handed the nested guard the literal
+  # `$CMD`. Expand this command's own assignments first; a body that still
+  # BEGINS with a variable or a substitution is a shell fed text the guard
+  # cannot read — refused for every caller (write the command out).
+  text=$(_subst "$text")
+  # (audit F2) `eval "$(direnv hook bash)"` / `sh -c "$(cat x)"` are ordinary
+  # bootstrap: the inner command is visible, only its output is not — the
+  # pre-v7.1.4 behaviour. A body that begins with `$NAME`, `${…}`, `$@`, `$*`
+  # or a positional is the hidden-variable shape and stays refused.
+  case "${text#"${text%%[! ]*}"}" in
+    '$('*|'`'*)
+      # (audit R1) the OUTPUT of the substitution is what runs, and that is
+      # invisible: when the command names the cache or the pipeline dir, refuse.
+      if _names_fenced_dir; then TARGET_RAW+=("${text:0:60}"); TARGET_ABS+=(""); TARGET_NOTE+=("opaque shell body: ${text:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0; fi ;;
+    \$*) TARGET_RAW+=("${text:0:60}"); TARGET_ABS+=(""); TARGET_NOTE+=("opaque shell body: ${text:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0 ;;
+  esac
   if printf '%s' "$text" | grep -qE '\\x[0-9a-fA-F]|\\[0-7]{3}|\\u[0-9a-fA-F]|\\U[0-9a-fA-F]'; then
     _add_unknown_target "shell text with ANSI-C escapes"; return 0
   fi
@@ -405,7 +423,7 @@ _recurse_shell() {  # <shell text>
       ${ALLOWED_PATHS[@]+"${ALLOWED_PATHS[@]}"} >/dev/null 2>&1
   rc=$?
   if [ "$rc" -eq 2 ]; then
-    TARGET_RAW+=("${text:0:60}"); TARGET_ABS+=(""); TARGET_NOTE+=("nested shell text writes outside the scope")
+    TARGET_RAW+=("${text:0:60}"); TARGET_ABS+=(""); TARGET_NOTE+=("nested shell text writes outside the scope"); TARGET_APD+=("${STMT_APD:-false}")
   fi
   return 0
 }
@@ -435,6 +453,14 @@ _positionals() {
   done
 }
 
+_apd_tool_word() {  # <word> <next word> → 0 when <word> is one of APD's own tools
+  case "$1" in
+    */plugins/apd/bin/core/pipeline-advance|*/plugins/apd/bin/core/verify-apd|*/plugins/apd/bin/core/pipeline-post-commit|*/plugins/apd/bin/core/pipeline-gate) return 0 ;;
+    *APD_PLUGIN_ROOT*/bin/core/pipeline-advance|*APD_PLUGIN_ROOT*/bin/core/verify-apd|*APD_PLUGIN_ROOT*/bin/core/pipeline-post-commit|*APD_PLUGIN_ROOT*/bin/core/pipeline-gate) return 0 ;;
+    apd|.claude/bin/apd|*/.claude/bin/apd|*/plugins/apd/bin/apd) [ "$2" = pipeline ] && return 0 ;;
+  esac
+  return 1
+}
 _process_stmt() {
   local n=${#ST[@]} i=0 w name cmd a last lang text has_expr seen_pat expect_expr inplace body abs
   [ "$n" -eq 0 ] && [ ${#RT[@]} -eq 0 ] && return 0
@@ -506,6 +532,33 @@ _process_stmt() {
   cmd=""; [ $i -lt $n ] && cmd="${ST[$i]}"
   A=()
   if [ $((i + 1)) -lt $n ]; then A=("${ST[@]:$((i + 1))}"); fi
+
+  STMT_APD=false
+  # v7.1.4 (audit N1): a VARIABLE in command position (`CMD="rm …"; $CMD`,
+  # `"$@"`). Expand this command's own assignments and re-parse the statement;
+  # a command word that is still a variable or positional after that is a body
+  # the guard cannot read — refused for every caller.
+  case "$cmd" in
+    '$'|'$('*|'`'*)   # a command substitution in command position (the tokenizer emits `$` then a subshell): the inner command is visible (audit F2)…
+      # …but its OUTPUT is the command that runs (audit R1): refuse when the command names the cache or the pipeline dir
+      if _names_fenced_dir; then TARGET_RAW+=("${cmd:0:60}"); TARGET_ABS+=(""); TARGET_NOTE+=("opaque shell body: ${cmd:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0; fi ;;
+    \$*)
+      text=$(_subst "$cmd${A[@]+ ${A[*]}}")
+      case "${text#"${text%%[! ]*}"}" in
+        \$*) TARGET_RAW+=("${cmd:0:60}"); TARGET_ABS+=(""); TARGET_NOTE+=("opaque shell body: ${cmd:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0 ;;
+      esac
+      _recurse_shell "$text"; return 0 ;;
+  esac
+  # v7.1.4 (audit M-a/M-a2): APD's own tools, by command word — and the
+  # exemption from the pipeline fence covers only THIS statement's targets
+  # (`apd pipeline status; rm -rf .apd/pipeline` no longer rides along).
+  # (audit P2) anchored to the plugin's own paths: a foreign executable that
+  # merely ends in `pipeline-gate` owns nothing.
+  STMT_APD=false
+  case "$cmd" in
+    bash|sh) _apd_tool_word "${A[0]:-}" "${A[1]:-}" && STMT_APD=true ;;
+    *)       _apd_tool_word "$cmd" "${A[0]:-}" && STMT_APD=true ;;
+  esac
 
   case "$cmd" in
     cd)
@@ -881,13 +934,87 @@ if [ ${#TARGET_RAW[@]} -eq 0 ] && [ "$RUNTIME_WRITE" = false ]; then
   exit 0
 fi
 
+# v7.1.4: the plugin cache is read-only for EVERY caller, judged on canonical
+# targets (redirects, write ops, a `cd` into it, the paths a writing program
+# names). A read of a plugin file, an exec from the cache, or a copy OUT of it
+# is nobody's business here.
+_plugin_cache_block() {  # <detail>
+  echo "BLOCKED: Bash write to plugin cache directory." >&2
+  echo "  Target: $1" >&2
+  echo "  Plugin files are read-only. Do not modify." >&2
+  log_block "plugin-cache-write" "${COMMAND:0:200}"
+  exit 2
+}
+_opaque_block() {  # <detail> — a shell body the guard cannot read (audit C2)
+  echo "BLOCKED: a shell was fed text the guard cannot read ($1)." >&2
+  echo "  Write the command out instead of passing it through a variable or a substitution." >&2
+  log_block "opaque-shell-body" "${COMMAND:0:200}"
+  exit 2
+}
+_raw_spelling() {  # <raw word> → the substituted spelling with ~ expanded (audit I3: a symlinked ~/.claude/plugins loses /plugins/cache/ in canonical form)
+  local r; r=$(_subst "$1")
+  case "$r" in "~") r="$HOME" ;; "~/"*) r="$HOME/${r#\~/}" ;; esac
+  printf '%s' "$r"
+}
+_i=0
+while [ $_i -lt ${#TARGET_RAW[@]} ]; do
+  _raw="${TARGET_RAW[$_i]}"; _abs="${TARGET_ABS[$_i]}"; _note="${TARGET_NOTE[$_i]}"; _i=$((_i + 1))
+  case "$_note" in "opaque shell body"*) _opaque_block "$_note" ;; esac
+  if [ -z "$_abs" ]; then
+    # a writer whose targets the guard cannot see (xargs, find -exec) or an
+    # unresolved variable: when the command names the plugin cache anywhere,
+    # fail closed here too — the raw scan used to catch this shape.
+    case "$COMMAND" in *plugins/cache*) _plugin_cache_block "$_raw (${_note:-unresolved}; the command names the plugin cache)" ;; esac
+    continue
+  fi
+  _is_plugin_cache "$_abs" && _plugin_cache_block "$_raw (resolves to $_abs)"
+  _is_plugin_cache "$(_raw_spelling "$_raw")" && _plugin_cache_block "$_raw (the plugin cache by its own spelling)"
+done
+if [ "$RUNTIME_WRITE" = true ]; then
+  # audit C3/N2: a bare file name inside a writing program lands in the cwd of the moment
+  [ "$RT_CWD_CACHE" = true ] && _plugin_cache_block "a writing program run from inside the plugin cache"
+  while IFS= read -r _p; do
+    [ -z "$_p" ] && continue
+    case "$_p" in
+      \$*) if ! _known_var "$(_var_name "$_p")"; then _p=$(_var_tail "$_p"); case "$_p" in */*) ;; *) continue ;; esac; fi ;;   # audit C4/F1/R2
+      */*|"~"*) ;; *) continue ;;
+    esac
+    _s=$(_subst "$_p")
+    if _unresolved "$_s"; then
+      case "$COMMAND" in *plugins/cache*) _plugin_cache_block "$_p (unresolved in the program; the command names the plugin cache)" ;; esac
+      continue
+    fi
+    case "$_s" in */*|"~"*) ;; *) continue ;; esac
+    _is_plugin_cache "$_s" && _plugin_cache_block "$_p (the plugin cache by its own spelling)"
+    case "$_s" in /*|"~"|"~/"*) _abs=$(_canon_cached "$_s") ;; *) _abs=$(_canon_cached "$_s" "$CUR_CWD") ;; esac
+    _is_plugin_cache "$_abs" && _plugin_cache_block "$_p (named in the program)"
+  done < <(printf '%s' "$RUNTIME_TEXT" | grep -oE "[\$~./A-Za-z0-9_-][A-Za-z0-9_./~{}\$-]*" 2>/dev/null || true)
+fi
+
 # PROTECT_ONLY (no scope = the orchestrator): only the pipeline dir is fenced.
 if [ "$PROTECT_ONLY" = true ]; then
+  # (audit P1) a nested shell (bash -c, eval, a heredoc-fed shell) that the
+  # nested guard refused — for a scope-less caller that means the pipeline
+  # dir, the cache, or an opaque body — is a refusal here too. It used to be
+  # skipped as "unresolved", so `bash -c "rm -rf .apd/pipeline"` reached the ledger.
+  _i=0
+  while [ $_i -lt ${#TARGET_RAW[@]} ]; do
+    case "${TARGET_NOTE[$_i]}" in
+      "nested shell text"*)
+        echo "BLOCKED: a nested shell (bash -c / eval / heredoc) writes where this caller may not: ${TARGET_RAW[$_i]}" >&2
+        echo "  The nested command was refused on its own — run it at top level to see why, or drop it." >&2
+        _pipeline_block_guidance
+        log_block "nested-shell-refusal" "${COMMAND:0:200}"
+        exit 2 ;;
+    esac
+    _i=$((_i + 1))
+  done
   _PIPE_CANON="$PROJ_CANON/.apd/pipeline"
   _under_pipeline() { case "$1/" in "$_PIPE_CANON/"*) return 0 ;; esac; [ "$1" = "$_PIPE_CANON" ] && return 0; return 1; }
   _i=0
   while [ $_i -lt ${#TARGET_RAW[@]} ]; do
     _raw="${TARGET_RAW[$_i]}"; _abs="${TARGET_ABS[$_i]}"; _i=$((_i + 1))
+    [ "${TARGET_APD[$((_i - 1))]:-false}" = true ] && continue   # an APD tool's own statement owns the pipeline dir (audit M-a2)
     [ -n "$_abs" ] || continue                      # unresolved: the orchestrator is not scoped
     case "${_abs##*/}" in .guide-marker) continue ;; esac
     if _under_pipeline "$_abs"; then
@@ -927,6 +1054,7 @@ _i=0
 while [ $_i -lt ${#TARGET_RAW[@]} ]; do
   _raw="${TARGET_RAW[$_i]}"; _abs="${TARGET_ABS[$_i]}"; _note="${TARGET_NOTE[$_i]}"
   _i=$((_i + 1))
+  case "$_note" in "opaque shell body"*) _opaque_block "$_note" ;; esac
   if [ -n "$_note" ]; then
     # a write the guard cannot place is refused, unless a writable agent with no
     # scope is involved (then everything is refused anyway, below)
@@ -965,9 +1093,8 @@ if [ "$RUNTIME_WRITE" = true ]; then
   # the project (or unknown) refuses the program outright; a cwd inside the
   # project but outside the scope refuses it only when the program names no
   # path at all (then every name is bare). Named paths are judged one by one.
-  _cwd_ok=false; _in_scope "$CUR_CWD" && _cwd_ok=true
-  _cwd_in_proj=false; case "$CUR_CWD/" in "$PROJ_CANON/"*) _cwd_in_proj=true ;; esac
-  if [ "$CWD_UNKNOWN" = true ] || { [ "$_cwd_ok" = false ] && [ "$_cwd_in_proj" = false ]; }; then
+  _cwd_ok="$RT_CWD_ALL_IN_SCOPE"; _cwd_in_proj="$RT_CWD_ALL_IN_PROJ"   # judged at mark time (audit N2)
+  if [ "$RT_CWD_UNKNOWN" = true ] || { [ "$_cwd_ok" = false ] && [ "$_cwd_in_proj" = false ]; }; then
     echo "BLOCKED: Runtime write (runtime) detected from a working directory outside the project ($CUR_CWD)." >&2
     _scope_hint; log_block "out-of-scope-bash-write" "${COMMAND:0:200}"; exit 2
   fi
@@ -975,19 +1102,24 @@ if [ "$RUNTIME_WRITE" = true ]; then
   while IFS= read -r _p; do
     [ -z "$_p" ] && continue
     case "$_p" in
+      \$*) if ! _known_var "$(_var_name "$_p")"; then _p=$(_var_tail "$_p"); case "$_p" in */*) ;; *) continue ;; esac; fi ;;   # audit C4/F1/R2
       */*|"~"*) ;;
       *) continue ;;
     esac
-    _any=true
     _s=$(_subst "$_p")
-    _unresolved "$_s" && continue
+    if _unresolved "$_s"; then
+      echo "BLOCKED: Runtime write (runtime) detected with a path the guard cannot resolve ($_p)." >&2
+      _scope_hint; log_block "out-of-scope-bash-write" "${COMMAND:0:200}"; exit 2
+    fi
+    case "$_s" in */*|"~"*) ;; *) continue ;; esac
+    _any=true
     case "$_s" in /*|"~"|"~/"*) _abs=$(_canon_cached "$_s") ;; *) _abs=$(_canon_cached "$_s" "$CUR_CWD") ;; esac
     if ! _in_scope "$_abs"; then
       echo "BLOCKED: Runtime write (runtime) detected outside the allowed scope." >&2
       echo "  Out-of-scope path in the program: $_p" >&2
       _scope_hint; log_block "out-of-scope-bash-write" "${COMMAND:0:200}"; exit 2
     fi
-  done < <(printf '%s' "$RUNTIME_TEXT" | grep -oE "[~./A-Za-z0-9_-][A-Za-z0-9_./~-]*" 2>/dev/null || true)
+  done < <(printf '%s' "$RUNTIME_TEXT" | grep -oE "[\$~./A-Za-z0-9_-][A-Za-z0-9_./~{}\$-]*" 2>/dev/null || true)
   if [ "$_any" = false ] && [ "$_cwd_ok" = false ]; then
     echo "BLOCKED: Runtime write (runtime) with bare file names, from a working directory outside the allowed scope ($CUR_CWD)." >&2
     _scope_hint; log_block "out-of-scope-bash-write" "${COMMAND:0:200}"; exit 2

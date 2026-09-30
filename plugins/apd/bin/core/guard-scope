@@ -32,6 +32,9 @@ fi
 # `..`, and the traversal check below catches it.
 source "$(dirname "$0")/../lib/path-canon.sh"
 ABS_PATH=$(_canon_abs "$FILE_PATH")
+# v7.1.4: the session scratchpad is a sanctioned write target for every agent
+# (a test log, a probe) — the same narrow rule the bash guard applies.
+_is_session_scratchpad "$ABS_PATH" && exit 0
 PROJ_CANON=$(_proj_canon)
 REL_PATH="${ABS_PATH#"$PROJ_CANON"/}"
 

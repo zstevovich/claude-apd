@@ -251,8 +251,12 @@ if [ "$SCRIPTS_OK" = true ]; then
     pass "All $SUM_SCRIPTS_TOTAL scripts exist and are executable"
 fi
 
-# Memory files
-for file in MEMORY.md status.md session-log.md; do
+# Memory files — the loop lists every shipped template (templates/memory); the
+# summary denominator is derived from that directory, never typed by hand
+# (v7.1.4 — it printed N/4 while checking three).
+SUM_MEMORY_TOTAL=0
+for tmpl in "$APD_PLUGIN_ROOT/templates/memory"/*.md; do
+    file=$(basename "$tmpl"); SUM_MEMORY_TOTAL=$((SUM_MEMORY_TOTAL + 1))
     if [ -f "$APD_MEMORY_DIR/$file" ]; then
         pass "memory/$file"
         ((SUM_MEMORY++))
@@ -1186,7 +1190,7 @@ printf "    %-15s %s\n" "Scripts"        "$SUM_SCRIPTS_OK/$SUM_SCRIPTS_TOTAL"
 printf "    %-15s %s\n" "Guards"         "$SUM_GUARDS"
 printf "    %-15s %s\n" "Pipeline"       "$SUM_PIPELINE"
 printf "    %-15s %s\n" "verify-all.sh"  "$SUM_VERIFY_ALL"
-printf "    %-15s %s\n" "Memory files"   "$SUM_MEMORY/4"
+printf "    %-15s %s\n" "Memory files"   "$SUM_MEMORY/$SUM_MEMORY_TOTAL"
 printf "    %-15s %s\n" "Gitignore"      "$SUM_GITIGNORE"
 printf "    %-15s %s\n" "Attribution"    "$SUM_ATTRIBUTION"
 echo ""

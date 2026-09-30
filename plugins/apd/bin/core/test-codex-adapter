@@ -15446,6 +15446,155 @@ GB4_CANON=$(bash -c 'source "$1"; _canon_abs /zz-not-here/claude-501/x/scratchpa
     || { fail "_canon_abs returned '$GB4_CANON' (double slash → scratchpad pattern never matches on Linux)"; FAILS=$((FAILS + 1)); }
 _gb4 2 "…and a look-alike under a different root is still not the scratchpad" "echo x > /zz-not-here/tmp/claude-501/-Users-x/abc/scratchpad/t.log" src/
 
+# 5. (v7.1.4) the plugin cache is judged by the PARSER, not by a substring scan
+#    of the raw command. Three raw checks used to sit in front of the tokenizer:
+#    `<writer> … plugins/cache`, `>[^&].*plugins/cache` and a runtime regex —
+#    so `2>/dev/null` or a quoted `>` or a quoted `rm ` anywhere BEFORE a plugin
+#    path refused a read-only command (reported by a user on 2026-09-30,
+#    reproduced). Now: a canonical write target under /plugins/cache/ blocks,
+#    for every caller; everything else is the parser's ordinary business.
+_gb4 0 "read of a plugin file after 2>/dev/null earlier in the line"       'ls /nope 2>/dev/null; cat ~/.claude/plugins/cache/x/apd-init' src/
+_gb4 0 "quoted '>' in a grep pattern before a plugin path is text"          'grep -rn "a > b" ~/.claude/plugins/cache/x/apd-init' src/
+_gb4 0 "quoted 'rm ' in a grep pattern before a plugin path is text"        'grep -n "rm " ~/.claude/plugins/cache/x/apd-init' src/
+_gb4 0 "exec from the plugin cache with 2>&1 | tail"                        'bash ~/.claude/plugins/cache/x/bin/apd doctor 2>&1 | tail -3' src/
+_gb4 0 "exec from the plugin cache, output redirected INTO scope"            'bash ~/.claude/plugins/cache/x/bin/apd doctor > src/out.log' src/
+_gb4 0 "cp OUT of the plugin cache into scope (dest is the target)"          'cp ~/.claude/plugins/cache/x/f src/f' src/
+_gb4 2 "redirect INTO the plugin cache blocks"                               'echo x > ~/.claude/plugins/cache/x/f' src/
+_gb4 2 "append INTO the plugin cache blocks"                                 'echo x >> ~/.claude/plugins/cache/x/f' src/
+_gb4 2 "sed -i on a plugin file blocks"                                      'sed -i s/a/b/ ~/.claude/plugins/cache/x/f' src/
+_gb4 2 "rm of a plugin file blocks"                                          'rm ~/.claude/plugins/cache/x/f' src/
+_gb4 2 "cp INTO the plugin cache blocks"                                     'cp src/f ~/.claude/plugins/cache/x/f' src/
+_gb4 2 "tee INTO the plugin cache blocks"                                    'tee ~/.claude/plugins/cache/x/f < src/f' src/
+_gb4 2 "mv OUT of the plugin cache blocks (the source leaves its place)"     'mv ~/.claude/plugins/cache/x/f src/f' src/
+_gb4 2 "mkdir under the plugin cache blocks"                                 'mkdir -p ~/.claude/plugins/cache/x/new' src/
+_gb4 2 "python open(…,'w') on a plugin path blocks (runtime write)"          "python3 -c \"open('~/.claude/plugins/cache/x/f','w').write('x')\"" src/
+_gb4 2 "orchestrator (no scope): redirect INTO the plugin cache still blocks" 'echo x > ~/.claude/plugins/cache/x/f'
+_gb4 2 "cd into the plugin cache then write a bare name blocks"              'cd ~/.claude/plugins/cache/x && echo y > f' src/
+_gb4 2 "orchestrator: find … | xargs rm over the plugin cache blocks (targets invisible, cache named)" "find ~/.claude/plugins/cache/x -name '*.bak' | xargs rm"
+_gb4 2 "bash -c with a redirect INTO the plugin cache blocks (recursed)"     'bash -c "echo x > ~/.claude/plugins/cache/x/f"' src/
+_gb4 2 "eval with rm of a plugin file blocks (recursed)"                      "eval 'rm ~/.claude/plugins/cache/x/f'" src/
+_gb4 0 "orchestrator: find … | xargs grep over the plugin cache is a read"     "find ~/.claude/plugins/cache/x -name '*.md' | xargs grep -l apd"
+
+# 6. (v7.1.4 audit, C1–C4 + I3 + M4) — the auditor's fail-open finds, each red
+#    before the fix. C1: the orchestrator's early exit for APD tool commands
+#    sat BEFORE the cache fence, so "# apd pipeline status" in a comment
+#    unlocked the cache. C2: `sh -c "$CMD"` handed the nested guard the literal
+#    `$CMD`. C3: a runtime writer with a bare name from a cwd inside the cache.
+#    C4: the runtime token grep dropped `$`, so `open('$P','w')` was invisible.
+_gb4 2 "orchestrator: 'apd pipeline' in a COMMENT does not unlock the cache"         'rm -rf ~/.claude/plugins/cache/z # apd pipeline status'
+_gb4 2 "orchestrator: an APD tool call and a cache write on one line still blocks"  'bash .claude/bin/apd pipeline status && sed -i s/a/b/ ~/.claude/plugins/cache/z/g'
+_gb4 2 "orchestrator: 'echo verify-apd' does not unlock the cache"                  'echo verify-apd; cp /dev/null ~/.claude/plugins/cache/z/g'
+_gb4 0 "orchestrator: a bare APD tool call stays allowed"                           'bash .claude/bin/apd pipeline status'
+_gb4 0 "orchestrator: an APD advance stays allowed"                                 'bash .claude/bin/apd pipeline builder'
+_gb4 2 "scoped: sh -c with a same-command variable body is read through (cache)"   'CMD="rm ~/.claude/plugins/cache/z/g"; sh -c "$CMD"' src/
+_gb4 2 "scoped: sh -c with an out-of-scope write in a variable body (was open at HEAD)" 'CMD="rm /etc/passwd"; sh -c "$CMD"' src/
+_gb4 0 "scoped: bash -c with an IN-scope write in a variable body is allowed"      'CMD="echo x > src/a.txt"; bash -c "$CMD"' src/
+_gb4 2 "scoped: sh -c fed a variable the guard cannot resolve is refused (opaque)"  'sh -c "$CMD"' src/
+_gb4 2 "orchestrator: sh -c fed an unresolvable variable body is refused (opaque)"  'sh -c "$CMD"'
+_gb4 2 "orchestrator: eval of an unresolvable variable is refused (opaque)"         'eval "$X"'
+_gb4 2 "scoped: runtime writer with a bare name from a cwd INSIDE the cache"        "cd ~/.claude/plugins/cache/z; python3 -c \"open('g','w').write('x')\"" src/
+_gb4 2 "orchestrator: node writer with a bare name from a cwd inside the cache"     "cd ~/.claude/plugins/cache/z && node -e \"require('fs').writeFileSync('g','x')\""
+_gb4 2 "scoped: runtime writer naming the cache through a same-command variable"    'P=~/.claude/plugins/cache/z/g; python3 -c "open(\"$P\",\"w\").write(\"x\")"' src/
+_gb4 2 "orchestrator: runtime writer naming the cache through a same-command variable" 'P=~/.claude/plugins/cache/z/g; python3 -c "open(\"$P\",\"w\").write(\"x\")"'
+_gb4 2 "scoped: runtime writer naming an out-of-scope path through a variable"      'P=/etc; python3 -c "open(\"$P/x\",\"w\").write(\"x\")"' src/
+# I3: ~/.claude/plugins symlinked elsewhere — the canonical form loses /plugins/cache/, the raw spelling must still count
+GB4_H="$(mktemp -d -t apd-gb4h.XXXXXX)"; mkdir -p "$GB4_H/home/.claude" "$GB4_H/store/cache/z"; ln -s "$GB4_H/store" "$GB4_H/home/.claude/plugins"
+if HOME="$GB4_H/home" APD_PROJECT_DIR="$GB4_T" bash "$GB4" --command 'rm ~/.claude/plugins/cache/z/g' >/dev/null 2>&1; then
+    fail "a symlinked ~/.claude/plugins hides the cache from the fence (rm allowed)"; FAILS=$((FAILS + 1))
+else
+    pass "a symlinked ~/.claude/plugins is still fenced by the raw spelling (rc=2)"; PASSES=$((PASSES + 1))
+fi
+rm -rf "$GB4_H"
+# M4: $CLAUDE_PLUGIN_ROOT is the hook's own spelling of the cache — resolve it
+if CLAUDE_PLUGIN_ROOT="$HOME/.claude/plugins/cache/z" APD_PROJECT_DIR="$GB4_T" bash "$GB4" --command 'echo x > "$CLAUDE_PLUGIN_ROOT/g"' >/dev/null 2>&1; then
+    fail "orchestrator: a write through \$CLAUDE_PLUGIN_ROOT into the cache is allowed"; FAILS=$((FAILS + 1))
+else
+    pass "orchestrator: \$CLAUDE_PLUGIN_ROOT resolves to the cache and blocks (rc=2)"; PASSES=$((PASSES + 1))
+fi
+
+# 7. (v7.1.4 audit, confirmation pass: N1, N2, F1, F2, M-a)
+#    N1: a variable in COMMAND position hides the write (`CMD="rm …"; $CMD`).
+#    N2: the cwd-in-cache rule looked at the FINAL cwd, not the cwd at the
+#        moment the writing program ran. F1/F2: my own fixes false-blocked —
+#        `$` in single-quoted Perl/PHP/Ruby/JS bodies is not a shell variable,
+#        and `eval "$(direnv hook bash)"` is daily bootstrap, not a hidden body.
+#    M-a: APD's own tools are recognised by a command WORD, never by a comment.
+_gb4 2 "scoped: a variable in command position with a cache write is read through"      'CMD="rm ~/.claude/plugins/cache/z/g"; $CMD' src/
+_gb4 2 "orchestrator: a variable in command position with a cache write is read through" 'CMD="cp x ~/.claude/plugins/cache/z/g"; $CMD'
+_gb4 2 "orchestrator: a writer named by a variable, target in the cache"                 'W="tee -a"; echo x | $W ~/.claude/plugins/cache/z/g'
+_gb4 2 "orchestrator: set -- rm <cache>; \"\$@\" is opaque and refused"                   'set -- rm ~/.claude/plugins/cache/z/g; "$@"'
+_gb4 2 "scoped: a variable in command position with an out-of-scope write (was open at HEAD)" 'CMD="rm ~/.ssh/known_hosts"; $CMD' src/
+_gb4 0 "scoped: a variable in command position that only reads is allowed"              'CMD="ls -la src"; $CMD' src/
+_gb4 0 "scoped: a variable in command position with an IN-scope write is allowed"       'CMD="echo x > src/a.txt"; $CMD' src/
+_gb4 2 "scoped: writing program run in a subshell cd'd into the cache"                    "(cd ~/.claude/plugins/cache/z && python3 -c \"open('g','w').write('x')\")" src/
+_gb4 2 "scoped: writing program after cd into the cache, then cd away"                    "cd ~/.claude/plugins/cache/z && python3 -c \"open('g','w').write('x')\"; cd /tmp" src/
+_gb4 2 "orchestrator: pushd into the cache, write, popd"                                  "pushd ~/.claude/plugins/cache/z; python3 -c \"open('g','w').write('x')\"; popd"
+_gb4 2 "scoped: writing program from an out-of-scope cwd, then cd back into scope"       "cd /etc && python3 -c \"open('x','w').write('x')\"; cd src" src/
+_gb4 0 "scoped: perl writing program with its own \$fh in a single-quoted body"          "perl -e 'open(my \$fh, \">\", \"src/a.txt\"); print \$fh \"x\"'" src/
+_gb4 0 "scoped: php writing program with \$f in a single-quoted body"                    "php -r '\$f = fopen(\"src/a.txt\",\"w\"); fwrite(\$f, \"x\");'" src/
+_gb4 0 "scoped: ruby writing program reading \$stdin"                                    "ruby -e 'File.write(\"src/a.txt\", \$stdin.read)'" src/
+_gb4 0 "scoped: node template literal \${n} in a writing program"                        "node -e 'const fs=require(\"fs\"); const n=\"x\"; fs.writeFileSync(\"src/a.txt\", \`hello \${n}\`)'" src/
+_gb4 0 "scoped: python writing program with an escaped \\\$5 in its text"                 "python3 -c \"open('src/a.txt','w').write('price: \\\$5')\"" src/
+_gb4 0 "orchestrator: eval of a command substitution is bootstrap, not a hidden body"    'eval "$(direnv hook bash)"'
+_gb4 0 "scoped: eval of a command substitution is allowed"                                'eval "$(pyenv init -)"' src/
+_gb4 0 "scoped: sh -c fed a command substitution is allowed"                              'sh -c "$(cat script.sh)"' src/
+_gb4 2 "orchestrator: rm -rf .apd/pipeline with 'apd pipeline' in a COMMENT still blocks" 'rm -rf .apd/pipeline # apd pipeline'
+_gb4 2 "orchestrator: 'apd pipeline' inside a quoted echo does not unlock the pipeline dir" 'echo "# apd pipeline"; rm -rf .apd/pipeline'
+
+# 8. (v7.1.4 audit, pass #3: R1, R2, M-a2)
+#    R1: the F2 carve-out ran the OUTPUT of `$(…)` — invisible text. When the
+#        command names the plugin cache or the pipeline dir, a `$(…)`/backtick
+#        body (or command word) is opaque for every caller. R2: an UNKNOWN
+#        variable token dropped the literal path glued after it. M-a2: the
+#        APD-tool exemption is per STATEMENT now, not per command.
+_gb4 2 "orchestrator: eval of a substitution whose text names the cache is opaque"     'eval "$(echo rm -rf ~/.claude/plugins/cache/z)"'
+_gb4 2 "scoped: eval of a substitution whose text names the cache is opaque"           'eval "$(echo rm -rf ~/.claude/plugins/cache/z)"' src/
+_gb4 2 "scoped: sh -c fed a substitution whose text names the cache is opaque"         'sh -c "$(echo rm -rf ~/.claude/plugins/cache/z)"' src/
+_gb4 2 "orchestrator: a substitution in command position with a cache target"          'touch src/x; $(echo rm) -f ~/.claude/plugins/cache/z/g'
+_gb4 2 "orchestrator: eval of a substitution whose text names the pipeline dir"        'eval "$(echo rm -rf .apd/pipeline)"'
+_gb4 0 "orchestrator: eval of a substitution naming neither stays allowed"             'eval "$(ssh-agent -s)"'
+_gb4 2 "orchestrator: perl path glued after \$ENV{HOME} is still judged"                "perl -e 'open(F,\">\$ENV{HOME}/.claude/plugins/cache/z/g\"); print F \"x\"'"
+_gb4 2 "orchestrator: node path glued after \${process.env.HOME} is still judged"       "node -e 'require(\"fs\").writeFileSync(\`\${process.env.HOME}/.claude/plugins/cache/z/g\`,\"x\")'"
+if APD_PROJECT_DIR="$GB4_T" bash "$GB4" --command "perl -e 'open(F,\">\$ENV{HOME}/.bashrc\"); print F \"x\"'" --cwd "$GB4_T/src" src/ >/dev/null 2>&1; then
+    fail "scoped (cwd src): a perl write to \$ENV{HOME}/.bashrc is allowed — the path after an unknown variable was dropped"; FAILS=$((FAILS + 1))
+else
+    pass "scoped (cwd src): a perl write to \$ENV{HOME}/.bashrc blocks (rc=2)"; PASSES=$((PASSES + 1))
+fi
+_gb4 2 "orchestrator: an APD tool statement does not unlock the NEXT statement"        'bash .claude/bin/apd pipeline status; rm -rf .apd/pipeline'
+_gb4 2 "orchestrator: the apd shortcut invoked directly, then a pipeline wipe"           '.claude/bin/apd pipeline status; rm -rf .apd/pipeline'
+_gb4 2 "orchestrator: a path ending in pipeline-gate does not unlock the next statement" '/tmp/x/pipeline-gate; rm -rf .apd/pipeline'
+_gb4 0 "orchestrator: an APD tool's OWN redirect into the pipeline dir stays allowed"    'bash .claude/bin/apd pipeline status > .apd/pipeline/x'
+
+# 9. (v7.1.4 audit, pass #4: P1, P2, F-a — pre-existing, closed before release)
+#    P1: a nested shell's refusal was ignored for the orchestrator unless the
+#        outer command named the cache — `bash -c "rm -rf .apd/pipeline"`
+#        reached the ledger through one `bash -c`. P2: any executable whose
+#        NAME ends in pipeline-gate owned the pipeline dir for its statement.
+#    F-a: the pipeline "mention" is anchored to a path segment.
+_gb4 2 "orchestrator: bash -c wiping the pipeline dir is refused (nested refusal honoured)"   'bash -c "rm -rf .apd/pipeline"'
+_gb4 2 "orchestrator: eval wiping the pipeline dir is refused"                                'eval "rm -rf .apd/pipeline"'
+_gb4 2 "orchestrator: sh -c cd .apd && rm -rf pipeline is refused"                            'sh -c "cd .apd && rm -rf pipeline"'
+_gb4 2 "orchestrator: an APD tool inside bash -c does not unlock the wipe beside it"          'bash -c "bash .claude/bin/apd pipeline status; rm -rf .apd/pipeline"'
+_gb4 2 "orchestrator: a heredoc-fed bash wiping the pipeline dir is refused"                  $'bash <<X\nrm -rf .apd/pipeline\nX'
+_gb4 2 "orchestrator: bash -c with a cache path assembled from a variable is refused"         'D=~/.claude/plugins; bash -c "rm -rf $D/cache/z"'
+_gb4 2 "orchestrator: sh -c redirect into the cache through a variable is refused"            'D=~/.claude/plugins; sh -c "echo x > $D/cache/z/g"'
+_gb4 0 "orchestrator: bash -c that only reads the pipeline dir is still not the fence's business" 'bash -c "ls docs"'
+_gb4 2 "orchestrator: a foreign executable named pipeline-gate does not own the pipeline dir" '/tmp/evil/pipeline-gate > .apd/pipeline/.agents'
+_gb4 2 "orchestrator: bash on a foreign pipeline-gate does not own the pipeline dir"          'bash /tmp/evil/pipeline-gate > .apd/pipeline/x'
+_gb4 0 "orchestrator: the plugin's own pipeline-advance keeps its exemption"                  'bash "${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-advance" builder > .apd/pipeline/log'
+_gb4 0 "orchestrator: eval bootstrap beside a READ of .apd/pipeline-notes.md is allowed"      'eval "$(direnv hook bash)"; grep -rn x .apd/pipeline-notes.md'
+_gb4 0 "scoped: eval bootstrap beside a read of docs/my.apd/pipelines.md is allowed"          'eval "$(direnv hook bash)"; cat docs/my.apd/pipelines.md' src/
+if grep -q 'plugin-cache-write' "$GB4"; then
+    pass "guard-bash-scope still logs the plugin-cache reason (plugin-cache-write)"; PASSES=$((PASSES + 1))
+else
+    fail "plugin-cache-write reason gone from guard-bash-scope"; FAILS=$((FAILS + 1))
+fi
+if grep -qE "grep -qE '>\[\^&\]\.\*plugins/cache" "$GB4"; then
+    fail "the raw '>[^&].*plugins/cache' scan is still in guard-bash-scope — the false-block class is live"; FAILS=$((FAILS + 1))
+else
+    pass "no raw-string plugin-cache scan ahead of the tokenizer"; PASSES=$((PASSES + 1))
+fi
+
 # 4a. the CC shim exports the caller's identity → the audit line names the agent
 cat > "$GB4_T/.claude/agents/frontend-builder.md" <<'EOF'
 ---
@@ -15860,6 +16009,137 @@ if [ "$(grep -cE '^[a-z]+\|supervisor\|' "$G136_CONF")" -ge 3 ]; then
     fi
 else
     fail "model-profiles.conf lost its supervisor rows — revisit T4"; FAILS=$((FAILS + 1))
+fi
+
+section "137. Sanctioned paths in every write guard: the scratchpad for the orchestrator's Write/Edit, and verify-apd counts what it checks"
+
+# 2026-09-30, user-reported and reproduced: guard-orchestrator refused a .sh
+# file in the SESSION SCRATCHPAD (the directory Claude Code hands the session
+# for exactly such helpers) because its extension check ran on whatever was
+# left after stripping the project prefix — an absolute path outside the
+# project just kept its extension. v7.0.5 had sanctioned the scratchpad in the
+# bash guard only. And verify-apd printed "Memory files N/4" while checking
+# three — a denominator typed by hand next to a loop that lists the files.
+
+G137_T="$(mktemp -d -t apd-g137.XXXXXX)"
+mkdir -p "$G137_T/.claude/bin" "$G137_T/src" "$G137_T/scripts"
+printf 'PROJECT_NAME=g137\nAPD_VERSION=%s\nSTACK=dotnet\n' "$(cat "$APD_PLUGIN_ROOT/VERSION")" > "$G137_T/.claude/.apd-config"
+G137_GO="$APD_PLUGIN_ROOT/bin/core/guard-orchestrator"
+G137_SP="/private/tmp/claude-501/-Users-x/abc/scratchpad"
+_g137() {  # <expected rc> <label> <file-path> [STACK]
+    local exp="$1" label="$2" fp="$3" st="${4:-}"
+    if [ -n "$st" ]; then printf 'PROJECT_NAME=g137\nAPD_VERSION=%s\nSTACK=%s\n' "$(cat "$APD_PLUGIN_ROOT/VERSION")" "$st" > "$G137_T/.claude/.apd-config"; fi
+    APD_PROJECT_DIR="$G137_T" bash "$G137_GO" --file-path "$fp" >/dev/null 2>&1
+    local rc=$?
+    if [ "$rc" = "$exp" ]; then pass "$label (rc=$rc)"; PASSES=$((PASSES + 1))
+    else fail "$label: want rc=$exp got rc=$rc — $fp"; FAILS=$((FAILS + 1)); fi
+}
+_g137 0 "orchestrator may write a .sh helper in the session scratchpad"        "$G137_SP/run.sh"
+_g137 0 "…and a .py helper there, on a python stack"                          "$G137_SP/probe.py" python
+_g137 0 "…and a .cs scratch file there, on a dotnet stack"                    "$G137_SP/probe.cs" dotnet
+_g137 2 "a .sh outside the project that is NOT the scratchpad still blocks"   "/tmp/other/x.sh"
+_g137 2 "a look-alike scratchpad under a plain /tmp root still blocks"        "/tmp/scratchpad/evil.sh"
+_g137 2 "production code in the project still blocks"                         "$G137_T/src/a.cs"
+_g137 2 "a shell script in the project still blocks"                          "$G137_T/scripts/x.sh"
+_g137 0 "the project's own .claude/bin script stays allowed"                  "$G137_T/.claude/bin/verify-all.sh"
+# (v7.1.4 audit C5, I1, M1) — traversal through a scratchpad prefix, a dangling
+# link out of the scratchpad, and the loose uid/segment pattern.
+G137_T2="$(mktemp -d -t apd-g137t.XXXXXX)"; mkdir -p "$G137_T2/src" "$G137_T2/.claude"; printf 'PROJECT_NAME=x\nAPD_VERSION=1\nSTACK=dotnet\n' > "$G137_T2/.claude/.apd-config"
+G137_TRAV="/tmp/claude-501/nonexist/sess/scratchpad/../../../../..$G137_T2/README.cs"   # two segments = the real layout, so only the traversal rule can refuse it
+if (cd "$G137_T2" && APD_PROJECT_DIR="$G137_T2" bash "$APD_PLUGIN_ROOT/bin/core/guard-scope" --file-path "$G137_TRAV" src/ >/dev/null 2>&1); then
+    fail "guard-scope: a traversal through a scratchpad prefix reaches the project (allowed)"; FAILS=$((FAILS + 1))
+else
+    pass "guard-scope: traversal through a scratchpad prefix still blocks (rc=2)"; PASSES=$((PASSES + 1))
+fi
+if APD_PROJECT_DIR="$G137_T2" bash "$APD_PLUGIN_ROOT/bin/core/guard-orchestrator" --file-path "$G137_TRAV" >/dev/null 2>&1; then
+    fail "guard-orchestrator: a traversal through a scratchpad prefix reaches a .cs in the project (allowed)"; FAILS=$((FAILS + 1))
+else
+    pass "guard-orchestrator: traversal through a scratchpad prefix still blocks (rc=2)"; PASSES=$((PASSES + 1))
+fi
+# I1: a DANGLING link in the scratchpad pointing into the project, out of scope
+G137_SPR="/tmp/claude-501/apd-g137-$$/sess/scratchpad"; mkdir -p "$G137_SPR"; ln -s "$G137_T2/README.cs" "$G137_SPR/l2"
+if (cd "$G137_T2" && APD_PROJECT_DIR="$G137_T2" bash "$APD_PLUGIN_ROOT/bin/core/guard-scope" --file-path "$G137_SPR/l2" src/ >/dev/null 2>&1); then
+    fail "guard-scope: a dangling scratchpad link into the project is written through (allowed)"; FAILS=$((FAILS + 1))
+else
+    pass "guard-scope: a dangling scratchpad link into the project blocks (rc=2)"; PASSES=$((PASSES + 1))
+fi
+if APD_PROJECT_DIR="$G137_T2" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --command "echo x > $G137_SPR/l2" src/ >/dev/null 2>&1; then
+    fail "guard-bash-scope: a redirect through a dangling scratchpad link into the project is allowed"; FAILS=$((FAILS + 1))
+else
+    pass "guard-bash-scope: a redirect through a dangling scratchpad link into the project blocks (rc=2)"; PASSES=$((PASSES + 1))
+fi
+rm -f "$G137_SPR/l2"; rmdir "$G137_SPR" "$(dirname "$G137_SPR")" "$(dirname "$(dirname "$G137_SPR")")" 2>/dev/null || true
+# N3: a CHAIN of links in the scratchpad ending in a dangling link into the project
+G137_T3="$(mktemp -d -t apd-g137c.XXXXXX)"; mkdir -p "$G137_T3/src" "$G137_T3/.claude"; touch "$G137_T3/.claude/.apd-config"
+G137_SPC="/tmp/claude-501/apd-g137c-$$/sess/scratchpad"; mkdir -p "$G137_SPC"
+ln -s "$G137_T3/README.cs" "$G137_SPC/dang"; ln -s "$G137_SPC/dang" "$G137_SPC/chain"; ln -s "$G137_SPC/chain" "$G137_SPC/chain3"
+for _l in chain chain3; do
+    if (cd "$G137_T3" && APD_PROJECT_DIR="$G137_T3" bash "$APD_PLUGIN_ROOT/bin/core/guard-scope" --file-path "$G137_SPC/$_l" src/ >/dev/null 2>&1); then
+        fail "guard-scope: a link chain ($_l) in the scratchpad ending in the project is written through (allowed)"; FAILS=$((FAILS + 1))
+    else
+        pass "guard-scope: a link chain ($_l) in the scratchpad ending in the project blocks (rc=2)"; PASSES=$((PASSES + 1))
+    fi
+done
+rm -f "$G137_SPC/chain3" "$G137_SPC/chain" "$G137_SPC/dang"; rmdir "$G137_SPC" "$(dirname "$G137_SPC")" "$(dirname "$(dirname "$G137_SPC")")" 2>/dev/null || true
+rm -rf "$G137_T3"
+# M1: the pattern means claude-<digits>, then exactly project + session segments
+_g137 2 "a claude-5evil root is not the scratchpad"                          "/tmp/claude-5evil/a/b/scratchpad/x.sh"
+_g137 2 "three segments between claude-<uid> and scratchpad is not the layout" "/tmp/claude-501/a/b/c/scratchpad/x.sh"
+_g137 2 "one segment between claude-<uid> and scratchpad is not the layout"    "/tmp/claude-501/a/scratchpad/x.sh"
+rm -rf "$G137_T2"
+rm -rf "$G137_T"
+
+# guard-scope (Write/Edit for agents) had no scratchpad rule at all — an agent
+# scoped to src/ could not write a test log where Claude Code told it to.
+G137_S="$(mktemp -d -t apd-g137s.XXXXXX)"; mkdir -p "$G137_S/src" "$G137_S/.claude"; touch "$G137_S/.claude/.apd-config"
+if (cd "$G137_S" && APD_PROJECT_DIR="$G137_S" bash "$APD_PLUGIN_ROOT/bin/core/guard-scope" --file-path "$G137_SP/test.log" "src/" >/dev/null 2>&1); then
+    pass "guard-scope: an agent scoped to src/ may write into the session scratchpad (rc=0)"; PASSES=$((PASSES + 1))
+else
+    fail "guard-scope refuses a scratchpad write for a scoped agent"; FAILS=$((FAILS + 1))
+fi
+if (cd "$G137_S" && APD_PROJECT_DIR="$G137_S" bash "$APD_PLUGIN_ROOT/bin/core/guard-scope" --file-path "/tmp/scratchpad/evil.log" "src/" >/dev/null 2>&1); then
+    fail "guard-scope allowed a look-alike /tmp/scratchpad path"; FAILS=$((FAILS + 1))
+else
+    pass "guard-scope: a look-alike scratchpad under plain /tmp still blocks (rc=2)"; PASSES=$((PASSES + 1))
+fi
+rm -rf "$G137_S"
+
+
+# The scratchpad rule now lives in ONE place — path-canon.sh — and both guards
+# that judge a write path source it. A second copy is how the bash guard got
+# it in v7.0.5 while the file guards did not.
+if grep -q '^_is_session_scratchpad()' "$APD_PLUGIN_ROOT/bin/lib/path-canon.sh"; then
+    pass "path-canon.sh owns _is_session_scratchpad"; PASSES=$((PASSES + 1))
+else
+    fail "_is_session_scratchpad is not in path-canon.sh (each guard would carry its own copy)"; FAILS=$((FAILS + 1))
+fi
+G137_COPIES=$(grep -l '^_is_session_scratchpad()' "$APD_PLUGIN_ROOT"/bin/core/* 2>/dev/null || true)
+if [ -z "$G137_COPIES" ]; then
+    pass "no guard carries a private copy of the scratchpad rule"; PASSES=$((PASSES + 1))
+else
+    fail "private copies of _is_session_scratchpad: $G137_COPIES"; FAILS=$((FAILS + 1))
+fi
+for _g in guard-bash-scope guard-orchestrator guard-scope; do
+    if grep -q '_is_session_scratchpad' "$APD_PLUGIN_ROOT/bin/core/$_g" && grep -q 'path-canon.sh' "$APD_PLUGIN_ROOT/bin/core/$_g"; then
+        pass "$_g uses the shared scratchpad rule"; PASSES=$((PASSES + 1))
+    else
+        fail "$_g does not use the shared scratchpad rule from path-canon.sh"; FAILS=$((FAILS + 1))
+    fi
+done
+
+# verify-apd: the memory loop must list every shipped memory template, and the
+# summary denominator must be the loop's count — not a literal.
+G137_VA="$APD_PLUGIN_ROOT/bin/core/verify-apd"
+if grep -qE '^for tmpl in "\$APD_PLUGIN_ROOT/templates/memory"/\*\.md; do' "$G137_VA"; then
+    pass "verify-apd iterates templates/memory itself (a 5th template is checked, never merely counted)"; PASSES=$((PASSES + 1))
+else
+    fail "verify-apd memory loop hard-codes file names instead of iterating templates/memory"; FAILS=$((FAILS + 1))
+fi
+G137_N=$(ls "$APD_PLUGIN_ROOT/templates/memory" | wc -l | tr -d ' ')
+if grep -qE '"Memory files" +"\$SUM_MEMORY/\$SUM_MEMORY_TOTAL"' "$G137_VA" && grep -qE 'SUM_MEMORY_TOTAL=\$\(\(SUM_MEMORY_TOTAL \+ 1\)\)' "$G137_VA"; then
+    pass "verify-apd's memory denominator is counted inside the loop (templates shipped: $G137_N)"; PASSES=$((PASSES + 1))
+else
+    fail "verify-apd's memory denominator is not derived from the loop"; FAILS=$((FAILS + 1))
 fi
 
 section "Summary"

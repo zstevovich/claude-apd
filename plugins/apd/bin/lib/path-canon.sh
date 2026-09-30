@@ -20,8 +20,8 @@
 #   directory is exactly this case). A `..` that survives (it sits in the
 #   non-existent tail) is left in place for the caller's traversal check.
 #   Prints nothing only when <path> is empty.
-_canon_abs() {
-  local p="$1" base="${2:-$PWD}" abs="" anc="" tail=""
+_canon_abs() {  # <path> [<base-dir>] [nofollow]
+  local p="$1" base="${2:-$PWD}" nofollow="${3:-}" abs="" anc="" tail="" t=""
   [ -n "$p" ] || return 0
   case "$p" in
     /*) ;;
@@ -31,6 +31,20 @@ _canon_abs() {
   esac
   if command -v realpath >/dev/null 2>&1; then
     abs=$(realpath "$p" 2>/dev/null || true)
+  fi
+  # v7.1.4 (audit I1/I2): a DANGLING symlink. BSD realpath fails on it and the
+  # fallback below returned the link's own path, so a link in the scratchpad
+  # pointing at an out-of-scope project file read as "scratchpad" on macOS
+  # while GNU realpath resolved it on Linux — canonicalisation differed by
+  # platform. Resolve one level by hand, unless the caller wants the link itself.
+  if [ -z "$abs" ] && [ -z "$nofollow" ] && [ -L "$p" ]; then
+    local hops=0
+    while [ -L "$p" ] && [ "$hops" -lt 40 ]; do   # (audit N3) a CHAIN of links, capped like the kernel
+      t=$(readlink "$p" 2>/dev/null || true); [ -n "$t" ] || break
+      case "$t" in /*) p="$t" ;; *) p="$(dirname "$p")/$t" ;; esac
+      hops=$((hops + 1))
+    done
+    if command -v realpath >/dev/null 2>&1; then abs=$(realpath "$p" 2>/dev/null || true); fi
   fi
   if [ -z "$abs" ]; then
     if [ -d "$p" ]; then
@@ -68,6 +82,37 @@ _proj_canon() {
   [ -z "$c" ] && c="$(cd "$PROJECT_DIR" 2>/dev/null && pwd -P)"
   [ -z "$c" ] && c="$PROJECT_DIR"
   printf '%s\n' "$c"
+}
+
+# _is_session_scratchpad <canonical-path> — 0 when the path is the session
+#   scratchpad Claude Code hands each session (v7.0.5, bash guard; v7.1.4,
+#   shared by guard-bash-scope, guard-scope and guard-orchestrator). The match
+#   is deliberately narrow — under a `claude-<uid>` temp root AND naming a
+#   `scratchpad` segment — so `/tmp/out.txt` and `/tmp/scratchpad/evil.txt`
+#   stay outside it. Both the logical (/tmp) and the macOS physical
+#   (/private/tmp) forms match, because callers pass the CANONICAL path.
+#   v7.1.4 (audit C5/M1): a path that still carries `..` is never the
+#   scratchpad (a non-existent segment keeps `..` in the tail, and
+#   `…/scratchpad/../../..<project>/x.cs` matched the old glob); and the layout
+#   is exact — `claude-<digits>/<project-slug>/<session>/scratchpad` — so
+#   `claude-5evil` and a deeper or shallower nesting do not match.
+_APD_SCRATCHPAD_RE='^(/private)?/tmp/claude-[0-9]+/[^/]+/[^/]+/scratchpad(/.*)?$'
+_is_session_scratchpad() {
+  _has_traversal "$1" && return 1
+  [[ "$1" =~ $_APD_SCRATCHPAD_RE ]] && return 0
+  return 1
+}
+
+# _is_plugin_cache <canonical-path> — 0 when the path is inside a Claude Code
+#   plugin cache (`…/plugins/cache/…`): plugin files are read-only for every
+#   caller. v7.1.4 — judged on the resolved target; the raw-string scan it
+#   replaces refused read-only commands whenever `2>/dev/null`, a quoted `>`
+#   or a quoted `rm ` appeared anywhere before a plugin path.
+_is_plugin_cache() {
+  case "$1" in
+    */plugins/cache/*|*/plugins/cache) return 0 ;;
+  esac
+  return 1
 }
 
 # _has_traversal <path> — 0 when a `..` segment survived canonicalisation.

@@ -9,6 +9,7 @@
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
+source "$(dirname "$0")/../lib/path-canon.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
 
 FILE_PATH=""
@@ -30,6 +31,14 @@ fi
 if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
+
+# v7.1.4: the session scratchpad is sanctioned for the orchestrator too — a
+# helper script there is not production code. The bash guard has allowed it
+# since v7.0.5; this guard judged the extension of whatever was left after
+# stripping the project prefix, so an absolute scratchpad path kept its `.sh`
+# and was refused (reported and reproduced 2026-09-30).
+_ABS_PATH=$(_canon_abs "$FILE_PATH")
+_is_session_scratchpad "$_ABS_PATH" && exit 0
 
 REL_PATH="${FILE_PATH#"$PROJECT_DIR"/}"
 
