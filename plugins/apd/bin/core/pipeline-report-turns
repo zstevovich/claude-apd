@@ -5,9 +5,26 @@
 # CC — see feedback-maxturns-frontmatter-noop). Reads the actual subagent
 # transcripts (`~/.claude/projects/<slug>/*/subagents/agent-<id>.jsonl`), joins
 # them with agent-history.log, and reports per agent_type: dispatches, turn
-# distribution (assistant messages), wall-clock, and effective generation rate
-# (tok/s). tok/s is the honest API/infra-stall discriminator: steady ~50-150
-# tok/s = generation-bound; a sustained low rate = a real API/infra stall.
+# distribution (model responses), wall-clock, generation share of the wall
+# (gen%), generation rate (tok/s) and the share of turns that rate rests on
+# (usg%). tok/s is the API/infra-stall discriminator: steady ~50-150 tok/s =
+# generation-bound; a sustained low rate = a real API/infra stall.
+#
+# v7.1.10 — tok/s = output tokens per second of GENERATION, on the turns whose
+# transcript entry carries the FINAL usage. Two things the transcript does that
+# the old wall-clock reading did not know: (1) CC >= 2.1.24x writes the API's
+# final usage only when a response's last content block lands AFTER it — every
+# other entry of that response (and every entry of most tool_use responses)
+# holds the opening snapshot of 2-8 output tokens (measured 2026-09-30: final
+# usage on 10 % of responses at 2.1.278, 13 % at 2.1.284, 66 % at 2.1.280);
+# summing those snapshots read builders at 1-3 tok/s while the same dispatches
+# read 50-95 on their final-usage turns. (2) The wall of a builder is largely
+# tool execution (builds, tests). A turn's generation time runs from the last
+# `user` entry before it (the prompt or the tool_result that triggered it) to
+# its last block; `attachment` entries are not anchors — at 2.1.284 a
+# deferred_tools_record attachment is stamped at the same instant as the next
+# thinking block. A transcript with no `version` field (unknown writer) counts
+# every turn as final, so older or synthetic transcripts keep reading.
 # An "unpaired" start (start logged, no stop) whose transcript is full is a
 # dropped SubagentStop hook (recover via `apd pipeline reconstruct-agents`),
 # NOT a maxTurn exhaust — there is no maxTurn exhaust for subagents.
@@ -44,7 +61,7 @@ fi
 RA_BASE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$PROJECT_DIR" | sed 's#[^A-Za-z0-9]#-#g')"
 CUTOFF=$(date -v-${DAYS}d +"%Y-%m-%d" 2>/dev/null || date -d "${DAYS} days ago" +"%Y-%m-%d" 2>/dev/null || echo "1970-01-01")
 
-BOX_W=76
+BOX_W=80
 _dashes() { local n=$1 s=""; for ((i=0; i<n; i++)); do s="${s}─"; done; printf '%s' "$s"; }
 
 echo ""
@@ -65,8 +82,11 @@ def epoch(s):
     try: return datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
     except Exception: return None
 
+def iso(s):
+    try: return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception: return None
+
 # 1) dispatches in window from agent-history: id -> (agent, start, stop|None)
-starts = {}     # id -> (agent, start_ts)
 disp = []       # (agent, start, stop_or_None, id)
 open_ids = {}
 for line in open(history, errors="ignore"):
@@ -93,44 +113,75 @@ def transcript(aid):
     if not f: return None
     # v7.1.8: one model response = one turn. A CC transcript writes one entry per
     # CONTENT BLOCK (thinking, text, each tool_use) and every entry repeats the
-    # response's `message.id` and carries a `usage` — measured on 2.1.269–2.1.284
-    # transcripts: 116 entries for 62 responses, usage on all 116, some blocks
-    # holding a partial output_tokens and the last the total. Counting entries
-    # doubled the turns and inflated the tokens; the turn is the message id, its
-    # tokens the largest usage its blocks report. An entry without an id (older
-    # or synthetic transcripts) is a turn of its own.
-    seen = {}; order = 0; ts = []; model = None
+    # response's `message.id` and carries a `usage`. The turn is the message id.
+    # v7.1.10: a response's usage is FINAL only on the entry written after the
+    # API's final usage arrived (stop_reason set, or output_tokens_details /
+    # iterations in the usage); the other entries hold the opening snapshot
+    # (2-8 tokens). tok/s counts final responses only, over their GENERATION
+    # time: from the last `user` entry before the response (prompt / tool_result)
+    # — or the previous response's last block, whichever is later — to the
+    # response's last block. Tool execution sits between a response's last block
+    # and the next `user` entry and is excluded. Without a `version` field the
+    # writer is unknown (older or synthetic transcript): every turn counts.
+    msgs = {}; order = []; ts_all = []; model = None; versioned = False
+    last_user = None; prev_last = None; n = 0
     try:
         for line in open(f, errors="ignore"):
             line = line.strip()
             if not line: continue
             try: d = json.loads(line)
             except Exception: continue
-            if d.get("timestamp"): ts.append(d["timestamp"])
-            if d.get("type") == "assistant":
-                msg = d.get("message") or {}
-                order += 1
-                mid = msg.get("id") or d.get("uuid") or ("entry-%d" % order)
-                tok = (msg.get("usage") or {}).get("output_tokens", 0) or 0
-                if tok > seen.get(mid, 0) or mid not in seen: seen[mid] = max(tok, seen.get(mid, 0))
-                # The SERVED model, which is the only honest per-run record of
-                # what a profile actually bought. `model:` in the agent file is
-                # a request, and a bare alias (`opus`) resolves to whatever the
-                # runtime currently maps it to — measured on this corpus, `opus`
-                # meant claude-opus-4-8 until 2026-07-23 and claude-opus-5 from
-                # 2026-07-25, with no config change and no record anywhere.
-                if msg.get("model"): model = msg["model"]
+            if not isinstance(d, dict): continue
+            t = iso(d["timestamp"]) if d.get("timestamp") else None
+            if t: ts_all.append(t)
+            if d.get("version"): versioned = True
+            typ = d.get("type")
+            if typ == "user":
+                if t: last_user = t
+                continue
+            if typ != "assistant": continue
+            msg = d.get("message") or {}
+            n += 1
+            mid = msg.get("id") or d.get("uuid") or ("entry-%d" % n)
+            usage = msg.get("usage") or {}
+            tok = usage.get("output_tokens", 0) or 0
+            if mid not in msgs:
+                anchor = None
+                if t:
+                    cands = [x for x in (last_user, prev_last) if x is not None and x <= t]
+                    anchor = max(cands) if cands else t
+                msgs[mid] = dict(anchor=anchor, last=t, tok=0, final=False)
+                order.append(mid)
+            m = msgs[mid]
+            if t: m["last"] = t; prev_last = t
+            if tok > m["tok"]: m["tok"] = tok
+            if msg.get("stop_reason") or "output_tokens_details" in usage or "iterations" in usage:
+                m["final"] = True
+            # The SERVED model, which is the only honest per-run record of
+            # what a profile actually bought. `model:` in the agent file is
+            # a request, and a bare alias (`opus`) resolves to whatever the
+            # runtime currently maps it to — measured on this corpus, `opus`
+            # meant claude-opus-4-8 until 2026-07-23 and claude-opus-5 from
+            # 2026-07-25, with no config change and no record anywhere.
+            if msg.get("model"): model = msg["model"]
     except Exception:
         return None
-    turns = len(seen); out_tok = sum(seen.values())
+    turns = len(order)
+    tok_fin = 0; gen_fin = 0.0; gen_all = 0.0; n_fin = 0
+    for mid in order:
+        m = msgs[mid]
+        gen = (m["last"] - m["anchor"]).total_seconds() if (m["last"] and m["anchor"]) else 0.0
+        if gen < 0: gen = 0.0
+        gen_all += gen
+        final = m["final"] or not versioned
+        if final: n_fin += 1
+        if final and gen > 0:
+            tok_fin += m["tok"]; gen_fin += gen
     span = None
-    if len(ts) >= 2:
-        try:
-            a = datetime.fromisoformat(ts[0].replace("Z", "+00:00"))
-            b = datetime.fromisoformat(ts[-1].replace("Z", "+00:00"))
-            span = (b - a).total_seconds()
-        except Exception: pass
-    return dict(turns=turns, out_tok=out_tok, span=span, model=model, size=os.path.getsize(f))
+    if len(ts_all) >= 2:
+        span = (ts_all[-1] - ts_all[0]).total_seconds()
+    return dict(turns=turns, tok_fin=tok_fin, gen_fin=gen_fin, gen_all=gen_all, n_fin=n_fin,
+                span=span, model=model, size=os.path.getsize(f))
 
 agg = {}   # agent -> lists
 dropped = 0
@@ -153,12 +204,14 @@ for ag, st, stop, aid in disp:
         continue
     if stop is None:
         dropped += 1   # unpaired start + full transcript = dropped SubagentStop hook
-    a = agg.setdefault(ag, dict(turns=[], walls=[], tok=0, wallsum=0.0, dropped=0, models={}))
+    a = agg.setdefault(ag, dict(turns=[], walls=[], tok=0, genfin=0.0, genall=0.0, nfin=0, nmsg=0,
+                                wallsum=0.0, dropped=0, models={}))
     if t.get("model"):
         a["models"][t["model"]] = a["models"].get(t["model"], 0) + 1
     a["turns"].append(t["turns"])
     if wall: a["walls"].append(wall); a["wallsum"] += wall
-    a["tok"] += t["out_tok"]
+    a["tok"] += t["tok_fin"]; a["genfin"] += t["gen_fin"]; a["genall"] += t["gen_all"]
+    a["nfin"] += t["n_fin"]; a["nmsg"] += t["turns"]
     if stop is None: a["dropped"] += 1
 
 def med(xs):
@@ -175,9 +228,17 @@ for ag in sorted(agg, key=lambda k: -len(agg[k]["turns"])):
     n = len(a["turns"])
     mt = med(a["turns"])
     mw = med(a["walls"])
-    rate = (a["tok"] / a["wallsum"]) if a["wallsum"] > 0 else 0
-    low = 1 if (rate and rate < 10) else 0   # source of truth on the float, not the rounded display
-    if low: low_rate = True
+    if a["genfin"] > 0:
+        rate = a["tok"] / a["genfin"]; rate_s = f"{rate:.0f}"
+        # source of truth on the float, not the rounded display. A "sustained"
+        # low rate needs more than a couple of turns behind it: below 3
+        # final-usage turns the number is a sample (2 = shown, not a verdict).
+        low = 0 if rate >= 10 else (1 if a["nfin"] >= 3 else 2)
+    else:
+        rate = None; rate_s = "n/a"; low = 0   # no final-usage turn with a measurable generation time
+    if low == 1: low_rate = True
+    genpct = f"{min(100.0, 100.0 * a['genall'] / a['wallsum']):.0f}" if a["wallsum"] > 0 else "-"
+    usgpct = f"{100.0 * a['nfin'] / a['nmsg']:.0f}" if a["nmsg"] > 0 else "-"
     # Dominant served model; `*` marks an agent that ran under more than one
     # in this window — a profile switch, or an alias that moved under you.
     ms = a["models"]
@@ -187,7 +248,7 @@ for ag in sorted(agg, key=lambda k: -len(agg[k]["turns"])):
         if len(ms) > 1: mixed.append(f"{ag}: " + ", ".join(f"{k} x{v}" for k, v in sorted(ms.items(), key=lambda x: -x[1])))
     else:
         model = "unknown"
-    print(f"ROW|{ag}|{model}|{n}|{mt}|{fmt_wall(mw)}|{rate:.0f}|{a['dropped']}|{low}")
+    print(f"ROW|{ag}|{model}|{n}|{mt}|{fmt_wall(mw)}|{genpct}|{rate_s}|{usgpct}|{a['dropped']}|{low}")
 print(f"SUMMARY|{sum(len(a['turns']) for a in agg.values())}|{dropped}|{died}|{no_tx}|{1 if low_rate else 0}")
 for m in mixed:
     print(f"MIXED|{m}")
@@ -195,20 +256,21 @@ PY
 )
 
 # --- Render ---
-printf "  ${B}%-20s %-17s %5s %6s %8s %7s %8s${R}\n" "Agent type" "served model" "disp" "turns" "wall" "tok/s" "dropped"
+printf "  ${B}%-20s %-18s %4s %5s %7s %4s %5s %4s %4s${R}\n" "Agent type" "served model" "disp" "turns" "wall" "gen%" "tok/s" "usg%" "drop"
 echo "  $(_dashes $BOX_W)"
 
-echo "$ROWS" | while IFS='|' read -r tag agent model disp mturns mwall rate dropped low; do
+echo "$ROWS" | while IFS='|' read -r tag agent model disp mturns mwall genpct rate usgpct dropped low; do
     [ "$tag" = "ROW" ] || continue
-    # color the rate using python's float-based low flag (aligns with the
-    # summary verdict; avoids painting rate=0/no-data red or a rounded 10 green)
-    if [ "${low:-0}" = "1" ]; then
-        rate_c="${RED}${B}${rate}${R}"
-    else
-        rate_c="${G}${rate}${R}"
-    fi
-    drop_c="$dropped"; [ "${dropped:-0}" -gt 0 ] 2>/dev/null && drop_c="${Y}${dropped}${R}"
-    printf "  %-20s %-17s %5s %6s %8s %10b %10b\n" "$agent" "$model" "$disp" "$mturns" "$mwall" "$rate_c" "$drop_c"
+    # colour the rate using python's float-based low flag (aligns with the
+    # summary verdict; avoids painting rate=0/no-data red or a rounded 10 green).
+    # Pad BEFORE colouring so the escape codes do not eat the column width.
+    rate_p=$(printf '%5s' "$rate"); drop_p=$(printf '%4s' "$dropped")
+    if [ "${low:-0}" = "1" ]; then rate_c="${RED}${B}${rate_p}${R}"
+    elif [ "${low:-0}" = "2" ]; then rate_c="${Y}${rate_p}${R}"          # < 10 on fewer than 3 final-usage turns: a sample
+    elif [ "$rate" = "n/a" ]; then rate_c="${D}${rate_p}${R}"
+    else rate_c="${G}${rate_p}${R}"; fi
+    drop_c="$drop_p"; [ "${dropped:-0}" -gt 0 ] 2>/dev/null && drop_c="${Y}${drop_p}${R}"
+    printf "  %-20s %-18s %4s %5s %7s %4s %b %4s %b\n" "$agent" "$model" "$disp" "$mturns" "$mwall" "$genpct" "$rate_c" "$usgpct" "$drop_c"
 done
 
 SUMMARY=$(echo "$ROWS" | grep '^SUMMARY|')
@@ -223,11 +285,14 @@ printf "  ${D}%s dispatches | %s dropped-stop (SubagentStop non-delivery, NOT ma
 echo ""
 echo "  ${B}Reading it:${R}"
 echo "  ${D}- turns = model responses (one per message id; a response's content blocks are one turn — agent-frontmatter maxTurns is a no-op)${R}"
-echo "  ${D}- tok/s = generation rate. Steady ~50-150 = generation-bound (normal).${R}"
+echo "  ${D}- tok/s = output tokens per second of GENERATION, tool execution excluded (gen% = the share of the wall the model was generating).${R}"
+echo "  ${D}  Counted on the turns whose transcript entry carries the final usage (usg%); the other entries hold an opening snapshot of 2-8 tokens,${R}"
+echo "  ${D}  which is how builders used to read 1-3 tok/s. n/a = no such turn. Steady ~50-150 = generation-bound (normal).${R}"
+echo "  ${D}- a rate below 10 counts as a stall only on 3+ final-usage turns; on fewer it is shown in yellow as a sample, not a verdict.${R}"
 if [ "${LOW_RATE:-0}" = "1" ]; then
-    echo "  ${RED}${MARK_FIX} An agent shows tok/s < 10 — sustained low rate = possible API/infra stall.${R}"
+    echo "  ${RED}${MARK_FIX} An agent shows tok/s < 10 across 3+ final-usage turns — sustained low rate = possible API/infra stall.${R}"
 else
-    echo "  ${G}${MARK_PASS} No agent below 10 tok/s — no API/infra stall; duration is generation volume.${R}"
+    echo "  ${G}${MARK_PASS} No agent below 10 tok/s — no API/infra stall; duration is generation volume plus tool time (see gen%).${R}"
 fi
 if [ "${TOT_DROP:-0}" -gt 0 ] 2>/dev/null; then
     echo "  ${Y}${MARK_SKIP} ${TOT_DROP} dropped-stop dispatch(es): full transcript, no stop event.${R}"

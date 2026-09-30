@@ -10857,7 +10857,7 @@ cat > "$TR_SUB/agent-blk111222333.jsonl" <<EOF
 {"type":"assistant","uuid":"u6","timestamp":"${TR_DAY}T12:00:40.000Z","message":{"id":"msg_B","role":"assistant","model":"claude-sonnet-5","usage":{"output_tokens":1000}}}
 EOF
 TR_OUT=$(APD_PROJECT_DIR="$TR_SCRATCH" CLAUDE_CONFIG_DIR="$TR_CFG" bash "$TR_SCRIPT" --days 3 2>&1)
-TR_BLK=$(echo "$TR_OUT" | sed 's/\x1b\[[0-9;]*m//g' | grep '^  blockbuilder' | awk '{print $3"|"$4"|"$6}')
+TR_BLK=$(echo "$TR_OUT" | sed 's/\x1b\[[0-9;]*m//g' | grep '^  blockbuilder' | awk '{print $3"|"$4"|"$7}')   # v7.1.10: tok/s is column 7 (gen% before it)
 if [ "$TR_BLK" = "1|2|50" ]; then
     pass "report turns counts model RESPONSES (message ids), not content-block entries: 1 dispatch, 2 turns, 50 tok/s (v7.1.8)"; PASSES=$((PASSES + 1))
 else
@@ -10952,6 +10952,78 @@ if echo "$TR_OUT" | grep -q "more than one model" \
 else
     fail "pipeline-report-turns missed the mixed-model case: $TR_OUT"; FAILS=$((FAILS + 1))
 fi
+# --- v7.1.10: tok/s = final-usage turns over GENERATION time -------------------
+# Measured 2026-09-30 on Bambi + StartLife transcripts: CC >= 2.1.24x writes the
+# API's final usage only when a response's last block is written AFTER it — the
+# other entries hold the opening snapshot (2-8 tokens): final usage on 10 % of
+# responses at 2.1.278, 13 % at 2.1.284, 66 % at 2.1.280. Summing snapshots read
+# builders at 1-3 tok/s (v7.1.8's "observation" blamed tool time — wrong: gen was
+# 85-99 % of the wall on those runs). And at 2.1.284 a deferred_tools_record
+# `attachment` is stamped at the same instant as the next thinking block, so the
+# entry BEFORE a response is not its start — the last `user` entry is.
+# genbuilder: prompt 14:00:00; msg_P thinking (snapshot 3) + tool_use 14:00:10
+# (final 900); tool runs 200 s; msg_Q tool_use 14:03:35 (snapshot 4, never
+# finalised); tool 5 s; an attachment stamped WITH msg_R's block; msg_R text
+# 14:03:50 (final 600, end_turn). Wall 230 s. Old reading: 1504 tokens / 230 s =
+# 6.5 tok/s -> a false stall verdict. Right reading: final 1500 tokens over 20 s
+# of generation = 75 tok/s, usg% 67, gen% 11 (25 s of 230).
+cat >> "$TR_SCRATCH/.apd/memory/agent-history.log" <<EOF
+$TR_DAY 14:00:00|start|genbuilder|gen444555666
+$TR_DAY 14:03:50|stop|genbuilder|gen444555666
+$TR_DAY 15:00:00|start|snapbuilder|snap77788899
+$TR_DAY 15:00:05|stop|snapbuilder|snap77788899
+$TR_DAY 16:00:00|start|samplebuilder|smp11122233
+$TR_DAY 16:00:20|stop|samplebuilder|smp11122233
+EOF
+# samplebuilder: ONE final-usage turn at 5 tok/s (100 tokens over 20 s) — a sample, not a sustained rate
+cat > "$TR_SUB/agent-smp11122233.jsonl" <<EOF
+{"type":"user","version":"2.1.284","timestamp":"${TR_DAY}T16:00:00.000Z","message":{"role":"user","content":"do it"}}
+{"type":"assistant","version":"2.1.284","uuid":"m1","timestamp":"${TR_DAY}T16:00:20.000Z","message":{"id":"msg_T","role":"assistant","model":"claude-sonnet-5-5","stop_reason":"end_turn","content":[{"type":"text","text":"done"}],"usage":{"output_tokens":100,"output_tokens_details":{"thinking_tokens":0}}}}
+EOF
+cat > "$TR_SUB/agent-gen444555666.jsonl" <<EOF
+{"type":"user","version":"2.1.284","timestamp":"${TR_DAY}T14:00:00.000Z","message":{"role":"user","content":"do it"}}
+{"type":"assistant","version":"2.1.284","uuid":"g1","timestamp":"${TR_DAY}T14:00:05.000Z","message":{"id":"msg_P","role":"assistant","model":"claude-sonnet-5-5","stop_reason":null,"content":[{"type":"thinking","thinking":""}],"usage":{"output_tokens":3}}}
+{"type":"assistant","version":"2.1.284","uuid":"g2","timestamp":"${TR_DAY}T14:00:10.000Z","message":{"id":"msg_P","role":"assistant","model":"claude-sonnet-5-5","stop_reason":"tool_use","content":[{"type":"tool_use","name":"Bash","input":{"command":"dotnet test"}}],"usage":{"output_tokens":900,"output_tokens_details":{"thinking_tokens":500}}}}
+{"type":"user","version":"2.1.284","timestamp":"${TR_DAY}T14:03:30.000Z","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}
+{"type":"assistant","version":"2.1.284","uuid":"g3","timestamp":"${TR_DAY}T14:03:35.000Z","message":{"id":"msg_Q","role":"assistant","model":"claude-sonnet-5-5","stop_reason":null,"content":[{"type":"tool_use","name":"Read","input":{"file_path":"x"}}],"usage":{"output_tokens":4}}}
+{"type":"user","version":"2.1.284","timestamp":"${TR_DAY}T14:03:40.000Z","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}
+{"type":"attachment","version":"2.1.284","timestamp":"${TR_DAY}T14:03:50.000Z","attachment":{"type":"deferred_tools_record"}}
+{"type":"assistant","version":"2.1.284","uuid":"g4","timestamp":"${TR_DAY}T14:03:50.000Z","message":{"id":"msg_R","role":"assistant","model":"claude-sonnet-5-5","stop_reason":"end_turn","content":[{"type":"text","text":"done"}],"usage":{"output_tokens":600,"output_tokens_details":{"thinking_tokens":0}}}}
+EOF
+# snapbuilder: a versioned transcript whose only response never got its final usage
+cat > "$TR_SUB/agent-snap77788899.jsonl" <<EOF
+{"type":"user","version":"2.1.284","timestamp":"${TR_DAY}T15:00:00.000Z","message":{"role":"user","content":"do it"}}
+{"type":"assistant","version":"2.1.284","uuid":"s1","timestamp":"${TR_DAY}T15:00:05.000Z","message":{"id":"msg_S","role":"assistant","model":"claude-sonnet-5-5","stop_reason":null,"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}],"usage":{"output_tokens":3}}}
+EOF
+TR_OUT2=$(APD_PROJECT_DIR="$TR_SCRATCH" CLAUDE_CONFIG_DIR="$TR_CFG" bash "$TR_SCRIPT" --days 3 2>&1)
+TR_CLEAN=$(echo "$TR_OUT2" | sed 's/\x1b\[[0-9;]*m//g')
+_g96() { echo "$TR_CLEAN" | grep "^  $1 " | awk -v c="$2" '{print $c}'; }   # <agent> <column>
+# columns: 1 agent 2 model 3 disp 4 turns 5 wall 6 gen% 7 tok/s 8 usg% 9 drop
+_c96() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1 [genbuilder row: $(echo "$TR_CLEAN" | grep '^  genbuilder ' | sed 's/  */ /g')]"; FAILS=$((FAILS + 1)); fi; }
+_c96 "tok/s = final-usage tokens over GENERATION time: genbuilder reads 75 (wall-clock over all snapshots read 6)" '[ "$(_g96 genbuilder 7)" = 75 ] && [ "$(_g96 genbuilder 4)" = 3 ]'
+_c96 "usg% = share of turns with a final usage (67) and gen% = share of the wall spent generating (11)" '[ "$(_g96 genbuilder 8)" = 67 ] && [ "$(_g96 genbuilder 6)" = 11 ]'
+_c96 "a tool-heavy dispatch no longer trips the stall verdict (6 tok/s on the wall was a false stall)" 'echo "$TR_CLEAN" | grep -q "no API/infra stall" && ! echo "$TR_CLEAN" | grep -q "possible API/infra stall"'
+_c96 "a versioned transcript with no final-usage turn reads tok/s n/a, is not a stall, and the run does not crash" '[ "$(_g96 snapbuilder 7)" = n/a ] && [ "$(_g96 snapbuilder 4)" = 1 ] && echo "$TR_CLEAN" | grep -q "no API/infra stall"'
+_c96 "the header carries the gen% and usg% columns" 'echo "$TR_CLEAN" | grep -qE "^  Agent type .* gen% +tok/s +usg% +drop"'
+_c96 "the legend states the rule: generation time, tool execution excluded, final-usage turns, n/a" 'echo "$TR_CLEAN" | grep -q "tool execution excluded" && echo "$TR_CLEAN" | grep -q "final usage" && echo "$TR_CLEAN" | grep -q "n/a = no such turn"'
+_c96 "legacy fixtures (no version field) still read as before: blockbuilder 1 dispatch / 2 turns / 50 tok/s, usg% 100" '[ "$(_g96 blockbuilder 3)|$(_g96 blockbuilder 4)|$(_g96 blockbuilder 7)|$(_g96 blockbuilder 8)" = "1|2|50|100" ]'
+_c96 "a rate below 10 on ONE final-usage turn is shown (5) but is not a stall verdict (sample rule: 3+ turns)" '[ "$(_g96 samplebuilder 7)" = 5 ] && echo "$TR_CLEAN" | grep -q "no API/infra stall" && echo "$TR_CLEAN" | grep -q "counts as a stall only on 3+ final-usage turns"'
+# stallbuilder: THREE final-usage turns at 5 tok/s each — sustained → the verdict flips to a possible stall
+cat >> "$TR_SCRATCH/.apd/memory/agent-history.log" <<EOF
+$TR_DAY 17:00:00|start|stallbuilder|stl99988877
+$TR_DAY 17:01:02|stop|stallbuilder|stl99988877
+EOF
+cat > "$TR_SUB/agent-stl99988877.jsonl" <<EOF
+{"type":"user","version":"2.1.284","timestamp":"${TR_DAY}T17:00:00.000Z","message":{"role":"user","content":"do it"}}
+{"type":"assistant","version":"2.1.284","uuid":"t1","timestamp":"${TR_DAY}T17:00:20.000Z","message":{"id":"msg_U","role":"assistant","model":"claude-sonnet-5-5","stop_reason":"tool_use","content":[{"type":"tool_use","name":"Read","input":{"file_path":"a"}}],"usage":{"output_tokens":100,"output_tokens_details":{"thinking_tokens":0}}}}
+{"type":"user","version":"2.1.284","timestamp":"${TR_DAY}T17:00:21.000Z","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}
+{"type":"assistant","version":"2.1.284","uuid":"t2","timestamp":"${TR_DAY}T17:00:41.000Z","message":{"id":"msg_V","role":"assistant","model":"claude-sonnet-5-5","stop_reason":"tool_use","content":[{"type":"tool_use","name":"Read","input":{"file_path":"b"}}],"usage":{"output_tokens":100,"output_tokens_details":{"thinking_tokens":0}}}}
+{"type":"user","version":"2.1.284","timestamp":"${TR_DAY}T17:00:42.000Z","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}
+{"type":"assistant","version":"2.1.284","uuid":"t3","timestamp":"${TR_DAY}T17:01:02.000Z","message":{"id":"msg_W","role":"assistant","model":"claude-sonnet-5-5","stop_reason":"end_turn","content":[{"type":"text","text":"done"}],"usage":{"output_tokens":100,"output_tokens_details":{"thinking_tokens":0}}}}
+EOF
+TR_OUT3=$(APD_PROJECT_DIR="$TR_SCRATCH" CLAUDE_CONFIG_DIR="$TR_CFG" bash "$TR_SCRIPT" --days 3 2>&1)
+TR_CLEAN=$(echo "$TR_OUT3" | sed 's/\x1b\[[0-9;]*m//g')
+_c96 "three final-usage turns at 5 tok/s (300 tokens / 60 s of generation) = sustained → the stall verdict fires" '[ "$(_g96 stallbuilder 7)" = 5 ] && [ "$(_g96 stallbuilder 8)" = 100 ] && echo "$TR_CLEAN" | grep -q "possible API/infra stall" && ! echo "$TR_CLEAN" | grep -q "no API/infra stall"'
 rm -rf "$TR_SCRATCH" "$TR_CFG"
 
 # -----------------------------------------------------------
