@@ -8,7 +8,7 @@
 #
 # Supports: TypeScript (interface/type) and C# (class/record DTO).
 # NOT supported (require manual cross-layer review): PHP, Python, Java, Go,
-#              Ruby, Kotlin, Rust. For these stacks, see workflow.md sekcija 7
+#              Ruby, Kotlin, Rust. For these stacks, see workflow.md section 7 (Cross-layer verification)
 #              (cross-layer type mapping) — automatic verification does not
 #              exist.
 # Limitations: Regex-based, not a full parser. Covers ~80% of cases for
@@ -293,7 +293,7 @@ if [ "${1:-}" = "--changed" ]; then
             echo ""
             echo "  ${YELLOW}Contract verifier supports TypeScript ↔ C# only.${NC}"
             echo "  PHP/Python/Java/Go/Ruby/Kotlin/Rust require manual cross-layer review."
-            echo "  See workflow.md sekcija 7 (cross-layer type mapping) for the table."
+            echo "  See workflow.md section 7 (Cross-layer verification) for the manual rules."
             exit 0
         fi
         echo "Changes do not affect types at layer boundaries."
@@ -304,7 +304,7 @@ if [ "${1:-}" = "--changed" ]; then
     echo "  bash $APD_SHORTCUT_DISPLAY verify-contracts <backend_types_dir> <frontend_types_dir>"
     echo ""
     echo "  ${YELLOW}NOTE:${NC} verifier supports TypeScript ↔ C# only. For other backends,"
-    echo "  this command will error — see workflow.md sekcija 7 for manual review process."
+    echo "  this command will error — see workflow.md section 7 (Cross-layer verification) for the manual review process."
     exit 0
 fi
 
@@ -365,7 +365,7 @@ else
     _lang_summary "$BACKEND_DIR" >&2
     echo "" >&2
     echo "  PHP/Python/Java/Go/Ruby/Kotlin/Rust are not yet supported. For these stacks," >&2
-    echo "  see workflow.md sekcija 7 (cross-layer type mapping) — manual review process." >&2
+    echo "  see workflow.md section 7 (Cross-layer verification) — manual review process." >&2
     exit 1
 fi
 
@@ -378,7 +378,7 @@ else
     _lang_summary "$FRONTEND_DIR" >&2
     echo "" >&2
     echo "  PHP/Python/Java/Go/Ruby/Kotlin/Rust are not yet supported. For these stacks," >&2
-    echo "  see workflow.md sekcija 7 (cross-layer type mapping) — manual review process." >&2
+    echo "  see workflow.md section 7 (Cross-layer verification) — manual review process." >&2
     exit 1
 fi
 

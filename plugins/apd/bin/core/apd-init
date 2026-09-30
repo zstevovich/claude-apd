@@ -55,6 +55,7 @@ fi
 
 # --- Visual helpers ---
 source "$(dirname "$0")/../lib/style.sh"
+source "$(dirname "$0")/../lib/workflow-markers.sh"
 
 FIXES=0
 SKIPS=0
@@ -116,9 +117,10 @@ EOF
     echo "$APD_VER" > "$CLAUDE_DIR/.apd-version"
     fix "Created .apd-version"
 
-    # Copy workflow.md
+    # Copy workflow.md — and record the shipped copy it came from (v7.1.6 merge base; audit F5: NEW mode skipped it)
     if [ -f "$APD_PLUGIN_ROOT/rules/workflow.md" ]; then
         cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$CLAUDE_DIR/rules/workflow.md"
+        mkdir -p "$PROJECT_DIR/.apd" 2>/dev/null && cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$PROJECT_DIR/.apd/.workflow.md.shipped" 2>/dev/null || true
         fix "Copied workflow.md"
     fi
 
@@ -620,48 +622,187 @@ PYCHARTER
     rm -f "$CLAUDE_DIR/agents"/*.bak 2>/dev/null || true
 
     # --- workflow.md ---
-    if [ -f "$CLAUDE_DIR/rules/workflow.md" ]; then
-        # Check for outdated references (paths) AND stale content markers.
-        # v6.16.1: path check alone left content-stale copies in place forever —
-        # audit-drift dimension C flagged them but the documented recovery
-        # (re-run init/setup) never refreshed. Marker list kept in sync with
-        # pipeline-audit-drift MARKERS.
-        WF_STALE_REASON=""
-        if grep -q 'CLAUDE_PLUGIN_ROOT' "$CLAUDE_DIR/rules/workflow.md" 2>/dev/null || grep -qF '.claude/.pipeline' "$CLAUDE_DIR/rules/workflow.md" 2>/dev/null; then
-            WF_STALE_REASON="stale paths"
-        else
-            for wf_marker in "Implements:" "rationale gate" "DEPRECATED" "unconditional" "apd-pipeline-guide" "SUPERVISION"; do
-                if grep -q "$wf_marker" "$APD_PLUGIN_ROOT/rules/workflow.md" 2>/dev/null \
-                   && ! grep -q "$wf_marker" "$CLAUDE_DIR/rules/workflow.md" 2>/dev/null; then
-                    WF_STALE_REASON="missing '$wf_marker' guidance"
-                    break
+    # v7.1.6: the project's copy descends from a SHIPPED copy that init records
+    # in .apd/.workflow.md.shipped. Whenever the framework's file changes (any
+    # bump that edits rules/workflow.md — v7.1.3 did, and every project drifted
+    # with no marker to fire on) init merges the change into the project's copy
+    # with `git merge-file` (base = the record, ours = the project's copy,
+    # theirs = the new shipped file): local edits survive, a clean merge is
+    # applied and backed up, a conflict leaves the copy untouched and says so.
+    # The marker sweep runs first, in every state (list shared with
+    # pipeline-audit-drift via lib/workflow-markers.sh). Before v7.1.6 a byte difference was reported by
+    # `apd audit-drift` only — which nothing runs at session start — and init
+    # printed "ok"; the v7.0.3 rationale (a per-stack table apd-setup asks the
+    # orchestrator to write into section 7) described an instruction that the
+    # skill never gave. Local edits are still honoured: by the merge, not by
+    # leaving the file behind.
+    WF_SHIPPED="$APD_PLUGIN_ROOT/rules/workflow.md"
+    WF_PROJECT="$CLAUDE_DIR/rules/workflow.md"
+    WF_RECORD="$PROJECT_DIR/.apd/.workflow.md.shipped"
+    WF_LOCK="$PROJECT_DIR/.apd/.workflow-merge.lock"
+    WF_HANDMERGE="git merge-file -p .claude/rules/workflow.md .apd/.workflow.md.shipped '$WF_SHIPPED' > /tmp/workflow.merged (edit the <<<<<<< markers there), cp /tmp/workflow.merged .claude/rules/workflow.md, then cp '$WF_SHIPPED' .apd/.workflow.md.shipped"
+    # (audit F9/F12) one reading of the record for both scripts: a regular, non-empty
+    # file is a record; missing or empty is "none"; a directory in its place is a
+    # broken record that must be removed by hand (never written into, never cmp-ed).
+    WF_REC=none
+    if [ -d "$WF_RECORD" ]; then WF_REC=dir; elif [ -f "$WF_RECORD" ] && [ -s "$WF_RECORD" ]; then WF_REC=ok; fi
+    WF_NOREC=false   # set when nothing under .apd/ can be written: the sweep still runs, the record does not
+    _wf_record() { [ "$WF_REC" = dir ] && return 1; [ "$WF_NOREC" = true ] && return 1; cp "$WF_SHIPPED" "$WF_RECORD" 2>/dev/null; }
+    # (audit F1 residual) the pre-audit backup slot was first-wins: a second refresh
+    # lost the edits made after the first. Never skip a backup — number the next one.
+    _wf_backup() {  # → WF_BAKNAME
+        local b="$WF_PROJECT.bak.preaudit"; [ -e "$b" ] && b="$b.$(date +%s).$$"   # epoch + pid: two refreshes in one second cannot collide
+        cp "$WF_PROJECT" "$b" 2>/dev/null && WF_BAKNAME=$(basename "$b")
+    }
+    # (audit F6/F7) a `fix` line was printed whether the copies succeeded or not — a
+    # read-only record meant "merged" every hour with nothing merged, and "backup:"
+    # named a file `cp` had refused to write. Nothing is applied without its backup,
+    # and every write is checked; a failure is a `warn` that names the file.
+    _wf_copy_writable() { [ -w "$WF_PROJECT" ] && [ -w "$(dirname "$WF_PROJECT")" ]; }
+    _wf_writable() {  # the copy, its directory (backups) AND the record — the merge path needs all three
+        _wf_copy_writable || return 1
+        [ "$WF_NOREC" = true ] && return 1
+        if [ "$WF_REC" = ok ]; then [ -w "$WF_RECORD" ]; else [ "$WF_REC" != dir ] && [ -w "$PROJECT_DIR/.apd" ]; fi
+    }
+    if [ -f "$WF_PROJECT" ] && [ -f "$WF_SHIPPED" ]; then
+        mkdir -p "$PROJECT_DIR/.apd" 2>/dev/null || true
+        [ "$WF_REC" = dir ] && warn "workflow.md: .apd/.workflow.md.shipped is a DIRECTORY — remove it (rmdir .apd/.workflow.md.shipped) so init can record the shipped copy; merges are off until then"
+        # (audit F4) two session starts at once ran this block concurrently: the
+        # slower one merged against a copy the faster one had already replaced
+        # and wrote the OLD result over the new — the framework change vanished
+        # while the record claimed it was applied. One holder at a time; a lock
+        # older than two minutes is a dead run (SIGKILL leaves it) and is reclaimed
+        # — whether it is a directory or (audit F11) a stray file. In practice a
+        # skipped run is retried when the hourly init cache expires (audit F13).
+        # (audit F11, pass 3) test the link itself: a symlink lock followed by -d could never be rmdir-ed, a dangling one was invisible to -e
+        WF_LOCK_STALE=false
+        if { [ -e "$WF_LOCK" ] || [ -L "$WF_LOCK" ]; } && [ -n "$(find "$WF_LOCK" -maxdepth 0 -mmin +2 2>/dev/null)" ]; then
+            WF_LOCK_STALE=true
+            if [ -L "$WF_LOCK" ] || [ ! -d "$WF_LOCK" ]; then rm -f "$WF_LOCK" 2>/dev/null || true; else rmdir "$WF_LOCK" 2>/dev/null || true; fi
+        fi
+        WF_HELD=false
+        if ! mkdir "$WF_LOCK" 2>/dev/null; then
+            if [ -e "$WF_LOCK" ] || [ -L "$WF_LOCK" ]; then
+                if [ "$WF_LOCK_STALE" = true ]; then
+                    # stale, and it could not be removed: .apd/ is not writable → the same path as an uncreatable lock
+                    WF_NOREC=true
+                    warn "workflow.md: a stale merge lock $WF_LOCK could not be removed (.apd/ not writable?) — the shipped-copy record and merges are off until that is fixed; stale-copy refresh still runs"
+                else
+                    WF_HELD=true
+                    ok "workflow.md (another init holds the merge lock $WF_LOCK — left for that run; a lock older than 2 min is reclaimed)"
                 fi
-            done
+            else
+                # (audit F10) the lock could not be created because .apd/ itself is not
+                # writable (or is a file): HEAD needed no .apd/ to refresh a stale copy,
+                # so the sweep still runs — without a record, and saying why.
+                WF_NOREC=true
+                warn "workflow.md: cannot write under .apd/ ($PROJECT_DIR/.apd not writable, or not a directory) — the shipped-copy record and merges are off until that is fixed; stale-copy refresh still runs"
+            fi
         fi
-        # v7.0.3 deliberately does NOT auto-refresh on a plain byte difference.
-        # It is real drift and `apd audit-drift` now reports it (dimension C),
-        # but a project's workflow.md legitimately differs: apd-setup itself
-        # instructs the orchestrator to write a per-stack table into section 7
-        # for languages verify-contracts does not support. Overwriting that
-        # unattended on every session-start would delete user-authored content
-        # this framework asked for — with one first-wins backup slot, so the
-        # SECOND edit would go unbacked, and silently under Codex, whose
-        # session-start runs init with output discarded. Same rule as models:
-        # init reports, /apd-setup step 5c reconciles BY ASKING.
-        if [ -n "$WF_STALE_REASON" ]; then
-            [ -f "$CLAUDE_DIR/rules/workflow.md.bak.preaudit" ] || cp "$CLAUDE_DIR/rules/workflow.md" "$CLAUDE_DIR/rules/workflow.md.bak.preaudit"
-            cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$CLAUDE_DIR/rules/workflow.md"
-            fix "workflow.md: refreshed ($WF_STALE_REASON; backup: workflow.md.bak.preaudit)"
-            FIXES=$((FIXES + 1))
-        else
-            ok "workflow.md"
+        if [ "$WF_HELD" = false ]; then
+            WF_DONE=false
+            # 1. (audit F1) a damaged or stale copy is refreshed in EVERY state, exactly
+            # as before v7.1.6 — empty file, stale guard paths, a missing guidance
+            # marker. The record is the merge base, not a licence to keep a broken
+            # copy: with the sweep gated on "no record", an emptied copy stayed empty
+            # and a deleted section rode through the merge as a "local edit".
+            WF_STALE_REASON=""
+            if [ ! -s "$WF_PROJECT" ]; then
+                WF_STALE_REASON="empty file"
+            elif grep -q 'CLAUDE_PLUGIN_ROOT' "$WF_PROJECT" 2>/dev/null || grep -qF '.claude/.pipeline' "$WF_PROJECT" 2>/dev/null; then
+                WF_STALE_REASON="stale paths"
+            else
+                for wf_marker in ${WORKFLOW_MARKERS[@]+"${WORKFLOW_MARKERS[@]}"}; do
+                    if grep -q "$wf_marker" "$WF_SHIPPED" 2>/dev/null \
+                       && ! grep -q "$wf_marker" "$WF_PROJECT" 2>/dev/null; then
+                        WF_STALE_REASON="missing '$wf_marker' guidance"
+                        break
+                    fi
+                done
+            fi
+            if [ -n "$WF_STALE_REASON" ]; then
+                WF_BAKNAME=""
+                if ! _wf_copy_writable; then
+                    warn "workflow.md: $WF_STALE_REASON, but .claude/rules/workflow.md or its directory is not writable — nothing changed"
+                elif _wf_backup && cp "$WF_SHIPPED" "$WF_PROJECT" 2>/dev/null; then
+                    fix "workflow.md: refreshed ($WF_STALE_REASON; backup: $WF_BAKNAME)"
+                    FIXES=$((FIXES + 1))
+                    if ! _wf_record && [ "$WF_NOREC" = false ] && [ "$WF_REC" != dir ]; then
+                        warn "workflow.md: the shipped-copy record .apd/.workflow.md.shipped could not be written — check permissions on .apd/"
+                    fi
+                else
+                    warn "workflow.md: $WF_STALE_REASON, but the backup or the copy could not be written${WF_BAKNAME:+ (backup made: $WF_BAKNAME)} — check permissions; it will be retried"
+                fi
+                WF_DONE=true
+            fi
+            # 2. the record: merge the framework's changes forward
+            if [ "$WF_DONE" = true ] || [ "$WF_REC" = dir ] || [ "$WF_NOREC" = true ]; then
+                :
+            elif [ "$WF_REC" = ok ] && ! cmp -s "$WF_RECORD" "$WF_SHIPPED"; then
+                # the framework's file changed since this project last took it
+                if ! _wf_writable; then
+                    warn "workflow.md: the framework's text changed, but .claude/rules/workflow.md, its directory or .apd/.workflow.md.shipped is not writable — nothing changed"
+                elif cmp -s "$WF_PROJECT" "$WF_RECORD"; then
+                    # no local edits: a plain refresh; the record IS the backup
+                    if cp "$WF_SHIPPED" "$WF_PROJECT" 2>/dev/null && _wf_record; then
+                        fix "workflow.md: refreshed from the shipped copy (framework text changed; no local edits)"
+                        FIXES=$((FIXES + 1))
+                    else
+                        warn "workflow.md: refresh from the shipped copy FAILED (copy or .apd/.workflow.md.shipped not written) — check permissions; it will be retried"
+                    fi
+                elif command -v git >/dev/null 2>&1; then
+                    WF_MERGED=$(mktemp -t apd-wfmerge.XXXXXX 2>/dev/null || echo "")
+                    if [ -z "$WF_MERGED" ] || ! cp "$WF_PROJECT" "$WF_MERGED" 2>/dev/null; then
+                        # (audit F8) not a conflict: no temp file
+                        warn "workflow.md: the framework's text changed but no temp file could be created for the merge (TMPDIR?) — copy left untouched"
+                    else
+                        WF_MRC=0
+                        git merge-file -L "project copy" -L "shipped when recorded" -L "shipped now" "$WF_MERGED" "$WF_RECORD" "$WF_SHIPPED" >/dev/null 2>&1 || WF_MRC=$?
+                        if [ "$WF_MRC" -eq 0 ]; then
+                            WF_BAK="$WF_PROJECT.bak.pre-v$APD_VER"
+                            if ! { [ -f "$WF_BAK" ] || cp "$WF_PROJECT" "$WF_BAK" 2>/dev/null; }; then
+                                warn "workflow.md: could not write the backup $(basename "$WF_BAK") — merge NOT applied (never without a backup)"
+                            elif ! cp "$WF_MERGED" "$WF_PROJECT" 2>/dev/null; then
+                                warn "workflow.md: could not write .claude/rules/workflow.md — merge NOT applied (backup kept)"
+                            elif ! _wf_record; then
+                                warn "workflow.md: merged, but .apd/.workflow.md.shipped could not be updated — it will be merged again until that file is writable"
+                            else
+                                fix "workflow.md: merged the framework's changes, local edits kept (backup: $(basename "$WF_BAK"))"
+                                FIXES=$((FIXES + 1))
+                            fi
+                        elif [ "$WF_MRC" -lt 128 ]; then
+                            # (audit F8) git merge-file returns the NUMBER of conflicts (1..127); anything higher is an error
+                            # (audit F3 residual) the hand command uses -p into a temp file — an in-place merge-file writes the markers into the LIVE rules file CC loads
+                            warn "workflow.md: the framework's changes CONFLICT with local edits ($WF_MRC hunk(s)) — copy left untouched. Resolve by hand: $WF_HANDMERGE; or take the shipped file: cp '$WF_SHIPPED' .claude/rules/workflow.md (back it up first). /apd-setup step 5c walks through it"
+                        else
+                            warn "workflow.md: git merge-file failed (exit $WF_MRC) — copy left untouched; by hand: $WF_HANDMERGE"
+                        fi
+                    fi
+                    [ -n "$WF_MERGED" ] && rm -f "$WF_MERGED"
+                else
+                    warn "workflow.md: the framework's text changed and git is not available to merge it — see /apd-setup step 5c"
+                fi
+            elif [ "$WF_REC" = ok ]; then
+                ok "workflow.md"   # framework unchanged since recorded; local edits, if any, are the project's (audit-drift reports them)
+            elif cmp -s "$WF_PROJECT" "$WF_SHIPPED"; then
+                if _wf_record; then ok "workflow.md (shipped-copy record started: .apd/.workflow.md.shipped)"
+                else warn "workflow.md: could not write the shipped-copy record .apd/.workflow.md.shipped (permissions?)"; fi
+            else
+                # No record (set up before v7.1.6) and a copy that differs: REPORTED
+                # here — init runs at session start, audit-drift does not — with the
+                # two honest recoveries; the record starts once one of them is done.
+                WF_DELTA=$(diff "$WF_SHIPPED" "$WF_PROJECT" 2>/dev/null | grep -c '^[<>]') || true
+                warn "workflow.md: differs from the shipped copy (${WF_DELTA:-?} line(s)) and there is no shipped-copy record to merge from. LOCAL EDITS to keep: cp '$WF_SHIPPED' .apd/.workflow.md.shipped (they become local, merged forward from now on — anything the framework changed before today stays unmerged and audit-drift keeps reporting the difference). An OLDER framework text: cp '$WF_SHIPPED' .claude/rules/workflow.md (back it up first). /apd-setup step 5c asks which"
+            fi
+            [ -d "$WF_LOCK" ] && { rmdir "$WF_LOCK" 2>/dev/null || true; }
         fi
-    else
-        if [ -f "$APD_PLUGIN_ROOT/rules/workflow.md" ]; then
-            mkdir -p "$CLAUDE_DIR/rules"
-            cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$CLAUDE_DIR/rules/workflow.md"
+    elif [ -f "$WF_SHIPPED" ]; then
+        mkdir -p "$CLAUDE_DIR/rules" "$PROJECT_DIR/.apd"
+        if cp "$WF_SHIPPED" "$WF_PROJECT" 2>/dev/null && _wf_record; then
             fix "Copied workflow.md"
             FIXES=$((FIXES + 1))
+        else
+            warn "workflow.md: could not copy the shipped file or write .apd/.workflow.md.shipped — check permissions"
         fi
     fi
 

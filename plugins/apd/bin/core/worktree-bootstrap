@@ -38,6 +38,25 @@ MAIN_ROOT=$(dirname "$_gcd")
 [ "$MAIN_ROOT" = "$WT_ROOT" ] && exit 0            # (3) safety: never self
 [ -d "$MAIN_ROOT" ] || exit 0
 
+# v7.1.6: the shipped-copy record of workflow.md (.apd/.workflow.md.shipped) is
+# config, not pipeline state — without it every session start in the worktree
+# warns "no shipped-copy record". Placed BEFORE the idempotent exit (audit F14:
+# with .claude/.apd-config tracked — the default — the worktree already has its
+# config and a copy placed below never ran). Copied only when the worktree's
+# workflow.md descends from the same shipped file as main's: it does not exist
+# yet (main's rules are copied below — same origin) or it is byte-identical to
+# main's (audit F15: a worktree branched at an OLDER workflow.md would otherwise
+# merge against a base newer than its copy and keep retracted sections as
+# "local edits"; the pre-record warning is the honest state there).
+if [ -f "$MAIN_ROOT/.apd/.workflow.md.shipped" ] && [ ! -e "$WT_ROOT/.apd/.workflow.md.shipped" ]; then
+    # (audit pass 4, SO2) a worktree copy equal to main's RECORD is the same origin too — main's copy may carry uncommitted local edits
+    if [ ! -e "$WT_ROOT/.claude/rules/workflow.md" ] || cmp -s "$WT_ROOT/.claude/rules/workflow.md" "$MAIN_ROOT/.claude/rules/workflow.md" \
+       || cmp -s "$WT_ROOT/.claude/rules/workflow.md" "$MAIN_ROOT/.apd/.workflow.md.shipped"; then
+        mkdir -p "$WT_ROOT/.apd" && cp "$MAIN_ROOT/.apd/.workflow.md.shipped" "$WT_ROOT/.apd/.workflow.md.shipped" 2>/dev/null \
+            && echo "  copied .apd/.workflow.md.shipped"
+    fi
+fi
+
 # (2) Idempotent: worktree already has APD config → nothing to do.
 if [ -f "$WT_ROOT/.claude/.apd-config" ] || [ -f "$WT_ROOT/.apd/config" ]; then
     exit 0

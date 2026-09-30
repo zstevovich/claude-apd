@@ -22,6 +22,7 @@ set -u
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
+source "$(dirname "$0")/../lib/workflow-markers.sh"   # v7.1.6: the one marker list
 
 # Framework-self short-circuit: drift checks are irrelevant for the framework
 # source repo (no project state to drift from).
@@ -44,6 +45,7 @@ APD_CONFIG="${APD_CONFIG_FILE:-$CLAUDE_DIR/.apd-config}"
 APD_CONFIG_LABEL="${APD_CONFIG#"$PROJECT_DIR"/}"
 WORKFLOW_FILE="$CLAUDE_DIR/rules/workflow.md"
 FRAMEWORK_WORKFLOW="$APD_PLUGIN_ROOT/rules/workflow.md"
+WF_RECORD="$PROJECT_DIR/.apd/.workflow.md.shipped"   # v7.1.6: the shipped copy this project took
 
 CURRENT_PLUGIN_VERSION="${APD_VERSION:-unknown}"
 
@@ -153,7 +155,7 @@ _check_feature_claims() {
             IMPORTANT+=("  - $claim (verify-contracts supports TypeScript ↔ C# only as of v6.12+)")
         done
         IMPORTANT+=("  Effect: orchestrator (or human reading docs) believes feature exists; relies on it; silent gap in cross-layer review coverage.")
-        IMPORTANT+=("  Recovery: edit the file — replace 'apd verify-contracts ... <lang>' claims with 'manual cross-layer type mapping (see workflow.md sekcija 7 for the table)'. Framework reality: verify-contracts errors on unsupported langs (v6.12.2+ shows file-count + supported pairs).")
+        IMPORTANT+=("  Recovery: edit the file — replace 'apd verify-contracts ... <lang>' claims with 'cross-layer type mapping is manual — follow workflow.md section 7 (Cross-layer verification: the backend DTO is the source of truth)'. Framework reality: verify-contracts errors on unsupported langs (v6.12.2+ shows file-count + supported pairs).")
     fi
 }
 
@@ -167,13 +169,8 @@ _check_feature_claims "$PROJECT_DIR/CLAUDE.md" "CLAUDE.md"
 if [ -f "$WORKFLOW_FILE" ] && [ -f "$FRAMEWORK_WORKFLOW" ]; then
     # Markers track the v6.7+ guidance milestones. If framework has them
     # but project workflow does not, project is running stale guidance.
-    MARKERS=(
-        "Implements:"
-        "rationale gate"
-        "unconditional"
-        "apd-pipeline-guide"
-        "SUPERVISION"
-    )
+    # v7.1.6: ONE list, shared with apd-init — lib/workflow-markers.sh
+    MARKERS=(${WORKFLOW_MARKERS[@]+"${WORKFLOW_MARKERS[@]}"})
     MISSING_MARKERS=()
     for marker in ${MARKERS[@]+"${MARKERS[@]}"}; do
         # grep -c returns "0" + exit 1 on no matches; ignore exit code, just
@@ -192,6 +189,33 @@ if [ -f "$WORKFLOW_FILE" ] && [ -f "$FRAMEWORK_WORKFLOW" ]; then
         IMPORTANT+=("  Missing: ${MISSING_MARKERS[*]}")
         IMPORTANT+=("  Effect: orchestrator does not see plan-spec Implements format / rationale gate / v6.15 apd-pipeline-guide gate / v6.30 supervision guidance. A copy this stale still instructs --skip-brainstorm and max_defects, both removed in v7.0 — following it wastes a cycle on flags that no longer do anything")
         IMPORTANT+=("  Recovery: re-run '/apd-setup' to refresh workflow.md from current framework template")
+    elif [ -d "$WF_RECORD" ]; then
+        # (audit F9) a directory where the record should be: init cannot write it and says so; agree with init
+        IMPORTANT+=("[.apd/.workflow.md.shipped] is a DIRECTORY, not the shipped-copy record — init cannot record or merge until it is removed")
+        IMPORTANT+=("  Recovery: rmdir .apd/.workflow.md.shipped, then apd init --quick (the record is written when the copy equals the shipped file)")
+    elif [ -f "$WF_RECORD" ] && [ -s "$WF_RECORD" ]; then   # (audit F12) an EMPTY record is no record — the same reading as apd-init
+        # v7.1.6: the project records the shipped copy it took
+        # (.apd/.workflow.md.shipped) and init MERGES framework changes into
+        # its copy. So: record ≠ shipped = the framework moved and the merge
+        # has not happened (or conflicted); record = shipped but copy ≠ shipped
+        # = local edits or an older text — IMPORTANT in both cases.
+        if ! cmp -s "$WF_RECORD" "$FRAMEWORK_WORKFLOW"; then
+            WF_DELTA=$(diff "$WF_RECORD" "$FRAMEWORK_WORKFLOW" 2>/dev/null | grep -c '^[<>]') || true
+            IMPORTANT+=("[.claude/rules/workflow.md] the framework's workflow.md changed since this project recorded it (${WF_DELTA:-?} changed line(s))")
+            IMPORTANT+=("  Effect: the copy carries guidance from an older framework until the change is merged")
+            IMPORTANT+=("  Recovery: init merges it on the next session start (or now: apd init --quick), keeping local edits; if init reported a CONFLICT, resolve it via /apd-setup step 5c")
+        elif ! cmp -s "$WORKFLOW_FILE" "$FRAMEWORK_WORKFLOW"; then
+            # (audit F2) record = shipped does NOT prove the difference is a local
+            # edit: an older framework text put back (a git checkout with .apd/
+            # unversioned, a restored backup) looks the same. v7.0.3's contract
+            # stands — this file is a plain copy, byte-equality is the contract —
+            # so it is IMPORTANT either way; init keeps local edits through its
+            # merge, it does not sanction them.
+            WF_DELTA=$(diff "$FRAMEWORK_WORKFLOW" "$WORKFLOW_FILE" 2>/dev/null | grep -c '^[<>]') || true
+            IMPORTANT+=("[.claude/rules/workflow.md] differs from the shipped file (${WF_DELTA:-?} changed line(s)) — local edits, or an older text put back; the shipped-copy record cannot tell them apart")
+            IMPORTANT+=("  Effect: the project may be running RETRACTED guidance; project-specific rules belong in CLAUDE.md, this file is a plain copy of the framework's")
+            IMPORTANT+=("  Recovery: take the shipped file — cp $FRAMEWORK_WORKFLOW .claude/rules/workflow.md (back it up first). Init keeps local edits through its merge, so this stays reported until the copy equals the shipped file")
+        fi
     elif ! cmp -s "$WORKFLOW_FILE" "$FRAMEWORK_WORKFLOW"; then
         # v7.0.3: the marker sweep above is ONE-WAY — it asks "framework has it,
         # project doesn't". It is structurally blind to a project still carrying
@@ -202,10 +226,12 @@ if [ -f "$WORKFLOW_FILE" ] && [ -f "$FRAMEWORK_WORKFLOW" ]; then
         # (maxTurns was proven a no-op on 2026-07-09), every marker present —
         # and this dimension reported CLEAN. workflow.md is a plain `cp` with no
         # placeholders, so byte-equality is the entire contract.
+        # v7.1.6: this branch is the NO-RECORD case (set up before v7.1.6).
         WF_DELTA=$(diff "$FRAMEWORK_WORKFLOW" "$WORKFLOW_FILE" 2>/dev/null | grep -c '^[<>]') || true
         IMPORTANT+=("[.claude/rules/workflow.md] differs from the shipped file (${WF_DELTA:-?} changed line(s)) — every guidance marker is present, so the marker sweep passes it")
         IMPORTANT+=("  Effect: the project may be running RETRACTED guidance. A marker check cannot see instructions the framework has since deleted — it only sees ones it has added")
         IMPORTANT+=("  Recovery: re-run '/apd-setup' to refresh workflow.md (init keeps the current copy as workflow.md.bak.preaudit). If the difference is deliberate, that file is a plain copy of the framework's — put project-specific rules in CLAUDE.md instead")
+        IMPORTANT+=("  No shipped-copy record (.apd/.workflow.md.shipped): the project was set up before v7.1.6 — step 5c creates it, and from then on init merges framework changes into the copy on its own")
     fi
 fi
 

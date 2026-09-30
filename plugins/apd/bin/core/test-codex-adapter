@@ -7196,8 +7196,9 @@ else
 fi
 
 # Static E: drift script checks workflow.md content markers
-if grep -qE 'MARKERS=' "$DRIFT_SCRIPT" && grep -qE 'Implements:|rationale gate|DEPRECATED|unconditional' "$DRIFT_SCRIPT"; then
-    pass "pipeline-audit-drift checks workflow.md content markers"
+if grep -qE 'MARKERS=' "$DRIFT_SCRIPT" && grep -q 'lib/workflow-markers.sh' "$DRIFT_SCRIPT" \
+   && grep -qE '"Implements:"|"rationale gate"|"unconditional"' "$APD_PLUGIN_ROOT/bin/lib/workflow-markers.sh"; then
+    pass "pipeline-audit-drift checks workflow.md content markers (list shared via lib/workflow-markers.sh, v7.1.6)"
     PASSES=$((PASSES + 1))
 else
     fail "pipeline-audit-drift missing workflow.md marker check"
@@ -7896,9 +7897,11 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static E: --changed mode references workflow.md sekcija 7 (manual review fallback)
-if grep -qE 'sekcija 7|workflow\.md sekcija' "$VC_SCRIPT"; then
-    pass "verify-contracts points users to workflow.md sekcija 7 for manual review"
+# Static E: --changed mode references workflow.md section 7 (manual review fallback).
+# v7.1.6: the reference names the heading that exists ("Cross-layer verification");
+# until then it said "sekcija 7 ... for the table" — section 7 has no table.
+if grep -qE 'workflow\.md section 7 \(Cross-layer verification\)' "$VC_SCRIPT" && ! grep -q 'sekcija' "$VC_SCRIPT"; then
+    pass "verify-contracts points users to workflow.md section 7 (Cross-layer verification) for manual review"
     PASSES=$((PASSES + 1))
 else
     fail "verify-contracts missing reference to manual review process"
@@ -8864,18 +8867,19 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static C: workflow.md refresh stays MARKER-based, with backup. v7.0.3 widened
-# DETECTION to byte-equality (audit-drift dim C, §124) but deliberately did not
-# widen the automatic overwrite: a byte difference is often content apd-setup
-# itself told the project to write, and the single first-wins backup slot would
-# lose every edit after the first. Reconciling that is /apd-setup step 5c's job.
-if grep -q 'WF_STALE_REASON' "$INIT_SCRIPT" && grep -q 'workflow.md.bak.preaudit' "$INIT_SCRIPT" \
-   && grep -q '"apd-pipeline-guide"' "$INIT_SCRIPT" \
+# Static C: workflow.md is never overwritten on a bare byte difference. v7.0.3
+# widened DETECTION to byte-equality (audit-drift dim C, §124) but not the
+# automatic overwrite (local edits + a first-wins backup slot). v7.1.6 keeps
+# that floor and adds the sanctioned path: a shipped-copy record + a three-way
+# `git merge-file` (local edits survive; a conflict leaves the file alone); the
+# marker sweep (list from lib/workflow-markers.sh) is the pre-record fallback.
+if grep -q 'WF_STALE_REASON' "$INIT_SCRIPT" && grep -q 'bak.preaudit' "$INIT_SCRIPT" \
+   && grep -q 'lib/workflow-markers.sh' "$INIT_SCRIPT" && grep -q 'git merge-file' "$INIT_SCRIPT" \
    && ! grep -q 'WF_STALE_REASON="differs from the shipped' "$INIT_SCRIPT"; then
-    pass "apd-init refreshes workflow.md on missing guidance markers only (byte drift is reported, not overwritten)"
+    pass "apd-init never overwrites workflow.md on a bare byte difference: markers refresh (pre-record) or a three-way merge (v7.1.6)"
     PASSES=$((PASSES + 1))
 else
-    fail "apd-init workflow.md refresh policy wrong — markers refresh, byte drift must NOT auto-overwrite"
+    fail "apd-init workflow.md refresh policy wrong — a bare byte difference must not be overwritten (marker refresh or merge only)"
     FAILS=$((FAILS + 1))
 fi
 
@@ -15795,6 +15799,7 @@ G136_AUD_CC="$REPO_ROOT/skills/apd-audit/SKILL.md"
 G136_AUD_CDX="$APD_PLUGIN_ROOT/skills/apd-audit/SKILL.md"
 G136_INIT="$APD_PLUGIN_ROOT/bin/core/apd-init"
 G136_DRIFT="$APD_PLUGIN_ROOT/bin/core/pipeline-audit-drift"
+G136_LIB="$APD_PLUGIN_ROOT/bin/lib/workflow-markers.sh"   # v7.1.6: the one marker list
 G136_WF="$APD_PLUGIN_ROOT/rules/workflow.md"
 G136_CLREF="$APD_PLUGIN_ROOT/templates/CLAUDE.md.reference"
 G136_CONF="$APD_PLUGIN_ROOT/templates/model-profiles.conf"
@@ -15897,7 +15902,7 @@ done
 # A4. No dead markers: every marker the script greps must exist in the shipped workflow.md
 #     (framework_count 0 → the check can never flag → a marker that guards nothing).
 _a4_dead=""
-for _m in $(awk '/^[[:space:]]*MARKERS=\($/{p=1;next} /^[[:space:]]*\)/{p=0} p' "$G136_DRIFT" | grep -oE '"[^"]+"' | tr -d '"' | tr ' ' '_'); do
+for _m in $(awk '/^[[:space:]]*WORKFLOW_MARKERS=\($/{p=1;next} /^[[:space:]]*\)/{p=0} p' "$G136_LIB" | grep -oE '"[^"]+"' | tr -d '"' | tr ' ' '_'); do
     _mm=$(echo "$_m" | tr '_' ' ')
     grep -q -- "$_mm" "$G136_WF" || _a4_dead="$_a4_dead [$_mm]"
 done
@@ -15909,7 +15914,7 @@ fi
 # A5. Both audits name every marker the script checks.
 for _pair in "CC:$G136_AUD_CC" "Codex:$G136_AUD_CDX"; do
     _a5_missing=""
-    for _m in $(awk '/^[[:space:]]*MARKERS=\($/{p=1;next} /^[[:space:]]*\)/{p=0} p' "$G136_DRIFT" | grep -oE '"[^"]+"' | tr -d '"' | tr ' ' '_'); do
+    for _m in $(awk '/^[[:space:]]*WORKFLOW_MARKERS=\($/{p=1;next} /^[[:space:]]*\)/{p=0} p' "$G136_LIB" | grep -oE '"[^"]+"' | tr -d '"' | tr ' ' '_'); do
         _mm=$(echo "$_m" | tr '_' ' ')
         grep -q -- "$_mm" "${_pair#*:}" || _a5_missing="$_a5_missing [$_mm]"
     done
@@ -16329,6 +16334,179 @@ else
     fail "guard-git has no fallback when --emit-git is unavailable (would fail open)"; FAILS=$((FAILS + 1))
 fi
 rm -rf "$G138_T"
+
+section "139. workflow.md keeps up with the framework: shipped-copy record + three-way merge"
+
+# 2026-09-30, the user's paste after v7.1.3 changed rules/workflow.md (§2/§8
+# model tables): every project's copy drifted byte-wise, `apd audit-drift`
+# reported it, nothing ran it at session start, and apd-init printed "ok"
+# because its refresh fired on MARKERS only — a bump that edits text without
+# a new marker recurs forever. Now init records the shipped copy it took
+# (.apd/.workflow.md.shipped) and, when the framework's file changes, merges
+# the change into the project's copy with `git merge-file`: local edits
+# survive, a clean merge is backed up, a conflict leaves the copy untouched
+# and is reported — at session start, where init runs. One marker list for
+# both scripts (lib/workflow-markers.sh; apd-init's still carried the dead
+# `DEPRECATED`). Also: four sites pointed at a "workflow.md section 7 table"
+# that never existed (section 7 holds four rules), and apd-init's reason for
+# NOT refreshing on a byte difference cited an apd-setup instruction the
+# skill never gave.
+
+G139_INIT="$APD_PLUGIN_ROOT/bin/core/apd-init"
+G139_DRIFT="$APD_PLUGIN_ROOT/bin/core/pipeline-audit-drift"
+G139_LIB="$APD_PLUGIN_ROOT/bin/lib/workflow-markers.sh"
+G139_WF="$APD_PLUGIN_ROOT/rules/workflow.md"
+G139_VC="$APD_PLUGIN_ROOT/bin/core/verify-contracts"
+G139_SETUP="$REPO_ROOT/skills/apd-setup/SKILL.md"
+G139_AUD_CC="$REPO_ROOT/skills/apd-audit/SKILL.md"
+G139_AUD_CDX="$APD_PLUGIN_ROOT/skills/apd-audit/SKILL.md"
+G139_SPEC="$REPO_ROOT/docs/SPEC.md"
+_c139() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+_imp139() {  # <drift output> <pattern> → 0 when a matching line sits in the IMPORTANT bucket (dim A fires on the bare fixture, so the exit code alone proves nothing — mutation M10 showed it)
+    printf '%s\n' "$1" | awk -v pat="$2" '/^IMPORTANT:/{s=1} /^INFO:/||/^CLEAN:/||/^CRITICAL:/{s=0} s && $0 ~ pat {f=1} END{exit f?0:1}'
+}
+
+# --- static: ONE marker list, every marker alive, no private copies ---
+_c139 "lib/workflow-markers.sh exists and defines WORKFLOW_MARKERS" '[ -f "$G139_LIB" ] && grep -q "^WORKFLOW_MARKERS=(" "$G139_LIB"'
+_dead139=""; for _m in $(awk '/^[[:space:]]*WORKFLOW_MARKERS=\($/{p=1;next} /^[[:space:]]*\)/{p=0} p' "$G139_LIB" 2>/dev/null | grep -oE '"[^"]+"' | tr -d '"' | tr ' ' '_'); do _mm=$(echo "$_m" | tr '_' ' '); grep -q -- "$_mm" "$G139_WF" || _dead139="$_dead139 [$_mm]"; done
+_c139 "every marker in the shared list exists in the shipped workflow.md (none dead)$_dead139" '[ -z "$_dead139" ] && [ "$(awk "/^WORKFLOW_MARKERS=\\($/{p=1;next} /^\\)/{p=0} p" "$G139_LIB" | grep -c "\"")" -ge 5 ]'
+_c139 "apd-init sources the shared list and carries no marker list of its own" 'grep -q "lib/workflow-markers.sh" "$G139_INIT" && ! grep -q "\"rationale gate\"" "$G139_INIT" && ! grep -q "DEPRECATED" "$G139_INIT"'
+_c139 "pipeline-audit-drift sources the shared list and carries no marker list of its own" 'grep -q "lib/workflow-markers.sh" "$G139_DRIFT" && grep -q "MARKERS=(\${WORKFLOW_MARKERS" "$G139_DRIFT" && ! grep -q "\"rationale gate\"" "$G139_DRIFT"'
+# --- static: the section-7 references point at something that exists ---
+_c139 "workflow.md still has a section 7 titled Cross-layer verification (the reference target)" 'grep -q "^## 7\. Cross-layer verification" "$G139_WF"'
+_c139 "no site promises a 'section 7 table' or says 'sekcija 7' (verify-contracts, drift, setup skill, apd-init)" '! grep -q "sekcija 7\|section 7 table\|sekcija" "$G139_VC" "$G139_DRIFT" "$G139_SETUP" "$G139_INIT" && grep -q "section 7 (Cross-layer verification)" "$G139_VC" && grep -q "section 7 (Cross-layer verification" "$G139_DRIFT" && grep -q "section 7 (Cross-layer verification" "$G139_SETUP"'
+_c139 "apd-init no longer justifies leaving a drifted copy by a per-stack table apd-setup never asked for" '! grep -q "instructs the orchestrator to write a per-stack table into section 7" "$G139_INIT" && grep -q "git merge-file" "$G139_INIT" && grep -q "\.apd/\.workflow\.md\.shipped" "$G139_INIT"'
+# --- static: docs describe the mechanism (joins) ---
+_c139 "apd-setup skill names the shipped-copy record and the merge" 'grep -q "\.apd/\.workflow\.md\.shipped" "$G139_SETUP" && grep -q "git merge-file" "$G139_SETUP"'
+_c139 "CC and Codex audit skills describe dimension C as record-aware" 'grep -q "\.workflow\.md\.shipped" "$G139_AUD_CC" && grep -q "\.workflow\.md\.shipped" "$G139_AUD_CDX"'
+_c139 "SPEC names the record file and the shared marker list" 'grep -q "\.apd/\.workflow\.md\.shipped" "$G139_SPEC" && grep -q "workflow-markers\.sh" "$G139_SPEC"'
+
+# --- live: a COPY of the plugin so the shipped file can be changed ---
+G139_W="$(mktemp -d -t apd-g139.XXXXXX)"; mkdir -p "$G139_W/plugin"; cp -R "$APD_PLUGIN_ROOT/." "$G139_W/plugin/"
+G139_SH="$G139_W/plugin/rules/workflow.md"; G139_REC=".apd/.workflow.md.shipped"
+_p139() {  # <name> → a CC project dir (config + settings), no workflow.md
+    local P="$G139_W/$1"; mkdir -p "$P/.claude/rules" "$P/.claude/memory" "$P/.apd/pipeline" "$P/.claude/agents"
+    printf 'PROJECT_NAME=%s\nAPD_VERSION=%s\nSTACK=test\n' "$1" "$(cat "$APD_PLUGIN_ROOT/VERSION")" > "$P/.claude/.apd-config"
+    printf '{"permissions":{"deny":[]}}\n' > "$P/.claude/settings.json"; echo "$P"
+}
+_i139() { ( cd "$1" && APD_PROJECT_DIR="$1" bash "$G139_W/plugin/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g'; }
+_d139() { ( cd "$1" && APD_PROJECT_DIR="$1" bash "$G139_W/plugin/bin/core/pipeline-audit-drift" 2>&1; echo "EXIT=$?" ) | sed 's/\x1b\[[0-9;]*m//g'; }
+# 1. fresh copy writes the record
+P=$(_p139 p1); _o=$(_i139 "$P")
+_c139 "fresh setup: workflow.md copied AND the shipped-copy record written (identical)" 'echo "$_o" | grep -q "Copied workflow.md" && cmp -s "$P/$G139_REC" "$G139_SH"'
+# 2. no record, copy equals shipped → record started silently
+P=$(_p139 p2); cp "$G139_SH" "$P/.claude/rules/workflow.md"; _o=$(_i139 "$P")
+_c139 "pre-record project whose copy equals the shipped file: record started, nothing else touched" 'cmp -s "$P/$G139_REC" "$G139_SH" && cmp -s "$P/.claude/rules/workflow.md" "$G139_SH" && echo "$_o" | grep -q "record started"'
+# 3. no record, copy differs → REPORTED at init (session start), not refreshed, no record
+P=$(_p139 p3); cp "$G139_SH" "$P/.claude/rules/workflow.md"; echo "LOCAL-ONLY line" >> "$P/.claude/rules/workflow.md"; _o=$(_i139 "$P")
+_c139 "pre-record project whose copy differs: init WARNS (session start sees it), leaves the copy, starts no record" 'echo "$_o" | grep -q "^ *! workflow.md: differs.*no shipped-copy record" && grep -q "LOCAL-ONLY" "$P/.claude/rules/workflow.md" && [ ! -f "$P/$G139_REC" ]'
+_o=$(_d139 "$P")
+_c139 "drift dim C on that project: IMPORTANT (exit 1) and names the missing record" 'echo "$_o" | grep -q "EXIT=1" && _imp139 "$_o" "differs from the shipped file" && echo "$_o" | grep -q "No shipped-copy record"'
+# 4. no record, missing marker → refresh with backup (pre-v7.1.6 behaviour kept) + record
+P=$(_p139 p4); grep -v 'SUPERVISION' "$G139_SH" > "$P/.claude/rules/workflow.md"; _o=$(_i139 "$P")
+_c139 "pre-record project missing a marker: refreshed with .bak.preaudit (as before) and the record started" 'echo "$_o" | grep -q "missing .SUPERVISION. guidance" && [ -f "$P/.claude/rules/workflow.md.bak.preaudit" ] && cmp -s "$P/.claude/rules/workflow.md" "$G139_SH" && cmp -s "$P/$G139_REC" "$G139_SH"'
+# 5. record present, framework unchanged, local edit → untouched; drift INFO only
+P=$(_p139 p5); cp "$G139_SH" "$P/.claude/rules/workflow.md"; cp "$G139_SH" "$P/$G139_REC"; echo "LOCAL-ONLY line" >> "$P/.claude/rules/workflow.md"; _o=$(_i139 "$P"); _d=$(_d139 "$P")
+_c139 "record present, framework unchanged: a local edit is left alone by init" 'grep -q "LOCAL-ONLY" "$P/.claude/rules/workflow.md" && ! echo "$_o" | grep -q "workflow.md: "'
+_c139 "drift dim C: a local edit with the record in place is still IMPORTANT — byte-equality is the contract (audit F2)" 'echo "$_d" | grep -q "EXIT=1" && _imp139 "$_d" "cannot tell them apart"'
+# (audit F1) the record is the merge base, not a licence to keep a broken copy: the sweep runs in EVERY state
+P=$(_p139 p5e); cp "$G139_SH" "$P/$G139_REC"; : > "$P/.claude/rules/workflow.md"; _o=$(_i139 "$P")
+_c139 "record present, copy EMPTIED (0 bytes): refreshed with backup, not left empty forever (audit F1)" 'echo "$_o" | grep -q "refreshed (empty file" && cmp -s "$P/.claude/rules/workflow.md" "$G139_SH" && [ -f "$P/.claude/rules/workflow.md.bak.preaudit" ]'
+P=$(_p139 p5m); cp "$G139_SH" "$P/$G139_REC"; grep -v 'SUPERVISION' "$G139_SH" > "$P/.claude/rules/workflow.md"; _o=$(_i139 "$P")
+_c139 "record present, a guidance section deleted from the copy: refreshed — the marker sweep runs with a record too (audit F1)" 'echo "$_o" | grep -q "missing .SUPERVISION. guidance" && cmp -s "$P/.claude/rules/workflow.md" "$G139_SH"'
+P=$(_p139 p5s); cp "$G139_SH" "$P/$G139_REC"; { cat "$G139_SH"; echo 'hook: ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/guard-scope'; } > "$P/.claude/rules/workflow.md"; _o=$(_i139 "$P")
+_c139 "record present, stale guard paths in the copy: refreshed (audit F1)" 'echo "$_o" | grep -q "refreshed (stale paths" && cmp -s "$P/.claude/rules/workflow.md" "$G139_SH"'
+# (audit F2) record = shipped but the copy is an OLDER framework text with every marker present (a git checkout put it back)
+P=$(_p139 p5o); cp "$G139_SH" "$P/$G139_REC"; sed 's/`claude-sonnet-5`/`sonnet`/' "$G139_SH" > "$P/.claude/rules/workflow.md"; _d=$(_d139 "$P")
+_c139 "record = shipped, copy = an older text (bare aliases, every marker present): drift IMPORTANT, never INFO (audit F2)" '_imp139 "$_d" "differs from the shipped file"'
+# (audit F3) both warnings and step 5c carry the exact commands — the old text sent the orchestrator to a step that overwrote the copy
+_c139 "init's pre-record and conflict warnings name the exact recovery commands, the hand-merge with -p into a temp file (audit F3 + residual)" 'grep -q "cp .\$WF_SHIPPED. .apd/.workflow.md.shipped" "$G139_INIT" && grep -q "git merge-file -p .claude/rules/workflow.md .apd/.workflow.md.shipped .\$WF_SHIPPED. > /tmp/workflow.merged" "$G139_INIT" && ! grep -q "git merge-file .claude/rules/workflow.md .apd/.workflow.md.shipped" "$G139_INIT"'
+_c139 "setup skill step 5c reconciles workflow.md by ASKING, with both commands and a -p hand-merge, and says the record shortcut merges nothing (audit F3 + residuals)" 'grep -q "ask which case applies" "$G139_SETUP" && grep -q "cp <plugin>/plugins/apd/rules/workflow.md .apd/.workflow.md.shipped" "$G139_SETUP" && grep -q "git merge-file -p .claude/rules/workflow.md .apd/.workflow.md.shipped" "$G139_SETUP" && grep -q "does NOT mean everything is merged" "$G139_SETUP"'
+_c139 "worktree-bootstrap carries the record into a worktree (else every session start there warns 'no record')" 'grep -q "cp \"\$MAIN_ROOT/\.apd/\.workflow\.md\.shipped\" \"\$WT_ROOT/\.apd/\.workflow\.md\.shipped\"" "$APD_PLUGIN_ROOT/bin/core/worktree-bootstrap"'
+# (audit F14/F15, pass 3) live: a repo with TRACKED config + rules (the default layout), the record in main only (runs before the framework-change step: the shipped file is still G139_SH here)
+WR="$G139_W/wtrepo"; mkdir -p "$WR/.claude/rules" "$WR/.apd"
+( cd "$WR" && git init -q && git config user.email t@t.io && git config user.name t && printf 'PROJECT_NAME=wt\nAPD_VERSION=%s\nSTACK=test\n' "$(cat "$APD_PLUGIN_ROOT/VERSION")" > .claude/.apd-config && cp "$G139_SH" .claude/rules/workflow.md && printf '.apd/\n' > .gitignore && git add -A && git commit -qm base && git checkout -q -b older && sed 's/`claude-sonnet-5`/`sonnet`/' "$G139_SH" > .claude/rules/workflow.md && git commit -qam older && git checkout -q - ) 2>/dev/null
+cp "$G139_SH" "$WR/.apd/.workflow.md.shipped"
+( cd "$WR" && git worktree add -q "$G139_W/wt-same" -b wt-same >/dev/null 2>&1 ); _o=$( cd "$G139_W/wt-same" && bash "$G139_W/plugin/bin/core/worktree-bootstrap" 2>&1 )
+_c139 "worktree with TRACKED config whose workflow.md equals main's: the record is copied before the idempotent exit (audit F14)" 'echo "$_o" | grep -q "copied .apd/.workflow.md.shipped" && cmp -s "$G139_W/wt-same/.apd/.workflow.md.shipped" "$WR/.apd/.workflow.md.shipped"'
+( cd "$WR" && git worktree add -q "$G139_W/wt-older" older >/dev/null 2>&1 ); _o=$( cd "$G139_W/wt-older" && bash "$G139_W/plugin/bin/core/worktree-bootstrap" 2>&1 )
+_c139 "worktree branched at an OLDER workflow.md: the record is NOT copied (a newer base would merge stale sections as local edits — audit F15)" '! echo "$_o" | grep -q "copied .apd/.workflow.md.shipped" && [ ! -e "$G139_W/wt-older/.apd/.workflow.md.shipped" ]'
+# (audit pass 4, SO2) main's copy carries an uncommitted local edit, the worktree's is the committed shipped text = main's RECORD → same origin, copied
+echo "LOCAL-ONLY main edit" >> "$WR/.claude/rules/workflow.md"; ( cd "$WR" && git worktree add -q "$G139_W/wt-rec" -b wt-rec >/dev/null 2>&1 ); _o=$( cd "$G139_W/wt-rec" && bash "$G139_W/plugin/bin/core/worktree-bootstrap" 2>&1 )
+_c139 "worktree copy equal to main's RECORD (main's copy has an uncommitted local edit): the record is copied — record = copy = base (audit pass 4, SO2)" 'echo "$_o" | grep -q "copied .apd/.workflow.md.shipped" && cmp -s "$G139_W/wt-rec/.apd/.workflow.md.shipped" "$WR/.apd/.workflow.md.shipped"'
+( cd "$WR" && git checkout -q -- .claude/rules/workflow.md; git worktree remove --force "$G139_W/wt-same" >/dev/null 2>&1; git worktree remove --force "$G139_W/wt-older" >/dev/null 2>&1; git worktree remove --force "$G139_W/wt-rec" >/dev/null 2>&1 ) || true
+# (audit F9) a directory where the record should be: one clear warning, no cmp noise, drift agrees
+P=$(_p139 p5dir); cp "$G139_SH" "$P/.claude/rules/workflow.md"; mkdir "$P/$G139_REC"; _o=$(_i139 "$P"); _d=$(_d139 "$P")
+_c139 "record path is a DIRECTORY: init warns once with the fix (rmdir), prints no 'Is a directory' noise, leaves the copy (audit F9)" 'echo "$_o" | grep -q "is a DIRECTORY" && ! echo "$_o" | grep -q "Is a directory" && cmp -s "$P/.claude/rules/workflow.md" "$G139_SH" && [ -d "$P/$G139_REC" ]'
+_c139 "drift dim C agrees: the directory record is IMPORTANT with the same fix (audit F9)" '_imp139 "$_d" "is a DIRECTORY"'
+# (audit F1 residual) the pre-audit backup slot is never skipped: a second refresh gets a numbered backup
+P=$(_p139 p5bk); cp "$G139_SH" "$P/$G139_REC"; echo "OLD BACKUP" > "$P/.claude/rules/workflow.md.bak.preaudit"; { grep -v 'SUPERVISION' "$G139_SH"; echo "LOCAL-ONLY line"; } > "$P/.claude/rules/workflow.md"; _o=$(_i139 "$P")
+_c139 "a refresh when .bak.preaudit already exists writes a NUMBERED backup that holds the local edit; the old slot is untouched (audit F1 residual)" 'grep -q "OLD BACKUP" "$P/.claude/rules/workflow.md.bak.preaudit" && ls "$P/.claude/rules/" | grep -q "workflow.md.bak.preaudit\.[0-9]" && grep -q "LOCAL-ONLY" "$P/.claude/rules/"workflow.md.bak.preaudit.[0-9]* && echo "$_o" | grep -q "backup: workflow.md.bak.preaudit\.[0-9]"'
+# --- the framework moves: change the shipped file in the plugin copy ---
+cp "$G139_SH" "$G139_W/shipped.v1"; sed 's/^| Builder | `claude-sonnet-5` | xhigh |/| Builder | `claude-sonnet-5-5` | xhigh |/' "$G139_W/shipped.v1" > "$G139_SH"; echo "FRAMEWORK-NEW line" >> "$G139_SH"
+_c139 "fixture: the plugin copy's shipped workflow.md was changed (a table line + a new line)" '! cmp -s "$G139_SH" "$G139_W/shipped.v1" && grep -q "claude-sonnet-5-5" "$G139_SH"'
+# 6. record = old, copy = old (no local edits) → plain refresh + record updated; drift says so before, CLEAN after
+P=$(_p139 p6); cp "$G139_W/shipped.v1" "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; _d=$(_d139 "$P")
+_c139 "drift dim C before init: the framework changed since the record → IMPORTANT (exit 1)" 'echo "$_d" | grep -q "EXIT=1" && _imp139 "$_d" "changed since this project recorded it"'
+_o=$(_i139 "$P"); _d=$(_d139 "$P")
+_c139 "framework changed, no local edits: init refreshes the copy and updates the record" 'echo "$_o" | grep -q "refreshed from the shipped copy" && cmp -s "$P/.claude/rules/workflow.md" "$G139_SH" && cmp -s "$P/$G139_REC" "$G139_SH"'
+_c139 "drift dim C after that init: CLEAN for workflow.md (exit 0)" 'echo "$_d" | grep -q "EXIT=0" && ! echo "$_d" | grep -q "workflow.md\]"'
+# (audit F4) two session starts at once: one holder at a time; a dead holder's lock is reclaimed after two minutes
+P=$(_p139 p6l); cp "$G139_W/shipped.v1" "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; mkdir "$P/.apd/.workflow-merge.lock"; _o=$(_i139 "$P")
+_c139 "a live merge lock held by another init: this run leaves workflow.md and the record alone and says so (audit F4)" 'echo "$_o" | grep -q "merge lock" && cmp -s "$P/.claude/rules/workflow.md" "$G139_W/shipped.v1" && cmp -s "$P/$G139_REC" "$G139_W/shipped.v1"'
+touch -t 202001010000 "$P/.apd/.workflow-merge.lock"; _o=$(_i139 "$P")
+_c139 "a stale lock (older than two minutes) is reclaimed and the refresh proceeds; the lock is released afterwards" 'echo "$_o" | grep -q "refreshed from the shipped copy" && cmp -s "$P/.claude/rules/workflow.md" "$G139_SH" && [ ! -d "$P/.apd/.workflow-merge.lock" ]'
+# (audit F5) NEW mode (no config, options from the environment) must record the shipped copy too
+P="$G139_W/pnew"; mkdir -p "$P"; ( cd "$P" && git init -q . 2>/dev/null; APD_PROJECT_DIR="$P" CLAUDE_PLUGIN_OPTION_PROJECT_NAME=pnew CLAUDE_PLUGIN_OPTION_STACK=test CLAUDE_PLUGIN_OPTION_AUTHOR_NAME=t bash "$G139_W/plugin/bin/core/apd-init" --quick >/dev/null 2>&1 )
+_c139 "NEW-mode setup writes the shipped-copy record next to the copy (audit F5)" '[ -f "$P/.claude/rules/workflow.md" ] && cmp -s "$P/$G139_REC" "$G139_SH"'
+# (audit F6/F7/F8) writes are checked, nothing is applied without its backup, merge errors are not conflicts
+if [ "$(id -u)" = 0 ]; then
+    pass "read-only record: write refused, nothing claimed (skipped — chmod proves nothing as root)"; PASSES=$((PASSES + 1))
+    pass "read-only rules dir: no backup possible → merge NOT applied (skipped — root)"; PASSES=$((PASSES + 1))
+else
+    P=$(_p139 p6ro); cp "$G139_W/shipped.v1" "$P/.claude/rules/workflow.md"; echo "LOCAL-ONLY line" >> "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; chmod 444 "$P/$G139_REC"; _o=$(_i139 "$P"); chmod 644 "$P/$G139_REC"
+    _c139 "read-only record: init WARNS 'not writable', applies nothing and claims nothing (audit F6)" 'echo "$_o" | grep -q "^ *! workflow.md:.*not writable" && ! echo "$_o" | grep -q "merged" && grep -q "LOCAL-ONLY" "$P/.claude/rules/workflow.md" && ! grep -q "FRAMEWORK-NEW" "$P/.claude/rules/workflow.md" && cmp -s "$P/$G139_REC" "$G139_W/shipped.v1"'
+    P=$(_p139 p6rd); cp "$G139_W/shipped.v1" "$P/.claude/rules/workflow.md"; echo "LOCAL-ONLY line" >> "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; chmod 555 "$P/.claude/rules"; _o=$(_i139 "$P"); chmod 755 "$P/.claude/rules"
+    _c139 "read-only rules dir (no backup possible): merge NOT applied, no 'backup:' claimed (audit F7)" 'echo "$_o" | grep -q "^ *! workflow.md:" && ! echo "$_o" | grep -q "backup:" && ! grep -q "FRAMEWORK-NEW" "$P/.claude/rules/workflow.md"'
+fi
+P=$(_p139 p6mk); cp "$G139_W/shipped.v1" "$P/.claude/rules/workflow.md"; echo "LOCAL-ONLY line" >> "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; mkdir -p "$G139_W/fakebin"; printf '#!/bin/bash\necho "mktemp: refused" >&2; exit 1\n' > "$G139_W/fakebin/mktemp"; chmod +x "$G139_W/fakebin/mktemp"
+_o=$( cd "$P" && PATH="$G139_W/fakebin:$PATH" APD_PROJECT_DIR="$P" bash "$G139_W/plugin/bin/core/apd-init" --quick 2>&1 | sed 's/\x1b\[[0-9;]*m//g' )
+_c139 "mktemp failing is reported as 'no temp file', NOT as a conflict; copy untouched (audit F8)" 'echo "$_o" | grep -q "no temp file" && ! echo "$_o" | grep -q "CONFLICT" && grep -q "LOCAL-ONLY" "$P/.claude/rules/workflow.md" && ! grep -q "FRAMEWORK-NEW" "$P/.claude/rules/workflow.md"'
+rm -f "$G139_W/fakebin/mktemp"; _realgit=$(command -v git); printf '#!/bin/bash\n[ "$1" = merge-file ] && exit 255\nexec "%s" "$@"\n' "$_realgit" > "$G139_W/fakebin/git"; chmod +x "$G139_W/fakebin/git"
+_o=$( cd "$P" && PATH="$G139_W/fakebin:$PATH" APD_PROJECT_DIR="$P" bash "$G139_W/plugin/bin/core/apd-init" --quick 2>&1 | sed 's/\x1b\[[0-9;]*m//g' )
+_c139 "git merge-file exiting 255 (an error, not a conflict count) is reported as a failed merge, NOT a conflict (audit F8)" 'echo "$_o" | grep -q "git merge-file failed (exit 255)" && ! echo "$_o" | grep -q "CONFLICT" && grep -q "LOCAL-ONLY" "$P/.claude/rules/workflow.md"'
+rm -f "$G139_W/fakebin/git"
+# (audit F10) .apd is a regular FILE (nothing under it can be written): HEAD refreshed a stale copy without .apd — so must this
+P=$(_p139 p6nf); rm -rf "$P/.apd"; : > "$P/.apd"; grep -v 'SUPERVISION' "$G139_SH" > "$P/.claude/rules/workflow.md"; _o=$(_i139 "$P")
+_c139 "'.apd' unwritable (a file in its place): the stale copy is still refreshed, and init says the record/merges are off (audit F10)" 'echo "$_o" | grep -q "missing .SUPERVISION. guidance" && cmp -s "$P/.claude/rules/workflow.md" "$G139_SH" && echo "$_o" | grep -q "cannot write under .apd/" && ! echo "$_o" | grep -q "merge lock"'
+# (audit F11) a stray lock FILE: fresh → held; older than two minutes → reclaimed
+P=$(_p139 p6lf); cp "$G139_W/shipped.v1" "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; : > "$P/.apd/.workflow-merge.lock"; _o=$(_i139 "$P")
+_c139 "a fresh lock FILE counts as held: nothing changes, the message names the lock path (audit F11)" 'echo "$_o" | grep -q "merge lock.*\.workflow-merge\.lock" && cmp -s "$P/.claude/rules/workflow.md" "$G139_W/shipped.v1"'
+touch -t 202001010000 "$P/.apd/.workflow-merge.lock"; _o=$(_i139 "$P")
+_c139 "a stale lock FILE is reclaimed like a stale directory and the refresh proceeds (audit F11)" 'echo "$_o" | grep -q "refreshed from the shipped copy" && cmp -s "$P/.claude/rules/workflow.md" "$G139_SH" && [ ! -e "$P/.apd/.workflow-merge.lock" ]'
+# (audit F11, pass 3) symlink locks: a stale symlink to a directory, and a stale dangling symlink — both reclaimed
+P=$(_p139 p6ls); cp "$G139_W/shipped.v1" "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; mkdir "$P/.apd/lockdir"; ln -s lockdir "$P/.apd/.workflow-merge.lock"; touch -h -t 202001010000 "$P/.apd/.workflow-merge.lock" 2>/dev/null || touch -t 202001010000 "$P/.apd/.workflow-merge.lock"; _o=$(_i139 "$P")
+_c139 "a stale SYMLINK lock pointing at a directory is reclaimed (the link, not the target) and the refresh proceeds (audit F11 pass 3)" 'echo "$_o" | grep -q "refreshed from the shipped copy" && [ ! -L "$P/.apd/.workflow-merge.lock" ] && [ -d "$P/.apd/lockdir" ]'
+P=$(_p139 p6ld); cp "$G139_W/shipped.v1" "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; ln -s nowhere "$P/.apd/.workflow-merge.lock"; touch -h -t 202001010000 "$P/.apd/.workflow-merge.lock" 2>/dev/null; _o=$(_i139 "$P")
+_c139 "a stale DANGLING symlink lock is reclaimed (it was invisible to -e) and the refresh proceeds (audit F11 pass 3)" 'echo "$_o" | grep -q "refreshed from the shipped copy" && [ ! -L "$P/.apd/.workflow-merge.lock" ]'
+if [ "$(id -u)" = 0 ]; then pass "stale lock inside a read-only .apd → sweep still runs (skipped — root)"; PASSES=$((PASSES + 1)); else
+    P=$(_p139 p6lr); grep -v 'SUPERVISION' "$G139_W/shipped.v1" > "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; mkdir "$P/.apd/.workflow-merge.lock"; touch -t 202001010000 "$P/.apd/.workflow-merge.lock"; chmod 555 "$P/.apd"; _o=$(_i139 "$P"); chmod 755 "$P/.apd"
+    _c139 "a stale lock that cannot be removed (.apd read-only): the stale-copy sweep still runs and init says why (audit F11 pass 3 + F10)" 'echo "$_o" | grep -q "stale merge lock.*could not be removed" && echo "$_o" | grep -q "missing .SUPERVISION. guidance" && cmp -s "$P/.claude/rules/workflow.md" "$G139_SH"'
+fi
+# (audit F12) an EMPTY record is no record for BOTH scripts
+P=$(_p139 p6er); cp "$G139_W/shipped.v1" "$P/.claude/rules/workflow.md"; : > "$P/$G139_REC"; _o=$(_i139 "$P"); _d=$(_d139 "$P")
+_c139 "empty record: init takes the pre-record path (warn with the two commands), drift reports the MISSING record, not 'changed since recorded' (audit F12)" 'echo "$_o" | grep -q "no shipped-copy record" && _imp139 "$_d" "differs from the shipped file" && echo "$_d" | grep -q "No shipped-copy record" && ! echo "$_d" | grep -q "changed since this project recorded it"'
+# 7. record = old, copy = old + a local edit elsewhere → clean merge keeps both, backup, record updated
+P=$(_p139 p7); { echo "LOCAL-ONLY top line"; cat "$G139_W/shipped.v1"; } > "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; _o=$(_i139 "$P")
+_c139 "framework changed + local edit elsewhere: merged — local line kept AND both framework changes present" 'echo "$_o" | grep -q "merged the framework" && grep -q "LOCAL-ONLY top" "$P/.claude/rules/workflow.md" && grep -q "FRAMEWORK-NEW" "$P/.claude/rules/workflow.md" && grep -q "claude-sonnet-5-5" "$P/.claude/rules/workflow.md" && ! grep -q "<<<<<<<" "$P/.claude/rules/workflow.md"'
+_c139 "the pre-merge copy is backed up under a per-version name and the record is updated" '[ -f "$P/.claude/rules/workflow.md.bak.pre-v$(cat "$APD_PLUGIN_ROOT/VERSION")" ] && grep -q "LOCAL-ONLY top" "$P/.claude/rules/workflow.md.bak.pre-v$(cat "$APD_PLUGIN_ROOT/VERSION")" && cmp -s "$P/$G139_REC" "$G139_SH"'
+_o=$(_i139 "$P")
+_c139 "a second init after the merge is idempotent (ok, no second backup, copy unchanged)" '! echo "$_o" | grep -q "workflow.md: " && [ "$(ls "$P/.claude/rules/" | grep -c "bak")" = 1 ] && grep -q "LOCAL-ONLY top" "$P/.claude/rules/workflow.md"'
+# 8. conflict: local edit on the SAME line the framework changed → untouched, warned, record unchanged, drift IMPORTANT
+P=$(_p139 p8); sed 's/^| Builder | `claude-sonnet-5` | xhigh |/| Builder | `my-local-model` | xhigh |/' "$G139_W/shipped.v1" > "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; _o=$(_i139 "$P"); _d=$(_d139 "$P")
+_c139 "framework changed the line a local edit changed: CONFLICT (hunk count named) — copy untouched, no markers written, init warns" 'echo "$_o" | grep -q "CONFLICT with local edits ([0-9]* hunk" && grep -q "my-local-model" "$P/.claude/rules/workflow.md" && ! grep -q "<<<<<<<" "$P/.claude/rules/workflow.md" && ! grep -q "FRAMEWORK-NEW" "$P/.claude/rules/workflow.md"'
+_c139 "after a conflict the record stays old, so drift keeps reporting IMPORTANT until it is resolved" 'cmp -s "$P/$G139_REC" "$G139_W/shipped.v1" && echo "$_d" | grep -q "EXIT=1" && _imp139 "$_d" "changed since this project recorded it"'
+rm -rf "$G139_W"
 
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
