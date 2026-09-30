@@ -45,7 +45,7 @@ fi
 # (audit pass #3) a quoted word that spans lines is ONE word — the tokenizer
 # keeps reading it across the newline exactly as bash does (record end below);
 # only a quote still open at the END of the text is reported (`OPENQ` → OPAQUE).
-if [ "$EMIT_GIT" = true ] && [ -z "${APD_GBS_BUDGET_FILE:-}" ]; then   # the top level owns the nested-shell budget (audit pass #2 D)
+if [ -z "${APD_GBS_BUDGET_FILE:-}" ]; then   # the top level owns the nested-shell budget (audit pass #2 D; v7.1.7: every mode — quoted substitutions recurse in scope mode too)
   APD_GBS_BUDGET_FILE=$(mktemp -t apd-gbs-budget.XXXXXX 2>/dev/null || echo "")
   if [ -n "$APD_GBS_BUDGET_FILE" ]; then
     echo 40 > "$APD_GBS_BUDGET_FILE"; export APD_GBS_BUDGET_FILE
@@ -365,6 +365,7 @@ RT_CWD_CACHE=false; RT_CWD_UNKNOWN=false; RT_CWD_ALL_IN_SCOPE=true; RT_CWD_ALL_I
 _add_target() {   # <raw word> [nofollow]
   local raw="$1" nofollow="${2:-}" s abs
   case "$raw" in ''|/dev/null|/dev/stdout|/dev/stderr|/dev/tty|'&'*) return 0 ;; esac
+  case "$raw" in *\\*) TARGET_RAW+=("$raw"); TARGET_ABS+=(""); TARGET_NOTE+=("a backslash escape in a path is not decoded (ANSI-C \$'…', a literal backslash)"); TARGET_APD+=("${STMT_APD:-false}"); return 0 ;; esac   # v7.1.7
   s=$(_subst "$raw")
   if _unresolved "$s"; then
     TARGET_RAW+=("$raw"); TARGET_ABS+=(""); TARGET_NOTE+=("unresolved variable or substitution"); TARGET_APD+=("${STMT_APD:-false}"); return 0
@@ -449,6 +450,11 @@ _recurse_shell() {  # <shell text>
     fi
     APD_GBS_DEPTH=$((APD_GBS_DEPTH + 1)) bash "$0" --emit-git --command "$text" --cwd "$CUR_CWD" 2>/dev/null || printf 'OPAQUE\n'
     return 0
+  fi
+  if [ -n "${APD_GBS_BUDGET_FILE:-}" ] && [ -f "$APD_GBS_BUDGET_FILE" ]; then   # (v7.1.7, audit I1) the total budget binds here too
+    _b=$(cat "$APD_GBS_BUDGET_FILE" 2>/dev/null || echo 0)
+    if [ "${_b:-0}" -le 0 ] 2>/dev/null; then _add_unknown_target "nested shells beyond the budget (40 per command)"; return 0; fi
+    echo $((_b - 1)) > "$APD_GBS_BUDGET_FILE"
   fi
   APD_GBS_DEPTH=$((APD_GBS_DEPTH + 1)) bash "$0" --command "$text" --cwd "$CUR_CWD" \
       $( [ "$DENY_ALL_WRITES" = true ] && printf -- '--deny-all-writes' ) \
@@ -574,6 +580,8 @@ _process_stmt() {
     '$'|'$('*|'`'*)   # a command substitution in command position (the tokenizer emits `$` then a subshell): the inner command is visible (audit F2)…
       # …but its OUTPUT is the command that runs (audit R1): refuse when the command names the cache or the pipeline dir
       if _names_fenced_dir; then TARGET_RAW+=("${cmd:0:60}"); TARGET_ABS+=(""); { [ "$EMIT_GIT" = true ] && printf 'OPAQUE\n'; }; TARGET_NOTE+=("opaque shell body: ${cmd:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0; fi ;;
+    *\\*)   # (v7.1.7, audit C2) an undecoded escape in the command word hides the writer
+      TARGET_RAW+=("${cmd:0:60}"); TARGET_ABS+=(""); { [ "$EMIT_GIT" = true ] && printf 'OPAQUE\n'; }; TARGET_NOTE+=("opaque shell body: ${cmd:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0 ;;
     \$*)
       text=$(_subst "$cmd${A[@]+ ${A[*]}}")
       case "${text#"${text%%[! ]*}"}" in
@@ -609,7 +617,7 @@ _process_stmt() {
     # (`git -C ""`) — stays one word; a newline inside a word becomes 0x1e so
     # the line is not cut (audit A); a literal 0x1f inside a word is opaque.
     _W=("$cmd" ${A[@]+"${A[@]}"}); _k=0
-    for a in "${_W[@]}"; do case "$a" in *$'\x1f'*) printf 'OPAQUE\n' ;; esac; done
+    for a in "${_W[@]}"; do case "$a" in *$'\x1f'*|*\\*) printf 'OPAQUE\n' ;; esac; done   # a backslash is an escape the guard did not decode (audit P3: bash 5 runs git \$'\u0070ush' --force)
     while [ $_k -lt ${#_W[@]} ]; do
       a="${_W[$_k]}"
       if [ "$a" = git ] || [ "${a##*/}" = git ]; then
@@ -840,11 +848,13 @@ _process_stmt() {
 
 _TOKENIZER='
 function emit_word() {
+  if (nsub) { emit_n(substr(tok, nstart)); nsub = 0 }
   if (have) { gsub(/\n/, "\036", tok); if (rd) { print "R " tok; rd = 0 } else { print "W " tok } }   # a newline INSIDE a quoted token would cut the line protocol (audit pass #2 A): carry it as 0x1e
   tok = ""; have = 0
 }
 function emit(t, v) { print t " " v }
-BEGIN { q = 0; esc = 0; tok = ""; have = 0; rd = 0; skip = 0; pending = 0; hd_tag = ""; hd_strip = 0; arith = 0 }
+function emit_n(v) { gsub(/\n/, "\036", v); print "N " v }   # v7.1.7: a substitution inside double quotes — its text is a command of its own
+BEGIN { q = 0; esc = 0; tok = ""; have = 0; rd = 0; skip = 0; pending = 0; hd_tag = ""; hd_strip = 0; arith = 0; insub = 0; subd = 0; subq = 0; subesc = 0; nsub = 0; nstart = 0 }
 {
   line = $0
   sub(/\r$/, "", line)
@@ -857,16 +867,77 @@ BEGIN { q = 0; esc = 0; tok = ""; have = 0; rd = 0; skip = 0; pending = 0; hd_ta
   n = length(line); i = 1
   while (i <= n) {
     c = substr(line, i, 1)
+    if (insub) {
+      # v7.1.7 (audit b): a substitution inside double quotes — bash runs the inner text; it
+      # used to vanish into the word. The text is kept IN the word (guard-git still sees the
+      # dollar-paren) and, once the quoted segment closes, everything from the dollar-paren to
+      # the end of that segment goes out as an N record for the consumer to re-parse as shell
+      # (audit I2: a comment, a case pattern or a heredoc inside it can hide a paren, so the
+      # nested parse gets the whole tail, not the paren-balanced slice). Inner quotes and
+      # escapes are honoured only to find the end of the segment; lines are crossed.
+      tok = tok c; have = 1
+      if (subesc) { subesc = 0; i++; continue }
+      if (subq) { if (c == "\\" && subq == 2) subesc = 1; else if ((subq == 1 && c == "\047") || (subq == 2 && c == "\042")) subq = 0; i++; continue }
+      if (c == "\\") { subesc = 1; i++; continue }
+      if (c == "\047") { subq = 1; i++; continue }
+      if (c == "\042") { subq = 2; i++; continue }
+      if (insub == 1) { if (c == "(") subd++; else if (c == ")") { subd--; if (subd == 0) insub = 0 } }
+      else if (c == "`") insub = 0
+      i++; continue
+    }
     if (q == 1) { if (c == "\047") q = 0; else tok = tok c; have = 1; i++; continue }
     if (q == 2) {
       if (esc) { tok = tok c; esc = 0 }
       else if (c == "\\") { esc = 1 }
-      else if (c == "\042") { q = 0 }
+      else if (c == "\042") { q = 0; if (nsub) { emit_n(substr(tok, nstart)); nsub = 0 } }
+      else if (c == "$" && substr(line, i + 1, 1) == "(" && substr(line, i + 2, 1) != "(") { if (!nsub) { nsub = 1; nstart = length(tok) + 1 }; tok = tok "$("; have = 1; insub = 1; subd = 1; i += 2; continue }
+      else if (c == "`") { if (!nsub) { nsub = 1; nstart = length(tok) + 1 }; tok = tok "`"; have = 1; insub = 2; i++; continue }
+      else { tok = tok c }
+      have = 1; i++; continue
+    }
+    if (q == 3) {
+      # v7.1.7 (audit a): ANSI-C quoting (dollar-quote): backslash-quote is an escaped quote, not
+      # the end of the word. Escapes are DECODED (audit I3: an escaped slash in a path spelled the
+      # fence): quote, backslash, double quote, n t r a b e f v, x-hex and octal; anything else
+      # keeps the backslash, and a target or command word that still carries one is refused.
+      if (esc) {
+        esc = 0
+        if (c == "\047" || c == "\\" || c == "\042") tok = tok c
+        else if (c == "n") tok = tok "\n"
+        else if (c == "t") tok = tok "\t"
+        else if (c == "r") tok = tok "\r"
+        else if (c == "a") tok = tok sprintf("%c", 7)
+        else if (c == "b") tok = tok sprintf("%c", 8)
+        else if (c == "e" || c == "E") tok = tok sprintf("%c", 27)
+        else if (c == "f") tok = tok sprintf("%c", 12)
+        else if (c == "v") tok = tok sprintf("%c", 11)
+        else if (c == "x") {
+          v = 0; d = 0
+          while (d < 2 && (h = index("0123456789abcdef", tolower(substr(line, i + 1 + d, 1)))) > 0) { v = v * 16 + h - 1; d++ }
+          if (d == 0 || v == 0) tok = tok "\\x"; else { tok = tok sprintf("%c", v); i += d }
+        }
+        else if (c ~ /[0-7]/) {
+          v = c + 0; d = 1
+          while (d < 3 && substr(line, i + d, 1) ~ /[0-7]/) { v = v * 8 + substr(line, i + d, 1); d++ }
+          if (v == 0) tok = tok "\\" c; else { tok = tok sprintf("%c", v); i += d - 1 }
+        }
+        else tok = tok "\\" c
+      }
+      else if (c == "\\") { esc = 1 }
+      else if (c == "\047") { q = 0 }
       else { tok = tok c }
       have = 1; i++; continue
     }
     if (esc) { tok = tok c; have = 1; esc = 0; i++; continue }
     if (c == "\\") { esc = 1; i++; continue }
+    if (c == "$" && substr(line, i + 1, 1) == "\047") {
+      # v7.1.7 (audit C1): only a dollar that is not the second of a pair opens ANSI-C quoting —
+      # a double dollar is the shell pid, and the quote after it is an ordinary single quote
+      k = 0; j = i - 1
+      while (j >= 1 && substr(line, j, 1) == "$") { k++; j-- }
+      if (k % 2 == 1) { tok = tok c; have = 1; i++; continue }
+      q = 3; have = 1; i += 2; continue
+    }
     if (c == "\047") { q = 1; have = 1; i++; continue }
     if (c == "\042") { q = 2; have = 1; i++; continue }
     if (arith > 0) {
@@ -911,7 +982,9 @@ BEGIN { q = 0; esc = 0; tok = ""; have = 0; rd = 0; skip = 0; pending = 0; hd_ta
         if (qq == "\047" || qq == "\042") {
           i++
           while (i <= n && substr(line, i, 1) != qq) { tag = tag substr(line, i, 1); i++ }
+          if (i > n) { emit("S", "OPENTAG"); continue }   # v7.1.7 (audit c): the tag spans lines — bash keeps reading the COMMAND; unreadable here → fail closed
           i++
+          while (i <= n && substr(line, i, 1) !~ /[ \t;|&<>()]/) { tag = tag substr(line, i, 1); i++ }   # a quoted part followed by more tag text
         } else {
           while (i <= n && substr(line, i, 1) !~ /[ \t;|&<>()]/) { tag = tag substr(line, i, 1); i++ }
         }
@@ -940,12 +1013,13 @@ BEGIN { q = 0; esc = 0; tok = ""; have = 0; rd = 0; skip = 0; pending = 0; hd_ta
     tok = tok c; have = 1; i++
   }
   if (esc && q != 1) { esc = 0; next }        # backslash-newline: the word continues on the next line
+  if (insub) { tok = tok "\n"; next }                # (v7.1.7) a quoted substitution spans the line
   if (q != 0) { tok = tok "\n"; have = 1; next }   # (v7.1.5, audit pass #3) a quoted word spans the line: bash keeps reading it, so do we
   emit_word(); rd = 0
   emit("S", "NL")
   if (pending) { skip = 1; pending = 0 }
 }
-END { emit_word(); if (q != 0) emit("S", "OPENQ") }   # unterminated quote: bash refuses the text; guard-git must not read it
+END { if (nsub) emit_n(substr(tok, nstart)); emit_word(); if (q != 0) emit("S", "OPENQ") }   # unterminated quote: bash refuses the text; guard-git must not read it
 '
 
 _flush_stmt() {
@@ -966,12 +1040,21 @@ _flush_deferred() {
   HB=""; HD_PENDING=false
 }
 
+N_CWDS=(); N_TXTS=()
 while IFS= read -r _tline; do
   _ttype="${_tline%% *}"
   case "$_tline" in *" "*) _tval="${_tline#* }" ;; *) _tval="" ;; esac
   case "$_ttype" in
     W)  ST+=("$_tval") ;;
     R)  RT+=("$_tval") ;;
+    N)  # v7.1.7: a substitution inside double quotes runs — judged like a nested shell, ONE nested
+        # parse per working directory per command (audit I1: one spawn per substitution cost 6 s
+        # on 120 of them). guard-git keeps its OPAQUE through the word itself.
+        if [ "$EMIT_GIT" != true ]; then
+          _k=0; _hit=-1
+          while [ $_k -lt ${#N_CWDS[@]} ]; do [ "${N_CWDS[$_k]}" = "$CUR_CWD|$CWD_UNKNOWN" ] && { _hit=$_k; break; }; _k=$((_k + 1)); done
+          if [ $_hit -ge 0 ]; then N_TXTS[$_hit]="${N_TXTS[$_hit]}"$'\x1e'"$_tval"; else N_CWDS+=("$CUR_CWD|$CWD_UNKNOWN"); N_TXTS+=("$_tval"); fi
+        fi ;;
     HS) HD_PENDING=true; ST_HAS_HD=true ;;
     HB) HB="${HB}${_tval}"$'\n' ;;
     HE) _flush_deferred ;;
@@ -980,6 +1063,9 @@ while IFS= read -r _tline; do
         NL) _flush_stmt
             [ "$HD_PENDING" = true ] || _flush_deferred ;;
         OPENQ) [ "$EMIT_GIT" = true ] && printf 'OPAQUE\n'; _flush_stmt ;;
+        OPENTAG)   # v7.1.7: a heredoc tag spanning lines — the statement's real shape is unreadable here
+             _add_unknown_target "heredoc tag spanning lines"
+             if _names_fenced_dir; then TARGET_RAW+=("heredoc tag spanning lines"); TARGET_ABS+=(""); TARGET_NOTE+=("opaque shell body: heredoc tag spanning lines"); TARGET_APD+=("${STMT_APD:-false}"); fi ;;
         "(") _flush_stmt; CWD_STACK+=("$CUR_CWD|$CWD_UNKNOWN") ;;
         ")") _flush_stmt
              if [ ${#CWD_STACK[@]} -gt 0 ]; then
@@ -993,6 +1079,15 @@ while IFS= read -r _tline; do
 done < <(printf '%s\n' "$COMMAND" | awk "$_TOKENIZER")
 _flush_stmt
 _flush_deferred
+if [ "$EMIT_GIT" != true ] && [ ${#N_CWDS[@]} -gt 0 ]; then   # (v7.1.7) the quoted substitutions, re-parsed once per working directory
+  _k=0; _save_cwd="$CUR_CWD"; _save_unk="$CWD_UNKNOWN"
+  while [ $_k -lt ${#N_CWDS[@]} ]; do
+    CUR_CWD="${N_CWDS[$_k]%|*}"; CWD_UNKNOWN="${N_CWDS[$_k]##*|}"
+    _recurse_shell "${N_TXTS[$_k]}"
+    _k=$((_k + 1))
+  done
+  CUR_CWD="$_save_cwd"; CWD_UNKNOWN="$_save_unk"
+fi
 
 # --- 2. Decide ------------------------------------------------------------------
 [ "$EMIT_GIT" = true ] && exit 0   # (v7.1.5) the statements are printed; judging is guard-git's job

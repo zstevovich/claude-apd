@@ -16508,6 +16508,99 @@ _c139 "framework changed the line a local edit changed: CONFLICT (hunk count nam
 _c139 "after a conflict the record stays old, so drift keeps reporting IMPORTANT until it is resolved" 'cmp -s "$P/$G139_REC" "$G139_W/shipped.v1" && echo "$_d" | grep -q "EXIT=1" && _imp139 "$_d" "changed since this project recorded it"'
 rm -rf "$G139_W"
 
+section "140. the bash guard reads three quoting forms it used to lose: \$'…', \"\$(…)\" and a heredoc tag spanning lines"
+
+# 2026-09-30, three scope-guard fail-opens the v7.1.5 audit found and v7.1.5/v7.1.6
+# left stated (pre-existing since v7.1.0, identical at HEAD): (a) ANSI-C quoting —
+# `$'a\'b'` read `\'` as the closing quote, so a `> /etc/x` after it vanished into a
+# re-opened quote; (b) a substitution INSIDE double quotes (`"$(echo a > /etc/x)"`,
+# a backtick) was swallowed into the word — bash runs it; (c) a quoted heredoc tag
+# that does not close on its line (`<<'EO⏎F' > /etc/x`) — bash keeps reading the
+# COMMAND, so the redirect on the next line runs. Now: `$'…'` is its own quote mode
+# (`\'` `\\` `\"` decoded, other escapes kept and a target still carrying a backslash
+# is refused as undecoded); a quoted substitution is captured to its matching `)` or
+# backtick (inner quotes honoured, lines crossed) and re-parsed as a nested shell
+# (guard-git keeps its OPAQUE: the word still carries `$(`); an unterminated tag is
+# reported as unreadable — refused for a scoped agent, OPAQUE for guard-git, and for
+# the orchestrator when the command names the fence.
+
+G140="$APD_PLUGIN_ROOT/bin/core/guard-bash-scope"
+G140_T="$(mktemp -d -t apd-g140.XXXXXX)"; mkdir -p "$G140_T/.claude" "$G140_T/src"; touch "$G140_T/.claude/.apd-config"
+_g140() {  # <expected rc> <label> <command> [orch]
+    local exp="$1" label="$2" cmd="$3" who="${4:-scope}" rc=0
+    if [ "$who" = orch ]; then APD_PROJECT_DIR="$G140_T" bash "$G140" --command "$cmd" --cwd "$G140_T" >/dev/null 2>&1 || rc=$?
+    elif [ "$who" = wide ]; then APD_PROJECT_DIR="$G140_T" AGENT_TYPE=builder bash "$G140" --command "$cmd" --cwd "$G140_T" ./ >/dev/null 2>&1 || rc=$?
+    else APD_PROJECT_DIR="$G140_T" AGENT_TYPE=builder bash "$G140" --command "$cmd" --cwd "$G140_T" src/ >/dev/null 2>&1 || rc=$?; fi
+    if [ "$rc" = "$exp" ]; then pass "$label (rc=$rc)"; PASSES=$((PASSES + 1)); else fail "$label: want rc=$exp got rc=$rc — ${cmd:0:80}"; FAILS=$((FAILS + 1)); fi
+}
+_e140() {  # <label> <command> <emit output must contain (after 0x1f→space, 0x1e→~)>
+    local out; out=$(APD_PROJECT_DIR="$G140_T" bash "$G140" --emit-git --command "$2" --cwd "$G140_T" 2>/dev/null | tr '\037\036' ' ~')
+    if printf '%s\n' "$out" | grep -q -- "$3"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1 — got: $(printf '%s' "$out" | tr '\n' '|' | cut -c1-120)"; FAILS=$((FAILS + 1)); fi
+}
+NL=$'\n'
+# --- (a) ANSI-C quoting ---
+_g140 2 "ANSI-C escaped quote no longer desyncs: echo \$'a\\'b' > /etc/x blocks"            "echo \$'a\\'b' > /etc/x"
+_g140 2 "ANSI-C escaped quote, the write in the NEXT statement blocks"                       "echo \$'a\\'b'; echo x > /etc/x"
+_g140 2 "ANSI-C target decoded and judged: rm \$'/etc/x'"                                    "rm \$'/etc/x'"
+_g140 2 "ANSI-C hex escape in a target is DECODED and judged: rm \$'\\x2fetc/x' = rm /etc/x"     "rm \$'\\x2fetc/x'"
+_g140 2 "…also with a WHOLE-PROJECT scope (the undecoded text would have resolved inside)"     "rm \$'\\x2fetc/x'" wide
+_g140 2 "ANSI-C octal escape decoded: rm \$'\\057etc/x'"                                        "rm \$'\\057etc/x'"
+_g140 2 "an escape the guard does not decode (\\u) leaves a backslash: the target is refused"   "rm \$'\\u002fetc/x'" wide
+_g140 2 "ANSI-C escaped backslash then the closing quote: echo \$'a\\\\' > /etc/x blocks"    "echo \$'a\\\\' > /etc/x"
+_g140 0 "ANSI-C word in an in-scope write allows: echo \$'a\\'b' > src/ok"                   "echo \$'a\\'b' > src/ok"
+_g140 0 "ANSI-C newline in a message is not a write: printf \$'a\\nb'"                       "printf \$'a\\nb'"
+_g140 2 "orchestrator: ANSI-C spelling of the fence is decoded: rm -rf \$'.apd/pipeline'"    "rm -rf \$'.apd/pipeline'" orch
+_g140 2 "orchestrator: the fence spelled with a hex escape is decoded and refused (audit I3)"  "rm -rf \$'.apd\\x2fpipeline'" orch
+# (audit C1) a double dollar is the shell pid — the quote after it is an ORDINARY single quote
+_g140 2 "\$\$'…' is pid + a plain string: the statement after it is read (scoped)"            "echo \$\$'a\\' ; rm /etc/x #'"
+_g140 2 "orchestrator: \$\$'…' does not swallow a fence write after it (audit C1)"            "echo \$\$'a\\' ; rm -rf .apd/pipeline #'" orch
+_g140 2 "three dollars: the last one opens ANSI-C quoting (odd run) — the write after the escaped quote is read" "echo \$\$\$'a\\'b' > /etc/x"
+# (audit C2) an escape in the COMMAND word must not hide a writer
+_g140 2 "a hex-spelled writer is decoded and judged: \$'\\x74ee' out/a = tee out/a"            "\$'\\x74ee' out/a"
+_g140 2 "a hex-spelled writer in a pipeline: … | \$'t\\x65e' out/a"                             "echo x | \$'t\\x65e' out/a"
+_g140 2 "orchestrator: a hex-spelled rm on the fence is decoded and refused (audit C2)"        "\$'\\x72m' -rf .apd/pipeline" orch
+_g140 2 "an undecodable escape in the command word is opaque: \$'\\u0074ee' src/a"             "\$'\\u0074ee' src/a"
+# --- (b) substitutions inside double quotes ---
+_g140 2 "\"\$(…)\" inside double quotes: the inner write out of scope blocks"                "echo \"\$(echo a > /etc/x)\""
+_g140 2 "\"\$(…)\" spanning lines: the inner write blocks"                                   "echo \"x \$(${NL}echo a > /etc/x${NL})\""
+_g140 2 "a backtick inside double quotes: the inner write blocks"                            "echo \"\`echo a > /etc/x\`\""
+_g140 2 "\"\$(bash -c '…')\": the nested shell inside the substitution is refused"           "echo \"\$(bash -c 'rm -rf /etc/x')\""
+_g140 2 "inner quotes honoured: \"\$(echo \")\" > /etc/x)\" — the paren in quotes does not end the capture" "echo \"\$(echo \")\" > /etc/x)\""
+_g140 2 "inner single quotes honoured: \"\$(echo ')' > /etc/x)\""                            "echo \"\$(echo ')' > /etc/x)\""
+_g140 2 "inner double quotes decide where the SEGMENT ends: \"\$(echo \"a)b\")\" ; rm /etc/x — the write after the string is read" "echo \"\$(echo \"a)b\")\" ; rm /etc/x"
+_g140 2 "inner single quotes decide where the segment ends: \"\$(echo 'a)b')\" ; rm /etc/x"    "echo \"\$(echo 'a)b')\" ; rm /etc/x"
+_g140 2 "an unterminated quoted substitution: bash would refuse the text; the guard re-parses the tail and refuses too (fail closed)" "echo \"\$(echo a > /etc/x"
+# (audit I2) the nested parse gets the whole quoted tail, so a paren hidden in a comment, a case pattern or a heredoc cannot cut it short
+_g140 2 "a comment with ')' inside \"\$(…)\": the write after it is still read"              "echo \"\$(echo # )${NL}rm /etc/x)\""
+_g140 2 "a case pattern ')' inside \"\$(…)\": the write in the branch is read"               "echo \"\$(case x in x) rm /etc/x;; esac)\""
+_g140 2 "a heredoc body line ')' inside \"\$(…)\": the write after the heredoc is read"      "echo \"\$(cat <<EOF${NL})${NL}EOF${NL}rm /etc/x)\""
+# (audit I1) one nested parse per working directory, and the 40-shell budget binds in scope mode
+_G140_MANY=$(printf 'echo "$(true)"; %.0s' $(seq 1 120)); _t0=$(date +%s); _g140 0 "120 quoted substitutions in one command pass and cost ONE nested parse" "$_G140_MANY"; _t1=$(date +%s)
+if [ $((_t1 - _t0)) -le 3 ]; then pass "…in $((_t1 - _t0)) s (HEAD spawned one guard per substitution: 6 s, over the hook timeout)"; PASSES=$((PASSES + 1)); else fail "120 quoted substitutions took $((_t1 - _t0)) s (budget: 3 s)"; FAILS=$((FAILS + 1)); fi
+_G140_WALL=$(printf 'echo "$(bash -c true)"; %.0s' $(seq 1 45)); _g140 2 "45 nested shells inside quoted substitutions exhaust the budget and are refused (fail closed, scope mode too)" "$_G140_WALL"
+_g140 0 "\"\$(…)\" that only reads, in an in-scope write, allows"                            "echo \"\$(cat src/a)\" > src/b"
+_g140 0 "\"\$(…)\" whose inner write is in scope allows"                                     "echo \"\$(echo a > src/ok)\""
+_g140 0 "\"\$(date)\" in an in-scope write allows"                                           "echo \"built \$(date)\" > src/stamp"
+_g140 0 "\"\$((1+2))\" is arithmetic, not a substitution"                                    "echo \"\$((1+2))\" > src/n"
+_g140 2 "orchestrator: \"\$(rm -rf .apd/pipeline)\" is refused (nested-shell refusal)"       "echo \"\$(rm -rf .apd/pipeline)\"" orch
+_g140 0 "orchestrator: \"\$(date)\" anywhere else is fine"                                   "echo \"\$(date)\" > /tmp/x" orch
+# --- (c) a heredoc tag spanning lines ---
+_g140 2 "quoted heredoc tag spanning lines: unreadable → refused (bash would run the redirect on line 2)" "cat <<'EO${NL}F' > /etc/x${NL}t${NL}EOF"
+_g140 2 "double-quoted heredoc tag spanning lines: refused"                                  "cat <<\"EO${NL}F\" > /etc/x${NL}t${NL}EOF"
+_g140 2 "the same shape with an in-scope redirect is ALSO refused — the statement is unreadable, stated as a limit" "cat <<'EO${NL}F' > src/ok${NL}t${NL}EOF"
+_g140 0 "a normal quoted heredoc tag still parses (body is data, redirect judged)"           "cat <<'EOF' > src/ok${NL}> /etc/x${NL}EOF"
+_g140 2 "a tag with a quoted part followed by text (<<\"E\"OF) matches EOF: the write after the heredoc is read" "cat <<\"E\"OF > src/ok${NL}x${NL}EOF${NL}rm /etc/x"
+_g140 2 "orchestrator: a heredoc tag spanning lines while the command names the fence is refused" "cat <<'EO${NL}F' > .apd/pipeline/x${NL}t${NL}EOF" orch
+# --- guard-git's protocol must not get worse ---
+_e140 "guard-git: a substitution inside a quoted -m stays OPAQUE (raw scan judges the text)"  'git commit -m "x $(date)" --no-verify' "OPAQUE"
+_e140 "guard-git: an ANSI-C -m value is decoded, the flag after it is a word of its own"      "git commit -m \$'a b' --no-verify" "GIT commit -m a b --no-verify"
+_e140 "guard-git: a heredoc tag spanning lines is OPAQUE"                                    "git commit -F - <<'EO${NL}F' --no-verify${NL}x${NL}EOF" "OPAQUE"
+_e140 "guard-git: an unterminated quoted substitution is OPAQUE"                             'git commit -m "$(date' "OPAQUE"
+_e140 "guard-git: \$\$'…' does not swallow a git statement after it (audit C1)"               "git status; echo \$\$'a\\' ; git push --force #'" "GIT push --force"
+_e140 "guard-git: a hex-spelled git word is decoded: \$'\\x67it' push --force"                  "\$'\\x67it' push --force" "GIT push --force"
+_e140 "guard-git: a git ARGUMENT with an undecoded escape is OPAQUE (audit P3: bash 5 decodes \\u)"   "git \$'\\u0070ush' --force" "OPAQUE"
+rm -rf "$G140_T"
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"
