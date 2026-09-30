@@ -8720,8 +8720,9 @@ case "$MP_R_LINE" in
 esac
 # The other half of the rule: an UNNAMED agent must still take the default row,
 # or "leave it alone" would have turned profiles into no-ops.
-if [ "$MP_X_MODEL" = "claude-sonnet-5" ]; then
-    pass "unnamed agent still resolves to the profile default row"; PASSES=$((PASSES + 1))
+MP_ECO_DEF=$(awk -F'|' '$1=="eco" && $2=="default" {print $3; exit}' "$APD_PLUGIN_ROOT/templates/model-profiles.conf")
+if [ "$MP_X_MODEL" = "$MP_ECO_DEF" ]; then
+    pass "unnamed agent still resolves to the profile default row ($MP_ECO_DEF)"; PASSES=$((PASSES + 1))
 else
     fail "unnamed agent did not take the default row: $MP_X_MODEL"; FAILS=$((FAILS + 1))
 fi
@@ -8956,8 +8957,9 @@ fi
 # The repair must write a FULL model id. It used to write the bare alias `opus`,
 # which is how a project stayed pinned to "whatever opus means today" across
 # re-inits — measured: that alias silently moved 4.8 -> 5 on 2026-07-24.
-if grep -q '^model: claude-opus-5' "$IN_PROJ/.claude/agents/code-reviewer.md"; then
-    pass "no profile: code-reviewer repaired to a pinned model id"
+IN_REV_PIN=$(awk '/^model:/ {print $2; exit}' "$APD_PLUGIN_ROOT/templates/reviewer-template.md")
+if grep -qx "model: $IN_REV_PIN" "$IN_PROJ/.claude/agents/code-reviewer.md"; then
+    pass "no profile: code-reviewer repaired to the reviewer template's pin ($IN_REV_PIN)"
     PASSES=$((PASSES + 1))
 else
     fail "legacy model repair regressed: $(grep '^model:' "$IN_PROJ/.claude/agents/code-reviewer.md")"
@@ -10369,7 +10371,7 @@ SV_TPL="$APD_PLUGIN_ROOT/templates/supervisor-template.md"
 # The no-default-fallback rule used to be a supervisor special case
 # (`"$role" != "supervisor"`). It is now uniform across named roles, so the
 # assertion moves from "supervisor is exempt" to "nothing falls back".
-if [ -f "$SV_TPL" ] && grep -q 'memory: none' "$SV_TPL" && grep -q 'model: claude-opus-5' "$SV_TPL" \
+if [ -f "$SV_TPL" ] && grep -q 'memory: none' "$SV_TPL" && grep -qE '^model: claude-[a-z]+-[0-9]' "$SV_TPL" \
    && grep -q 'supervisor)           echo "supervisor"' "$SV_PROFILE_BIN" \
    && ! grep -q '_lookup "$1" "default"' "$SV_PROFILE_BIN"; then
     pass "supervisor template (memory:none, pinned) + no role falls back to default"; PASSES=$((PASSES + 1))
@@ -16445,7 +16447,7 @@ _c139 "record present, a guidance section deleted from the copy: refreshed — t
 P=$(_p139 p5s); cp "$G139_SH" "$P/$G139_REC"; { cat "$G139_SH"; echo 'hook: ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/guard-scope'; } > "$P/.claude/rules/workflow.md"; _o=$(_i139 "$P")
 _c139 "record present, stale guard paths in the copy: refreshed (audit F1)" 'echo "$_o" | grep -q "refreshed (stale paths" && cmp -s "$P/.claude/rules/workflow.md" "$G139_SH"'
 # (audit F2) record = shipped but the copy is an OLDER framework text with every marker present (a git checkout put it back)
-P=$(_p139 p5o); cp "$G139_SH" "$P/$G139_REC"; sed 's/`claude-sonnet-5`/`sonnet`/' "$G139_SH" > "$P/.claude/rules/workflow.md"; _d=$(_d139 "$P")
+P=$(_p139 p5o); cp "$G139_SH" "$P/$G139_REC"; sed 's/`claude-sonnet-[0-9-]*`/`sonnet`/' "$G139_SH" > "$P/.claude/rules/workflow.md"; _d=$(_d139 "$P")
 _c139 "record = shipped, copy = an older text (bare aliases, every marker present): drift IMPORTANT, never INFO (audit F2)" '_imp139 "$_d" "differs from the shipped file"'
 # (audit F3) both warnings and step 5c carry the exact commands — the old text sent the orchestrator to a step that overwrote the copy
 _c139 "init's pre-record and conflict warnings name the exact recovery commands, the hand-merge with -p into a temp file (audit F3 + residual)" 'grep -q "cp .\$WF_SHIPPED. .apd/.workflow.md.shipped" "$G139_INIT" && grep -q "git merge-file -p .claude/rules/workflow.md .apd/.workflow.md.shipped .\$WF_SHIPPED. > /tmp/workflow.merged" "$G139_INIT" && ! grep -q "git merge-file .claude/rules/workflow.md .apd/.workflow.md.shipped" "$G139_INIT"'
@@ -16453,7 +16455,7 @@ _c139 "setup skill step 5c reconciles workflow.md by ASKING, with both commands 
 _c139 "worktree-bootstrap carries the record into a worktree (else every session start there warns 'no record')" 'grep -q "cp \"\$MAIN_ROOT/\.apd/\.workflow\.md\.shipped\" \"\$WT_ROOT/\.apd/\.workflow\.md\.shipped\"" "$APD_PLUGIN_ROOT/bin/core/worktree-bootstrap"'
 # (audit F14/F15, pass 3) live: a repo with TRACKED config + rules (the default layout), the record in main only (runs before the framework-change step: the shipped file is still G139_SH here)
 WR="$G139_W/wtrepo"; mkdir -p "$WR/.claude/rules" "$WR/.apd"
-( cd "$WR" && git init -q && git config user.email t@t.io && git config user.name t && printf 'PROJECT_NAME=wt\nAPD_VERSION=%s\nSTACK=test\n' "$(cat "$APD_PLUGIN_ROOT/VERSION")" > .claude/.apd-config && cp "$G139_SH" .claude/rules/workflow.md && printf '.apd/\n' > .gitignore && git add -A && git commit -qm base && git checkout -q -b older && sed 's/`claude-sonnet-5`/`sonnet`/' "$G139_SH" > .claude/rules/workflow.md && git commit -qam older && git checkout -q - ) 2>/dev/null
+( cd "$WR" && git init -q && git config user.email t@t.io && git config user.name t && printf 'PROJECT_NAME=wt\nAPD_VERSION=%s\nSTACK=test\n' "$(cat "$APD_PLUGIN_ROOT/VERSION")" > .claude/.apd-config && cp "$G139_SH" .claude/rules/workflow.md && printf '.apd/\n' > .gitignore && git add -A && git commit -qm base && git checkout -q -b older && sed 's/`claude-sonnet-[0-9-]*`/`sonnet`/' "$G139_SH" > .claude/rules/workflow.md && git commit -qam older && git checkout -q - ) 2>/dev/null
 cp "$G139_SH" "$WR/.apd/.workflow.md.shipped"
 ( cd "$WR" && git worktree add -q "$G139_W/wt-same" -b wt-same >/dev/null 2>&1 ); _o=$( cd "$G139_W/wt-same" && bash "$G139_W/plugin/bin/core/worktree-bootstrap" 2>&1 )
 _c139 "worktree with TRACKED config whose workflow.md equals main's: the record is copied before the idempotent exit (audit F14)" 'echo "$_o" | grep -q "copied .apd/.workflow.md.shipped" && cmp -s "$G139_W/wt-same/.apd/.workflow.md.shipped" "$WR/.apd/.workflow.md.shipped"'
@@ -16471,8 +16473,8 @@ _c139 "drift dim C agrees: the directory record is IMPORTANT with the same fix (
 P=$(_p139 p5bk); cp "$G139_SH" "$P/$G139_REC"; echo "OLD BACKUP" > "$P/.claude/rules/workflow.md.bak.preaudit"; { grep -v 'SUPERVISION' "$G139_SH"; echo "LOCAL-ONLY line"; } > "$P/.claude/rules/workflow.md"; _o=$(_i139 "$P")
 _c139 "a refresh when .bak.preaudit already exists writes a NUMBERED backup that holds the local edit; the old slot is untouched (audit F1 residual)" 'grep -q "OLD BACKUP" "$P/.claude/rules/workflow.md.bak.preaudit" && ls "$P/.claude/rules/" | grep -q "workflow.md.bak.preaudit\.[0-9]" && grep -q "LOCAL-ONLY" "$P/.claude/rules/"workflow.md.bak.preaudit.[0-9]* && echo "$_o" | grep -q "backup: workflow.md.bak.preaudit\.[0-9]"'
 # --- the framework moves: change the shipped file in the plugin copy ---
-cp "$G139_SH" "$G139_W/shipped.v1"; sed 's/^| Builder | `claude-sonnet-5` | xhigh |/| Builder | `claude-sonnet-5-5` | xhigh |/' "$G139_W/shipped.v1" > "$G139_SH"; echo "FRAMEWORK-NEW line" >> "$G139_SH"
-_c139 "fixture: the plugin copy's shipped workflow.md was changed (a table line + a new line)" '! cmp -s "$G139_SH" "$G139_W/shipped.v1" && grep -q "claude-sonnet-5-5" "$G139_SH"'
+cp "$G139_SH" "$G139_W/shipped.v1"; sed 's/^| Builder | `claude-sonnet-[0-9-]*` | xhigh |/| Builder | `claude-sonnet-NEXT` | xhigh |/' "$G139_W/shipped.v1" > "$G139_SH"; echo "FRAMEWORK-NEW line" >> "$G139_SH"
+_c139 "fixture: the plugin copy's shipped workflow.md was changed (a table line + a new line)" '! cmp -s "$G139_SH" "$G139_W/shipped.v1" && grep -q "claude-sonnet-NEXT" "$G139_SH" && ! grep -q "claude-sonnet-NEXT" "$G139_W/shipped.v1"'
 # 6. record = old, copy = old (no local edits) → plain refresh + record updated; drift says so before, CLEAN after
 P=$(_p139 p6); cp "$G139_W/shipped.v1" "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; _d=$(_d139 "$P")
 _c139 "drift dim C before init: the framework changed since the record → IMPORTANT (exit 1)" 'echo "$_d" | grep -q "EXIT=1" && _imp139 "$_d" "changed since this project recorded it"'
@@ -16526,12 +16528,12 @@ P=$(_p139 p6er); cp "$G139_W/shipped.v1" "$P/.claude/rules/workflow.md"; : > "$P
 _c139 "empty record: init takes the pre-record path (warn with the two commands), drift reports the MISSING record, not 'changed since recorded' (audit F12)" 'echo "$_o" | grep -q "no shipped-copy record" && _imp139 "$_d" "differs from the shipped file" && echo "$_d" | grep -q "No shipped-copy record" && ! echo "$_d" | grep -q "changed since this project recorded it"'
 # 7. record = old, copy = old + a local edit elsewhere → clean merge keeps both, backup, record updated
 P=$(_p139 p7); { echo "LOCAL-ONLY top line"; cat "$G139_W/shipped.v1"; } > "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; _o=$(_i139 "$P")
-_c139 "framework changed + local edit elsewhere: merged — local line kept AND both framework changes present" 'echo "$_o" | grep -q "merged the framework" && grep -q "LOCAL-ONLY top" "$P/.claude/rules/workflow.md" && grep -q "FRAMEWORK-NEW" "$P/.claude/rules/workflow.md" && grep -q "claude-sonnet-5-5" "$P/.claude/rules/workflow.md" && ! grep -q "<<<<<<<" "$P/.claude/rules/workflow.md"'
+_c139 "framework changed + local edit elsewhere: merged — local line kept AND both framework changes present" 'echo "$_o" | grep -q "merged the framework" && grep -q "LOCAL-ONLY top" "$P/.claude/rules/workflow.md" && grep -q "FRAMEWORK-NEW" "$P/.claude/rules/workflow.md" && grep -q "claude-sonnet-NEXT" "$P/.claude/rules/workflow.md" && ! grep -q "<<<<<<<" "$P/.claude/rules/workflow.md"'
 _c139 "the pre-merge copy is backed up under a per-version name and the record is updated" '[ -f "$P/.claude/rules/workflow.md.bak.pre-v$(cat "$APD_PLUGIN_ROOT/VERSION")" ] && grep -q "LOCAL-ONLY top" "$P/.claude/rules/workflow.md.bak.pre-v$(cat "$APD_PLUGIN_ROOT/VERSION")" && cmp -s "$P/$G139_REC" "$G139_SH"'
 _o=$(_i139 "$P")
 _c139 "a second init after the merge is idempotent (ok, no second backup, copy unchanged)" '! echo "$_o" | grep -q "workflow.md: " && [ "$(ls "$P/.claude/rules/" | grep -c "bak")" = 1 ] && grep -q "LOCAL-ONLY top" "$P/.claude/rules/workflow.md"'
 # 8. conflict: local edit on the SAME line the framework changed → untouched, warned, record unchanged, drift IMPORTANT
-P=$(_p139 p8); sed 's/^| Builder | `claude-sonnet-5` | xhigh |/| Builder | `my-local-model` | xhigh |/' "$G139_W/shipped.v1" > "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; _o=$(_i139 "$P"); _d=$(_d139 "$P")
+P=$(_p139 p8); sed 's/^| Builder | `claude-sonnet-[0-9-]*` | xhigh |/| Builder | `my-local-model` | xhigh |/' "$G139_W/shipped.v1" > "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; _o=$(_i139 "$P"); _d=$(_d139 "$P")
 _c139 "framework changed the line a local edit changed: CONFLICT (hunk count named) — copy untouched, no markers written, init warns" 'echo "$_o" | grep -q "CONFLICT with local edits ([0-9]* hunk" && grep -q "my-local-model" "$P/.claude/rules/workflow.md" && ! grep -q "<<<<<<<" "$P/.claude/rules/workflow.md" && ! grep -q "FRAMEWORK-NEW" "$P/.claude/rules/workflow.md"'
 _c139 "after a conflict the record stays old, so drift keeps reporting IMPORTANT until it is resolved" 'cmp -s "$P/$G139_REC" "$G139_W/shipped.v1" && echo "$_d" | grep -q "EXIT=1" && _imp139 "$_d" "changed since this project recorded it"'
 rm -rf "$G139_W"
@@ -16628,6 +16630,129 @@ _e140 "guard-git: \$\$'…' does not swallow a git statement after it (audit C1)
 _e140 "guard-git: a hex-spelled git word is decoded: \$'\\x67it' push --force"                  "\$'\\x67it' push --force" "GIT push --force"
 _e140 "guard-git: a git ARGUMENT with an undecoded escape is OPAQUE (audit P3: bash 5 decodes \\u)"   "git \$'\\u0070ush' --force" "OPAQUE"
 rm -rf "$G140_T"
+
+section "141. Shipped model pins: the templates are the authority, every table is joined against them, no legacy id on an instruction surface"
+
+# 2026-09-30, the post-v7.1 list, item 1. Anthropic's current lineup is Opus 5.5
+# and Sonnet 5.5 (`claude-opus-5-5` $4/$20, `claude-sonnet-5-5` $2/$10 per MTok;
+# Opus 5 and Sonnet 5 are listed as legacy, still served). v7.0 pinned every
+# shipped model to a FULL id so the framework says what it buys — which makes a
+# generation change a repin across ~25 sites: the conf rows, seven templates,
+# the workflow.md tables (twice), README, CLAUDE.md.reference, four setup/audit
+# skill files, apd-init's repair, SPEC. v7.0 did that by hand and left SPEC on
+# `claude-fable-5` for the supervisor and apd-init on a private copy of the
+# reviewer/adversarial pins. These rows make the NEXT repin mechanical: the
+# templates are the one authority for a pin, every table and skill is joined
+# against them, apd-init reads them instead of carrying its own, and no shipped
+# instruction surface may name an id the framework no longer ships. History
+# (CHANGELOG, status, comments that say what a bare alias used to resolve to)
+# is deliberately not scanned.
+
+G141_CONF="$APD_PLUGIN_ROOT/templates/model-profiles.conf"
+G141_T="$APD_PLUGIN_ROOT/templates"
+G141_INIT="$APD_PLUGIN_ROOT/bin/core/apd-init"
+G141_WF="$APD_PLUGIN_ROOT/rules/workflow.md"
+G141_CLREF="$APD_PLUGIN_ROOT/templates/CLAUDE.md.reference"
+G141_README="$REPO_ROOT/README.md"
+G141_SPEC="$REPO_ROOT/docs/SPEC.md"
+G141_SETUP="$REPO_ROOT/skills/apd-setup/SKILL.md"
+G141_SETUP_TPL="$REPO_ROOT/skills/apd-setup/reference/agent-templates.md"
+G141_SETUP_CHK="$REPO_ROOT/skills/apd-setup/reference/init-checklist.md"
+G141_AUD_CC="$REPO_ROOT/skills/apd-audit/SKILL.md"
+G141_CDXDOC="$APD_PLUGIN_ROOT/bin/adapter/cdx/codex-doctor"
+# Ids the framework no longer ships. Extend this at the next repin, together with
+# the pins — it is the one place that says which generation is "old".
+G141_LEGACY='claude-(opus|sonnet|fable)-5([^-0-9]|$)|claude-(opus|sonnet)-4-[0-9]'
+_c141() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+_pin141() { awk '/^model:/ {print $2; exit}' "$1"; }
+_eff141() { awk '/^effort:/ {print $2; exit}' "$1"; }
+_conf141() { awk -F'|' -v p="$1" -v r="$2" -v c="$3" '$1==p && $2==r {print $c; exit}' "$G141_CONF"; }   # profile role column(3=model,4=effort)
+G141_BUILDER=$(_pin141 "$G141_T/agent-template.md"); G141_REVIEWER=$(_pin141 "$G141_T/reviewer-template.md")
+G141_ADV=$(_pin141 "$G141_T/adversarial-reviewer-template.md"); G141_SUP=$(_pin141 "$G141_T/supervisor-template.md")
+
+# ---- A. the authority itself: four full ids, none legacy ----------------------
+_c141 "the four shipped templates pin FULL ids (builder=$G141_BUILDER reviewer=$G141_REVIEWER adversarial=$G141_ADV supervisor=$G141_SUP)" 'for _p in "$G141_BUILDER" "$G141_REVIEWER" "$G141_ADV" "$G141_SUP"; do echo "$_p" | grep -qE "^claude-[a-z]+-[0-9]" || exit 1; done'
+_t141=$(grep -rn '^model:' "$G141_T" 2>/dev/null | grep -v '/codex/' | grep -E "$G141_LEGACY" || true)
+_c141 "no shipped CC template (incl. stack/) pins a legacy id$( [ -n "$_t141" ] && echo " — $(echo "$_t141" | cut -d: -f1 | xargs -n1 basename | tr '\n' ' ')")" '[ -z "$_t141" ]'
+_r141=$(grep -vE '^[[:space:]]*(#|$)' "$G141_CONF" | grep -E "$G141_LEGACY" || true)
+_c141 "no model-profiles.conf DATA row names a legacy id$( [ -n "$_r141" ] && echo " — $(echo "$_r141" | tr '\n' ' ')")" '[ -z "$_r141" ]'
+_s141=""; for _f in "$G141_T"/stack/*/agents/*.md.tmpl; do [ -f "$_f" ] || continue; _m=$(_pin141 "$_f"); grep -vE '^[[:space:]]*(#|$)' "$G141_CONF" | cut -d'|' -f3 | grep -qx "$_m" || _s141="$_s141 $(basename "$_f")=$_m"; done
+_c141 "every stack template pins a model some profile row also names (no stack agent on a model the conf does not know)$_s141" '[ -z "$_s141" ]'
+
+# ---- B. conf ↔ templates: the template pin is the floor and the adversarial dial is max everywhere ----
+_c141 "eco default row == the builder template pin + effort (the template pin is the floor; workflow.md says so)" '[ "$(_conf141 eco default 3)" = "$G141_BUILDER" ] && [ "$(_conf141 eco default 4)" = "$(_eff141 "$G141_T/agent-template.md")" ]'
+_c141 "adversarial effort is max in the template AND in every profile row (the conf's own rule)" '[ "$(_eff141 "$G141_T/adversarial-reviewer-template.md")" = max ] && [ "$(grep -cE "^[a-z]+\|adversarial\|[^|]+\|max$" "$G141_CONF")" = "$(grep -cE "^[a-z]+\|adversarial\|" "$G141_CONF")" ]'
+_c141 "supervisor effort is max in the template AND in every profile row" '[ "$(_eff141 "$G141_T/supervisor-template.md")" = max ] && [ "$(grep -cE "^[a-z]+\|supervisor\|[^|]+\|max$" "$G141_CONF")" = "$(grep -cE "^[a-z]+\|supervisor\|" "$G141_CONF")" ]'
+_c141 "the adversarial template pins the same model every profile's adversarial row names (one tier down, everywhere)" '[ "$(grep -E "^[a-z]+\|adversarial\|" "$G141_CONF" | cut -d"|" -f3 | sort -u)" = "$G141_ADV" ]'
+
+# ---- C. no legacy id on any instruction surface ------------------------------
+for _pair in "workflow.md:$G141_WF" "CLAUDE.md.reference:$G141_CLREF" "README:$G141_README" "apd-setup/SKILL.md:$G141_SETUP" "apd-setup/reference/agent-templates.md:$G141_SETUP_TPL" "apd-setup/reference/init-checklist.md:$G141_SETUP_CHK" "apd-audit/SKILL.md:$G141_AUD_CC" "codex-doctor:$G141_CDXDOC"; do
+    _h=$(grep -nE "$G141_LEGACY" "${_pair#*:}" 2>/dev/null || true)
+    _c141 "${_pair%%:*} names no legacy model id$( [ -n "$_h" ] && echo " — lines $(echo "$_h" | cut -d: -f1 | tr '\n' ',')")" '[ -z "$_h" ]'
+done
+_h=$(grep -rnE "$G141_LEGACY" "$REPO_ROOT/skills/apd-setup/reference" 2>/dev/null | grep -vE 'agent-templates\.md|init-checklist\.md' || true)
+_c141 "the other apd-setup reference files name no legacy model id" '[ -z "$_h" ]'
+
+# ---- D. every role table carries the template pin (workflow.md ×2, README, CLAUDE.md.reference) ----
+_rows141() {  # <file> <role regex> → 0 when ≥1 row for the role exists and EVERY such row carries $3 in backticks
+    local _n; _n=$(grep -cE "^\| \*?\*?$2\*?\*? \|" "$1"); [ "$_n" -ge 1 ] || return 1
+    [ "$(grep -E "^\| \*?\*?$2\*?\*? \|" "$1" | grep -c "\`$3\`")" = "$_n" ]
+}
+for _pair in "workflow.md:$G141_WF" "README:$G141_README" "CLAUDE.md.reference:$G141_CLREF"; do
+    _c141 "${_pair%%:*}: every Builder row names the builder template pin" '_rows141 "${_pair#*:}" "Builder( agents)?" "$G141_BUILDER"'
+    _c141 "${_pair%%:*}: every Reviewer row names the reviewer template pin" '_rows141 "${_pair#*:}" "Reviewer" "$G141_REVIEWER"'
+    _c141 "${_pair%%:*}: every Adversarial Reviewer row names the adversarial template pin" '_rows141 "${_pair#*:}" "Adversarial Reviewer" "$G141_ADV"'
+    _c141 "${_pair%%:*}: every Supervisor row names the supervisor template pin" '_rows141 "${_pair#*:}" "Supervisor" "$G141_SUP"'
+done
+_c141 "workflow.md has two Builder rows (§2 summary + §8 dispatch table) — both joined above" '[ "$(grep -cE "^\| Builder \|" "$G141_WF")" = 2 ]'
+# the §2 per-role `**Model:**` lines, in role order, and the cruise pointer on the builder line
+_m141=$(grep -oE '^\- \*\*Model:\*\* `claude-[a-z0-9-]+`' "$G141_WF" | grep -oE 'claude-[a-z0-9-]+' | tr '\n' ' ')
+_c141 "workflow.md §2 **Model:** lines read builder / reviewer / adversarial / supervisor template pins in that order (got: $_m141)" '[ "$_m141" = "$G141_BUILDER $G141_REVIEWER $G141_ADV $G141_SUP " ]'
+_c141 "workflow.md §2 Builder line says what cruise moves builders to, from the conf ($(_conf141 cruise default 3) / $(_conf141 cruise default 4))" 'grep -qE "^\- \*\*Model:\*\* \`$G141_BUILDER\`.*\`cruise\` moves builders to \`$(_conf141 cruise default 3)\` / $(_conf141 cruise default 4)" "$G141_WF"'
+_c141 "workflow.md §8 dispatch examples repeat the pins in the frontmatter hints" 'grep -qE "dispatch backend-builder. \(model: $G141_BUILDER," "$G141_WF" && grep -qE "dispatch code-reviewer. \(model: $G141_REVIEWER," "$G141_WF" && grep -qE "dispatch adversarial-reviewer. \(model: $G141_ADV," "$G141_WF" && grep -qE "dispatch supervisor. \(model: $G141_SUP," "$G141_WF"'
+_c141 "workflow.md names the current pins as its FULL-id examples" 'grep -qE "Models are named by FULL id \(\`$G141_REVIEWER\`, \`$G141_BUILDER\`\)" "$G141_WF"'
+
+# ---- E. the setup + audit skills say the same pins ---------------------------
+_c141 "apd-setup reference table: builder model = the builder template pin" 'grep -qE "^\| \`model\` \| \`$G141_BUILDER\`" "$G141_SETUP_TPL"'
+_c141 "apd-setup reference table + prose: reviewer model = the reviewer template pin" 'grep -qE "^\| \`model\` \| \`$G141_REVIEWER\`" "$G141_SETUP_TPL" && grep -qF "\`$G141_REVIEWER\` / \`max\` is the right tool" "$G141_SETUP_TPL"'
+_c141 "apd-setup init-checklist names the reviewer template pin (table + sample output)" 'grep -qF "model: $G141_REVIEWER" "$G141_SETUP_CHK" && grep -qF "($G141_REVIEWER / max / read-only)" "$G141_SETUP_CHK"'
+_c141 "apd-setup SKILL.md: reviewer mandatory line, anti-pattern and exit criteria all name the reviewer template pin" '[ "$(grep -cF "$G141_REVIEWER / max / plan / orange" "$G141_SETUP")" -ge 2 ] && grep -qF "model: $G141_REVIEWER, effort: max, permissionMode: plan" "$G141_SETUP"'
+_c141 "apd-setup 5c: the example report moves builders to the cruise default and the supervisor to its template pin; the floor names the builder pin" 'grep -qF "\`$(_conf141 cruise default 3) / $(_conf141 cruise default 4)\`" "$G141_SETUP" && grep -qF "\`$G141_SUP / max\`" "$G141_SETUP" && grep -qF "template'"'"'s \`$G141_BUILDER\`" "$G141_SETUP"'
+_c141 "apd-audit (CC) frontmatter check lists all four template pins" 'grep -qF "Builders \`$G141_BUILDER\`" "$G141_AUD_CC" && grep -qF "\`code-reviewer\` \`$G141_REVIEWER\`" "$G141_AUD_CC" && grep -qF "\`adversarial-reviewer\` \`$G141_ADV\`" "$G141_AUD_CC" && grep -qF "\`supervisor\` \`$G141_SUP\`" "$G141_AUD_CC"'
+
+# ---- F. SPEC's template rows describe the templates' real pins ---------------
+_spec141() { grep -E "^\| \`templates/$1\` \|" "$G141_SPEC" | head -1; }
+_c141 "SPEC row for reviewer-template.md names its pin (was: 'model: opus' since v7.0)" 'echo "$(_spec141 reviewer-template.md)" | grep -qF "model: $G141_REVIEWER"'
+_c141 "SPEC row for adversarial-reviewer-template.md names its pin (was: 'model: sonnet')" 'echo "$(_spec141 adversarial-reviewer-template.md)" | grep -qF "model: $G141_ADV"'
+_c141 "SPEC row for supervisor-template.md names its pin (was: claude-fable-5 — stale since v7.0)" 'echo "$(_spec141 supervisor-template.md)" | grep -qF "model: $G141_SUP"'
+_c141 "SPEC row for agent-template.md names the builder pin" 'echo "$(_spec141 agent-template.md)" | grep -qF "model: $G141_BUILDER"'
+
+# ---- G. apd-init repairs to the TEMPLATE's pin, not to a private copy --------
+_i141=$(grep -nE "model: claude-[a-z]+-[0-9]" "$G141_INIT" || true)
+_c141 "apd-init carries no literal model id of its own (reads the reviewer/adversarial pins from the templates)$( [ -n "$_i141" ] && echo " — lines $(echo "$_i141" | cut -d: -f1 | tr '\n' ',')")" '[ -z "$_i141" ]'
+G141_W="$(mktemp -d -t apd-g141.XXXXXX)"; mkdir -p "$G141_W/plugin"; cp -R "$APD_PLUGIN_ROOT/." "$G141_W/plugin/"
+sed -i.bak 's/^model: .*/model: claude-zz-reviewer-9/' "$G141_W/plugin/templates/reviewer-template.md"; sed -i.bak 's/^model: .*/model: claude-zz-adv-9/' "$G141_W/plugin/templates/adversarial-reviewer-template.md"; rm -f "$G141_W/plugin/templates/"*.bak
+_p141() {  # <name> [profile] → a CC project with a stale reviewer + adversarial (all content markers present, so no template refresh fires)
+    local P="$G141_W/$1"; mkdir -p "$P/.claude/rules" "$P/.claude/memory" "$P/.apd/pipeline" "$P/.claude/agents"
+    printf 'PROJECT_NAME=%s\nAPD_VERSION=%s\nSTACK=test\n' "$1" "$(cat "$APD_PLUGIN_ROOT/VERSION")" > "$P/.claude/.apd-config"
+    [ -n "${2:-}" ] && printf 'MODEL_PROFILE=%s\n' "$2" >> "$P/.claude/.apd-config"
+    printf '{"permissions":{"deny":[]}}\n' > "$P/.claude/settings.json"; touch "$P/CLAUDE.md"; cp "$G141_W/plugin/rules/workflow.md" "$P/.claude/rules/workflow.md"
+    printf -- '---\nname: code-reviewer\nmodel: %s\neffort: max\npermissionMode: plan\n---\nreviewed-files\n' "$3" > "$P/.claude/agents/code-reviewer.md"
+    printf -- '---\nname: adversarial-reviewer\nmodel: %s\neffort: max\nmemory: none\n---\nreviewed-files guard-spec-blind\n' "$3" > "$P/.claude/agents/adversarial-reviewer.md"
+    echo "$P"
+}
+_i141run() { ( cd "$1" && APD_PROJECT_DIR="$1" bash "$G141_W/plugin/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g'; }
+P=$(_p141 g1 "" opus); _o=$(_i141run "$P")
+_c141 "no profile, reviewer on a bare alias: init repairs it to the TEMPLATE's pin (the copy says claude-zz-reviewer-9) and says which" 'grep -q "^model: claude-zz-reviewer-9$" "$P/.claude/agents/code-reviewer.md" && echo "$_o" | grep -q "code-reviewer: fixed model to claude-zz-reviewer-9"'
+_c141 "no profile, adversarial on a bare alias: repaired to the adversarial template's pin (claude-zz-adv-9), memory: none kept" 'grep -q "^model: claude-zz-adv-9$" "$P/.claude/agents/adversarial-reviewer.md" && grep -q "^memory: none$" "$P/.claude/agents/adversarial-reviewer.md" && echo "$_o" | grep -q "adversarial-reviewer: fixed model to claude-zz-adv-9"'
+_o=$(_i141run "$P")
+_c141 "second init: both at the template pin → ok lines name the pin, nothing rewritten" 'echo "$_o" | grep -q "code-reviewer (claude-zz-reviewer-9/max)" && echo "$_o" | grep -q "adversarial-reviewer (claude-zz-adv-9/max, memory: none)" && ! echo "$_o" | grep -q "fixed model"'
+P=$(_p141 g2 eco "$G141_REVIEWER"); _o=$(_i141run "$P")
+_c141 "declared profile with no reviewer row, reviewer on a pin that is NOT the template's: init WARNS naming the template pin, leaves the file (HEAD said ok whenever the file matched init's private copy)" 'echo "$_o" | grep -q "code-reviewer: model: $G141_REVIEWER .*template pin is claude-zz-reviewer-9" && grep -q "^model: $G141_REVIEWER$" "$P/.claude/agents/code-reviewer.md"'
+P=$(_p141 g3 eco claude-zz-reviewer-9); _o=$(_i141run "$P")
+_c141 "declared profile with no reviewer row, reviewer AT the template pin: ok (template pin), not a warn" 'echo "$_o" | grep -q "code-reviewer (template pin; profile .eco. has no reviewer row)" && ! echo "$_o" | grep -q "NOTHING manages"'
+rm -rf "$G141_W"
+
 
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"

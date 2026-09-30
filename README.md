@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>v7.1.8</b> &middot; MIT &middot; macOS + Linux
+  <b>v7.1.9</b> &middot; MIT &middot; macOS + Linux
 </p>
 
 <p align="center">
@@ -88,7 +88,7 @@ codex plugin marketplace upgrade codex-apd                    # pulls latest mai
 To pin the upgrade to a specific tag or branch (e.g. for pre-release testing):
 ```bash
 codex plugin marketplace remove codex-apd
-codex plugin marketplace add zstevovich/claude-apd@v7.1.8     # or @<branch> for a feature branch
+codex plugin marketplace add zstevovich/claude-apd@v7.1.9     # or @<branch> for a feature branch
 ```
 
 **Codex — direct-drop install:**
@@ -107,10 +107,10 @@ See [Getting Started](GETTING-STARTED.md) for both walkthroughs.
 | Role | Model (template pin, full id) | Effort | Responsibility |
 |------|------|--------|----------------|
 | **Orchestrator** | your session's model — not APD-managed | — | Coordinates pipeline, writes spec, dispatches agents, commits |
-| **Builder** | `claude-sonnet-5` | xhigh | Implements code per spec, scoped to specific files |
-| **Reviewer** | `claude-opus-5` | max | Finds bugs, security issues, edge cases (read-only) |
-| **Adversarial Reviewer** | `claude-sonnet-5` | max | Context-free review — no spec knowledge, fresh perspective; one tier down on purpose |
-| **Supervisor** | `claude-opus-5` | max | Judges the FINAL diff after every fix, before the verifier (every profile since v7.0) |
+| **Builder** | `claude-sonnet-5-5` | xhigh | Implements code per spec, scoped to specific files |
+| **Reviewer** | `claude-opus-5-5` | max | Finds bugs, security issues, edge cases (read-only) |
+| **Adversarial Reviewer** | `claude-sonnet-5-5` | max | Context-free review — no spec knowledge, fresh perspective; one tier down on purpose |
+| **Supervisor** | `claude-opus-5-5` | max | Judges the FINAL diff after every fix, before the verifier (every profile since v7.0) |
 | **Verifier** | — | — | Script: build + test + spec traceability check |
 
 Model and effort per agent are per-project settings — and since v6.16 they are switchable as named profiles.
@@ -123,9 +123,9 @@ One command switches every pipeline agent's model/effort between named profiles:
 
 | Profile | Builders / Reviewer | Adversarial | Supervisor | When |
 |---------|--------------------|-------------|------------|------|
-| `burn` | `claude-opus-5` / max | `claude-sonnet-5` / max | `claude-opus-5` / max | Launch-critical features — maximum quality, cost ignored |
-| `cruise` | `claude-opus-5` / high | `claude-sonnet-5` / max | `claude-opus-5` / max | Daily default — strong builders, balanced cost |
-| `eco` | `claude-sonnet-5` / xhigh | `claude-sonnet-5` / max | `claude-opus-5` / max | Small, well-scoped tasks, copy fixes, Lean runs |
+| `burn` | `claude-opus-5-5` / max | `claude-sonnet-5-5` / max | `claude-opus-5-5` / max | Launch-critical features — maximum quality, cost ignored |
+| `cruise` | `claude-opus-5-5` / high | `claude-sonnet-5-5` / max | `claude-opus-5-5` / max | Daily default — strong builders, balanced cost |
+| `eco` | `claude-sonnet-5-5` / xhigh | `claude-sonnet-5-5` / max | `claude-opus-5-5` / max | Small, well-scoped tasks, copy fixes, Lean runs |
 
 (`plugins/apd/templates/model-profiles.conf` is the authority; this table is checked against it by the test suite.)
 

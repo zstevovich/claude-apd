@@ -58,8 +58,8 @@ For each agent in `.claude/agents/*.md`:
 **Frontmatter check:**
 - `model:` — **full ids only, never a bare alias.** `opus`/`sonnet` resolve to whatever
   the runtime maps them to today, which is how a corpus moved between model generations
-  unnoticed. Builders `claude-sonnet-5`, `code-reviewer` `claude-opus-5`,
-  `adversarial-reviewer` `claude-sonnet-5`, `supervisor` `claude-opus-5`.
+  unnoticed. Builders `claude-sonnet-5-5`, `code-reviewer` `claude-opus-5-5`,
+  `adversarial-reviewer` `claude-sonnet-5-5`, `supervisor` `claude-opus-5-5`.
   **Do not "fix" a model a profile owns:** `apd profile status` shows which roles the
   declared `MODEL_PROFILE` manages. A conf with no row for a role means the template pin
   stands — flag a mismatch, do not rewrite it.

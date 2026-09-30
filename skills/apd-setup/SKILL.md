@@ -110,7 +110,7 @@ Generate each file from the per-role and per-template rules:
 - **Agents (builder + reviewer):** See [reference/agent-templates.md](reference/agent-templates.md).
 - **CLAUDE.md, verify-all.sh, rules, memory, settings, gitignore, MCP recommendations:** See [reference/rules-templates.md](reference/rules-templates.md).
 
-The reviewer agent is mandatory — every project gets one with `claude-opus-5 / max / plan / orange` (`apd-init` writes it from `reviewer-template.md` if this skill has not).
+The reviewer agent is mandatory — every project gets one with `claude-opus-5-5 / max / plan / orange` (`apd-init` writes it from `reviewer-template.md` if this skill has not).
 
 ### 5b. Stack-aware scaffolding (v6.12+)
 
@@ -152,7 +152,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-stack-scaffold dotnet
 
 ### 5c. Reconcile the project 1:1 with the framework (v7.0.3+)
 
-**This step is setup's job, not `apd-init`'s.** Init deliberately never rewrites a model once a profile is declared (`apd-init:336` — rewriting a hand-picked model on every session-start is the footgun v6.16.1 removed). The consequence: when the plugin changes what it ships — as v7.0 did, replacing every bare alias with a full id (`claude-opus-5`, `claude-sonnet-5`), moving the supervisor to `claude-opus-5`, and deleting guidance that v6.31 retracted — **nothing carries that into an existing project.** Setup is the only place that reconciles it, and it does so by asking.
+**This step is setup's job, not `apd-init`'s.** Init deliberately never rewrites a model once a profile is declared (`apd-init:336` — rewriting a hand-picked model on every session-start is the footgun v6.16.1 removed). The consequence: when the plugin changes what it ships — as v7.0 did (every bare alias replaced with a full id, the supervisor moved off Fable to the Opus pin, guidance that v6.31 retracted deleted) and as v7.1.9 did again (every pin moved to the 5.5 generation) — **nothing carries that into an existing project.** Setup is the only place that reconciles it, and it does so by asking.
 
 Measured cost of not doing it (Bambi, 2026-07-26, hours after v7.0.2): 7 of 9 agents on stale models, the supervisor still on a model no profile names, `workflow.md` 103 lines behind and still instructing the orchestrator to raise `maxTurns` — a field proven inert on 2026-07-09. Every mechanical check said the project was fine.
 
@@ -174,7 +174,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-audit-drift
 Present ONE report and ask once. The recommendation is **full 1:1 alignment** — never a subset, never a per-item negotiation:
 
 > "Project declares profile `cruise`. Four things differ from framework v<plugin version>:
-> - **Models:** 6 builders + code-reviewer on the bare alias `opus` / xhigh → `claude-opus-5 / high`; supervisor `claude-fable-5 / max` → `claude-opus-5 / max`
+> - **Models:** 6 builders + code-reviewer on the bare alias `opus` / xhigh → `claude-opus-5-5 / high`; supervisor on a Fable pin no profile names / max → `claude-opus-5-5 / max`
 > - **workflow.md:** 103 lines behind — still documents `maxTurns` tuning, which v6.31 removed
 > - **Agent frontmatter:** 2 agents missing `permissionMode`, adversarial missing `memory: none`
 > - **Dead fields:** `maxTurns` on 8 agents — no longer part of the template
@@ -184,7 +184,7 @@ Present ONE report and ask once. The recommendation is **full 1:1 alignment** �
 - **User accepts** → apply all four: `apd profile <declared>` (owned roles), unowned roles to their template pin, reconcile `workflow.md` — **ask which case applies, never just overwrite** (v7.1.6): (a) *no shipped-copy record and the copy differs* — if the difference is local edits the project wants to keep, run `cp <plugin>/plugins/apd/rules/workflow.md .apd/.workflow.md.shipped` (declares the current shipped file as the base; the edits become local and init merges framework changes forward from now on — it does NOT mean everything is merged: whatever the framework changed between the copy's real origin and today stays as it is, and drift dim C keeps reporting the difference until the copy equals the shipped file); if it is an older framework text, `cp <plugin>/plugins/apd/rules/workflow.md .claude/rules/workflow.md` after backing the copy up; (b) *init reported a CONFLICT* — `git merge-file -p .claude/rules/workflow.md .apd/.workflow.md.shipped <plugin>/plugins/apd/rules/workflow.md > /tmp/workflow.merged` (never in place: an in-place merge writes `<<<<<<<` markers into the live rules file CC loads), resolve the markers in the temp file, `cp /tmp/workflow.merged .claude/rules/workflow.md`, then `cp <plugin>/plugins/apd/rules/workflow.md .apd/.workflow.md.shipped`; (c) *record present, copy differs* (drift dim C IMPORTANT) — local edits belong in `CLAUDE.md`: move them there and take the shipped file. `<plugin>` is `${CLAUDE_PLUGIN_ROOT}`, fix frontmatter fields, strip dead fields. Then say the session must be restarted — agent definitions are cached at session start, and `apd profile` drops `.apd/.pending-reload` so the PreToolUse guard blocks dispatch until `apd reload-done` or a fresh session.
 - **User declines** → change nothing and say so plainly. A declined reconcile is a valid end state; do not re-ask later in the same run, and do not apply "just the safe half".
 
-**Where references collide, name the authority instead of guessing.** `model-profiles.conf` is authoritative for `model`/`effort` — a missing row means "this profile does not mention that role", never "reset it to the default row", so a declared `cruise` builder is NOT dragged down to the template's `claude-sonnet-5`. The template is authoritative for structural fields. If a project rule and a framework file genuinely conflict, report the conflict in the same report rather than silently picking a side.
+**Where references collide, name the authority instead of guessing.** `model-profiles.conf` is authoritative for `model`/`effort` — a missing row means "this profile does not mention that role", never "reset it to the default row", so a declared `cruise` builder is NOT dragged down to the template's `claude-sonnet-5-5`. The template is authoritative for structural fields. If a project rule and a framework file genuinely conflict, report the conflict in the same report rather than silently picking a side.
 
 If everything is in sync, say so in one line and move on.
 
@@ -202,7 +202,7 @@ The check must report `0 FAIL` before this skill finishes. If a FAIL surfaces, e
 - **Don't** overwrite existing files during gap analysis **→ Do** generate ONLY missing files; touch existing ones only if they're literally empty or marked stale
 - **Don't** populate `CLAUDE.md` with `{{PLACEHOLDER}}` values **→ Do** ask the user (or read from `CLAUDE_PLUGIN_OPTION_*` env vars) and fill every placeholder
 - **Don't** assume the stack from one folder name **→ Do** read enough of the project (`package.json`, `pom.xml`, `Cargo.toml`, etc.) to confirm before suggesting agents
-- **Don't** generate the reviewer agent with a cheap or unpinned model **→ Do** use `model: claude-opus-5, effort: max, permissionMode: plan` — this is the one agent where shortcuts matter
+- **Don't** generate the reviewer agent with a cheap or unpinned model **→ Do** use `model: claude-opus-5-5, effort: max, permissionMode: plan` — this is the one agent where shortcuts matter
 - **Don't** hand-edit a `model:` line for a role the profile owns, and **don't** offer partial alignment ("update the builders, leave the supervisor") **→ Do** run `apd profile <declared>`, which moves every owned role at once. A profile the project only half-matches is worse than a declared drift: `apd profile status` then reports IN SYNC for a state nobody chose
 - **Don't** leave a declared-but-drifted profile unmentioned because init printed "managed by profile" **→ Do** run step 5c. Init says who owns the model, not whether the value is right — reconciling is setup's job
 - **Don't promise framework features that don't exist in generated CLAUDE.md / workflow.md.** Especially: `apd verify-contracts` supports **TypeScript ↔ C# only** (v6.12+). For PHP/Python/Java/Go/Ruby/Kotlin/Rust backends, the verifier ERRORS — do NOT write "apd verify-contracts automatically checks <X> DTO ↔ TS types" in generated docs for those stacks. Instead write "Cross-layer type mapping is manual — follow workflow.md section 7 (Cross-layer verification: the backend DTO is the source of truth); keep the per-stack mapping in CLAUDE.md". (Section 7 holds four rules; earlier text pointed at a table there that never existed — fixed in v7.1.6.) This anti-pattern was observed in Festico apd-setup (2026-05-28) — orchestrator confabulated PHP support claim that does not exist. When uncertain about framework feature scope, read `${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/<command>` script header for exact supported scope, or `docs/SPEC.md`.
@@ -214,7 +214,7 @@ You're done when:
 - For new setup: every file in the "What gets generated" table exists with no placeholders left
 - For maintenance: every gap analysis row is either ✓ or has been fixed
 - `bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/verify-apd` passes (X PASS / 0 FAIL)
-- The reviewer agent exists with `claude-opus-5 / max / plan / orange`
+- The reviewer agent exists with `claude-opus-5-5 / max / plan / orange`
 - `.claude/.apd-config` (or `.apd/config`) is present with `PROJECT_NAME`, `APD_VERSION`, `STACK`
 - `.mcp.json` recommendations have been presented to the user (and either accepted or skipped explicitly)
 - If a profile is declared, `pipeline-model-profile status` was run and its verdict acted on: IN SYNC reported in one line, or DRIFTED presented as a single full-alignment offer that the user explicitly accepted or declined

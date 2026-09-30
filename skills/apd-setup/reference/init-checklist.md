@@ -9,7 +9,7 @@ When CLAUDE.md or `.claude/` already exists, run these checks. Generate ONLY mis
 | Check | File | If missing |
 |---|---|---|
 | Reviewer agent | `.claude/agents/code-reviewer.md` | Generate from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/reviewer-template.md` |
-| Reviewer model | `code-reviewer.md` frontmatter | Must be `model: claude-opus-5`, `effort: max`, `permissionMode: plan`. **No profile owns this role** — `model-profiles.conf` ships no `reviewer` row, so the template pin is the only thing holding it |
+| Reviewer model | `code-reviewer.md` frontmatter | Must be `model: claude-opus-5-5`, `effort: max`, `permissionMode: plan`. **No profile owns this role** — `model-profiles.conf` ships no `reviewer` row, so the template pin is the only thing holding it |
 | **Adversarial agent** | `.claude/agents/adversarial-reviewer.md` | Generate from `adversarial-reviewer-template.md`. **Not optional:** without the definition the reviewer advance BLOCKS (`adversarial-agent-missing`) — and before v7.0 its absence silently dropped the entire adversarial layer |
 | **Supervisor agent** | `.claude/agents/supervisor.md` | Generate from `supervisor-template.md` (`memory: none`). Every profile carries a `supervisor` row since v7.0, so the final-diff review applies at every price point |
 | Workflow rules | `.claude/rules/workflow.md` | Copy from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/rules/workflow.md` |
@@ -26,7 +26,7 @@ Show the analysis to the user before fixing anything:
 APD gap analysis:
   ✓ CLAUDE.md exists
   ✓ 3 builder agents
-  ✗ code-reviewer.md MISSING — will generate (claude-opus-5 / max / read-only)
+  ✗ code-reviewer.md MISSING — will generate (claude-opus-5-5 / max / read-only)
   ✓ workflow.md exists
   ✓ verify-all.sh configured
   ✓ Memory files (4/4)

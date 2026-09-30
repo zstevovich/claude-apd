@@ -28,7 +28,7 @@ Generated from `${CLAUDE_PLUGIN_ROOT}/plugins/apd/templates/agent-template.md`. 
 | `name` | `<domain>-builder` (e.g. `backend-builder`) |
 | `description` | One-line role summary |
 | `tools` | `Read, Write, Edit, Glob, Grep, Bash` |
-| `model` | `claude-sonnet-5` — **full id, never the bare alias `sonnet`** |
+| `model` | `claude-sonnet-5-5` — **full id, never the bare alias `sonnet`** |
 | `effort` | `xhigh` |
 | `permissionMode` | `bypassPermissions` |
 | `color` | `purple` (backend), `blue` (frontend), `green` (testing), `cyan` (other) |
@@ -58,7 +58,7 @@ ALWAYS generated, regardless of stack. Generated from `${CLAUDE_PLUGIN_ROOT}/plu
 |---|---|
 | `name` | `code-reviewer` |
 | `tools` | `Read, Glob, Grep, Bash` — **no Write or Edit** |
-| `model` | `claude-opus-5` — **full id, never the bare alias `opus`** |
+| `model` | `claude-opus-5-5` — **full id, never the bare alias `opus`** |
 | `effort` | `max` |
 | `permissionMode` | `plan` (read-only) |
 | `color` | `orange` |
@@ -67,7 +67,7 @@ ALWAYS generated, regardless of stack. Generated from `${CLAUDE_PLUGIN_ROOT}/plu
 
 **Body:** review checklist, output format (CRITICAL / IMPORTANT / SUGGESTIONS), final verdict (PASS / FAIL).
 
-The reviewer is mandatory because finding bugs requires deeper reasoning than writing code — `claude-opus-5` / `max` is the right tool, not a cost shortcut.
+The reviewer is mandatory because finding bugs requires deeper reasoning than writing code — `claude-opus-5-5` / `max` is the right tool, not a cost shortcut.
 
 ## Generation rule
 

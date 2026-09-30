@@ -2,7 +2,7 @@
 name: adversarial-reviewer
 description: Context-free code reviewer — finds issues that contextual reviewers miss
 tools: Read, Glob, Grep, Bash
-model: claude-sonnet-5
+model: claude-sonnet-5-5
 effort: max
 color: red
 permissionMode: plan

@@ -451,7 +451,7 @@ The orchestrator MUST write the spec card to `.apd/pipeline/spec-card.md` before
 
 ## 2. Six roles — strict model and effort enforcement
 
-Models are named by FULL id (`claude-opus-5`, `claude-sonnet-5`), never by a bare
+Models are named by FULL id (`claude-opus-5-5`, `claude-sonnet-5-5`), never by a bare
 alias — an alias resolves to whatever the runtime maps it to today, and on this
 corpus agents pinned to `opus` moved from 4.8 to 5 with no config change and no
 record. The values below are the shipped template pins; the declared
@@ -469,7 +469,7 @@ builder/reviewer tier per profile and is the authority for the roles it owns.
 - **If you find yourself writing code: STOP. Dispatch an agent instead.**
 
 ### Builder (dispatched agent)
-- **Model:** `claude-sonnet-5` | **Effort:** xhigh (template pin; `cruise` moves builders to `claude-opus-5` / high)
+- **Model:** `claude-sonnet-5-5` | **Effort:** xhigh (template pin; `cruise` moves builders to `claude-opus-5-5` / high)
 - Implements code according to the spec
 - Defined in `.claude/agents/` with scope guards
 - Max 3-4 edit operations per dispatch
@@ -477,7 +477,7 @@ builder/reviewer tier per profile and is the authority for the roles it owns.
 - **Must not** commit, push, or modify files outside its scope
 
 ### Reviewer (dispatched agent)
-- **Model:** `claude-opus-5` | **Effort:** max
+- **Model:** `claude-opus-5-5` | **Effort:** max
 - Finds risks, bugs, omissions in Builder's work
 - Does NOT suggest style changes outside scope
 - Runs AUTOMATICALLY after every Builder — **never skip**
@@ -485,7 +485,7 @@ builder/reviewer tier per profile and is the authority for the roles it owns.
 - **Dispatch:** `Agent({ subagent_type: "code-reviewer", prompt: "Review..." })` — NEVER use superpowers:code-reviewer
 
 ### Adversarial Reviewer (dispatched agent)
-- **Model:** `claude-sonnet-5` | **Effort:** max — deliberately one tier below the reviewer on every profile: its value is positional (no context), not model strength
+- **Model:** `claude-sonnet-5-5` | **Effort:** max — deliberately one tier below the reviewer on every profile: its value is positional (no context), not model strength
 - Context-free — sees only code changes, not the spec or task
 - Finds bugs that contextual reviewers miss by not knowing intent
 - Findings are advisory — orchestrator decides what to act on
@@ -493,7 +493,7 @@ builder/reviewer tier per profile and is the authority for the roles it owns.
 - Orchestrator tracks hit rate: accepted vs dismissed findings
 
 ### Supervisor (dispatched agent, v6.30; every profile since v7.0)
-- **Model:** `claude-opus-5` | **Effort:** max | `memory: none`
+- **Model:** `claude-opus-5-5` | **Effort:** max | `memory: none`
 - Judges the FINAL diff after adversarial fixes, before the verifier: R-criteria still met, fix-of-findings collateral, regression-surface claims vs the diff, commit verdict
 - Findings carry `**Question:** Q1|Q2|Q3` tags (v7.1); notes need no disposition
 - Its stop must be the last agent activity before the verifier (`supervision-not-final`)
@@ -508,10 +508,10 @@ builder/reviewer tier per profile and is the authority for the roles it owns.
 | Role | Model (template pin) | Effort | Why |
 |------|------|--------|-----|
 | Orchestrator | session model — not APD-managed | — | Decisions, planning, coordination — expensive to reverse |
-| Builder | `claude-sonnet-5` | xhigh | Implementation following clear spec — deep reasoning for coding tasks; `cruise` raises the tier |
-| Reviewer | `claude-opus-5` | max | Finding bugs, security issues — must be thorough |
-| Adversarial Reviewer | `claude-sonnet-5` | max | Fresh eyes, one tier down on purpose — positional value, not model strength |
-| Supervisor | `claude-opus-5` | max | Final-diff judgement after every fix; every profile carries it |
+| Builder | `claude-sonnet-5-5` | xhigh | Implementation following clear spec — deep reasoning for coding tasks; `cruise` raises the tier |
+| Reviewer | `claude-opus-5-5` | max | Finding bugs, security issues — must be thorough |
+| Adversarial Reviewer | `claude-sonnet-5-5` | max | Fresh eyes, one tier down on purpose — positional value, not model strength |
+| Supervisor | `claude-opus-5-5` | max | Final-diff judgement after every fix; every profile carries it |
 | Verifier | — | — | Script, not a model — runs build + test |
 
 ## 3. Micro-tasks
@@ -660,10 +660,10 @@ When a task involves backend + frontend/mobile:
 | Role | Model | Effort | Dispatch example |
 |------|-------|--------|-----------------|
 | Orchestrator | session model — not APD-managed | — | (main session) |
-| Builder | `claude-sonnet-5` | xhigh | `dispatch backend-builder` (model: claude-sonnet-5, effort: xhigh in frontmatter) |
-| Reviewer | `claude-opus-5` | max | `dispatch code-reviewer` (model: claude-opus-5, effort: max in frontmatter) |
-| Adversarial Reviewer | `claude-sonnet-5` | max | `dispatch adversarial-reviewer` (model: claude-sonnet-5, effort: max in frontmatter) |
-| Supervisor | `claude-opus-5` | max | `dispatch supervisor` (model: claude-opus-5, effort: max, `memory: none` in frontmatter) |
+| Builder | `claude-sonnet-5-5` | xhigh | `dispatch backend-builder` (model: claude-sonnet-5-5, effort: xhigh in frontmatter) |
+| Reviewer | `claude-opus-5-5` | max | `dispatch code-reviewer` (model: claude-opus-5-5, effort: max in frontmatter) |
+| Adversarial Reviewer | `claude-sonnet-5-5` | max | `dispatch adversarial-reviewer` (model: claude-sonnet-5-5, effort: max in frontmatter) |
+| Supervisor | `claude-opus-5-5` | max | `dispatch supervisor` (model: claude-opus-5-5, effort: max, `memory: none` in frontmatter) |
 
 - **Never review on the builder tier** — it misses subtle bugs (exception: the adversarial reviewer sits one tier down on purpose — positional value, not model strength)
 - **Never build on the reviewer tier unless the profile says so** — `cruise` and `burn` raise builders deliberately; the template pin is the floor, `model-profiles.conf` is the authority
