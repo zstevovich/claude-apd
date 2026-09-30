@@ -670,11 +670,13 @@ When a task involves backend + frontend/mobile:
 - **Never use effort: low or medium** — APD uses high, xhigh (builder), and max
 - **`effort: xhigh` on Sonnet 4.6** falls back to `high` automatically — it takes effect when Sonnet 4.7 is available. Forward-compatible configuration.
 
-### Agent turn budget (there is no `maxTurns` knob)
+### Agent turn budget (`maxTurns` is enforced again — APD does not set it)
 
-The `maxTurns` frontmatter field is a **no-op** for CC subagents (controlled test 2026-07-09: a subagent with `maxTurns: 3` ran 34 turns and finished; only the CLI `--max-turns` main-loop flag binds, which APD never sets). Subagents run until they finish — there is no turn ceiling to size. Do not add or tune `maxTurns` in `.claude/agents/*.md`; it does nothing.
+The `maxTurns` frontmatter field was a no-op on CC 2.1.204 (controlled test 2026-07-09: a subagent with `maxTurns: 3` ran 34 turns), which is why v6.31 removed it from every template. **Re-measured 2026-10-01 on CC 2.1.286: it is enforced** (the CC changelog dates the behaviour to 2.1.246). At the limit the subagent stops, Claude Code returns its output marked **partial** ("stopped at its N-turn limit"), and the orchestrator may continue it with `SendMessage` — each resume fires a new `SubagentStart` with the SAME agent id and the ledger gets another `start` line; one `SubagentStop` fires at the end (measured: 8 starts, 1 stop, 22 turns for a 3-turn cap resumed 7 times).
 
-Observe real turn/duration usage with **`apd report turns`** (turns, wall-clock, tok/s per agent type). tok/s is the API/infra-stall discriminator. An agent that starts but has no stop event is a dropped `SubagentStop` hook (recover with `apd pipeline reconstruct-agents`), NOT a maxTurn exhaust.
+APD ships no `maxTurns`: the per-task **dispatch budget** is the sizing knob (§0b; `apd pipeline status`). Do not add `maxTurns` to a pipeline agent without a reason — a capped builder returns partial work, and every resume counts as a dispatch in `.apd/pipeline/.agents` (budget, report) until the ledger learns to read a same-id re-start as a resume. If a project set it on purpose, `/apd-setup` reports it and leaves it.
+
+Observe real turn/duration usage with **`apd report turns`** (turns, wall-clock, gen%, tok/s, usg% per agent type). tok/s is the API/infra-stall discriminator. An agent that starts but has no stop event is a dropped `SubagentStop` hook (recover with `apd pipeline reconstruct-agents`) or a resume still in progress — NOT a maxTurn exhaust, which ends with a partial result, not a missing stop.
 
 ## 9. Mandatory skills
 

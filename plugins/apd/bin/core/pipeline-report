@@ -15,8 +15,9 @@ source "$(dirname "$0")/../lib/style.sh"
 source "$(dirname "$0")/../lib/agents-parse.sh"
 
 # v6.31 — turns sub-command: real turn/duration telemetry from CC transcripts.
-# Replaces the removed maxturns proxy — agent-frontmatter maxTurns is a no-op
-# (controlled test 2026-07-09; only CLI --max-turns binds, APD never sets it).
+# Replaces the removed maxturns proxy (v6.31, when agent-frontmatter maxTurns was
+# inert on CC 2.1.204; re-measured 2026-10-01 on 2.1.286 it is enforced again —
+# partial output + resume — and APD still ships none).
 if [ "${1:-}" = "turns" ] || [ "${1:-}" = "t" ]; then
     shift
     exec bash "$(dirname "$0")/pipeline-report-turns" "$@"

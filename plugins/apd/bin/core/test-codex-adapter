@@ -16825,6 +16825,45 @@ P=$(_p141 g3 eco claude-zz-reviewer-9); _o=$(_i141run "$P")
 _c141 "declared profile with no reviewer row, reviewer AT the template pin: ok (template pin), not a warn" 'echo "$_o" | grep -q "code-reviewer (template pin; profile .eco. has no reviewer row)" && ! echo "$_o" | grep -q "NOTHING manages"'
 rm -rf "$G141_W"
 
+section "142. maxTurns is enforced again (CC ≥ 2.1.246, re-measured 2026-10-01 on 2.1.286): every surface that said no-op says partial + resume"
+
+# 2026-10-01, the post-v7.1 list, item 3 (re-measure). The 2026-07-09 controlled
+# test on CC 2.1.204 found agent-frontmatter `maxTurns` ignored (a 3-turn cap ran
+# 34 turns); v6.31 removed the field and every doc said "no-op". Re-measured on
+# 2.1.286 with the same shape (throwaway project, `maxTurns: 3`, 20 files read
+# one per turn): the subagent stopped after EXACTLY 3 turns, CC marked the
+# output partial ("stopped at its 3-turn limit"), the orchestrator resumed it
+# via SendMessage seven times (3+3+3+3+3+3+3+1 = 22 turns), and the hooks fired
+# EIGHT SubagentStart events with the same agent_id and ONE SubagentStop at the
+# end. The CC changelog dates the partial marking to 2.1.246. Consequences
+# shipped here: the framework's claims are made true (workflow.md, the report,
+# SPEC, agents-parse, apd-init), and apd-setup step 5c stops stripping
+# `maxTurns` as a dead field — a project may have set a working knob on
+# purpose. APD still ships no `maxTurns` (the dispatch budget is the sizing
+# knob); the ledger reading a same-id re-start as a resume is the next patch.
+
+G142_WF="$APD_PLUGIN_ROOT/rules/workflow.md"
+G142_RT="$APD_PLUGIN_ROOT/bin/core/pipeline-report-turns"
+G142_RP="$APD_PLUGIN_ROOT/bin/core/pipeline-report"
+G142_AP="$APD_PLUGIN_ROOT/bin/lib/agents-parse.sh"
+G142_INIT="$APD_PLUGIN_ROOT/bin/core/apd-init"
+G142_SETUP="$REPO_ROOT/skills/apd-setup/SKILL.md"
+G142_SPEC="$REPO_ROOT/docs/SPEC.md"
+_c142() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+_c142 "workflow.md no longer says maxTurns is a no-op or that there is no knob" '! grep -qE "is a \*\*no-op\*\*|there is no .maxTurns. knob|it does nothing" "$G142_WF"'
+_c142 "workflow.md states the measured semantics: partial output, resume via SendMessage, a start per resume, one stop; cites the 2026-10-01 measurement on 2.1.286" 'grep -q "partial" "$G142_WF" && grep -q "SendMessage" "$G142_WF" && grep -qE "SubagentStart" "$G142_WF" && grep -q "2026-10-01" "$G142_WF" && grep -q "2.1.286" "$G142_WF"'
+_c142 "workflow.md still says APD ships no maxTurns and names the dispatch budget as the sizing knob" 'grep -qiE "APD (ships|sets) no .maxTurns." "$G142_WF" && grep -qi "dispatch budget" "$G142_WF"'
+_c142 "pipeline-report-turns: header and legend no longer call maxTurns a no-op; the legend says APD ships none and CC enforces it" '! grep -qi "maxTurns is a no-op\|maxTurns. is a no-op" "$G142_RT" && grep -q "enforce" "$G142_RT" && grep -q "APD ships no" "$G142_RT" && grep -q "CC enforces it since" "$G142_RT"'
+_c142 "pipeline-report (dispatcher) comment no longer calls maxTurns a no-op" '! grep -qi "no-op" "$G142_RP"'
+_c142 "agents-parse.sh header no longer claims a maxTurn exhaust drops the stop hook; it names the resume shape (starts with one id, one stop)" '! grep -qi "exhausts its maxTurn budget" "$G142_AP" && grep -qi "resume" "$G142_AP"'
+_c142 "apd-init comment no longer says maxTurns is a no-op in CC" '! grep -q "maxTurns is a no-op in CC" "$G142_INIT" && grep -qi "enforce" "$G142_INIT"'
+_c142 "apd-setup 5c item 4: maxTurns is reported as a project-set field and NOT stripped (a working knob the user may have set on purpose)" 'grep -qiE "do NOT strip|never strip" "$G142_SETUP" && ! grep -q "Dead fields:\*\* .maxTurns. on 8 agents — no longer part of the template" "$G142_SETUP" && grep -qiE "maxTurns.*(enforced|enforces)" "$G142_SETUP"'
+_c142 "apd-setup 5c apply step strips only fields the user confirmed dead, not maxTurns" 'grep -q "strip dead fields" "$G142_SETUP" && grep -qE "strip dead fields[^.]*(except|not) .maxTurns." "$G142_SETUP"'
+_c142 "SPEC agents-parse row: unpaired start = dropped stop OR a resume in progress, never a maxTurn exhaust; no no-op claim; cites the measurement" '! grep -q "maxTurns. is a no-op in CC (verified 2026-07-09" "$G142_SPEC" && grep -qE "resume in progress" "$G142_SPEC" && grep -q "2026-10-01" "$G142_SPEC"'
+_c142 "SPEC report-turns row no longer says maxTurns is a no-op" '! grep -q "agent-frontmatter .maxTurns. is a no-op in CC (only the CLI" "$G142_SPEC"'
+_c142 "the reconcile block of apd-setup still names maxTurns (the §123 join stays meaningful)" 'awk "/^### 5c\\./{f=1} f&&/^### 6\\./{exit} f" "$G142_SETUP" | grep -q "maxTurns"'
+
+
 
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
