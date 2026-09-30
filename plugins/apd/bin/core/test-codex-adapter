@@ -10837,7 +10837,35 @@ cat > "$TR_SUB/agent-def789ghi012.jsonl" <<EOF
 {"type":"assistant","timestamp":"${TR_DAY}T11:00:00.000Z","message":{"role":"assistant","model":"claude-opus-5","usage":{"output_tokens":1500}}}
 {"type":"assistant","timestamp":"${TR_DAY}T11:00:30.000Z","message":{"role":"assistant","model":"claude-opus-5","usage":{"output_tokens":1500}}}
 EOF
+# v7.1.8: a CC ≥ 2.1.26x transcript writes one entry PER CONTENT BLOCK, every entry
+# repeating the response's message.id and a usage (some partial, the last total).
+# blockbuilder: ONE dispatch, 2 responses × 3 blocks = 6 assistant entries over 40 s;
+# the right reading is 2 turns and 2000 tokens (max per id) → 50 tok/s. Counting
+# entries said 6 turns and 5400 tokens (135 tok/s).
+cat >> "$TR_SCRATCH/.apd/memory/agent-history.log" <<EOF
+$TR_DAY 12:00:00|start|blockbuilder|blk111222333
+$TR_DAY 12:00:40|stop|blockbuilder|blk111222333
+EOF
+cat > "$TR_SUB/agent-blk111222333.jsonl" <<EOF
+{"type":"assistant","uuid":"u1","timestamp":"${TR_DAY}T12:00:00.000Z","message":{"id":"msg_A","role":"assistant","model":"claude-sonnet-5","usage":{"output_tokens":700}}}
+{"type":"assistant","uuid":"u2","timestamp":"${TR_DAY}T12:00:05.000Z","message":{"id":"msg_A","role":"assistant","model":"claude-sonnet-5","usage":{"output_tokens":1000}}}
+{"type":"assistant","uuid":"u3","timestamp":"${TR_DAY}T12:00:10.000Z","message":{"id":"msg_A","role":"assistant","model":"claude-sonnet-5","usage":{"output_tokens":1000}}}
+{"type":"assistant","uuid":"u4","timestamp":"${TR_DAY}T12:00:20.000Z","message":{"id":"msg_B","role":"assistant","model":"claude-sonnet-5","usage":{"output_tokens":700}}}
+{"type":"assistant","uuid":"u5","timestamp":"${TR_DAY}T12:00:30.000Z","message":{"id":"msg_B","role":"assistant","model":"claude-sonnet-5","usage":{"output_tokens":1000}}}
+{"type":"assistant","uuid":"u6","timestamp":"${TR_DAY}T12:00:40.000Z","message":{"id":"msg_B","role":"assistant","model":"claude-sonnet-5","usage":{"output_tokens":1000}}}
+EOF
 TR_OUT=$(APD_PROJECT_DIR="$TR_SCRATCH" CLAUDE_CONFIG_DIR="$TR_CFG" bash "$TR_SCRIPT" --days 3 2>&1)
+TR_BLK=$(echo "$TR_OUT" | sed 's/\x1b\[[0-9;]*m//g' | grep '^  blockbuilder' | awk '{print $3"|"$4"|"$6}')
+if [ "$TR_BLK" = "1|2|50" ]; then
+    pass "report turns counts model RESPONSES (message ids), not content-block entries: 1 dispatch, 2 turns, 50 tok/s (v7.1.8)"; PASSES=$((PASSES + 1))
+else
+    fail "report turns read content blocks as turns: disp|turns|tok/s = '$TR_BLK' (want 1|2|50)"; FAILS=$((FAILS + 1))
+fi
+if echo "$TR_OUT" | grep -q "one per message id"; then
+    pass "report turns explains that a turn is a message id"; PASSES=$((PASSES + 1))
+else
+    fail "report turns legend still says turns are assistant messages"; FAILS=$((FAILS + 1))
+fi
 if echo "$TR_OUT" | grep -q "testbuilder" && echo "$TR_OUT" | grep -qE "Turn & Duration Telemetry"; then
     pass "pipeline-report-turns runs on synthetic fixture (testbuilder, real turns)"; PASSES=$((PASSES + 1))
 else

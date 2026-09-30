@@ -91,7 +91,15 @@ for f in glob.glob(os.path.join(ra_base, "*", "subagents", "agent-*.jsonl")):
 def transcript(aid):
     f = tindex.get(aid)
     if not f: return None
-    turns = 0; out_tok = 0; ts = []; model = None
+    # v7.1.8: one model response = one turn. A CC transcript writes one entry per
+    # CONTENT BLOCK (thinking, text, each tool_use) and every entry repeats the
+    # response's `message.id` and carries a `usage` — measured on 2.1.269–2.1.284
+    # transcripts: 116 entries for 62 responses, usage on all 116, some blocks
+    # holding a partial output_tokens and the last the total. Counting entries
+    # doubled the turns and inflated the tokens; the turn is the message id, its
+    # tokens the largest usage its blocks report. An entry without an id (older
+    # or synthetic transcripts) is a turn of its own.
+    seen = {}; order = 0; ts = []; model = None
     try:
         for line in open(f, errors="ignore"):
             line = line.strip()
@@ -100,9 +108,11 @@ def transcript(aid):
             except Exception: continue
             if d.get("timestamp"): ts.append(d["timestamp"])
             if d.get("type") == "assistant":
-                turns += 1
                 msg = d.get("message") or {}
-                out_tok += (msg.get("usage") or {}).get("output_tokens", 0)
+                order += 1
+                mid = msg.get("id") or d.get("uuid") or ("entry-%d" % order)
+                tok = (msg.get("usage") or {}).get("output_tokens", 0) or 0
+                if tok > seen.get(mid, 0) or mid not in seen: seen[mid] = max(tok, seen.get(mid, 0))
                 # The SERVED model, which is the only honest per-run record of
                 # what a profile actually bought. `model:` in the agent file is
                 # a request, and a bare alias (`opus`) resolves to whatever the
@@ -112,6 +122,7 @@ def transcript(aid):
                 if msg.get("model"): model = msg["model"]
     except Exception:
         return None
+    turns = len(seen); out_tok = sum(seen.values())
     span = None
     if len(ts) >= 2:
         try:
@@ -211,7 +222,7 @@ echo "  $(_dashes $BOX_W)"
 printf "  ${D}%s dispatches | %s dropped-stop (SubagentStop non-delivery, NOT maxTurn) | %s died | %s no-transcript${R}\n" "${TOT_DISP:-0}" "${TOT_DROP:-0}" "${TOT_DIED:-0}" "${TOT_NOTX:-0}"
 echo ""
 echo "  ${B}Reading it:${R}"
-echo "  ${D}- turns = real assistant messages (agent-frontmatter maxTurns is a no-op)${R}"
+echo "  ${D}- turns = model responses (one per message id; a response's content blocks are one turn — agent-frontmatter maxTurns is a no-op)${R}"
 echo "  ${D}- tok/s = generation rate. Steady ~50-150 = generation-bound (normal).${R}"
 if [ "${LOW_RATE:-0}" = "1" ]; then
     echo "  ${RED}${MARK_FIX} An agent shows tok/s < 10 — sustained low rate = possible API/infra stall.${R}"
