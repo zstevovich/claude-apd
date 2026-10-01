@@ -854,15 +854,88 @@ function emit_word() {
 }
 function emit(t, v) { print t " " v }
 function emit_n(v) { gsub(/\n/, "\036", v); print "N " v }   # v7.1.7: a substitution inside double quotes — its text is a command of its own
-BEGIN { q = 0; esc = 0; tok = ""; have = 0; rd = 0; skip = 0; pending = 0; hd_tag = ""; hd_strip = 0; arith = 0; insub = 0; subd = 0; subq = 0; subesc = 0; nsub = 0; nstart = 0 }
+function prep_parens(l,   i, c, qs, sp, st, n2) {
+  # v7.2 (audit P1, pass 2): one left-to-right pass per line that contains "$((" — the matching
+  # close of every "(" (quotes and backslashes honoured) goes into cp[open]. is_arith() then
+  # answers in O(1), so a line of unclosed "$((" is linear, not quadratic (830 of them on 10 KB
+  # took 8.6 s with a per-call scan — past the 5 s hook timeout, and a timed-out hook does not block).
+  delete cp; sp = 0; qs = ""; n2 = length(l); i = 1
+  while (i <= n2) {
+    c = substr(l, i, 1)
+    if (qs != "") { if (c == "\\" && qs == "\042") i++; else if (c == qs) qs = ""; i++; continue }
+    if (c == "\\") { i += 2; continue }
+    if (c == "\047" || c == "\042") { qs = c; i++; continue }
+    if (c == "(") { st[++sp] = i }
+    else if (c == ")") { if (sp > 0) { cp[st[sp]] = i; sp-- } }
+    i++
+  }
+}
+function is_arith(l, p) {
+  # v7.2 (audit P1): "$((" at p is arithmetic only when the inner "(" closes right before the
+  # outer one closes ("))" adjacent); bash tries arithmetic first and falls back to a
+  # substitution of a subshell — `$((echo x > a) )` writes a file. -1 = the close is not on
+  # this line (unreadable here; the consumer fails closed as OPENARITH).
+  if (!((p + 1) in cp) || !((p + 2) in cp)) return -1
+  return (cp[p + 2] + 1 == cp[p + 1])
+}
+function cont_sub(l, i,   c, n2) {
+  # v7.2 (audit pass 3): continue an OPEN substitution of an unquoted heredoc body (state in
+  # bsub/bsubd/bsubq/bsubesc/bsubtxt) from position i; returns the index after its close, or
+  # length+1 with bsub still set when the line ends inside it (the body goes on next line).
+  n2 = length(l)
+  while (i <= n2) {
+    c = substr(l, i, 1); pv = substr(bsubtxt, length(bsubtxt), 1); bsubtxt = bsubtxt c
+    if (bsubesc) { bsubesc = 0; i++; continue }
+    if (bsubq != "") { if (c == "\\" && (bsubq == "\042" || bsubq == "A")) bsubesc = 1; else if (c == (bsubq == "A" ? "\047" : bsubq)) bsubq = ""; i++; continue }
+    if (c == "\\") { bsubesc = 1; i++; continue }
+    # v7.2 (audit pass 4): a `)` inside a comment or an ANSI-C word does not close the substitution —
+    # a comment runs to the end of the line (kept in the text; the nested tokenizer drops it), an
+    # ANSI-C word honours the escaped quote. (A bare `case` pattern `a)` is a stated limit.)
+    if (c == "#" && (pv == "" || pv == "(" || pv == " " || pv == "\t" || pv == "\n" || pv == ";" || pv == "|" || pv == "&")) { bsubtxt = bsubtxt substr(l, i + 1) "\n"; return n2 + 1 }
+    if (c == "$" && substr(l, i + 1, 1) == "\047") { bsubtxt = bsubtxt "\047"; bsubq = "A"; i += 2; continue }
+    if (c == "\047" || c == "\042") { bsubq = c; i++; continue }
+    if (bsub == 1) { if (c == "(") bsubd++; else if (c == ")") { bsubd--; if (bsubd == 0) { emit_n(bsubtxt); bsub = 0; bsubtxt = ""; return i + 1 } } }
+    else if (c == "`") { emit_n(substr(bsubtxt, 2, length(bsubtxt) - 2)); bsub = 0; bsubtxt = ""; return i + 1 }   # the INNER text: a leading backtick is an unresolvable word to the consumer (pre-existing, fail closed)
+    i++
+  }
+  bsubtxt = bsubtxt "\n"
+  return n2 + 1
+}
+function scan_subs(l,   i, c, n2) {
+  # v7.2 (audit I4): an UNQUOTED heredoc body is expanded by bash — every `$(…)` and backtick in it
+  # RUNS. The body stays data (HB), but each substitution goes out as an N record for the nested
+  # parse. `$((` is arithmetic expansion (skipped as an opener; a `$(` inside it is still found).
+  # pass 2: a backslash quotes the next char, `$$` is the pid. pass 3: a substitution that spans
+  # body LINES is carried as state (cont_sub) and emitted at its close — or at the terminator.
+  n2 = length(l); i = 1
+  if (bsub) { i = cont_sub(l, i); if (bsub) return }
+  while (i <= n2) {
+    c = substr(l, i, 1)
+    if (c == "\\") { i += 2; continue }                              # pass 2: `\$(…)`, `\`` in an unquoted body are LITERAL (the script-writing idiom)
+    if (c == "$" && substr(l, i + 1, 1) == "$") { i += 2; continue }   # pass 2: `$$` is the pid — `$$(…)` opens nothing
+    if (c == "$" && substr(l, i + 1, 1) == "(" && substr(l, i + 2, 1) != "(") {
+      bsub = 1; bsubd = 1; bsubq = ""; bsubesc = 0; bsubtxt = "$("
+      i = cont_sub(l, i + 2); if (bsub) return
+      continue
+    }
+    if (c == "`") {
+      bsub = 2; bsubq = ""; bsubesc = 0; bsubtxt = "`"
+      i = cont_sub(l, i + 1); if (bsub) return
+      continue
+    }
+    i++
+  }
+}
+BEGIN { q = 0; esc = 0; tok = ""; have = 0; rd = 0; skip = 0; pending = 0; hd_tag = ""; hd_strip = 0; hd_quoted = 0; arith = 0; insub = 0; subd = 0; subq = 0; subesc = 0; nsub = 0; nstart = 0; subarith = 0; bsub = 0; bsubd = 0; bsubq = ""; bsubesc = 0; bsubtxt = "" }
 {
   line = $0
   sub(/\r$/, "", line)
+  if (index(line, "$((") > 0) prep_parens(line)
   if (skip) {
     chk = line
     if (hd_strip) sub(/^\t+/, "", chk)
-    if (chk == hd_tag) { skip = 0; emit("HE", ""); next }
-    emit("HB", line); next
+    if (chk == hd_tag) { if (bsub) { emit_n(bsub == 2 ? substr(bsubtxt, 2) : bsubtxt); bsub = 0; bsubtxt = "" }; skip = 0; emit("HE", ""); next }   # pass 3: a substitution still open at the terminator goes out as collected
+    emit("HB", line); if (!hd_quoted) scan_subs(line); next
   }
   n = length(line); i = 1
   while (i <= n) {
@@ -883,6 +956,7 @@ BEGIN { q = 0; esc = 0; tok = ""; have = 0; rd = 0; skip = 0; pending = 0; hd_ta
       if (c == "\042") { subq = 2; i++; continue }
       if (insub == 1) { if (c == "(") subd++; else if (c == ")") { subd--; if (subd == 0) insub = 0 } }
       else if (c == "`") insub = 0
+      if (!insub && subarith) { emit_n(substr(tok, nstart)); nsub = 0; subarith = 0 }   # v7.2 (audit I3): opened from arithmetic — no quote close will emit it
       i++; continue
     }
     if (q == 1) { if (c == "\047") q = 0; else tok = tok c; have = 1; i++; continue }
@@ -890,7 +964,7 @@ BEGIN { q = 0; esc = 0; tok = ""; have = 0; rd = 0; skip = 0; pending = 0; hd_ta
       if (esc) { tok = tok c; esc = 0 }
       else if (c == "\\") { esc = 1 }
       else if (c == "\042") { q = 0; if (nsub) { emit_n(substr(tok, nstart)); nsub = 0 } }
-      else if (c == "$" && substr(line, i + 1, 1) == "(" && substr(line, i + 2, 1) != "(") { if (!nsub) { nsub = 1; nstart = length(tok) + 1 }; tok = tok "$("; have = 1; insub = 1; subd = 1; i += 2; continue }
+      else if (c == "$" && substr(line, i + 1, 1) == "(" && (substr(line, i + 2, 1) != "(" || is_arith(line, i) != 1)) { if (!nsub) { nsub = 1; nstart = length(tok) + 1 }; tok = tok "$("; have = 1; insub = 1; subd = 1; i += 2; continue }
       else if (c == "`") { if (!nsub) { nsub = 1; nstart = length(tok) + 1 }; tok = tok "`"; have = 1; insub = 2; i++; continue }
       else { tok = tok c }
       have = 1; i++; continue
@@ -941,12 +1015,24 @@ BEGIN { q = 0; esc = 0; tok = ""; have = 0; rd = 0; skip = 0; pending = 0; hd_ta
     if (c == "\047") { q = 1; have = 1; i++; continue }
     if (c == "\042") { q = 2; have = 1; i++; continue }
     if (arith > 0) {
+      # v7.2 (audit I3): a command substitution INSIDE arithmetic runs before the expression is
+      # evaluated — `$(( $(cmd) ))`, `(( $(cmd) ))`, `for ((i=$(cmd);…))`, `a[$(cmd)]`. Capture it as
+      # the quoted path does and send it out as an N record when it closes.
+      if (c == "$" && substr(line, i + 1, 1) == "(" && substr(line, i + 2, 1) != "(") { if (!nsub) { nsub = 1; nstart = length(tok) + 1 }; tok = tok "$("; have = 1; insub = 1; subd = 1; subarith = 1; i += 2; continue }
+      if (c == "`") { if (!nsub) { nsub = 1; nstart = length(tok) + 1 }; tok = tok "`"; have = 1; insub = 2; subarith = 1; i++; continue }
       if (c == ")" && substr(line, i + 1, 1) == ")") { arith--; tok = tok "))"; have = 1; i += 2; continue }
       if (c == "(" && substr(line, i + 1, 1) == "(") { arith++; tok = tok "(("; have = 1; i += 2; continue }
       if (c == " " || c == "\t") { tok = tok c; have = 1; i++; continue }
       tok = tok c; have = 1; i++; continue
     }
-    if (c == "$" && substr(line, i + 1, 2) == "((") { arith++; tok = tok "$(("; have = 1; i += 3; continue }
+    if (c == "$" && substr(line, i + 1, 2) == "((") {
+      ia = is_arith(line, i)
+      if (ia == 1) { arith++; tok = tok "$(("; have = 1; i += 3; continue }
+      if (ia == -1) { emit_word(); emit("S", "OPENARITH") }   # v7.2 (audit I1): closes on a later line — unreadable; the groups below still parse the text of this line
+      # v7.2 (audit P1): not arithmetic — a substitution of a subshell. Open the two groups here:
+      # left to the "(" path, a bare "((" with no word pending reads as an arithmetic COMMAND.
+      emit_word(); emit("S", "("); emit("S", "("); i += 3; continue
+    }
     if (c == "(" && substr(line, i + 1, 1) == "(" && !have) { arith++; tok = "(("; have = 1; i += 2; continue }
     if (c == "#" && !have) break
     if (c == " " || c == "\t") { emit_word(); i++; continue }
@@ -977,18 +1063,50 @@ BEGIN { q = 0; esc = 0; tok = ""; have = 0; rd = 0; skip = 0; pending = 0; hd_ta
         i += 2; strip = 0
         if (substr(line, i, 1) == "-") { strip = 1; i++ }
         while (substr(line, i, 1) == " " || substr(line, i, 1) == "\t") i++
-        tag = ""; qq = substr(line, i, 1)
-        if (qq == "\\") { i++; qq = "" }
-        if (qq == "\047" || qq == "\042") {
-          i++
-          while (i <= n && substr(line, i, 1) != qq) { tag = tag substr(line, i, 1); i++ }
-          if (i > n) { emit("S", "OPENTAG"); continue }   # v7.1.7 (audit c): the tag spans lines — bash keeps reading the COMMAND; unreadable here → fail closed
-          i++
-          while (i <= n && substr(line, i, 1) !~ /[ \t;|&<>()]/) { tag = tag substr(line, i, 1); i++ }   # a quoted part followed by more tag text
-        } else {
-          while (i <= n && substr(line, i, 1) !~ /[ \t;|&<>()]/) { tag = tag substr(line, i, 1); i++ }
+        # v7.2 (audit P2): the tag is a bash WORD — a quoted segment, a double-quoted segment, a
+        # backslash + char and bare text may mix (NO apostrophes in this comment: the program is a
+        # single-quoted bash string). Read it segment by segment: a quoted segment to its closing quote, a
+        # backslash + next char, bare text to a delimiter. A quote still open at the end of
+        # the line spans lines — bash keeps reading the COMMAND; unreadable here → fail closed.
+        tag = ""; opentag = 0; hd_q = 0
+        while (i <= n) {
+          ch = substr(line, i, 1)
+          if (ch == "$" && substr(line, i + 1, 1) == "\047") {
+            # v7.2 (audit I2): an ANSI-C segment in the tag — decoded like the q==3 path; an escape this
+            # reader does not decode makes the tag unreadable (fail closed)
+            hd_q = 1; i += 2
+            while (i <= n && substr(line, i, 1) != "\047") {
+              ch2 = substr(line, i, 1)
+              if (ch2 == "\\") {
+                e2 = substr(line, i + 1, 1)
+                if (e2 == "\047" || e2 == "\\" || e2 == "\042") tag = tag e2
+                else if (e2 == "t") tag = tag "\t"
+                else if (e2 == "n") tag = tag "\n"
+                else if (e2 == "r") tag = tag "\r"
+                else { opentag = 1; break }
+                i += 2; continue
+              }
+              tag = tag ch2; i++
+            }
+            if (opentag || i > n) { opentag = 1; break }
+            i++; continue
+          }
+          if (ch == "$" && substr(line, i + 1, 1) == "\042") { i++; continue }   # v7.2 (audit I2): $"…" is a plain double-quoted segment
+          if (ch == "\047" || ch == "\042") {
+            qq = ch; i++; hd_q = 1
+            while (i <= n && substr(line, i, 1) != qq) {
+              if (qq == "\042" && substr(line, i, 1) == "\\" && substr(line, i + 1, 1) ~ /["\\$`]/) { tag = tag substr(line, i + 1, 1); i += 2; continue }   # v7.2 (audit M1): \" inside "…"
+              tag = tag substr(line, i, 1); i++
+            }
+            if (i > n) { opentag = 1; break }
+            i++; continue
+          }
+          if (ch == "\\") { if (i == n) { opentag = 1; break }; tag = tag substr(line, i + 1, 1); i += 2; hd_q = 1; continue }
+          if (ch ~ /[ \t;|&<>()]/) break
+          tag = tag ch; i++
         }
-        if (!pending) { hd_tag = tag; hd_strip = strip; pending = 1; emit("HS", tag) }
+        if (opentag) { emit("S", "OPENTAG"); continue }
+        if (!pending) { hd_tag = tag; hd_strip = strip; hd_quoted = hd_q; pending = 1; emit("HS", tag) }
         continue
       }
       if (substr(line, i + 1, 1) == "(") { i++; continue }
@@ -1019,7 +1137,7 @@ BEGIN { q = 0; esc = 0; tok = ""; have = 0; rd = 0; skip = 0; pending = 0; hd_ta
   emit("S", "NL")
   if (pending) { skip = 1; pending = 0 }
 }
-END { if (nsub) emit_n(substr(tok, nstart)); emit_word(); if (q != 0) emit("S", "OPENQ") }   # unterminated quote: bash refuses the text; guard-git must not read it
+END { if (nsub) emit_n(substr(tok, nstart)); emit_word(); if (q != 0) emit("S", "OPENQ"); emit("S", "END") }   # unterminated quote: bash refuses the text; guard-git must not read it. END = the canary (v7.2, audit I5): an awk that died mid-parse leaves no END, and the consumer then fails closed
 '
 
 _flush_stmt() {
@@ -1066,6 +1184,11 @@ while IFS= read -r _tline; do
         OPENTAG)   # v7.1.7: a heredoc tag spanning lines — the statement's real shape is unreadable here
              _add_unknown_target "heredoc tag spanning lines"
              if _names_fenced_dir; then TARGET_RAW+=("heredoc tag spanning lines"); TARGET_ABS+=(""); TARGET_NOTE+=("opaque shell body: heredoc tag spanning lines"); TARGET_APD+=("${STMT_APD:-false}"); fi ;;
+        OPENARITH)   # v7.2 (audit I1): a `$((` whose close sits on a later line — arithmetic or a subshell substitution, unreadable here
+             [ "$EMIT_GIT" = true ] && printf 'OPAQUE\n'
+             _add_unknown_target "arithmetic or subshell substitution spanning lines"
+             if _names_fenced_dir; then TARGET_RAW+=("substitution spanning lines"); TARGET_ABS+=(""); TARGET_NOTE+=("opaque shell body: arithmetic or subshell substitution spanning lines"); TARGET_APD+=("${STMT_APD:-false}"); fi ;;
+        END) SAW_END=true ;;
         "(") _flush_stmt; CWD_STACK+=("$CUR_CWD|$CWD_UNKNOWN") ;;
         ")") _flush_stmt
              if [ ${#CWD_STACK[@]} -gt 0 ]; then
@@ -1076,8 +1199,18 @@ while IFS= read -r _tline; do
         *)  _flush_stmt ;;
       esac ;;
   esac
-done < <(printf '%s\n' "$COMMAND" | awk "$_TOKENIZER")
+done < <(printf '%s\n' "$COMMAND" | LC_ALL=C awk "$_TOKENIZER")
 _flush_stmt
+# v7.2 (audit I5): the tokenizer's END record is the canary. macOS awk dies on a lone multibyte
+# byte under a UTF-8 locale (LC_ALL=C above removes that trigger); whatever kills it, a
+# tokenizer that stopped mid-command read only part of the command — fail closed: the
+# scoped agent is refused, guard-git falls back to the raw scan, the orchestrator is refused
+# when the command names a fence.
+if [ "${SAW_END:-false}" != true ]; then
+  [ "$EMIT_GIT" = true ] && printf 'OPAQUE\n'
+  _add_unknown_target "command tokenizer stopped mid-command"
+  if _names_fenced_dir; then TARGET_RAW+=("unreadable command"); TARGET_ABS+=(""); TARGET_NOTE+=("opaque shell body: the tokenizer stopped mid-command"); TARGET_APD+=("false"); fi
+fi
 _flush_deferred
 if [ "$EMIT_GIT" != true ] && [ ${#N_CWDS[@]} -gt 0 ]; then   # (v7.1.7) the quoted substitutions, re-parsed once per working directory
   _k=0; _save_cwd="$CUR_CWD"; _save_unk="$CWD_UNKNOWN"

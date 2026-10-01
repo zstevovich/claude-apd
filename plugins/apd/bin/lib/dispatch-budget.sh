@@ -182,6 +182,7 @@ _dispatch_budget() {
 }
 
 # _dispatch_count <class> → number of `start` events of that class since spec.done
+#   (`resume` lines — a SendMessage continuation of an agent already started, v7.2 — are not dispatches and are skipped)
 #   The `.agents` timestamp and spec.done column 2 share one human format, so
 #   the lexical compare is chronological (v6.6.1 idiom, same as the builder gate).
 _dispatch_count() {

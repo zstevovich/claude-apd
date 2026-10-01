@@ -16701,6 +16701,109 @@ _e140 "guard-git: an unterminated quoted substitution is OPAQUE"                
 _e140 "guard-git: \$\$'…' does not swallow a git statement after it (audit C1)"               "git status; echo \$\$'a\\' ; git push --force #'" "GIT push --force"
 _e140 "guard-git: a hex-spelled git word is decoded: \$'\\x67it' push --force"                  "\$'\\x67it' push --force" "GIT push --force"
 _e140 "guard-git: a git ARGUMENT with an undecoded escape is OPAQUE (audit P3: bash 5 decodes \\u)"   "git \$'\\u0070ush' --force" "OPAQUE"
+# --- v7.2: the two limits the v7.1.7 audit stated (P1, P2) --------------------
+# P1: bash tries `$((…))` as arithmetic and falls back to a substitution of a
+# subshell — `$((echo x > /etc/a) )` WRITES. The tokenizer read every `$((` as
+# arithmetic (the write vanished, unquoted and quoted). Now the matching close
+# decides: an adjacent `))` is arithmetic, anything else opens `$( (` — the two
+# groups are emitted explicitly (a bare `((` with no word pending would read as an
+# arithmetic COMMAND). P2: a heredoc tag is a bash WORD — `<<'E'"O"F`, `<<E"OF"`,
+# `<<E'OF'` all name EOF; the tokenizer read a shorter or longer tag, the body
+# never closed, and every command after it was data (fail-open past the body).
+_g140 2 "P1: a quoted \$(( that is a subshell substitution writes out of scope"       'echo "$((echo x > /etc/a) )"'
+_g140 2 "P1: the bare form writes out of scope"                                     'echo $((echo x > /etc/b) )'
+_g140 0 "P1: the same shape writing IN scope is allowed"                             'echo "$((echo x > src/a) )"'
+_g140 2 "P1: a quoted paren inside the subshell does not end the capture early"      'echo "$((echo "a)b" > /etc/f) )"'
+_g140 0 "P1: real arithmetic is untouched: \$((1+2)) with an in-scope redirect"        'echo $((1+2)) > src/ok'
+_g140 0 "P1: real arithmetic with a parenthesised group"                             'x=$(( (1+2) * 4 )); echo $x > src/ok3'
+_g140 0 "P1: \$((1<<3)) is not a redirect (v7.1 regression guard)"                     'echo $((1<<3)) > src/ok2'
+_g140 2 "P1: arithmetic followed by an out-of-scope redirect is still refused"        'echo $((1+2)) > /etc/d'
+_g140 2 "P1: the orchestrator fence through a quoted subshell substitution"           'echo "$((rm -rf .apd/pipeline) )"' orch
+_g140 2 "P2: <<'E'\"O\"F names EOF — the write after the body is seen"                "cat <<'E'\"O\"F${NL}body${NL}EOF${NL}echo x > /etc/g"
+_g140 2 "P2: <<E\"OF\" names EOF"                                                       "cat <<E\"OF\"${NL}body${NL}EOF${NL}echo x > /etc/h"
+_g140 2 "P2: <<E'OF' names EOF"                                                       "cat <<E'OF'${NL}body${NL}EOF${NL}echo x > /etc/i"
+_g140 2 "P2: <<\\EOF still names EOF (regression guard)"                               "cat <<\\EOF${NL}body${NL}EOF${NL}echo x > /etc/j"
+_g140 0 "P2: a write INSIDE the body of a mixed-quoted heredoc is data, not a command" "cat <<E\"OF\"${NL}echo x > /etc/n${NL}EOF"
+_g140 0 "P2: a mixed-quoted heredoc redirected in scope is allowed"                   "cat <<E\"OF\" > src/o${NL}body${NL}EOF"
+_g140 2 "P2: a tag whose quote does not close on its line is still unreadable (v7.1.7 OPENTAG)" "cat <<\"EO${NL}F\" > /etc/p"
+_e140 "guard-git: after a mixed-quoted heredoc the git word is a statement again (the body ends where bash ends it)" "cat <<E\"OF\"${NL}body${NL}EOF${NL}git push --force" "GIT push --force"
+# --- v7.2, the P1/P2 audit's pre-existing fail-opens in the same area (I1–I5, M1) --
+# I1 a `$((` whose close is on a later line: unreadable (OPENARITH → refused / OPAQUE /
+# fence-opaque), and the groups still parse the text of the first line. I2 a heredoc tag
+# with an ANSI-C `$'…'` or locale `$"…"` segment is decoded as bash decodes it. I3 a
+# command substitution INSIDE arithmetic (`$(( $(cmd) ))`, `(( $(cmd) ))`, a subscript)
+# runs before the expression — captured and re-parsed as a nested shell. I4 an UNQUOTED
+# heredoc body is expanded by bash — its substitutions go out as nested shells while the
+# body stays data. I5 macOS awk dies on a lone multibyte byte in an unquoted tag under
+# a UTF-8 locale, and nothing noticed: the tokenizer runs under LC_ALL=C and ends with
+# an END record the consumer requires — a tokenizer that stopped mid-command fails closed.
+_g140 2 "I1: a quoted \$(( closing on a later line writes — unreadable, refused"              "echo \"\$((echo x > /etc/p${NL}) )\""
+_g140 2 "I1: the bare multi-line form"                                                       "echo \$((echo x > /etc/p2${NL}) )"
+_g140 2 "I1: a ) in a comment inside the first line does not end the scan early"             "echo \"\$((echo x > /etc/ab # )${NL}) )\""
+_g140 2 "I1: the orchestrator fence through a multi-line quoted subshell substitution"        "echo \"\$((rm -rf .apd/pipeline${NL}) )\"" orch
+_g140 2 "I1: stated cost — real arithmetic spanning lines is refused too (fail closed)"       "echo \$((1+${NL}2)) > src/ok"
+_g140 2 "I2: <<\$'E' names E — the write after the body is seen"                             "cat <<\$'E'${NL}body${NL}E${NL}echo x > /etc/cq"
+_g140 2 "I2: <<\$'E\\tF' decodes the tab"                                                     "cat <<\$'E\\tF'${NL}body${NL}E	F${NL}echo x > /etc/dt"
+_g140 2 "I2: <<E\$\"X\" names EX"                                                              "cat <<E\$\"X\"${NL}body${NL}EX${NL}echo x > /etc/cp"
+_g140 2 "I2: the orchestrator fence after an ANSI-C-tagged heredoc"                          "cat <<\$'E'${NL}body${NL}E${NL}rm -rf .apd/pipeline" orch
+_g140 0 "I2: the in-scope twin is allowed"                                                   "cat <<\$'E'${NL}body${NL}E${NL}echo x > src/a"
+_g140 2 "I3: \$(( \$(cmd) )) runs the substitution — out-of-scope write refused"              "echo \$(( \$(echo x > /etc/aa; echo 1) + 1 ))"
+_g140 2 "I3: a backtick inside arithmetic"                                                   "echo \$(( \`echo x > /etc/ac; echo 1\` + 1 ))"
+_g140 2 "I3: the arithmetic COMMAND (( \$(cmd) ))"                                            "(( \$(echo x > /etc/ad; echo 1) ))"
+_g140 2 "I3: an array subscript inside arithmetic"                                           "echo \$(( a[\$(echo x > /etc/ah; echo 0)] ))"
+_g140 2 "I3: the orchestrator fence inside arithmetic"                                       "echo \$(( \$(rm -rf .apd/pipeline; echo 1) ))" orch
+_g140 0 "I3: an in-scope substitution inside arithmetic is allowed"                          "echo \$(( \$(echo 1 > src/a; echo 1) ))"
+_g140 2 "I4: an unquoted heredoc body runs \$(…) — refused"                                   "cat <<EOF${NL}\$(echo x > /etc/cz)${NL}EOF"
+_g140 2 "I4: a backtick in an unquoted body"                                                 "cat <<EOF${NL}\`echo x > /etc/cy\`${NL}EOF"
+_g140 2 "I4: the orchestrator fence in an unquoted body (slash-less spelling)"                "cat <<EOF${NL}\$(rm -rf .apd/pipeline)${NL}EOF" orch
+_g140 0 "I4: a QUOTED tag keeps the body literal — nothing runs, allowed"                     "cat <<'EOF'${NL}\$(echo x > /etc/m)${NL}EOF"
+_g140 0 "I4: an in-scope substitution in an unquoted body is allowed"                        "cat <<EOF${NL}\$(echo x > src/a)${NL}EOF"
+_g140 2 "I4: through bash -c"                                                                "bash -c 'cat <<EOF${NL}\$(echo x > /etc/dw)${NL}EOF'"
+LANG=C.UTF-8 LC_ALL= _g140 2 "I5: a non-ASCII byte in an unquoted tag under a UTF-8 locale no longer kills the tokenizer — the write after the body is refused" "cat <<ÉOF${NL}body${NL}ÉOF${NL}echo x > /etc/u1"
+LANG=C.UTF-8 LC_ALL= _g140 2 "I5: the orchestrator fence after such a tag"                   "cat <<ÉOF${NL}body${NL}ÉOF${NL}rm -rf .apd/pipeline" orch
+LANG=C.UTF-8 LC_ALL= _g140 0 "I5: a quoted non-ASCII tag with an in-scope redirect is allowed" "cat <<'ÉOF' > src/a${NL}body${NL}ÉOF"
+_g140 0 "M1: a backslash-escaped quote inside a double-quoted tag: bash tag E\"F, in-scope write allowed" "cat <<\"E\\\"F\" > src/dx${NL}body${NL}E\"F"
+_c140_end() { local out; out=$(printf '%s\n' "$1" | LC_ALL=C awk "$(sed -n "/^_TOKENIZER='/,/^'$/p" "$G140" | sed '1s/^_TOKENIZER=.//; $d')" 2>/dev/null | tail -1); [ "$out" = "S END" ]; }
+if _c140_end 'echo hi' && _c140_end "cat <<EOF${NL}body${NL}EOF"; then pass "the tokenizer ends every command with the END canary (the consumer fails closed without it)"; PASSES=$((PASSES + 1)); else fail "no END canary at the end of the tokenizer output"; FAILS=$((FAILS + 1)); fi
+_e140 "guard-git: after an ANSI-C-tagged heredoc the git word is a statement again"       "cat <<\$'E'${NL}body${NL}E${NL}git push --force" "GIT push --force"
+_e140 "guard-git: a git command inside arithmetic is not invisible (nested statement or OPAQUE)" "echo \$(( \$(git push --force; echo 1) ))" "push --force\|OPAQUE"
+# --- the P1/P2 audit's pass 2: one false-block class and one perf hole closed ------------
+# In an UNQUOTED heredoc body a backslash quotes `$`, a backtick, `\` and newline — `\$(…)`
+# is the idiom for writing a shell script or Makefile through a heredoc, and the body scan
+# read it as a substitution (false block, HEAD 0). `$$` is the pid: `$$(…)` opens nothing.
+# A line of UNCLOSED `$((` was quadratic (830 on 10 KB → 8.6 s; past the 5 s hook timeout,
+# and a timed-out hook does not block) — a `$((` with no `))` after it is unreadable at once.
+_g140 0 "pass 2: an escaped \\\$( in an unquoted body is literal — in-scope heredoc allowed (HEAD 0, first cut 2)" "cat <<EOF > src/w6${NL}price \\\$(echo x > /etc/w6)${NL}EOF"
+_g140 0 "pass 2: an escaped backtick in an unquoted body is literal"                               "cat <<EOF > src/w7${NL}price \\\`echo x > /etc/w7\\\`${NL}EOF"
+_g140 0 "pass 2: \$\$( in an unquoted body is the pid, not a substitution"                          "cat <<EOF > src/w8${NL}pid \$\$(echo x > /etc/w8)${NL}EOF"
+_g140 2 "pass 2: the UNescaped form still runs and is still refused"                               "cat <<EOF > src/w9${NL}price \$(echo x > /etc/w9)${NL}EOF"
+_g140_big="echo"; for _i in $(seq 1 830); do _g140_big="$_g140_big \$((x+${_i}"; done; _g140_big="$_g140_big; echo x > /etc/big"
+_g140_t0=$(date +%s); _g140 2 "pass 2: 830 unclosed \$(( on one 10 KB line: refused (OPENARITH), not quadratic" "$_g140_big"; _g140_t1=$(date +%s)
+if [ $((_g140_t1 - _g140_t0)) -le 5 ]; then pass "pass 2: the 830-unclosed-\$(( line is judged within the 5 s hook budget ($((_g140_t1 - _g140_t0)) s; the first cut took 8.6 s)"; PASSES=$((PASSES + 1)); else fail "pass 2: the 830-unclosed-\$(( line took $((_g140_t1 - _g140_t0)) s — past the 5 s hook timeout a timed-out hook does not block"; FAILS=$((FAILS + 1)); fi
+# --- the P1/P2 audit's pass 3: a body substitution spanning LINES (the I4 mechanism one step short) ----
+# scan_subs read one body line at a time, so `$(echo x⏎> /etc/y)` in an unquoted body was scanned
+# only on its opening line and the write on the next line was data. The open substitution is now
+# tokenizer state across body lines (cont_sub) and goes out as ONE nested shell at its close — or,
+# still open at the terminator, as collected.
+_g140 2 "pass 3: a \$(…) spanning two body lines — the write on line 2 is seen"                 "cat <<EOF${NL}\$(echo x${NL}> /etc/y10)${NL}EOF"
+_g140 2 "pass 3: backslash-newline inside the substitution"                                     "cat <<EOF${NL}\$(echo x \\\\${NL}> /etc/y11)${NL}EOF"
+_g140 2 "pass 3: the write on the THIRD line of the substitution"                               "cat <<EOF${NL}\$(true${NL}true${NL}echo x > /etc/y12)${NL}EOF"
+_g140 2 "pass 3: a backtick spanning lines"                                                     "cat <<EOF${NL}\`echo x${NL}> /etc/y13\`${NL}EOF"
+_g140 2 "pass 3: the orchestrator fence inside a multi-line body substitution (no literal fence mention on line 1)" "cat <<EOF${NL}\$(true${NL}cd .apd && rm -rf pipeline)${NL}EOF" orch
+_g140 0 "pass 3: the in-scope twin is allowed"                                                  "cat <<EOF${NL}\$(echo x${NL}> src/y15)${NL}EOF"
+_g140 2 "pass 3: a substitution still open at the terminator is parsed as collected — its write is seen" "cat <<EOF${NL}\$(echo x > /etc/y14${NL}EOF"
+_g140 0 "pass 3: two substitutions on one body line, the second spanning lines, both in scope" "cat <<EOF${NL}\$(echo a > src/y16) \`echo b${NL}> src/y17\`${NL}EOF"
+# --- the P1/P2 audit's pass 4: the body capture no longer closes on a `)` bash ignores -------------
+# A `)` in a comment or in an ANSI-C word is not the close of a body substitution; the capture
+# used to end there and the write after it was data. A bare `case` pattern `a)` inside a body
+# substitution stays a stated limit (bash 3.2 refuses that shape; the quoted and top-level forms
+# are read correctly because they run through the real tokenizer).
+_g140 2 "pass 4: a ) in a comment inside a body substitution does not end the capture — the write on the next line is seen" "cat <<EOF${NL}\$(true # )${NL}echo x > /etc/q13)${NL}EOF"
+_g140 2 "pass 4: a comment line carrying ) inside a spanning body substitution"                   "cat <<EOF${NL}\$(true${NL}# note )${NL}echo x > /etc/q14)${NL}EOF"
+_g140 2 "pass 4: an ANSI-C word with an escaped quote and a ) inside a body substitution"         "cat <<EOF${NL}\$(echo \$'a\\')' > /etc/q26)${NL}EOF"
+_g140 2 "pass 4: the orchestrator fence after a commented ) inside a body substitution"            "cat <<EOF${NL}\$(true # )${NL}cd .apd && rm -rf pipeline)${NL}EOF" orch
+_g140 0 "pass 4: the in-scope twin of the commented ) shape is allowed"                            "cat <<EOF${NL}\$(true # )${NL}echo x > src/q15)${NL}EOF"
+_g140 0 "pass 4: a comment AFTER the close does not reopen anything (prose with a ) is data)"       "cat <<EOF${NL}\$(echo a > src/q16) # note )${NL}price > 5 is fine${NL}EOF"
 rm -rf "$G140_T"
 
 section "141. Shipped model pins: the templates are the authority, every table is joined against them, no legacy id on an instruction surface"
@@ -16862,6 +16965,218 @@ _c142 "apd-setup 5c apply step strips only fields the user confirmed dead, not m
 _c142 "SPEC agents-parse row: unpaired start = dropped stop OR a resume in progress, never a maxTurn exhaust; no no-op claim; cites the measurement" '! grep -q "maxTurns. is a no-op in CC (verified 2026-07-09" "$G142_SPEC" && grep -qE "resume in progress" "$G142_SPEC" && grep -q "2026-10-01" "$G142_SPEC"'
 _c142 "SPEC report-turns row no longer says maxTurns is a no-op" '! grep -q "agent-frontmatter .maxTurns. is a no-op in CC (only the CLI" "$G142_SPEC"'
 _c142 "the reconcile block of apd-setup still names maxTurns (the §123 join stays meaningful)" 'awk "/^### 5c\\./{f=1} f&&/^### 6\\./{exit} f" "$G142_SETUP" | grep -q "maxTurns"'
+
+section "143. A same-id re-start is a RESUME, not a dispatch: the ledger, the budget, the dropped-stop signal, the report and the parallel gate agree"
+
+# 2026-10-01: the maxTurns re-measure (v7.1.11) showed what a resumed subagent
+# does to the ledger — a SendMessage continuation fires SubagentStart AGAIN with
+# the same agent id (8 starts, 1 stop for a 3-turn cap resumed 7 times), and a
+# StartLife builder had already been resumed 11 hours after it finished. Every
+# consumer read those starts as dispatches: the dispatch budget counted them
+# (one capped builder = N of 12, fail-closed), agents-parse reported them as
+# unpaired (a false dropped-stop), report-turns paired the stop with the LAST
+# start only, and the parallel-same-agent gate could refuse a resume within 30 s
+# as a second copy. Bambi's 154 same-second duplicate SubagentStart pairs are the
+# same shape. Now track-agent records a start for an id that already has one as
+# `resume` and skips the order/parallel gates (the agent running IS the one
+# they judged); every counter keys on `start` and ignores `resume`.
+
+G143_TA="$APD_PLUGIN_ROOT/bin/core/track-agent"
+G143_RT="$APD_PLUGIN_ROOT/bin/core/pipeline-report-turns"
+_c143() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+G143_D="$(mktemp -d -t apd-g143.XXXXXX)"; mkdir -p "$G143_D/.apd/pipeline" "$G143_D/.apd/memory"; echo "PROJECT_NAME=g143" > "$G143_D/.apd/config"
+_ta143() { ( cd "$G143_D" && bash "$G143_TA" --event "$1" --agent-type "$2" --agent-id "$3" >/dev/null 2>&1 ); echo $?; }
+G143_L="$G143_D/.apd/pipeline/.agents"
+# 1. start, then the same id starts again → resume line, no second start, exit 0 even inside the 30 s window
+_c143 "first SubagentStart of an id is a start (exit 0)" '[ "$(_ta143 SubagentStart backend-builder R1)" = 0 ] && [ "$(grep -c "|start|backend-builder|R1$" "$G143_L")" = 1 ]'
+_c143 "a second SubagentStart with the SAME id within the parallel window: exit 0, recorded as resume, still ONE start line" '[ "$(_ta143 SubagentStart backend-builder R1)" = 0 ] && [ "$(grep -c "|start|backend-builder|R1$" "$G143_L")" = 1 ] && [ "$(grep -c "|resume|backend-builder|R1$" "$G143_L")" = 1 ]'
+_c143 "a DIFFERENT id of the same type within the window is still refused as a parallel dispatch (exit 2, no start line)" '[ "$(_ta143 SubagentStart backend-builder R2)" = 2 ] && ! grep -q "|backend-builder|R2$" "$G143_L"'
+_c143 "a third re-start of the same id: another resume line, no gate, no start" '[ "$(_ta143 SubagentStart backend-builder R1)" = 0 ] && [ "$(grep -c "|resume|backend-builder|R1$" "$G143_L")" = 2 ] && [ "$(grep -c "|start|" "$G143_L")" = 1 ]'
+# 2. the parsers: one dispatch, unpaired while running, paired after the single stop
+source "$APD_PLUGIN_ROOT/bin/lib/agents-parse.sh"
+_c143 "parse_agents_log: 1 start + 2 resumes and no stop = 1 dispatch, 1 unpaired (a resume in progress)" '[ "$(parse_agents_log "$G143_L")" = "1 1" ]'
+_c143 "after the one stop: 1 dispatch, 0 unpaired — resumes never produce a dropped-stop reading" '[ "$(_ta143 SubagentStop backend-builder R1)" = 0 ] && [ "$(parse_agents_log "$G143_L")" = "1 0" ]'
+# 3. the dispatch budget counts starts of a class since spec.done — resumes are not dispatches
+printf 'spec|%s|x\n' "2000-01-01 00:00:00" > "$G143_D/.apd/pipeline/spec.done"; printf 'backend-builder|builder\n' > "$G143_D/.apd/pipeline/.dispatch-classes"
+_c143 "dispatch budget: builder count is 1 with 1 start + 2 resumes (was 3 when resumes were starts)" '[ "$(PIPELINE_DIR="$G143_D/.apd/pipeline" bash -c "source \"$APD_PLUGIN_ROOT/bin/lib/dispatch-budget.sh\"; _dispatch_count builder")" = 1 ]'
+# 4. an adversarial resume is not judged by the order gates again (no reviewer.done needed for a continuation)
+mkdir -p "$G143_D/.apd/pipeline"; touch "$G143_D/.apd/pipeline/reviewer.done" "$G143_D/.apd/pipeline/.adversarial-pending"
+_c143 "adversarial first start passes the order gates (fixture: reviewer.done + .adversarial-pending)" '[ "$(_ta143 SubagentStart adversarial-reviewer ADV1)" = 0 ]'
+rm -f "$G143_D/.apd/pipeline/.adversarial-pending"
+_c143 "adversarial RESUME after the pending marker is gone: recorded as resume, exit 0 (the order gate judged the dispatch when it started)" '[ "$(_ta143 SubagentStart adversarial-reviewer ADV1)" = 0 ] && grep -q "|resume|adversarial-reviewer|ADV1$" "$G143_L"'
+_c143 "a NEW adversarial id without the pending marker is still refused (exit 2)" '[ "$(_ta143 SubagentStart adversarial-reviewer ADV2)" = 2 ]'
+# 4b. the StartLife shape: SendMessage to an agent that already STOPPED (resumed 11 h later) — a resume, not a second dispatch
+_c143 "an agent that started and stopped, started again: resume line, still one start (HEAD wrote a second start = a second dispatch)" '[ "$(_ta143 SubagentStart docs-writer DW1)" = 0 ] && [ "$(_ta143 SubagentStop docs-writer DW1)" = 0 ] && [ "$(_ta143 SubagentStart docs-writer DW1)" = 0 ] && [ "$(grep -c "|start|docs-writer|DW1$" "$G143_L")" = 1 ] && [ "$(grep -c "|resume|docs-writer|DW1$" "$G143_L")" = 1 ]'
+printf 'docs-writer|builder\n' >> "$G143_D/.apd/pipeline/.dispatch-classes"
+_c143 "after that resume: parse reads 3 dispatches (R1, ADV1 still running, DW1) / 1 unpaired, and the builder budget counts 2 (R1 + DW1), not 3" '[ "$(parse_agents_log "$G143_L")" = "3 1" ] && [ "$(PIPELINE_DIR="$G143_D/.apd/pipeline" bash -c "source \"$APD_PLUGIN_ROOT/bin/lib/dispatch-budget.sh\"; _dispatch_count builder")" = 2 ]'
+# 5. report-turns: a ledger with resumes reads ONE dispatch whose wall spans start → stop
+G143_R="$(mktemp -d -t apd-g143r.XXXXXX)"; G143_C="$(mktemp -d -t apd-g143c.XXXXXX)"; mkdir -p "$G143_R/.apd/memory"; touch "$G143_R/.apd/config"
+G143_DAY=$(date +"%Y-%m-%d")
+printf '%s 10:00:00|start|resumer|rz111\n%s 10:00:20|resume|resumer|rz111\n%s 10:00:40|resume|resumer|rz111\n%s 10:01:00|stop|resumer|rz111\n' "$G143_DAY" "$G143_DAY" "$G143_DAY" "$G143_DAY" > "$G143_R/.apd/memory/agent-history.log"
+G143_SUB="$G143_C/projects/$(printf '%s' "$G143_R" | sed 's#[^A-Za-z0-9]#-#g')/s1/subagents"; mkdir -p "$G143_SUB"
+printf '{"type":"user","timestamp":"%sT10:00:00.000Z","message":{"role":"user"}}\n{"type":"assistant","timestamp":"%sT10:00:30.000Z","message":{"role":"assistant","model":"claude-sonnet-5-5","usage":{"output_tokens":1500}}}\n{"type":"assistant","timestamp":"%sT10:01:00.000Z","message":{"role":"assistant","model":"claude-sonnet-5-5","usage":{"output_tokens":1500}}}\n' "$G143_DAY" "$G143_DAY" "$G143_DAY" > "$G143_SUB/agent-rz111.jsonl"
+G143_OUT=$(APD_PROJECT_DIR="$G143_R" CLAUDE_CONFIG_DIR="$G143_C" bash "$G143_RT" --days 3 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+_c143 "report turns: start + 2 resumes + stop = 1 dispatch, wall 1m00s (start → stop), 0 dropped" '[ "$(echo "$G143_OUT" | grep "^  resumer " | awk "{print \$3\"|\"\$5\"|\"\$9}")" = "1|1m00s|0" ]'
+# 6. docs
+_c143 "workflow.md and SPEC describe the resume line (a continuation, not a dispatch)" 'grep -q "recorded as a .resume. line" "$APD_PLUGIN_ROOT/rules/workflow.md" && grep -q "as a .resume. line (v7.2" "$REPO_ROOT/docs/SPEC.md"'
+_c143 "track-agent names the three ledger events in its header" 'grep -q "start | resume" "$G143_TA"'
+# --- the resume audit (audit-resume, pass 1: NOT SAFE) — F1 regression + F2/F3/F5 closed -------
+# F1 (CRITICAL): `start, stop, resume` = the agent stopped and was re-started; HEAD wrote a
+# second start and the validator refused the 0 s pair BY ACCIDENT, NEW paired the last
+# start/stop and the builder/reviewer gates PASSED while the agent was still running.
+# Now a stop is evidence only while it is the id's LAST event (`_last_events`). F3: the
+# parallel gate reads the id's last event too (a resumed agent is running). F5: the
+# resume test is an exact compare (a BRE read `R10.` as `R101`). F2: both reports read
+# a resume as a re-opened segment (wall = the sum of segments, one dispatch).
+G143_ADV="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+G143_F="$(mktemp -d -t apd-g143f.XXXXXX)"; mkdir -p "$G143_F/.apd/pipeline" "$G143_F/.apd/memory" "$G143_F/.claude/agents"
+echo "PROJECT_NAME=g143f" > "$G143_F/.apd/config"
+printf '# g143f\nplan_consistency_gate: off\n**Acceptance criteria:**\n- R1: x\n' > "$G143_F/.apd/pipeline/spec-card.md"
+printf '# Plan\n### Agents\n- backend-builder: x\n' > "$G143_F/.apd/pipeline/implementation-plan.md"
+printf -- '---\nname: backend-builder\nmodel: claude-sonnet-5-5\n---\ntest agent\n' > "$G143_F/.claude/agents/backend-builder.md"
+_guide_marker "$G143_F" "g143f"
+APD_PROJECT_DIR="$G143_F" bash "$G143_ADV" spec "g143f" >/dev/null 2>&1
+printf '2099-01-01 00:00:00|start|backend-builder|aabbccddeeff2001\n2099-01-01 00:00:10|stop|backend-builder|aabbccddeeff2001\n2099-01-01 00:00:20|resume|backend-builder|aabbccddeeff2001\n' > "$G143_F/.apd/pipeline/.agents"
+_o=$(APD_PROJECT_DIR="$G143_F" APD_ALLOW_UNVALIDATED_AGENTS=1 bash "$G143_ADV" builder 2>&1); _rc=$?
+_c143 "F1: builder gate with start, stop, resume (re-started, running): BLOCKED and names the re-started agent (NEW passed, HEAD blocked by accident)" '[ "$_rc" != 0 ] && echo "$_o" | grep -q "Re-started and still running" && [ ! -f "$G143_F/.apd/pipeline/builder.done" ]'
+printf '2099-01-01 00:00:30|stop|backend-builder|aabbccddeeff2001\n' >> "$G143_F/.apd/pipeline/.agents"
+_o=$(APD_PROJECT_DIR="$G143_F" APD_ALLOW_UNVALIDATED_AGENTS=1 bash "$G143_ADV" builder 2>&1); _rc=$?
+_c143 "F1: once the new stop lands the same ledger passes the builder gate" '[ "$_rc" = 0 ] && [ -f "$G143_F/.apd/pipeline/builder.done" ]'
+rm -rf "$G143_F"
+# F3: a resumed agent is running — a same-type dispatch right after a resume is still a parallel dispatch
+G143_D="$(mktemp -d -t apd-g143p.XXXXXX)"; mkdir -p "$G143_D/.apd/pipeline" "$G143_D/.apd/memory"; echo "PROJECT_NAME=g143p" > "$G143_D/.apd/config"; G143_L="$G143_D/.apd/pipeline/.agents"
+printf '%s|start|backend-builder|P1\n%s|stop|backend-builder|P1\n' "$(date -v-120S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d '120 seconds ago' +"%Y-%m-%d %H:%M:%S")" "$(date -v-100S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d '100 seconds ago' +"%Y-%m-%d %H:%M:%S")" > "$G143_L"
+_c143 "F3: P1 stopped 100 s ago; P1 re-starts now (resume), then P2 of the same type 1 s later: refused as parallel (HEAD/NEW first cut admitted it)" '[ "$(_ta143 SubagentStart backend-builder P1)" = 0 ] && grep -q "|resume|backend-builder|P1$" "$G143_L" && [ "$(_ta143 SubagentStart backend-builder P2)" = 2 ] && ! grep -q "|P2$" "$G143_L"'
+# F5: the resume test is an exact compare
+_c143 "F5: an id that differs from a started one only by a BRE wildcard char (R10. vs R101) is a START, not a resume" '[ "$(APD_PARALLEL_WINDOW=0 _ta143 SubagentStart docs-writer R101)" = 0 ] && [ "$(APD_PARALLEL_WINDOW=0 _ta143 SubagentStart docs-writer R10.)" = 0 ] && grep -q "|start|docs-writer|R10\.$" "$G143_L" && ! grep -q "|resume|docs-writer|R10\.$" "$G143_L"'
+rm -rf "$G143_D"
+# F2: report-turns reads a resume-after-stop as one dispatch whose wall is the sum of its segments
+G143_R="$(mktemp -d -t apd-g143r2.XXXXXX)"; G143_C="$(mktemp -d -t apd-g143c2.XXXXXX)"; mkdir -p "$G143_R/.apd/memory"; touch "$G143_R/.apd/config"
+G143_DAY=$(date +"%Y-%m-%d")
+printf '%s 10:00:00|start|resumer2|rz222\n%s 10:01:00|stop|resumer2|rz222\n%s 10:05:00|resume|resumer2|rz222\n%s 10:09:00|stop|resumer2|rz222\n' "$G143_DAY" "$G143_DAY" "$G143_DAY" "$G143_DAY" > "$G143_R/.apd/memory/agent-history.log"
+G143_SUB="$G143_C/projects/$(printf '%s' "$G143_R" | sed 's#[^A-Za-z0-9]#-#g')/s1/subagents"; mkdir -p "$G143_SUB"
+printf '{"type":"user","timestamp":"%sT10:00:00.000Z","message":{"role":"user"}}\n{"type":"assistant","timestamp":"%sT10:00:30.000Z","message":{"role":"assistant","model":"claude-sonnet-5-5","usage":{"output_tokens":1500}}}\n{"type":"user","timestamp":"%sT10:05:00.000Z","message":{"role":"user"}}\n{"type":"assistant","timestamp":"%sT10:08:00.000Z","message":{"role":"assistant","model":"claude-sonnet-5-5","usage":{"output_tokens":1500}}}\n' "$G143_DAY" "$G143_DAY" "$G143_DAY" "$G143_DAY" > "$G143_SUB/agent-rz222.jsonl"
+G143_OUT=$(APD_PROJECT_DIR="$G143_R" CLAUDE_CONFIG_DIR="$G143_C" bash "$G143_RT" --days 3 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+_c143 "F2: report turns — start, stop, resume, stop = ONE dispatch with wall 5m00s (1m + 4m), 0 dropped (NEW first cut read 1m00s, HEAD two dispatches)" '[ "$(echo "$G143_OUT" | grep "^  resumer2 " | awk "{print \$3\"|\"\$5\"|\"\$9}")" = "1|5m00s|0" ]'
+printf '%s 11:00:00|start|resumer3|rz333\n%s 11:01:00|stop|resumer3|rz333\n%s 11:05:00|resume|resumer3|rz333\n' "$G143_DAY" "$G143_DAY" "$G143_DAY" >> "$G143_R/.apd/memory/agent-history.log"
+cp "$G143_SUB/agent-rz222.jsonl" "$G143_SUB/agent-rz333.jsonl"
+G143_OUT=$(APD_PROJECT_DIR="$G143_R" CLAUDE_CONFIG_DIR="$G143_C" bash "$G143_RT" --days 3 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+_c143 "F2: a resume after a stop with no new stop yet = running = unpaired (dropped-stop column 1 for that agent)" '[ "$(echo "$G143_OUT" | grep "^  resumer3 " | awk "{print \$3\"|\"\$9}")" = "1|1" ]'
+printf '%s 12:00:00|start|zerowall|rz444\n%s 12:00:00|stop|zerowall|rz444\n' "$G143_DAY" "$G143_DAY" >> "$G143_R/.apd/memory/agent-history.log"
+printf '{"type":"user","timestamp":"%sT12:00:00.000Z","message":{"role":"user"}}\n{"type":"assistant","timestamp":"%sT12:08:00.000Z","message":{"role":"assistant","model":"claude-sonnet-5-5","usage":{"output_tokens":100}}}\n' "$G143_DAY" "$G143_DAY" > "$G143_SUB/agent-rz444.jsonl"
+G143_OUT=$(APD_PROJECT_DIR="$G143_R" CLAUDE_CONFIG_DIR="$G143_C" bash "$G143_RT" --days 3 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+_c143 "report turns: a paired dispatch of 0 s (start and stop in the same second) reads 0m00s, not the transcript span (pass 2 P2-2: 0.0 had read as missing → 8m00s)" '[ "$(echo "$G143_OUT" | grep "^  zerowall " | awk "{print \$5}")" = "0m00s" ]'
+rm -rf "$G143_R" "$G143_C"
+# (pass 2, P2-1 + P2-4) the pipeline-report row was a grep on the source and LOCKED IN a regression (a resume before the
+# stop lost the first segment: 9m read 4m) — now two EXECUTED durations through the real report.
+_ago143() { date -v-"$1"S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "$1 seconds ago" +"%Y-%m-%d %H:%M:%S"; }
+_rpt143() {  # <ledger text> → the Agents line for backend-builder from pipeline-report on a minimal active run
+    local P; P="$(mktemp -d -t apd-g143rp.XXXXXX)"; mkdir -p "$P/.apd/pipeline" "$P/.apd/memory"; echo "PROJECT_NAME=g143rp" > "$P/.apd/config"
+    printf '%s\n' "$1" > "$P/.apd/pipeline/.agents"; echo "$(( $(date +%s) - 700 ))|$(_ago143 700)|g143-task" > "$P/.apd/pipeline/spec.done"
+    ( cd "$P" && APD_PROJECT_DIR="$P" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-report" 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' | grep "backend-builder" | sed 's/[│ ]*$//; s/^[│ ]*//' | tr -s ' '
+    rm -rf "$P"
+}
+G143_LB="$(_ago143 600)|start|backend-builder|B1
+$(_ago143 300)|resume|backend-builder|B1
+$(_ago143 60)|stop|backend-builder|B1"
+_c143 "pipeline-report: resume BEFORE the stop (start -600, resume -300, stop -60) reads 9m 0s — the first segment is kept (pass 2 P2-1: the first cut read 4m 0s)" '[ "$(_rpt143 "$G143_LB")" = "backend-builder 9m 0s" ]'
+G143_LA="$(_ago143 600)|start|backend-builder|B2
+$(_ago143 540)|stop|backend-builder|B2
+$(_ago143 300)|resume|backend-builder|B2
+$(_ago143 60)|stop|backend-builder|B2"
+_c143 "pipeline-report: resume AFTER a stop (start -600, stop -540, resume -300, stop -60) reads 5m 0s = 1m + 4m (HEAD read 10m: the second stop paired with the first start)" '[ "$(_rpt143 "$G143_LA")" = "backend-builder 5m 0s" ]'
+_c143 "supervision finality counts a fresh start or a resume as agent activity and a re-started supervisor as not final (static: the message and the grep pattern)" 'grep -q "the supervisor was re-started after its stop" "$G143_ADV" && grep -q "(start|stop|resume)" "$G143_ADV"'
+_c143 "guard-send-message no longer claims SendMessage fires no hooks; it names the resume reading" '! grep -q "without triggering SubagentStart/Stop" "$APD_PLUGIN_ROOT/bin/core/guard-send-message" && grep -q "records a resume, not a dispatch" "$APD_PLUGIN_ROOT/bin/core/guard-send-message"'
+rm -rf "$G143_D" "$G143_R" "$G143_C"
+
+section "144. The adversarial reviewer launches without CLAUDE.md (omitClaudeMd, v7.2): template, init refresh with backup, docs"
+
+# v7.2 — CC 2.1.271 added `omitClaudeMd` to agent frontmatter: the subagent runs
+# without the user, project and local CLAUDE.md files. The adversarial reviewer's
+# value is POSITIONAL (it judges the diff without the intent); the project's own
+# instruction files are intent too. Set on the adversarial template only — the
+# reviewer needs the conventions and the supervisor holds the spec. apd-init
+# refreshes an existing adversarial agent that lacks the field (the marker
+# mechanism v7.0 added for spec-blind), and — rule 0 — keeps a backup of the
+# file it replaces. Older CC ignores the field = today's behaviour.
+
+G144_T="$APD_PLUGIN_ROOT/templates"; G144_INIT="$APD_PLUGIN_ROOT/bin/core/apd-init"
+_c144() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+_c144 "adversarial template carries omitClaudeMd: true (next to memory: none)" 'grep -qE "^omitClaudeMd:[[:space:]]*true$" "$G144_T/adversarial-reviewer-template.md" && grep -q "^memory: none$" "$G144_T/adversarial-reviewer-template.md"'
+_c144 "reviewer and supervisor templates do NOT carry it (they need the project context)" '! grep -q "omitClaudeMd" "$G144_T/reviewer-template.md" && ! grep -q "omitClaudeMd" "$G144_T/supervisor-template.md" && ! grep -q "omitClaudeMd" "$G144_T/agent-template.md"'
+G144_P="$(mktemp -d -t apd-g144.XXXXXX)"; mkdir -p "$G144_P/.claude/agents" "$G144_P/.claude/rules" "$G144_P/.claude/memory" "$G144_P/.apd/pipeline"; touch "$G144_P/CLAUDE.md"
+printf 'PROJECT_NAME=g144\nAPD_VERSION=%s\nSTACK=test\nMODEL_PROFILE=burn\n' "$(cat "$APD_PLUGIN_ROOT/VERSION")" > "$G144_P/.claude/.apd-config"; printf '{"permissions":{"deny":[]}}\n' > "$G144_P/.claude/settings.json"
+# a pre-v7.2 adversarial agent: every older marker present, profile-owned model/effort, no omitClaudeMd
+sed 's/^model: .*/model: claude-opus-5-5/; s/^effort: .*/effort: high/' "$G144_T/adversarial-reviewer-template.md" | grep -v '^omitClaudeMd' > "$G144_P/.claude/agents/adversarial-reviewer.md"
+echo "LOCAL NOTE the project added" >> "$G144_P/.claude/agents/adversarial-reviewer.md"
+G144_VER=$(cat "$APD_PLUGIN_ROOT/VERSION")
+_o=$( cd "$G144_P" && APD_PROJECT_DIR="$G144_P" bash "$G144_INIT" --quick 2>&1 | sed 's/\x1b\[[0-9;]*m//g' )
+_c144 "init refreshes a pre-v7.2 adversarial agent: omitClaudeMd added, and it says why" 'grep -qE "^omitClaudeMd:[[:space:]]*true$" "$G144_P/.claude/agents/adversarial-reviewer.md" && echo "$_o" | grep -q "omitClaudeMd (CLAUDE.md-blind)"'
+_c144 "the profile-owned model and effort survive the refresh (burn: claude-opus-5-5 / high)" 'grep -q "^model: claude-opus-5-5$" "$G144_P/.claude/agents/adversarial-reviewer.md" && grep -q "^effort: high$" "$G144_P/.claude/agents/adversarial-reviewer.md"'
+_c144 "the replaced file is backed up as .bak.pre-v<version> holding the local note (rule 0)" '[ -f "$G144_P/.claude/agents/adversarial-reviewer.md.bak.pre-v$G144_VER" ] && grep -q "LOCAL NOTE" "$G144_P/.claude/agents/adversarial-reviewer.md.bak.pre-v$G144_VER"'
+_o=$( cd "$G144_P" && APD_PROJECT_DIR="$G144_P" bash "$G144_INIT" --quick 2>&1 | sed 's/\x1b\[[0-9;]*m//g' )
+_c144 "a second init is idempotent: no refresh, no second backup" '! echo "$_o" | grep -q "adversarial-reviewer: refreshed" && [ "$(ls "$G144_P/.claude/agents/" | grep -c "adversarial-reviewer.md.bak")" = 1 ]'
+_c144 "workflow.md, SPEC and the CC audit skill name omitClaudeMd on the adversarial reviewer" 'grep -q "omitClaudeMd: true" "$APD_PLUGIN_ROOT/rules/workflow.md" && grep -q "omitClaudeMd: true" "$REPO_ROOT/docs/SPEC.md" && grep -q "omitClaudeMd" "$REPO_ROOT/skills/apd-audit/SKILL.md"'
+rm -rf "$G144_P"
+
+section "145. A session model switch is recorded (PostModelSwitch → guard-audit INFO, v7.2)"
+
+# v7.2 — CC 2.1.247+ fires PostModelSwitch after the session's model changed. The
+# orchestrator's model is the one attribution column no profile sets, and a
+# switch mid-task left no trace: the metrics row carried whatever the session
+# reported at the end. One INFO line per switch — observational, never blocks;
+# Post rather than Pre because a Pre event can be cancelled and a logged switch
+# that did not happen would mislead the attribution.
+
+G145_HOOKS="$REPO_ROOT/hooks/hooks.json"; G145_SHIM="$APD_PLUGIN_ROOT/bin/adapter/cc/track-model-switch"; G145_CORE="$APD_PLUGIN_ROOT/bin/core/track-model-switch"
+_c145() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+_c145 "hooks.json wires PostModelSwitch to the track-model-switch shim (no matcher, 3 s timeout)" 'python3 -c "
+import json,sys; h=json.load(open(\"$G145_HOOKS\"))[\"hooks\"]; e=h.get(\"PostModelSwitch\") or []
+ok=any(any(x.get(\"command\")==\"bash\" and \"track-model-switch\" in \" \".join(x.get(\"args\",[])) and x.get(\"timeout\")==3 for x in b.get(\"hooks\",[])) and \"matcher\" not in b for b in e)
+sys.exit(0 if ok else 1)"'
+_c145 "shim and core exist, are executable, and the core carries a description header" '[ -x "$G145_SHIM" ] && [ -x "$G145_CORE" ] && sed -n 2p "$G145_CORE" | grep -q "^# APD Model Switch Tracker"'
+G145_P="$(mktemp -d -t apd-g145.XXXXXX)"; mkdir -p "$G145_P/.apd/memory" "$G145_P/.apd/pipeline"; echo "PROJECT_NAME=g145" > "$G145_P/.apd/config"
+# payloads live in variables and the exit code is captured BEFORE the test: bash 3.2 mangles a
+# `"$(f "{\"json\"}")"` nest inside an eval'd `[ … ]` ("too many arguments")
+_sw145() { ( cd "$1" && printf '%s' "$2" | APD_PROJECT_DIR="$1" bash "$G145_SHIM" >/dev/null 2>&1 ); echo $?; }
+G145_J1='{"hook_event_name":"PostModelSwitch","from_model":"claude-opus-5-5","to_model":"claude-sonnet-5-5"}'
+G145_J2='{}'
+G145_J3='{"from_model":"claude-opus-5-5","to_model":"x; rm -rf /"}'
+G145_J4='{"to_model":"claude-opus-5-5"}'
+G145_J5='{"from_model":"a-1","to_model":"b-2"}'
+_r=$(_sw145 "$G145_P" "$G145_J1")
+_c145 "a PostModelSwitch payload writes one INFO model-switch line with from= and to=" '[ "$_r" = 0 ] && [ "$(grep -c "|INFO|orchestrator|model-switch|from=claude-opus-5-5 to=claude-sonnet-5-5$" "$G145_P/.apd/memory/guard-audit.log")" = 1 ]'
+_r=$(_sw145 "$G145_P" "$G145_J2")
+_c145 "an empty payload writes nothing and exits 0" '[ "$_r" = 0 ] && [ "$(grep -c "model-switch" "$G145_P/.apd/memory/guard-audit.log")" = 1 ]'
+_r=$(_sw145 "$G145_P" "$G145_J3")
+_c145 "a model id carrying shell metacharacters is refused (no line), exit 0" '[ "$_r" = 0 ] && [ "$(grep -c "model-switch" "$G145_P/.apd/memory/guard-audit.log")" = 1 ]'
+_r=$(_sw145 "$G145_P" "$G145_J4")
+_c145 "only one side known (CC restoring a model on resume): still recorded, the unknown side as ?" '[ "$_r" = 0 ] && grep -q "model-switch|from=? to=claude-opus-5-5$" "$G145_P/.apd/memory/guard-audit.log"'
+G145_Q="$(mktemp -d -t apd-g145q.XXXXXX)"; mkdir -p "$G145_Q/.apd/memory"
+_r=$(_sw145 "$G145_Q" "$G145_J5")
+_c145 "an APD-inactive directory (no config): exit 0, nothing written" '[ "$_r" = 0 ] && [ ! -s "$G145_Q/.apd/memory/guard-audit.log" ]'
+_c145 "SPEC documents the hook and why it is Post, not Pre" 'grep -q "PostModelSwitch" "$REPO_ROOT/docs/SPEC.md" && grep -qi "not Pre" "$REPO_ROOT/docs/SPEC.md"'
+rm -rf "$G145_P" "$G145_Q"
+
+section "146. The doctor warns when CLAUDE_CODE_SUBAGENT_MODEL_FORCE overrides every agent's model (v7.2)"
+
+# v7.2 — CC 2.1.257 added CLAUDE_CODE_SUBAGENT_MODEL_FORCE: with it set, every
+# subagent runs CLAUDE_CODE_SUBAGENT_MODEL (or the session's main model) and the
+# agent definition's `model:` is ignored — the declared profile and every template
+# pin silently stop meaning anything. Nothing in APD read the env; the doctor is
+# where a run's preconditions are checked, so it says so there.
+
+G146_DOC="$APD_PLUGIN_ROOT/bin/core/pipeline-doctor"
+_c146() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+G146_P="$(mktemp -d -t apd-g146.XXXXXX)"; mkdir -p "$G146_P/.apd/pipeline" "$G146_P/.apd/memory" "$G146_P/.apd/agents"; echo "PROJECT_NAME=g146" > "$G146_P/.apd/config"
+_d146() { ( cd "$G146_P" && env -u CLAUDE_CODE_SUBAGENT_MODEL_FORCE -u CLAUDE_CODE_SUBAGENT_MODEL "$@" APD_PROJECT_DIR="$G146_P" bash "$G146_DOC" 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' | awk "/Model environment/{f=1;next} /Guard Coverage/{f=0} f"; }
+_c146 "FORCE set, no model named: warns that every subagent runs the session main model and pins are ignored" '_d146 CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 | grep -q "CLAUDE_CODE_SUBAGENT_MODEL_FORCE is set — every subagent runs the session main model; MODEL_PROFILE and the agent pins are IGNORED"'
+_c146 "FORCE set with a model: the warning names that model" '_d146 CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_SUBAGENT_MODEL=claude-haiku-4-5 | grep -q "every subagent runs claude-haiku-4-5;"'
+_c146 "MODEL set without FORCE: no warning — pinned agents are unaffected, and the line says so" '_d146 CLAUDE_CODE_SUBAGENT_MODEL=claude-haiku-4-5 | grep -q "unaffected" && ! _d146 CLAUDE_CODE_SUBAGENT_MODEL=claude-haiku-4-5 | grep -q "IGNORED"'
+_c146 "neither set: one pass line, no warning" '_d146 | grep -q "no subagent model override" && ! _d146 | grep -q "IGNORED"'
+_c146 "SPEC's doctor row names the env check" 'grep -q "CLAUDE_CODE_SUBAGENT_MODEL_FORCE" "$REPO_ROOT/docs/SPEC.md"'
+rm -rf "$G146_P"
+
 
 
 

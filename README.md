@@ -109,7 +109,7 @@ See [Getting Started](GETTING-STARTED.md) for both walkthroughs.
 | **Orchestrator** | your session's model — not APD-managed | — | Coordinates pipeline, writes spec, dispatches agents, commits |
 | **Builder** | `claude-sonnet-5-5` | xhigh | Implements code per spec, scoped to specific files |
 | **Reviewer** | `claude-opus-5-5` | max | Finds bugs, security issues, edge cases (read-only) |
-| **Adversarial Reviewer** | `claude-sonnet-5-5` | max | Context-free review — no spec knowledge, fresh perspective; one tier down on purpose |
+| **Adversarial Reviewer** | `claude-sonnet-5-5` | max | Context-free review — no spec, no CLAUDE.md (`omitClaudeMd`, v7.2), fresh perspective; one tier down on purpose |
 | **Supervisor** | `claude-opus-5-5` | max | Judges the FINAL diff after every fix, before the verifier (every profile since v7.0) |
 | **Verifier** | — | — | Script: build + test + spec traceability check |
 

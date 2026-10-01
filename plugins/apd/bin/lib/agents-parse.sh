@@ -6,10 +6,13 @@
 # matching stop is a DROPPED SubagentStop hook (or a resume still running) —
 # not a maxTurn exhaust: a subagent that hits its `maxTurns` stops with a
 # PARTIAL result and its stop fires (re-measured 2026-10-01, CC 2.1.286).
-# A resume via SendMessage fires another SubagentStart with the SAME id, so
-# one dispatch can leave several start lines and one stop (measured 8 + 1);
-# this parser still counts each start line — reading a same-id re-start as a
-# resume is the next patch.
+# A resume via SendMessage fires another SubagentStart with the SAME id
+# (measured 8 + 1 stop); since v7.2 track-agent records those as `resume`
+# lines, which this parser ignores — a dispatch is one `start`. A resume
+# BEFORE the first stop shows as unpaired until that stop lands; a resume
+# AFTER a stop reads as paired here (the first stop did pair it) — this count
+# is a telemetry hint. The gates read the id's LAST event instead
+# (pipeline-advance `_last_events`, track-agent's parallel gate).
 #
 # parse_agents_log FILE → prints "TOTAL EXHAUSTED" to stdout
 #   TOTAL     = number of start events

@@ -66,6 +66,9 @@ For each agent in `.claude/agents/*.md`:
 - `effort:` — builders `xhigh`; `code-reviewer`, `adversarial-reviewer` and `supervisor` `max`
 - `color:` — should be set (purple/blue/green/cyan for builders, orange for reviewer)
 - `permissionMode:` — builders `bypassPermissions`, reviewers `plan`
+- `omitClaudeMd:` — `true` on `adversarial-reviewer` (v7.2, CC ≥ 2.1.271): the context-free reviewer
+  must not load the project's own CLAUDE.md files either; missing → `apd-init` refreshes the agent
+  (with a `.bak.pre-v<version>` backup). Not on the reviewer or the supervisor — they need the context
 - `memory:` — `project` for builders, but **`none` for `adversarial-reviewer` and
   `supervisor`**. Those two carry the decontextualization contract; flagging them for a
   missing `memory: project` inverts the thing that makes them worth dispatching.

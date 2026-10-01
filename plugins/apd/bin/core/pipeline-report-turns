@@ -89,21 +89,34 @@ def iso(s):
     try: return datetime.fromisoformat(s.replace("Z", "+00:00"))
     except Exception: return None
 
-# 1) dispatches in window from agent-history: id -> (agent, start, stop|None)
-disp = []       # (agent, start, stop_or_None, id)
-open_ids = {}
+# 1) dispatches in window from agent-history, as SEGMENTS per id. v7.2: a `resume`
+#    line (a SendMessage continuation of an agent already started) re-opens the id —
+#    one dispatch, its wall is the sum of its segments, and it is unpaired while its
+#    last segment is open (resume before the first stop, or re-started after it).
+segs = {}       # aid -> [ [agent, start, stop|None], ... ]
+order = []
 for line in open(history, errors="ignore"):
     p = line.rstrip("\n").split("|")
     if len(p) < 4: continue
     ts, ev, ag, aid = p[0], p[1], p[2], p[3]
     if ts[:10] < cutoff: continue
     if ev == "start":
-        open_ids[aid] = (ag, ts)
-    elif ev == "stop" and aid in open_ids:
-        ag0, st = open_ids.pop(aid)
-        disp.append((ag0, st, ts, aid))
-for aid, (ag, st) in open_ids.items():
-    disp.append((ag, st, None, aid))   # unpaired start
+        if aid not in segs: segs[aid] = []; order.append(aid)
+        if not segs[aid] or segs[aid][-1][2] is not None: segs[aid].append([ag, ts, None])
+    elif ev == "resume" and aid in segs:
+        if segs[aid][-1][2] is not None: segs[aid].append([ag, ts, None])   # after a stop: a new segment; before it: the same one
+    elif ev == "stop" and aid in segs and segs[aid][-1][2] is None:
+        segs[aid][-1][2] = ts
+disp = []       # (agent, start, stop_or_None, id, wall_seconds_or_None)
+for aid in order:
+    ss = segs[aid]; ag0 = ss[0][0]; st0 = ss[0][1]
+    open_seg = any(s[2] is None for s in ss)
+    wall = 0.0
+    for s in ss:
+        if s[2] is None: continue
+        a, b = epoch(s[1]), epoch(s[2])
+        if a and b: wall += (b - a).total_seconds()
+    disp.append((ag0, st0, None if open_seg else ss[-1][2], aid, wall if (ss and not open_seg) else None))
 
 # 2) index transcripts by id across all session dirs under the slug
 tindex = {}
@@ -190,13 +203,10 @@ agg = {}   # agent -> lists
 dropped = 0
 died = 0
 no_tx = 0
-for ag, st, stop, aid in disp:
+for ag, st, stop, aid, segwall in disp:
     t = transcript(aid)
-    # wall: paired -> stop-start; else transcript span
-    wall = None
-    if stop:
-        a, b = epoch(st), epoch(stop)
-        if a and b: wall = (b - a).total_seconds()
+    # wall: paired -> the sum of its segments (stop-start per segment); else transcript span
+    wall = segwall if (stop and segwall is not None) else None   # pass 2: a 0 s paired dispatch is 0, not "missing" (else the transcript span replaced it)
     if wall is None and t and t.get("span"): wall = t["span"]
     if t is None or t.get("turns", 0) == 0:
         # no usable transcript: unpaired = agent died/killed;

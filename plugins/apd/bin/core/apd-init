@@ -406,13 +406,22 @@ if [ "$MODE" = "update" ]; then
         #   reviewed-files    — scope directive (v4.7.10+)
         #   guard-spec-blind  — spec-blindness enforcement (v7.0+); without it
         #                       the decontextualisation contract is intent only
+        #   omitClaudeMd: true — CLAUDE.md-blindness (v7.2; CC ≥ 2.1.271 honours it,
+        #                       older CC ignores the field = today's behaviour): the
+        #                       reviewer must not read the project's own instructions
+        #                       and conventions either — it judges the diff, not the intent
         MISSING_MARKER=""
         grep -q 'reviewed-files' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null \
             || MISSING_MARKER=".reviewed-files scope directive"
         grep -q 'guard-spec-blind' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null \
             || MISSING_MARKER="${MISSING_MARKER:+$MISSING_MARKER + }spec-blind guard"
+        grep -qE '^omitClaudeMd:[[:space:]]*true' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null \
+            || MISSING_MARKER="${MISSING_MARKER:+$MISSING_MARKER + }omitClaudeMd (CLAUDE.md-blind)"
         if [ -n "$MISSING_MARKER" ]; then
             if [ -f "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" ]; then
+                # Rule 0: the refresh REPLACES the file — keep what was there (first backup per version wins).
+                [ -f "$CLAUDE_DIR/agents/adversarial-reviewer.md.bak.pre-v$APD_VER" ] \
+                    || cp -p "$CLAUDE_DIR/agents/adversarial-reviewer.md" "$CLAUDE_DIR/agents/adversarial-reviewer.md.bak.pre-v$APD_VER" 2>/dev/null || true
                 # The template carries the DEFAULT model/effort. When a profile is
                 # declared, the profile owns those lines — refreshing blind would
                 # silently revert a burn/eco project to sonnet on the next

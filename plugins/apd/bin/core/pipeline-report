@@ -418,7 +418,13 @@ _render_current() {
             [ "$ts_epoch" -eq 0 ] 2>/dev/null && continue
             case "$event" in
                 start)
-                    echo "${agent_id}|${agent_type}|${ts_epoch}" >> "$starts_tmp"
+                    echo "${agent_id}|${agent_type}|${ts_epoch}|open" >> "$starts_tmp"
+                    ;;
+                resume)   # v7.2 (audit F2 / pass 2): a resume AFTER a stop opens a new segment; a resume
+                          # BEFORE the stop continues the open one — the first segment must not be lost
+                    local last_line
+                    last_line=$(grep "^${agent_id}|" "$starts_tmp" 2>/dev/null | tail -1)
+                    case "$last_line" in *"|open") ;; *) echo "${agent_id}|${agent_type}|${ts_epoch}|open" >> "$starts_tmp" ;; esac
                     ;;
                 stop)
                     local start_line start_epoch dur
@@ -427,6 +433,7 @@ _render_current() {
                     start_epoch=$(echo "$start_line" | cut -d'|' -f3)
                     dur=$((ts_epoch - start_epoch))
                     [ "$dur" -gt 0 ] && echo "$agent_type $dur" >> "$agent_tmp"
+                    echo "${agent_id}|${agent_type}|${ts_epoch}|closed" >> "$starts_tmp"   # the latest line for the id says whether a segment is open
                     ;;
             esac
         done <<< "$AGENTS_DATA"

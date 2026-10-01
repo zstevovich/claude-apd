@@ -584,12 +584,19 @@ _write_reviewed_files() {
     [ "$REVIEWED_COUNT" -gt 0 ] && ok "Reviewed files scope: $REVIEWED_COUNT files → .apd/pipeline/.reviewed-files"
 }
 
+# v7.2 (audit F1): a `stop` is evidence only while it is the id's LAST event. An agent
+# that stopped and was then re-started (a `resume` line after its stop) is running
+# again — its earlier stop must not pass the gate (HEAD blocked that shape by accident:
+# the second `start` made the validator see a 0 s run).
+_last_events() { awk -F'|' 'NF >= 4 { last[$4] = $2 } END { for (i in last) print i "|" last[i] }' "$AGENTS_LOG" 2>/dev/null; }
 _scan_builder_ran() {
-    BUILDER_RAN=""; BLOCKED_AGENTS=""; SUSPICIOUS=""; STALE_DISPATCH=""
-    local REJECTED_PREFIXES="superpowers:" _ts _evt agent_type _id
+    BUILDER_RAN=""; BLOCKED_AGENTS=""; SUSPICIOUS=""; STALE_DISPATCH=""; RESTARTED=""
+    local REJECTED_PREFIXES="superpowers:" _ts _evt agent_type _id _last
     [ -f "$AGENTS_LOG" ] || return 0
+    _last=$(_last_events)
     while IFS='|' read -r _ts _evt agent_type _id; do
         [ "$_evt" = "stop" ] || continue
+        if [ -n "$_id" ] && ! printf '%s\n' "$_last" | grep -qxF "${_id}|stop"; then RESTARTED="${RESTARTED}${agent_type}, "; continue; fi
         if echo "$agent_type" | grep -qE "^(${REJECTED_PREFIXES})"; then
             BLOCKED_AGENTS="${BLOCKED_AGENTS}${agent_type}, "; continue
         fi
@@ -609,11 +616,13 @@ _scan_builder_ran() {
 # Sets REVIEWER_RAN + diagnostics (BLOCKED_AGENTS / SUSPICIOUS). Reads AGENTS_LOG,
 # APD_AGENTS_DIR. (Reviewer scan has no pre-spec STALE filter — mirrors original.)
 _scan_reviewer_ran() {
-    REVIEWER_RAN=""; BLOCKED_AGENTS=""; SUSPICIOUS=""
-    local REJECTED_PREFIXES="superpowers:" _ts _evt agent_type _id
+    REVIEWER_RAN=""; BLOCKED_AGENTS=""; SUSPICIOUS=""; RESTARTED=""
+    local REJECTED_PREFIXES="superpowers:" _ts _evt agent_type _id _last
     [ -f "$AGENTS_LOG" ] || return 0
+    _last=$(_last_events)
     while IFS='|' read -r _ts _evt agent_type _id; do
         [ "$_evt" = "stop" ] || continue
+        if [ -n "$_id" ] && ! printf '%s\n' "$_last" | grep -qxF "${_id}|stop"; then RESTARTED="${RESTARTED}${agent_type}, "; continue; fi
         if echo "$agent_type" | grep -qE "^(${REJECTED_PREFIXES})"; then
             BLOCKED_AGENTS="${BLOCKED_AGENTS}${agent_type}, "; continue
         fi
@@ -957,6 +966,9 @@ case "$STEP" in
                 echo "  Dispatch builders again AFTER 'apd pipeline spec' completes." >&2
                 echo "" >&2
             fi
+            if [ -n "${RESTARTED:-}" ]; then
+                echo "  Re-started and still running (a resume after its stop): ${RESTARTED%, } — wait for its stop; a running agent is not evidence. If no stop is coming (a stale re-start), dispatch a fresh agent." >&2
+            fi
             if [ -n "${SUSPICIOUS:-}" ]; then
                 echo "  Suspicious dispatch detected: ${SUSPICIOUS%, }" >&2
                 echo "  Agent entries look fabricated (wrong timestamp, zero duration, or missing start)." >&2
@@ -1115,6 +1127,9 @@ case "$STEP" in
                     echo "    bash $APD_SHORTCUT_DISPLAY pipeline reviewer             # then re-run" >&2
                     echo "" >&2
                 fi
+            fi
+            if [ -n "${RESTARTED:-}" ]; then
+                echo "  Re-started and still running (a resume after its stop): ${RESTARTED%, } — wait for its stop; a running agent is not evidence. If no stop is coming (a stale re-start), dispatch a fresh agent." >&2
             fi
             if [ -n "${SUSPICIOUS:-}" ]; then
                 echo "  Suspicious dispatch detected: ${SUSPICIOUS%, }" >&2
@@ -1659,10 +1674,17 @@ function _check() {
             # close). Timestamps share one format → lexical compare is safe.
             if [ -z "$SUP_ISSUE" ] && [ -f "$AGENTS_LOG" ]; then
                 SUP_LAST_STOP=$(grep "|stop|supervisor|" "$AGENTS_LOG" 2>/dev/null | tail -1 | cut -d'|' -f1)
-                if [ -z "$SUP_LAST_STOP" ]; then
+                # v7.2: a `resume` line is agent activity too, and a supervisor re-started after
+                # its stop (`start, stop, resume`) is running — its stop is not final.
+                SUP_LAST_ID=$(grep "|stop|supervisor|" "$AGENTS_LOG" 2>/dev/null | tail -1 | cut -d'|' -f4)
+                if [ -n "$SUP_LAST_ID" ] && [ "$(awk -F'|' -v id="$SUP_LAST_ID" '$4==id {last=$2} END{print last}' "$AGENTS_LOG" 2>/dev/null)" = "resume" ]; then
+                    SUP_ISSUE="supervision-not-final|the supervisor was re-started after its stop (resume on record) — let it finish"
+                fi
+                if [ -n "$SUP_ISSUE" ]; then :
+                elif [ -z "$SUP_LAST_STOP" ]; then
                     SUP_ISSUE="supervision-not-final|no supervisor stop recorded (exhausted dispatch? re-dispatch and let it finish)"
                 else
-                    OTHER_LAST_STOP=$(grep "|stop|" "$AGENTS_LOG" 2>/dev/null | grep -v "|stop|supervisor|" | tail -1 | cut -d'|' -f1)
+                    OTHER_LAST_STOP=$(grep -E "\|(start|stop|resume)\|" "$AGENTS_LOG" 2>/dev/null | grep -v "|supervisor|" | tail -1 | cut -d'|' -f1)   # pass 2 (P2-3): a fresh START after the supervisor's stop is activity too — a running new builder is not a reviewed state
                     if [ -n "$OTHER_LAST_STOP" ] && [ "$OTHER_LAST_STOP" \> "$SUP_LAST_STOP" ]; then
                         SUP_ISSUE="supervision-not-final|agent activity after last supervisor stop ($OTHER_LAST_STOP > $SUP_LAST_STOP) — re-dispatch supervisor on the final state"
                     fi

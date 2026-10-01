@@ -486,7 +486,7 @@ builder/reviewer tier per profile and is the authority for the roles it owns.
 
 ### Adversarial Reviewer (dispatched agent)
 - **Model:** `claude-sonnet-5-5` | **Effort:** max — deliberately one tier below the reviewer on every profile: its value is positional (no context), not model strength
-- Context-free — sees only code changes, not the spec or task
+- Context-free — sees only code changes, not the spec or task, and not the project's `CLAUDE.md` files either (`omitClaudeMd: true`, v7.2; CC ≥ 2.1.271 honours it, older CC ignores the field)
 - Finds bugs that contextual reviewers miss by not knowing intent
 - Findings are advisory — orchestrator decides what to act on
 - Runs AFTER regular reviewer, BEFORE verifier
@@ -674,9 +674,9 @@ When a task involves backend + frontend/mobile:
 
 The `maxTurns` frontmatter field was a no-op on CC 2.1.204 (controlled test 2026-07-09: a subagent with `maxTurns: 3` ran 34 turns), which is why v6.31 removed it from every template. **Re-measured 2026-10-01 on CC 2.1.286: it is enforced** (the CC changelog dates the behaviour to 2.1.246). At the limit the subagent stops, Claude Code returns its output marked **partial** ("stopped at its N-turn limit"), and the orchestrator may continue it with `SendMessage` — each resume fires a new `SubagentStart` with the SAME agent id and the ledger gets another `start` line; one `SubagentStop` fires at the end (measured: 8 starts, 1 stop, 22 turns for a 3-turn cap resumed 7 times).
 
-APD ships no `maxTurns`: the per-task **dispatch budget** is the sizing knob (§0b; `apd pipeline status`). Do not add `maxTurns` to a pipeline agent without a reason — a capped builder returns partial work, and every resume counts as a dispatch in `.apd/pipeline/.agents` (budget, report) until the ledger learns to read a same-id re-start as a resume. If a project set it on purpose, `/apd-setup` reports it and leaves it.
+APD ships no `maxTurns`: the per-task **dispatch budget** is the sizing knob (§0b; `apd pipeline status`). Do not add `maxTurns` to a pipeline agent without a reason — a capped builder returns partial work. A resume is recorded as a `resume` line in `.apd/pipeline/.agents` (v7.2), not as a new dispatch: the dispatch budget, the dropped-stop signal and `apd report turns` count dispatches only. If a project set it on purpose, `/apd-setup` reports it and leaves it.
 
-Observe real turn/duration usage with **`apd report turns`** (turns, wall-clock, gen%, tok/s, usg% per agent type). tok/s is the API/infra-stall discriminator. An agent that starts but has no stop event is a dropped `SubagentStop` hook (recover with `apd pipeline reconstruct-agents`) or a resume still in progress — NOT a maxTurn exhaust, which ends with a partial result, not a missing stop.
+Observe real turn/duration usage with **`apd report turns`** (turns, wall-clock, gen%, tok/s, usg% per agent type). tok/s is the API/infra-stall discriminator. An agent that starts but has no stop event is a dropped `SubagentStop` hook (recover with `apd pipeline reconstruct-agents`) or a resume still in progress — NOT a maxTurn exhaust, which ends with a partial result, not a missing stop. An agent re-started after its stop (`start, stop, resume`) is running again: `pipeline-advance` reads the ledger's LAST event per id and does not accept its earlier stop as evidence until the new stop lands.
 
 ## 9. Mandatory skills
 

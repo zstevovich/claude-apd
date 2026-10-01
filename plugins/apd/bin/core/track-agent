@@ -2,6 +2,8 @@
 # APD Agent Tracker — records agent start/stop events to pipeline state
 # Writes to .apd/pipeline/.agents so pipeline-advance can verify
 # that a real agent ran before marking a step complete.
+# Ledger events: start | resume (v7.2: a SubagentStart for an id already
+# started — a SendMessage continuation, not a dispatch) | stop.
 #
 # Interface: --event <SubagentStart|SubagentStop> --agent-type <name> --agent-id <id> [--raw-payload <json>]
 
@@ -63,6 +65,20 @@ case "$EVENT" in
         echo "  ${D}If the pre-spawn block is consistently missing, the CC Agent matcher may have changed — check hooks.json.${R}" >&2
     fi
 
+    # v7.2 — a SubagentStart for an agent id that already has a start line is a
+    # RESUME (SendMessage to a finished or maxTurns-capped agent — measured
+    # 2026-10-01 on CC 2.1.286: 8 SubagentStart events with one id, 1 stop) or a
+    # duplicate firing (Bambi: 154 same-second pairs). It is not a new dispatch:
+    # record it as `resume` so the dispatch budget, the unpaired-start signal and
+    # the report keep counting DISPATCHES, and skip the gates below — the agent
+    # running is the previous one, not a second copy (the order gates judged it
+    # when it first started).
+    if [ -n "$AGENT_ID" ] && [ -f "$AGENTS_LOG" ] && awk -F'|' -v t="$AGENT_TYPE" -v id="$AGENT_ID" '$2=="start" && $3==t && $4==id {f=1} END{exit !f}' "$AGENTS_LOG" 2>/dev/null; then   # exact compare (audit F5: a BRE read `R10.` as `R101`)
+        echo "${NOW_HUMAN}|resume|${AGENT_TYPE}|${AGENT_ID}" >> "$AGENTS_LOG"
+        printf "  %s↻%s %s%s%s %sresumed%s\n" "$ac" "$R" "$ac" "$AGENT_TYPE" "$R" "$D" "$R" >&2
+        exit 0
+    fi
+
     # Adversarial pre-flight gate (v6.1 B1) — hard block when adversarial
     # dispatched out of order. Runs BEFORE the start event is logged so a
     # blocked dispatch leaves no fake start in .agents.
@@ -98,11 +114,13 @@ case "$EVENT" in
     # Codex has no SubagentStart hook for this surface.
     PARALLEL_WINDOW_SEC=${APD_PARALLEL_WINDOW:-30}
     if [ -f "$AGENTS_LOG" ] && [ "$PARALLEL_WINDOW_SEC" -gt 0 ] 2>/dev/null; then
-        LAST_LINE=$(awk -F'|' -v t="$AGENT_TYPE" '$2=="start" && $3==t' "$AGENTS_LOG" | tail -1)
+        # v7.2 (audit F3): a resumed agent is running again — the last start OR resume of the type
+        # is the reference, and "running" means the id's LAST event is not a stop.
+        LAST_LINE=$(awk -F'|' -v t="$AGENT_TYPE" '($2=="start" || $2=="resume") && $3==t' "$AGENTS_LOG" | tail -1)
         if [ -n "$LAST_LINE" ]; then
             LAST_TS=$(echo "$LAST_LINE" | cut -d'|' -f1)
             LAST_ID=$(echo "$LAST_LINE" | cut -d'|' -f4)
-            if ! awk -F'|' -v id="$LAST_ID" '$2=="stop" && $4==id {found=1} END{exit !found}' "$AGENTS_LOG"; then
+            if awk -F'|' -v id="$LAST_ID" '$4==id {last=$2} END{exit !(last=="start" || last=="resume")}' "$AGENTS_LOG"; then
                 LAST_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$LAST_TS" +%s 2>/dev/null || \
                              date -d "$LAST_TS" +%s 2>/dev/null || echo 0)
                 NOW_EPOCH=$(date +%s)

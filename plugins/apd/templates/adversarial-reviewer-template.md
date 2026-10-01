@@ -7,6 +7,7 @@ effort: max
 color: red
 permissionMode: plan
 memory: none
+omitClaudeMd: true
 hooks:
   PreToolUse:
     - matcher: "Read"

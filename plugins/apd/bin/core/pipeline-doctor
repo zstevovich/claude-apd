@@ -192,6 +192,20 @@ fi
 # ============================================================
 # 6. GUARDS
 # ============================================================
+section "Model environment"
+# v7.2 — CC ≥ 2.1.257: CLAUDE_CODE_SUBAGENT_MODEL_FORCE applies CLAUDE_CODE_SUBAGENT_MODEL
+# (or the session main model) to EVERY subagent, ignoring the agent definition
+# `model:`. The declared MODEL_PROFILE and every template pin are then overridden
+# with no trace in APD — the served model in `apd report turns` would disagree with
+# the conf and nobody would know why. Nothing else in the framework reads the env.
+if [ -n "${CLAUDE_CODE_SUBAGENT_MODEL_FORCE:-}" ]; then
+    warn "CLAUDE_CODE_SUBAGENT_MODEL_FORCE is set — every subagent runs ${CLAUDE_CODE_SUBAGENT_MODEL:-the session main model}; MODEL_PROFILE and the agent pins are IGNORED (CC ≥ 2.1.257). Unset it unless this is deliberate."
+elif [ -n "${CLAUDE_CODE_SUBAGENT_MODEL:-}" ]; then
+    pass "CLAUDE_CODE_SUBAGENT_MODEL=${CLAUDE_CODE_SUBAGENT_MODEL} (a default for agents WITHOUT a model line — APD agents are pinned, unaffected; FORCE is not set)"
+else
+    pass "no subagent model override in the environment"
+fi
+
 section "Guard Coverage"
 
 GUARDS_OK=true

@@ -1,10 +1,13 @@
 #!/bin/bash
 # APD SendMessage Guard — blocks SendMessage during active pipeline
 #
-# SendMessage continues an existing agent without triggering SubagentStart/Stop
-# hooks. This means the agent dispatch is not recorded in .agents log and
-# pipeline-advance will reject it as "no agent dispatched."
-# Always use Agent() to dispatch a new agent instead.
+# SendMessage continues an EXISTING agent. Measured 2026-10-01 on CC 2.1.286: that
+# continuation fires SubagentStart again with the same agent id (and one stop at the
+# end); since v7.2 track-agent records it as `resume`, not as a dispatch. Either way
+# a pipeline step needs a FRESH Agent() dispatch: a continued agent is not a new
+# builder/reviewer run, the budget does not count it, and pipeline-advance treats a
+# re-started agent as running (its earlier stop is no longer evidence). The block
+# stands — in a pipeline, dispatch a new agent.
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
@@ -14,8 +17,8 @@ source "$(dirname "$0")/../lib/style.sh"
 if [ -f "$PIPELINE_DIR/spec.done" ]; then
     echo "BLOCKED: Do not use SendMessage during an active pipeline." >&2
     echo "" >&2
-    echo "  SendMessage does not trigger SubagentStart/Stop hooks." >&2
-    echo "  The agent dispatch will NOT be recorded — pipeline-advance will block." >&2
+    echo "  SendMessage continues an existing agent — the ledger records a resume, not a dispatch." >&2
+    echo "  pipeline-advance treats a re-started agent as running and will not count it as a step." >&2
     echo "" >&2
     echo "  Instead, dispatch a NEW agent:" >&2
     echo "    Agent({ subagent_type: \"agent-name\", prompt: \"...\" })" >&2

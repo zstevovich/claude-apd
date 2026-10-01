@@ -1,0 +1,33 @@
+#!/bin/bash
+# APD Model Switch Tracker (v7.2) — records a session model switch in guard-audit.log.
+#
+# CC ≥ 2.1.247 fires PostModelSwitch after the session's model CHANGES (a /model
+# command, a client request, or CC restoring the model on resume). The
+# orchestrator's model is the one column of the metrics no profile sets, and a
+# switch mid-task was invisible: the metrics row carried whatever the session
+# reported at the end. This writes one INFO line per switch so a run can be
+# attributed to the models it actually ran under. Observational only — never
+# blocks (Post, not Pre: a Pre event can be cancelled by another hook or the
+# user, and a logged switch that did not happen would mislead the attribution).
+#
+# Interface: --from <model> --to <model>   (both canonical ids; either may be empty)
+# Exit 0 always.
+
+source "$(dirname "$0")/../lib/resolve-project.sh"
+[ "$APD_ACTIVE" = false ] && exit 0
+source "$(dirname "$0")/../lib/style.sh"
+
+FROM=""; TO=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --from) FROM="${2:-}"; shift 2 ;;
+    --to)   TO="${2:-}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+# Both empty = nothing to record (a malformed payload); one empty = still worth a line.
+[ -n "$FROM$TO" ] || exit 0
+case "$FROM$TO" in *[!A-Za-z0-9_.:-]*) exit 0 ;; esac   # a model id is a plain token; anything else is not a model
+[ -d "${MEMORY_DIR:-}" ] || exit 0
+echo "$(date +"%Y-%m-%d %H:%M:%S")|$(_audit_type INFO)|orchestrator|model-switch|from=${FROM:-?} to=${TO:-?}" >> "$MEMORY_DIR/guard-audit.log"
+exit 0
