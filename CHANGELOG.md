@@ -1,5 +1,23 @@
 # Changelog
 
+## v7.2.1 — 2026-10-02
+
+Patch: the two audit skills (CC + Codex) and `/apd-setup` step 5c made true for the v7.0–v7.2 framework, read line by line against `apd-init`, `pipeline-doctor`, `pipeline-audit-drift`, `hooks.json`, `install-codex-config` and the templates before the first post-update audit on a real project. Docs + test rows; no gate, guard or hook changes.
+
+**What the CC audit skill described was correct; what it missed was everything since v7.0:**
+- **`maxTurns`** — not a word. Setup 5c says "report it, do NOT strip it" (v7.1.11); an auditor with the pre-v7.1.11 memory ("inert field") strips a working cap. Now the same rule, plus the v7.2 fact: the ledger records a same-id re-start as `resume`, so a capped-and-resumed agent is ONE dispatch.
+- **`apd doctor` was never run** — the v7.2 "Model environment" section is where `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` shows up; the audit read the pins and could report "models aligned" while every subagent ran one forced model. §6 runs doctor and names the var.
+- **Builder charter** (`<!-- apd:builder-charter -->`, v7.0) not in the body check — a builder without it has had no session since the update; init adds it, the audit says so instead of pasting.
+- **`### Model discipline` / `### Agents`** sections of CLAUDE.md missing from §3 — the full-id rule was checked in workflow.md only; an older CLAUDE.md with the bare alias `opus` passed, and the drift script does not read that table.
+- `guard-spec-blind` listed under "Hook check" as something the agent "must carry" — it is a text marker; the template says it is deliberately NOT wired per-agent (the guard runs session-level). An auditor looking for a hook would flag its absence.
+- "Has step 9 (finish)" — section 9 of workflow.md is Mandatory skills; FINISH is step 9 of the flow. Colors for the adversarial (`red`) and supervisor (`purple`); `pipeline-skip-log.md` (the fourth memory file); the output format still said "1 reviewer" three review roles later.
+
+**Codex audit skill:** the hooks section did not know the `SubagentStart`/`SubagentStop` → `track-subagent` pair the installer wires (block 5c; `codex-doctor` checks it). Worse: the §136 C2 join — "every hook the installer wires is named in the Codex audit" — was green because its regex read the `guard-*`/`session-start` variable lines, and `track-subagent` is wired only in the launcher form. The join now reads the launcher form (`$HOOK_LAUNCHER_Q <name>`); on the old skill it goes red.
+
+**Setup 5c:** the sentence "every resume counts as a dispatch until the ledger learns to read a same-id re-start as a resume" was v7.1.11 text that v7.2.0 made false — replaced with the fact.
+
+**Proof:** §147, 12 checks — each joins the sentence to the thing it describes (the env var read from the doctor's warn line, the charter marker from init, the memory list from `templates/memory`, the colors from the three templates, the Codex hook list from the installer); red 11/12 on v7.2.0, green after. 12 mutations, every one flips ≥ 1 row (incl. the C2 regex: old join green / new join red on the pre-edit Codex skill). Suite 1987 → 1999 (bash 5 and 3.2), Linux container 1994, test-system 36/0. No external audit (docs).
+
 ## v7.2.0 — 2026-10-01
 
 **Six items of the post-v7.1 list in one release.** The user's call after v7.1.11: the remaining list is one release, not six patches. Each item still carries its own red-first section, its mutations, and — for the two that touch a guard or a gate — an independent decontextualised audit.

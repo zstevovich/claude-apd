@@ -101,6 +101,9 @@ Verify `.codex/hooks.json` has:
 - a second `PreToolUse` Bash hook → `bin/adapter/cdx/guard-bash-portability` (macOS/BSD vs Linux command forms; wired by `apd cdx init` alongside the scope guard — `apd doctor` does not check this one, so the audit must)
 - `PreToolUse` `apply_patch|Edit|Write` matcher → `bin/adapter/cdx/guard-file-edit`
 - `SessionStart` → `bin/adapter/cdx/session-start`
+- `SubagentStart` + `SubagentStop` → `bin/adapter/cdx/track-subagent` (installer block 5c: `apd:apd_prepare_dispatch`
+  writes a short-lived role binding, `track-subagent` consumes it on SubagentStart and closes the same
+  `agent_id` on SubagentStop — the ledger evidence the gates read; `codex-doctor` checks this pair)
 - No stale paths from previous APD versions
 
 ### 6. Pipeline health
@@ -154,7 +157,7 @@ IMPORTANT:
   1. [file:line] Description
 
 CLEAN:
-  ✓ Agents (X builder + 1 reviewer)
+  ✓ Agents (X builders + code-reviewer + adversarial-reviewer)
   ✓ AGENTS.md sections complete
   ✓ MCP registered + apd:apd_ping responds
   ✓ Hooks wired

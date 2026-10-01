@@ -16072,8 +16072,11 @@ else
     fail "stale MCP tool counts (server has $_c1_n):$_c1_docs"; FAILS=$((FAILS + 1))
 fi
 # C2. Every Codex hook the installer wires is named in the Codex audit's hooks section.
+#     v7.2.1: read the LAUNCHER form (`$HOOK_LAUNCHER_Q <name>`) every hook is wired with —
+#     the guard-* variable lines the first cut read never carried track-subagent, so the
+#     join was green while the audit missed a hook.
 _c2_missing=""
-for _g in $(grep -oE 'bin/adapter/cdx/(guard-[a-z-]+|session-start)"' "$G136_ICC" | sed 's#bin/adapter/cdx/##; s/"//' | sort -u); do
+for _g in $(grep -oE 'HOOK_LAUNCHER_Q [a-z-]+' "$G136_ICC" | awk '{print $2}' | sort -u); do
     grep -q -- "$_g" "$G136_AUD_CDX" || _c2_missing="$_c2_missing $_g"
 done
 if [ -z "$_c2_missing" ]; then
@@ -17177,6 +17180,68 @@ _c146 "neither set: one pass line, no warning" '_d146 | grep -q "no subagent mod
 _c146 "SPEC's doctor row names the env check" 'grep -q "CLAUDE_CODE_SUBAGENT_MODEL_FORCE" "$REPO_ROOT/docs/SPEC.md"'
 rm -rf "$G146_P"
 
+
+
+
+section "147. The audit skills describe the v7.0–v7.2 framework: maxTurns kept, doctor env check, builder charter, Model discipline, memory set, Codex lifecycle hook (v7.2.1)"
+
+# v7.2.1 — read line by line against init/doctor/drift/hooks/templates before the
+# first post-update audit on a real project: everything the CC skill DESCRIBED was
+# true, what it MISSED was the v7.0–v7.2 framework — maxTurns (setup 5c says keep,
+# the audit said nothing), the doctor env check (v7.2), the builder charter (v7.0),
+# the Model discipline section of CLAUDE.md, the fourth memory file, three review
+# roles in the output; the Codex skill missed the SubagentStart/Stop lifecycle hook,
+# and the §136 C2 join could not see it (its regex read the guard-* variable
+# lines, not the launcher form every hook is wired with). Each row joins the
+# sentence to the thing it describes, so the next drift is red the day it ships.
+
+G147_AUD_CC="$REPO_ROOT/skills/apd-audit/SKILL.md"
+G147_AUD_CDX="$APD_PLUGIN_ROOT/skills/apd-audit/SKILL.md"
+G147_SETUP="$REPO_ROOT/skills/apd-setup/SKILL.md"
+G147_INIT="$APD_PLUGIN_ROOT/bin/core/apd-init"
+G147_DOC="$APD_PLUGIN_ROOT/bin/core/pipeline-doctor"
+G147_ICC="$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config"
+G147_TA="$APD_PLUGIN_ROOT/bin/core/track-agent"
+G147_CLREF="$APD_PLUGIN_ROOT/templates/CLAUDE.md.reference"
+G147_WF="$APD_PLUGIN_ROOT/rules/workflow.md"
+G147_ADV="$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md"
+G147_MEMDIR="$APD_PLUGIN_ROOT/templates/memory"
+_c147() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+
+# A1. maxTurns: the audit names the field and says keep it — the same rule as setup 5c; no template ships it.
+_c147 "CC audit: maxTurns is a project-set working cap — report it, never strip it (no template carries the field)" 'grep -E "^- .maxTurns:" "$G147_AUD_CC" | grep -q "never strip" && grep -q "do NOT strip" "$G147_SETUP" && ! grep -qE "^maxTurns:" "$APD_PLUGIN_ROOT"/templates/*.md'
+# A2. The resume sentence is TRUE (track-agent writes the event) and the stale 5c clause is gone — audit and setup carry the same phrase.
+_c147 "setup 5c no longer says the ledger has yet to learn the resume; audit + setup state the v7.2 resume event the ledger writes" '! grep -q "until the ledger learns" "$G147_SETUP" && grep -q "same-id re-start as a .resume. (v7.2)" "$G147_SETUP" && grep -q "same-id re-start as .resume. (v7.2)" "$G147_AUD_CC" && grep -q "|resume|" "$G147_TA"'
+# A3. The doctor env check: the audit runs apd doctor and names the section + the env var the doctor warns on.
+G147_ENV=$(grep -oE 'warn "CLAUDE_CODE_[A-Z_]+ is set' "$G147_DOC" | grep -oE 'CLAUDE_CODE_[A-Z_]+' | head -1)
+_c147 "CC audit runs apd doctor and names the Model environment section + the env var the doctor warns on ($G147_ENV)" '[ -n "$G147_ENV" ] && grep -q "^bash .claude/bin/apd doctor" "$G147_AUD_CC" && grep -q "Model environment" "$G147_AUD_CC" && grep -q "\`$G147_ENV\`" "$G147_AUD_CC" && grep -q "section \"Model environment\"" "$G147_DOC"'
+# A4. The builder charter marker, read from init.
+G147_MARK=$(grep -oE 'CHARTER_MARK="[^"]+"' "$G147_INIT" | head -1 | cut -d'"' -f2)
+_c147 "CC audit body check names the builder charter marker init writes ($G147_MARK)" '[ -n "$G147_MARK" ] && grep -qF -- "$G147_MARK" "$G147_AUD_CC" && grep -q "builder-charter" "$G147_INIT"'
+# A5. Memory files: the CC audit names every file templates/memory ships; the Codex audit names every file the installer copies.
+G147_MISS=""; for _f in $(ls "$G147_MEMDIR"); do grep -q "$_f" "$G147_AUD_CC" || G147_MISS="$G147_MISS $_f"; done
+_c147 "CC audit memory section names all $(ls "$G147_MEMDIR" | wc -l | tr -d ' ') files templates/memory ships${G147_MISS:+ (missing:$G147_MISS)}" '[ -z "$G147_MISS" ] && [ "$(ls "$G147_MEMDIR" | wc -l)" -ge 4 ]'
+G147_CDXMEM=$(grep -oE 'for f in (MEMORY|status|session)[^;]*; do' "$G147_ICC" | head -1 | sed 's/for f in //; s/; do//')
+G147_MISS2=""; for _f in $G147_CDXMEM; do grep -q "$_f" "$G147_AUD_CDX" || G147_MISS2="$G147_MISS2 $_f"; done
+_c147 "Codex audit memory section names every file install-codex-config copies ($G147_CDXMEM)" '[ -n "$G147_CDXMEM" ] && [ -z "$G147_MISS2" ]'
+# A6. Colors: the audit color line carries each review template pin by role.
+G147_MISS3=""
+for _t in reviewer-template.md adversarial-reviewer-template.md supervisor-template.md; do
+    _n=$(awk -F": " '/^name:/{print $2; exit}' "$APD_PLUGIN_ROOT/templates/$_t"); _c=$(awk -F": " '/^color:/{print $2; exit}' "$APD_PLUGIN_ROOT/templates/$_t")
+    grep -E "^- .color:" "$G147_AUD_CC" | grep -q "\`$_c\` on \`$_n\`" || G147_MISS3="$G147_MISS3 $_n=$_c"
+done
+_c147 "CC audit color line carries the three review template pins by role${G147_MISS3:+ (missing:$G147_MISS3)}" '[ -z "$G147_MISS3" ]'
+# A7. CLAUDE.md sections: the reference ships Agents + Model discipline; the audit lists both and states the full-id rule there.
+_c147 "CC audit CLAUDE.md section list names Agents and Model discipline (full ids) — both shipped by CLAUDE.md.reference" 'grep -q "^### Agents" "$G147_CLREF" && grep -q "^### Model discipline" "$G147_CLREF" && grep -q "### Agents" "$G147_AUD_CC" && grep "### Model discipline" "$G147_AUD_CC" | grep -qi "full model id"'
+# A8. Step 9: the flow ends with FINISH (/apd-finish); numbered section 9 is Mandatory skills — the audit says both, not "step 9 (finish)".
+_c147 "CC audit workflow check: 9. FINISH is the flow step, section 9 is Mandatory skills — stated as workflow.md has them" 'grep -q "^9\. FINISH" "$G147_WF" && grep -q "^## 9\. Mandatory skills" "$G147_WF" && grep -q "apd-finish" "$G147_AUD_CC" && grep -q "9\. Mandatory skills" "$G147_AUD_CC" && ! grep -q "step 9 (finish)" "$G147_AUD_CC"'
+# A9. guard-spec-blind is text, not a per-agent hook — the audit says session-level, as the template comment does.
+_c147 "CC audit says guard-spec-blind runs session-level (a text marker, not a per-agent hook) — as the adversarial template states" 'grep -q "runs session-level" "$G147_ADV" && grep "guard-spec-blind" "$G147_AUD_CC" | grep -q "session-level" && ! grep "guard-spec-blind" "$G147_AUD_CC" | grep -q "must carry"'
+# A10. Output format: three review roles on CC, two on Codex; the pre-v6.30 "1 reviewer" line gone from both.
+_c147 "audit output formats name every review role (CC three, Codex two); no stale 1-reviewer line" 'grep -q "code-reviewer + adversarial-reviewer + supervisor" "$G147_AUD_CC" && grep -q "code-reviewer + adversarial-reviewer" "$G147_AUD_CDX" && ! grep -q "1 reviewer" "$G147_AUD_CC" && ! grep -q "1 reviewer" "$G147_AUD_CDX"'
+# C1. Codex lifecycle hook: the installer wires track-subagent on SubagentStart/Stop in the launcher form; the Codex audit names it.
+G147_HOOKS=$(grep -oE 'HOOK_LAUNCHER_Q [a-z-]+' "$G147_ICC" | awk "{print \$2}" | sort -u | tr '\n' ' ')
+_c147 "Codex audit hooks section names track-subagent on SubagentStart/Stop (installer launcher-form list: $G147_HOOKS)" 'echo "$G147_HOOKS" | grep -q "track-subagent" && grep -q "SubagentStart" "$G147_ICC" && grep "track-subagent" "$G147_AUD_CDX" | grep -q "SubagentStart"'
 
 
 

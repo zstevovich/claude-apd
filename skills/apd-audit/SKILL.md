@@ -64,8 +64,13 @@ For each agent in `.claude/agents/*.md`:
   declared `MODEL_PROFILE` manages. A conf with no row for a role means the template pin
   stands — flag a mismatch, do not rewrite it.
 - `effort:` — builders `xhigh`; `code-reviewer`, `adversarial-reviewer` and `supervisor` `max`
-- `color:` — should be set (purple/blue/green/cyan for builders, orange for reviewer)
+- `color:` — should be set (builders any of blue/green/cyan/purple; `orange` on `code-reviewer`, `red` on `adversarial-reviewer`, `purple` on `supervisor` — the template pins)
 - `permissionMode:` — builders `bypassPermissions`, reviewers `plan`
+- `maxTurns:` — APD ships none; a project value is a working cap set on purpose: **report it, never strip it**
+  (the `/apd-setup` step 5c rule). CC enforces the field again since 2.1.246 — re-measured 2026-10-01 on
+  2.1.286: a capped subagent returns partial output and is resumed via SendMessage. The ledger records
+  every same-id re-start as `resume` (v7.2), so a capped-and-resumed agent is ONE dispatch for
+  `apd pipeline status` and the dispatch budget
 - `omitClaudeMd:` — `true` on `adversarial-reviewer` (v7.2, CC ≥ 2.1.271): the context-free reviewer
   must not load the project's own CLAUDE.md files either; missing → `apd-init` refreshes the agent
   (with a `.bak.pre-v<version>` backup). Not on the reviewer or the supervisor — they need the context
@@ -84,7 +89,10 @@ For each agent in `.claude/agents/*.md`:
   `bin/core/` holds the runtime-neutral implementations they call)
 - Builders declare: guard-scope, guard-bash-scope, guard-secrets, guard-git
 - Reviewers declare: guard-secrets, guard-git (NO guard-scope — read-only)
-- `adversarial-reviewer` must carry the `guard-spec-blind` marker (v7.0)
+- `adversarial-reviewer` carries the `guard-spec-blind` text (v7.0) — a marker, NOT a hook: the guard runs session-level
+  from `hooks/hooks.json` and finds the agent by `agent_type`; the template says it is deliberately not
+  wired per-agent. A copy without the text is pre-v7.0 — `apd-init` refreshes it (backup
+  `.bak.pre-v<version>`); do not add a hook line
 
 > **The per-agent `hooks:` block is DATA, not execution.** It never fires (measured on
 > CC 2.1.220) — enforcement runs session-level from `hooks/hooks.json`. But
@@ -96,6 +104,10 @@ For each agent in `.claude/agents/*.md`:
 - Has FORBIDDEN section with commit prohibition
 - Has workflow section
 - Scope paths match guard-scope arguments
+- Builders carry the charter marker `<!-- apd:builder-charter -->` (v7.0: how the diff is judged,
+  where the bar rises, red-green proof, `.apd/lessons.md` read before starting). `apd-init` adds it on
+  session start — a builder without it means no session has run since the update; run init, do not
+  paste the block by hand
 
 ### 3. CLAUDE.md Quality
 
@@ -104,6 +116,10 @@ Check that CLAUDE.md has all required sections:
 - `## APD` — orchestrator role description
 - `### Pipeline` — enforced pipeline reference
 - `### Guardrails` — guard script list
+- `### Agents` — the agent table (domain, scope, model, effort)
+- `### Model discipline` — the role table with **full model ids, never a bare alias** (the same rule
+  as §5 for workflow.md; `CLAUDE.md.reference` ships it since v7.1.3). An older CLAUDE.md with the bare alias `opus`
+  here is drift the drift script cannot see — it reads workflow.md, not this table
 - `### Mandatory skills` — the table must name **`apd-pipeline-guide`** (mandatory before
   every task since v6.15, hard-gated by `.guide-marker`); brainstorm is advisory, not the gate
 - `### Human gate` — approval requirements
@@ -137,7 +153,8 @@ Read `.claude/settings.json` and verify:
 
 Read `.claude/rules/workflow.md` and verify:
 - Uses `apd pipeline` commands (not `apd-pipeline`)
-- Has step 9 (finish)
+- The orchestrator flow ends with `9. FINISH — /apd-finish`, and the numbered sections run 0a–9 where
+  `## 9. Mandatory skills` is the skills table (section 9 is not the finish step)
 - Has the mandatory skills section (apd-pipeline-guide first — it carries the gate contract)
 - Model discipline table present, written with full model ids (never bare aliases). The
   orchestrator's own model is not APD-managed; `MODEL_PROFILE` governs agents only
@@ -146,10 +163,16 @@ Read `.claude/rules/workflow.md` and verify:
 
 ```bash
 bash .claude/bin/apd pipeline status
+bash .claude/bin/apd doctor
 bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/apd-init --version
 ```
 
 - Pipeline responds without errors
+- `apd doctor` runs clean. Read its **Model environment** section (v7.2): a warn there means
+  `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` is set and EVERY subagent runs that one model (CC ≥ 2.1.257) —
+  the pins and the profile checked in §2 are not what is served. Report it as IMPORTANT.
+  `CLAUDE_CODE_SUBAGENT_MODEL` alone is harmless (a default for agents without a `model:` line; APD
+  agents are pinned)
 - Version matches expected
 
 ### 7. Memory Files
@@ -158,6 +181,7 @@ Check `.claude/memory/`:
 - `MEMORY.md` — not empty, has project context
 - `status.md` — has current phase
 - `session-log.md` — exists (may be empty for new projects)
+- `pipeline-skip-log.md` — exists (the fourth file `templates/memory` ships; `verify-apd` counts all four)
 - No `[fill in]` placeholders in the last session-log entry (blocks new tasks)
 
 ### 8. Drift Detection (v6.10+)
@@ -194,7 +218,7 @@ IMPORTANT:
   1. [file:line] Description
 
 CLEAN:
-  ✓ Agents (X builder + 1 reviewer)
+  ✓ Agents (X builders + code-reviewer + adversarial-reviewer + supervisor)
   ✓ CLAUDE.md sections complete
   ✓ Settings configured
   ✓ Workflow rules current
