@@ -17293,8 +17293,9 @@ _s148 0 "9: a scoped builder writes its own memory as before (core path)"       
 _s148 0 "9: … and inside its scope"                                                          backend-api   "src/x.cs"
 _s148 2 "9: … and not outside it"                                                            backend-api   "docs/x.md"
 _c148 "9: the shim decides the own-memory case BEFORE its no-declared-scope rule (order in the file)" '[ "$(grep -n "agent-memory/\"\$AGENT_TYPE\"" "$G148_GS" | head -1 | cut -d: -f1)" -lt "$(grep -n "has no declared scope" "$G148_GS" | head -1 | cut -d: -f1)" ]'
-_s148 2 "9: a declared readonly: true agent writes nothing, memory included (audit F5 — the exemption sits AFTER the readonly rule)" ro-agent ".claude/agent-memory/ro-agent/MEMORY.md"
-_c148 "9: … and that order is in the file (readonly rule above the memory case)" '[ "$(grep -n "is declared readonly" "$G148_GS" | head -1 | cut -d: -f1)" -lt "$(grep -n "agent-memory/\"\$AGENT_TYPE\"" "$G148_GS" | head -1 | cut -d: -f1)" ]'
+_s148 0 "9: a declared readonly: true agent may still write its OWN memory (v7.2.3: APD ships readonly: true on its Codex review templates, v6-era CC reviewers carry it — memory is not code)" ro-agent ".claude/agent-memory/ro-agent/MEMORY.md"
+_s148 2 "9: … but still no code" ro-agent "src/x.cs"
+_c148 "9: … and that order is in the file (memory case above the readonly rule)" '[ "$(grep -n "agent-memory/\"\$AGENT_TYPE\"" "$G148_GS" | head -1 | cut -d: -f1)" -lt "$(grep -n "is declared readonly" "$G148_GS" | head -1 | cut -d: -f1)" ]'
 
 # --- 10: git stash — agent vs orchestrator, parser path and raw path ---------
 _g148 2 "10: agent: bare git stash is refused"                      'git stash'                 backend-api 'pipeline agent'
@@ -17336,6 +17337,381 @@ _c148 "8: workflow.md still mandates /apd-tdd for builders AND names the preload
 _c148 "8: setup 5c compares the skills field (existing builders get the line on reconcile)" 'grep -q "\`skills\` (builders preload \`apd-tdd\`" "$REPO_ROOT/skills/apd-setup/SKILL.md"'
 _c148 "8: the CC audit skill checks skills: apd-tdd on builders" 'grep -E "^- .skills:." "$REPO_ROOT/skills/apd-audit/SKILL.md" | grep -q "apd-tdd"'
 rm -rf "$G148_T"
+
+
+
+section "149. Live-verify, second run (efiskalizacija, 2026-10-02): eight false blocks in one pipeline, each reproduced from the transcript and closed (v7.2.3)"
+
+# The first v7.2.1/v7.2.2 pipeline on a real project (PHP, 2 h, ADV 8:4:4, supervision
+# 0:0:0) produced 9 blocks — 8 were the guard, not the agent. Every one was recovered
+# as the EXACT tool_use text from the session transcript (the log collapses newlines,
+# and the collapsed line replays differently) and reproduced on v7.2.2 before a fix:
+#   A  code-reviewer (CC hands a `memory: project` agent Write) could not write a probe
+#      to the session SCRATCHPAD — the shared scratchpad rule lived in the core, behind
+#      the shim's fail-closed rules (same class as the memory writes of v7.2.2); and
+#      the v7.2.2 memory exemption sat below the readonly rule, which APD's own Codex
+#      review templates and v6-era CC reviewers carry (`readonly: true`).
+#   B  `git restore --staged <path>` (index only) was destructive; the orchestrator's
+#      natural `git add a b && git status --short && APD_ORCHESTRATOR_COMMIT=1 git commit`
+#      was refused as unmarked (the marker was tested on the whole command only).
+#   C  guard-spec-blind read `grep -c .` and the PHP `.` concat operator inside a heredoc
+#      body as "the project root" — three refusals of the adversarial reviewer's probes.
+#   D  the bash guard's runtime-write rule read regex delimiters (`"/^ \[…/"` → `/`,
+#      `\n\];\n/s` → `n/s`), the PHP `//` comment and `</td>` as paths; and a quoted
+#      substitution in ARGUMENT position (`echo "$(wc -l < <plugin file>)"`) was refused as
+#      an opaque shell body because the command named the plugin cache (audit R1 was
+#      written for `eval "$(…)"`, where the output RUNS).
+
+G149_T="$(mktemp -d -t apd-g149.XXXXXX)"
+mkdir -p "$G149_T/.claude/agents" "$G149_T/.claude/memory" "$G149_T/src" "$G149_T/admin" "$G149_T/.apd/pipeline"
+printf 'PROJECT_NAME=g149\nAPD_VERSION=%s\nSTACK=php\n' "$(cat "$APD_PLUGIN_ROOT/VERSION")" > "$G149_T/.claude/.apd-config"
+sed 's/{{PROJECT_NAME}}/g149/g' "$APD_PLUGIN_ROOT/templates/reviewer-template.md" > "$G149_T/.claude/agents/code-reviewer.md"
+G149_SP="/private/tmp/claude-501/-Users-x/abc/scratchpad"      # the exact layout _is_session_scratchpad accepts
+G149_GS="$APD_PLUGIN_ROOT/bin/adapter/cc/guard-scope"; G149_GG="$APD_PLUGIN_ROOT/bin/core/guard-git"
+G149_SB="$APD_PLUGIN_ROOT/bin/core/guard-spec-blind"; G149_BS="$APD_PLUGIN_ROOT/bin/core/guard-bash-scope"
+_c149() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+_s149() {  # <rc> <label> <agent_type> <file-path> — the guard-scope SHIM on hook JSON
+    local exp="$1" label="$2" at="$3" fp="$4" rc=0
+    ( cd "$G149_T" && printf '%s' "{\"agent_type\":\"$at\",\"tool_input\":{\"file_path\":\"$fp\"}}" | APD_PROJECT_DIR="$G149_T" bash "$G149_GS" ) >/dev/null 2>&1 || rc=$?
+    if [ "$rc" = "$exp" ]; then pass "$label (rc=$rc)"; PASSES=$((PASSES + 1)); else fail "$label: want rc=$exp got rc=$rc — $at → $fp"; FAILS=$((FAILS + 1)); fi
+}
+_g149() {  # <rc> <label> <command> [<stderr must contain>] [<stderr must NOT contain>] — guard-git, orchestrator
+    local exp="$1" label="$2" cmd="$3" must="${4:-}" mustnot="${5:-}" rc=0 err
+    err=$(APD_PROJECT_DIR="$G149_T" bash "$G149_GG" --command "$cmd" 2>&1 >/dev/null) || rc=$?
+    if [ "$rc" = "$exp" ] && { [ -z "$must" ] || printf '%s' "$err" | grep -q -- "$must"; } && { [ -z "$mustnot" ] || ! printf '%s' "$err" | grep -q -- "$mustnot"; }; then pass "$label (rc=$rc)"; PASSES=$((PASSES + 1))
+    else fail "$label: want rc=$exp got rc=$rc${must:+ (must have '$must')}${mustnot:+ (must not have '$mustnot')} — ${cmd:0:70}"; FAILS=$((FAILS + 1)); fi
+}
+_b149() {  # <rc> <label> <command> — guard-spec-blind as the adversarial reviewer
+    local exp="$1" label="$2" cmd="$3" rc=0
+    APD_PROJECT_DIR="$G149_T" bash "$G149_SB" --agent-type adversarial-reviewer --command "$cmd" >/dev/null 2>&1 || rc=$?
+    if [ "$rc" = "$exp" ]; then pass "$label (rc=$rc)"; PASSES=$((PASSES + 1)); else fail "$label: want rc=$exp got rc=$rc — ${cmd:0:70}"; FAILS=$((FAILS + 1)); fi
+}
+_x149() {  # <rc> <label> <command> [scope paths…] — guard-bash-scope from the fixture root (no scope = the orchestrator)
+    local exp="$1" label="$2" cmd="$3"; shift 3; local rc=0
+    ( cd "$G149_T" && APD_PROJECT_DIR="$G149_T" bash "$G149_BS" --command "$cmd" "$@" ) >/dev/null 2>&1 || rc=$?
+    if [ "$rc" = "$exp" ]; then pass "$label (rc=$rc)"; PASSES=$((PASSES + 1)); else fail "$label: want rc=$exp got rc=$rc — ${cmd:0:70}"; FAILS=$((FAILS + 1)); fi
+}
+
+# --- A: the shim ------------------------------------------------------------
+_s149 0 "A: code-reviewer (no scope, Write via memory) may write a probe to the session scratchpad"   code-reviewer "$G149_SP/rev-mut/gen.php"
+_s149 2 "A: … a traversal out of the scratchpad is refused"                                          code-reviewer "$G149_SP/../../../../etc/x"
+_s149 2 "A: … /tmp outside the scratchpad layout is refused"                                          code-reviewer "/tmp/other/x.php"
+_s149 2 "A: … and code is still refused"                                                               code-reviewer "src/x.php"
+_c149 "A: the shim decides the scratchpad BEFORE its no-declared-scope rule (order in the file)" '[ "$(grep -n "_is_session_scratchpad" "$G149_GS" | head -1 | cut -d: -f1)" -lt "$(grep -n "has no declared scope" "$G149_GS" | head -1 | cut -d: -f1)" ]'
+_c149 "A: the Codex review templates still ship readonly: true — the reason the memory case sits above the readonly rule" 'grep -q "^readonly: true" "$APD_PLUGIN_ROOT/templates/codex/agents/code-reviewer.md"'
+
+# --- B: guard-git ----------------------------------------------------------
+_g149 0 "B: git restore --staged <path> only unstages (index) — allowed"            'git restore --staged api/status.php'
+_g149 0 "B: git restore -S <path>"                                                  'git restore -S api/status.php'
+_g149 2 "B: git restore <path> touches the tree — destructive"                     'git restore api/status.php'            'Destructive'
+_g149 2 "B: git restore --staged --worktree <path> — destructive"                  'git restore --staged --worktree api/status.php' 'Destructive'
+_g149 2 "B: git restore -SW <path> — destructive"                                   'git restore -SW api/status.php'        'Destructive'
+_g149 2 "B: git restore -W <path> — destructive"                                    'git restore -W api/status.php'         'Destructive'
+_g149 0 "B: restore --staged inside a substitution (raw path)"                     'echo "$(git restore --staged x)"'
+_g149 2 "B: restore <path> inside a substitution (raw path) — destructive"         'echo "$(git restore x)"'               'Destructive'
+_g149 2 "B: the marker on the commit STATEMENT counts (reaches the pipeline gate, not commit-no-prefix)" 'git add a b && git status --short && APD_ORCHESTRATOR_COMMIT=1 git commit -m x' 'Pipeline' 'only allowed with APD_ORCHESTRATOR_COMMIT'
+_g149 2 "B: … the -F - heredoc form the orchestrator typed"                         'git add a; APD_ORCHESTRATOR_COMMIT=1 git commit -F - <<EOF
+docs: x
+EOF' 'Pipeline' 'only allowed with APD_ORCHESTRATOR_COMMIT'
+_g149 2 "B: an unmarked commit after add is still commit-no-prefix"                'git add a && git commit -m x'          'only allowed with APD_ORCHESTRATOR_COMMIT'
+_g149 0 "B: the marker inside echo text is not a git statement"                     'echo "x; APD_ORCHESTRATOR_COMMIT=1 git commit"'
+_g149 2 "B: a marked commit after git add . is still mass-staging"                 'git add . && APD_ORCHESTRATOR_COMMIT=1 git commit -m x' 'git add'
+_g149 2 "B: a marked commit with --no-verify is still refused"                      'git add a && APD_ORCHESTRATOR_COMMIT=1 git commit --no-verify -m x' 'no-verify'
+
+# --- C: guard-spec-blind ----------------------------------------------------
+_b149 0 "C: grep -c . at the end of a pipe is a regex, not the project root"       'cat x | tr -s "[:space:]" "\n" | grep -c .'
+_b149 0 "C: grep -c . file"                                                          'grep -c . file'
+_b149 0 "C: echo ."                                                                  'echo .'
+_b149 0 "C: php -r with the concat operator"                                         'php -r "echo 1 . 2;"'
+_b149 0 "C: a heredoc BODY with PHP concat dots is data"                             "cat > $G149_SP/probe.php <<'EOF'
+<?php
+\$a = \$b . '/vendor/autoload.php';
+echo \$a . \$c;
+EOF"
+_b149 0 "C: a heredoc body that merely CONTAINS find . is data"                      "cat <<'EOF'
+find . -name x
+EOF"
+_b149 2 "C: … but a real find . after the body is a read of the root"               "cat <<'EOF'
+find . -name x
+EOF
+find . -name spec-card.md"
+_b149 2 "C: find . is a recursive read of the root"                                  'find . -name spec-card.md'
+_b149 2 "C: grep -rn x . is recursive"                                               'grep -rn x .'
+_b149 2 "C: grep -R x ."                                                             'grep -R x .'
+_b149 2 "C: grep --recursive x ."                                                    'grep --recursive x .'
+_b149 0 "C: grep -rn x src/ names its directory"                                     'grep -rn x src/'
+_b149 2 "C: rg x ."                                                                  'rg x .'
+_b149 2 "C: ls -R ."                                                                 'ls -R .'
+_b149 2 "C: ls . lists the root (unchanged)"                                         'ls .'
+_b149 2 "C: tree ."                                                                  'tree .'
+_b149 2 "C: ls -la ./"                                                               'ls -la ./'
+_b149 2 "C: find . inside a substitution opens its own statement"                    'wc -l $(find . -name spec-card.md)'
+_b149 2 "C: … inside backticks"                                                      'wc -l `find . -name spec-card.md`'
+_b149 2 "C: … ls . inside a quoted substitution"                                     'echo "$(ls .)"'
+_b149 0 "C: a non-reader inside a substitution with a dot stays data"                 'echo "$(echo .)"'
+_b149 0 "C: git diff . stays exempt from the ancestor rule"                          'git diff .'
+_b149 2 "C: the pipeline file by name is still refused"                              'cat .apd/pipeline/spec-card.md'
+_b149 2 "C: cd .apd; cat pipeline/… is still refused"                                'cd .apd; cat pipeline/spec-card.md'
+
+# --- D: guard-bash-scope -----------------------------------------------------
+_x149 0 "D: a PHP regex delimiter is not a path (write in scope)"                    'php -r '"'"'preg_match("/^ \[x/", $s); file_put_contents("admin/x.php", $s);'"'"'' admin/
+_x149 0 "D: … a regex with flags (/foo/s) and a multi-line class"                    'php -r '"'"'$s = preg_replace("/\\\$m = \[.*?\n\];\n/s", "", $s); file_put_contents("admin/x.php", $s);'"'"'' admin/
+_x149 0 "D: … an HTML closing tag (</td> → /td)"                                      'php -r '"'"'file_put_contents("admin/x.php", str_replace("Potpis:</td>","Paraf:</td>",$a));'"'"'' admin/
+_x149 0 "D: … the PHP // comment inside a python string"                              "python3 - <<'EOF'
+p='admin/x.php'
+s='''    // comment
+'''
+open(p,'w').write(s)
+EOF" admin/
+_x149 2 "D: /etc/x is still out of scope"                                             'python3 -c "open('"'"'/etc/x'"'"','"'"'w'"'"')"' admin/
+_x149 2 "D: /tmp/x is still out of scope"                                             'python3 -c "open('"'"'/tmp/x'"'"','"'"'w'"'"')"' admin/
+_x149 2 "D: src/x is still out of scope"                                              'python3 -c "open('"'"'src/x'"'"','"'"'w'"'"')"' admin/
+_x149 2 "D: ./src/x is still out of scope"                                            'python3 -c "open('"'"'./src/x'"'"','"'"'w'"'"')"' admin/
+_x149 2 "D: ../x is still out of scope"                                               'python3 -c "open('"'"'../x'"'"','"'"'w'"'"')"' admin/
+_x149 2 "D: from an in-scope cwd, a non-existent segment with .. behind it is refused (it would compare as a prefix of the scope and land in src/)" 'cd admin && python3 -c "open('"'"'nonexist/../../src/x'"'"','"'"'w'"'"')"' admin/
+_x149 2 "D: … an existing segment with .. resolves and is judged (admin/../src/x)"       'python3 -c "open('"'"'admin/../src/x'"'"','"'"'w'"'"')"' admin/
+_x149 2 "D: … absolute form: /nonexist/../etc/x"                                        'python3 -c "open('"'"'/nonexist/../etc/x'"'"','"'"'w'"'"')"' admin/
+_x149 0 "D: a new file under an existing in-scope dir"                                'python3 -c "open('"'"'admin/new/x'"'"','"'"'w'"'"')"' admin/
+_x149 2 "D: from an in-scope cwd, makedirs + write under a NEW root name is judged (mkdir-aware)" 'cd admin && python3 -c "import os; os.makedirs('"'"'/newtop'"'"'); open('"'"'/newtop/x'"'"','"'"'w'"'"')"' admin/
+_x149 2 "D: … and under a new name relative to the project root (../newdir from admin)"   'cd admin && python3 -c "import os; os.makedirs('"'"'../newdir'"'"'); open('"'"'../newdir/x'"'"','"'"'w'"'"')"' admin/
+_x149 2 "D: from the project root (not in scope), a new name is refused by the bare-name rule" 'python3 -c "import os; os.makedirs('"'"'newdir'"'"'); open('"'"'newdir/x'"'"','"'"'w'"'"')"' admin/
+_x149 0 "D: a non-existent root name without mkdir, from an in-scope cwd — stated limit" 'cd admin && python3 -c "open('"'"'/nonexistent-top/x'"'"','"'"'w'"'"')"' admin/
+_x149 0 "D: orchestrator: the 5c recipe — diff a plugin file to the scratchpad, wc -l of it in a quoted substitution" 'P=~/.claude/plugins/cache/z/plugins/apd && diff -u "$P/rules/workflow.md" .claude/rules/workflow.md > "'"$G149_SP"'/w.diff"; echo "shipped: $(wc -l < "$P/rules/workflow.md") lines"'
+_x149 0 "D: orchestrator: a quoted substitution reading the cache is data"           'echo "$(wc -l < ~/.claude/plugins/cache/z/f)"'
+_x149 0 "D: orchestrator: … and one reading the pipeline dir"                         'echo "n: $(wc -l < .apd/pipeline/spec-card.md)"'
+_x149 2 "D: orchestrator: eval of a substitution reading the cache stays opaque"      'eval "$(cat ~/.claude/plugins/cache/z/f)"'
+_x149 2 "D: orchestrator: sh -c of one stays opaque"                                  'sh -c "$(cat ~/.claude/plugins/cache/z/f)"'
+_x149 2 "D: orchestrator: a substitution that WRITES the cache is judged and refused" 'echo "$(rm -rf ~/.claude/plugins/cache/z)"'
+_x149 2 "D: orchestrator: … or the pipeline dir"                                      'echo "$(rm -rf .apd/pipeline)"'
+_x149 2 "D: orchestrator: a substitution in command position via a variable stays opaque" 'X="$(cat ~/.claude/plugins/cache/z/f)"; $X'
+_x149 2 "D: orchestrator: nested sh -c inside a data substitution is still executed → opaque" 'echo "$(sh -c "$(cat ~/.claude/plugins/cache/z/f)")"'
+_x149 2 "D: orchestrator: nested eval inside a data substitution → opaque"            'echo "$(eval "$(cat ~/.claude/plugins/cache/z/f)")"'
+_x149 2 "D: scoped: a substitution writing out of scope is refused"                    'echo "$(rm -rf src/x)"' admin/
+_x149 0 "D: scoped: … in scope allowed"                                                'echo "$(rm -rf admin/x)"' admin/
+# --- audit-723 pass 1 shapes (every one measured NEW rc=0 on the first v7.2.3 cut; HEAD refused them) ---
+_g149 2 "G1: a marker inside a trailing COMMENT does not sign a push"                 'git push origin main # ; APD_ORCHESTRATOR_COMMIT=1 git x' 'only allowed with APD_ORCHESTRATOR_COMMIT'
+_g149 2 "G1: … nor inside an echo string"                                              'git push origin main; echo "| APD_ORCHESTRATOR_COMMIT=1 git x"' 'only allowed with APD_ORCHESTRATOR_COMMIT'
+_g149 2 "G1: … nor inside a single-quoted argument"                                    "git push origin main '(APD_ORCHESTRATOR_COMMIT=1 git '" 'only allowed with APD_ORCHESTRATOR_COMMIT'
+_g149 2 "G1: … the .claude staging rule keys on the statement too"                     'git add .claude/settings.json # ;APD_ORCHESTRATOR_COMMIT=1 git x' 'only allowed with APD_ORCHESTRATOR_COMMIT'
+_g149 2 "G1: a commit cannot sign ITSELF through its message"                           'git commit -m "fix; APD_ORCHESTRATOR_COMMIT=1 git x"' 'only allowed with APD_ORCHESTRATOR_COMMIT'
+_g149 2 "G1: … nor through a trailing comment"                                          'git commit -m y # (APD_ORCHESTRATOR_COMMIT=1 git commit' 'only allowed with APD_ORCHESTRATOR_COMMIT'
+_g149 2 "G1: … nor through text in an EARLIER statement"                                'echo "x; APD_ORCHESTRATOR_COMMIT=1 git commit"; git commit -m y' 'only allowed with APD_ORCHESTRATOR_COMMIT'
+_c149 "G1: the marker travels with the tokenized statement (@APD_MARK from guard-bash-scope --emit-git), no raw-text regex left in guard-git" '( cd "$G149_T" && APD_PROJECT_DIR="$G149_T" bash "$G149_BS" --emit-git --command "git add a && APD_ORCHESTRATOR_COMMIT=1 git commit -m x # APD_ORCHESTRATOR_COMMIT=1 git push" ) | tr "\037" "|" | grep -qx "GIT|@APD_MARK|commit|-m|x" && ! grep -q "APD_ORCHESTRATOR_COMMIT=1\[\[:space:\]\]+git" "$G149_GG"'
+_g149 2 "G2: git restore --staged -Wq (git bundles short options) is destructive"       'git restore --staged -Wq x'        'Destructive'
+_g149 2 "G2: … -S -qW"                                                                  'git restore -S -qW x'              'Destructive'
+_g149 2 "G2: … --staged -pW"                                                            'git restore --staged -pW x'        'Destructive'
+_g149 2 "G2: … and in the raw path"                                                     'echo "$(git restore --staged -Wq x)"' 'Destructive'
+_g149 0 "G2: git restore -Sq (index-only cluster) is allowed"                           'git restore -Sq x'
+_g149 0 "G2: … -qS"                                                                     'git restore -qS x'
+_g149 2 "G3: raw path judges every restore occurrence: --staged a; restore b"           'echo "$(git restore --staged a; git restore b)"' 'Destructive'
+_g149 2 "G3: … && form"                                                                 'echo "$(git restore --staged a && git restore b)"' 'Destructive'
+_g149 2 "G3: … restore b first"                                                         'echo "$(git restore b; git restore --staged a)"' 'Destructive'
+_b149 2 "S1: env find ."                                                                'env find . -name spec-card.md'
+_b149 2 "S1: sudo find ."                                                               'sudo find . -name spec-card.md'
+_b149 2 "S1: timeout 5 find ."                                                          'timeout 5 find . -name spec-card.md'
+_b149 2 "S1: backslash-escaped find"                                                    '\find . -name spec-card.md'
+_b149 2 "S1: a quoted command word"                                                     '"find" . -name spec-card.md'
+_b149 2 "S1: an assignment prefix"                                                      'FOO=1 find . -name spec-card.md'
+_b149 2 "S1: LC_ALL=C grep -r x ."                                                      'LC_ALL=C grep -r x .'
+_b149 2 "S1: an operator glued to the next word"                                        'echo x;find . -name spec-card.md'
+_b149 2 "S1: … &&find"                                                                  'echo x&&find . -name spec-card.md'
+_b149 2 "S1: … |find"                                                                   'echo x |find . -name spec-card.md'
+_b149 2 "S1: after then"                                                                'if true; then find . -name spec-card.md; fi'
+_b149 2 "S1: after do"                                                                  'for f in x; do find . -name spec-card.md; done'
+_b149 2 "S1: in a brace group"                                                          '{ find . -name spec-card.md ; }'
+_b149 2 "S1: after !"                                                                   '! find . -name spec-card.md'
+_b149 2 "S1: in a subshell with spaces"                                                 '( find . -name spec-card.md )'
+_b149 2 "S1: a NEWLINE separates statements"                                            'echo x
+find . -name spec-card.md'
+_b149 2 "S1: … after a comment line"                                                    '# comment
+find . -name spec-card.md'
+_b149 2 "S1: in an assignment substitution"                                             'x=$(find . -name spec-card.md)'
+_b149 2 "S1: echo . | xargs find (targets from stdin — fail closed)"                    'echo . | xargs find -name spec-card.md'
+_b149 2 "S2: an interpreter RUNS its heredoc body — the named path inside it is refused" 'python3 <<EOF
+print(open(".apd/pipeline/spec-card.md").read())
+EOF'
+_b149 2 "S2: … php"                                                                     'php <<EOF
+<?php echo file_get_contents(".apd/pipeline/spec-card.md");
+EOF'
+_b149 2 "S2: … cat <<EOF | sh"                                                          'cat <<EOF | sh
+cat .apd/pipeline/spec-card.md
+EOF'
+_b149 2 "S2: … the memory dir"                                                          'sh <<EOF
+cat .claude/memory/status.md
+EOF'
+_b149 2 "S3: a <<- heredoc with a tab-indented terminator does not swallow the rest"    'cat <<-EOF
+	x
+	EOF
+find . -name spec-card.md'
+_b149 2 "S3: a here-string is not a heredoc"                                            'grep x <<<EOF
+find . -name spec-card.md'
+_b149 2 "S3: a quoted <<EOF is not a heredoc"                                           'echo "a<<EOF"
+find . -name spec-card.md'
+_b149 2 "S4: grep x . -r (flag after the dot; macOS grep permutes)"                     'grep x . -r'
+_b149 2 "S4: grep -d recurse x ."                                                       'grep -d recurse x .'
+_b149 2 "S4: grep --directories=recurse x ."                                            'grep --directories=recurse x .'
+_b149 2 "S4: rg recurses by default"                                                    'rg x .'
+_b149 2 "S4: fd ."                                                                      'fd spec-card .'
+_b149 2 "S4: eza -R ."                                                                  'eza -R .'
+_b149 2 "S?: the tokenizer cannot read the command (open quote) — fail closed on a bare ." 'find . -name "x'
+_b149 0 "S?: … but a plain unreadable command without a bare . is not a root read"      'echo "x'
+_b149 2 "S?: … and when the tokenizer gives up on the nesting (depth cap) the fallback still sees the bare dot" 'echo "$(echo "$(echo "$(echo "$(find . -name spec-card.md)")")")"'
+_x149 2 "B1: os.renames creates a new top-level name without a mkdir word — judged"      'python3 -c "import os; os.renames('"'"'admin/x.php'"'"','"'"'archive/2026/x.php'"'"')"' admin/
+_x149 2 "B1: shutil.copytree to a new name"                                              'python3 -c "import shutil; shutil.copytree('"'"'admin/templates'"'"','"'"'build/templates'"'"')"' admin/
+_x149 2 "B1: tarfile extractall to a new name + an in-scope write"                       'python3 -c "import tarfile; tarfile.open('"'"'admin/x.tar'"'"').extractall('"'"'build/x'"'"'); open('"'"'admin/y'"'"','"'"'w'"'"')"' admin/
+_x149 2 "B1: node renameSync to a new name"                                              'node -e "require('"'"'fs'"'"').renameSync('"'"'admin/x'"'"','"'"'build/x'"'"')"' admin/
+_x149 2 "B1: php rename to a new name"                                                   'php -r '"'"'rename("admin/x.php","build/x.php");'"'"'' admin/
+_x149 2 "B1: os.system cp -r to a new name"                                              'python3 -c "import os; os.system('"'"'cp -r admin/ build/'"'"')"' admin/
+_x149 0 "B1: a write to /dev/null is harmless"                                           'python3 -c "open('"'"'/dev/null'"'"','"'"'w'"'"').write('"'"'x'"'"'); open('"'"'admin/x'"'"','"'"'w'"'"')"' admin/
+_x149 0 "B1: a URL in the program is not a path"                                         'python3 -c "u='"'"'https://usr/x/y'"'"'; open('"'"'admin/x'"'"','"'"'w'"'"').write(u)"' admin/
+_x149 0 "B1: a hash-delimited PHP regex with metachars is not a path"                    'php -r '"'"'preg_match("#^/users/(\d+)$#", $s); file_put_contents("admin/x.php", $s);'"'"'' admin/
+_x149 2 "B2: a command-position substitution INSIDE a data substitution runs — refused" 'echo "$($(cat ~/.claude/plugins/cache/z/f))"'
+_x149 2 "B2: … backtick form"                                                            'echo "`$(cat ~/.claude/plugins/cache/z/f)`"'
+_x149 2 "B2: … behind sudo"                                                              'echo "$(sudo $(cat ~/.claude/plugins/cache/z/f))"'
+_x149 2 "B2: … two data levels"                                                          'echo "$(echo "$($(cat ~/.claude/plugins/cache/z/f))")"'
+_x149 2 "B2: … naming the pipeline dir"                                                  'echo "$($(cat .apd/pipeline/spec-card.md))"'
+_x149 2 "B3: four data levels hit the depth cap — the fence still holds"                 'echo "$(echo "$(echo "$(echo "$(rm -rf .apd/pipeline)")")")"'
+printf -- '---\nname: ro-nomem\ndescription: readonly, no memory declared\ntools: Read, Write\nreadonly: true\n---\nbody\n' > "$G149_T/.claude/agents/ro-nomem.md"
+_s149 2 "N1: a readonly agent WITHOUT memory: has no memory directory to write"          ro-nomem ".claude/agent-memory/ro-nomem/x.md"
+# --- audit-723 pass 2 shapes ---
+_c149 "P2 G: a LITERAL user word @APD_MARK makes the statement OPAQUE for guard-git (raw path, never read as the mark)" '( cd "$G149_T" && APD_PROJECT_DIR="$G149_T" bash "$G149_BS" --emit-git --command "git @APD_MARK push origin main" ) | grep -qx OPAQUE'
+_g149 0 "P2 G: git restore -S -sWIP x — -s takes a value, the W in it is not --worktree"  'git restore -S -sWIP x'
+_g149 2 "P2 G: every marked statement is judged under THIS bash too (the 3.2 collapse): push --force" 'APD_ORCHESTRATOR_COMMIT=1 git push --force origin main' 'force'
+_g149 2 "P2 G: … commit -am"                                                               'APD_ORCHESTRATOR_COMMIT=1 git commit -am x' 'commit -a'
+_g149 2 "P2 G: … a marked commit still reaches the gate"                                   'APD_ORCHESTRATOR_COMMIT=1 git commit -m x' 'Pipeline'
+_b149 2 "P2 S: stdbuf -o0 find . (a wrapper the tokenizer does not step counts as a reader)" 'stdbuf -o0 find . -name spec-card.md'
+_b149 2 "P2 S: setsid find ."                                                                'setsid find . -name spec-card.md'
+_b149 2 "P2 S: unbuffer find ."                                                              'unbuffer find . -name spec-card.md'
+_b149 2 "P2 S: flock /tmp/l find ."                                                          'flock /tmp/l find . -name spec-card.md'
+_b149 2 "P2 S: script -q /dev/null find ."                                                   'script -q /dev/null find . -name spec-card.md'
+_b149 2 "P2 S: watch find ."                                                                 'watch find . -name spec-card.md'
+_b149 2 "P2 S: chrt 0 find ."                                                                'chrt 0 find . -name spec-card.md'
+_b149 2 "P2 S: find \$(echo .) — a reader fed by a substitution that yields the dot"         'find $(echo .) -name spec-card.md'
+_b149 2 "P2 S: ls -R \$(echo .)"                                                             'ls -R $(echo .)'
+_b149 2 "P2 S: grep -r x \$(printf .)"                                                       'grep -r x $(printf .)'
+_b149 2 "P2 S: echo . | xargs -I{} sh -c 'find {}'"                                          'echo . | xargs -I{} sh -c "find {} -name spec-card.md"'
+_b149 2 "P2 S: cat <<EOF | sh — the body runs in the shell"                                  'cat <<EOF | sh
+find . -name spec-card.md
+EOF'
+_b149 2 "P2 S: … | bash"                                                                     'cat <<EOF | bash
+ls -R .
+EOF'
+_b149 0 "P2 S: cat <<EOF | sh with a harmless body stays allowed"                           'cat <<EOF | sh
+echo hello
+EOF'
+_b149 2 "P2 S: find .// (a root spelling)"                                                   'find .// -name spec-card.md'
+_b149 2 "P2 S: find ././"                                                                    'find ././ -name spec-card.md'
+_b149 0 "P2 S: echo .// is not a read"                                                       'echo .//'
+_x149 2 "P2 B: an interpolated absolute target (\"/tmp/\$d/out\") is not a regex literal — judged (unresolvable)" 'cd admin && php -r '"'"'file_put_contents("/tmp/$d/out", $x);'"'"'' admin/
+_x149 2 "P2 B: a python f-string path f\"/tmp/{n}/out\" is judged"                           'cd admin && python3 -c "n=1; open(f'"'"'/tmp/{n}/out'"'"','"'"'w'"'"')"' admin/
+_x149 2 "P2 B: '/tmp/a+b/log' is a path"                                                     'cd admin && python3 -c "open('"'"'/tmp/a+b/log'"'"','"'"'w'"'"')"' admin/
+_x149 2 "P2 B: '/etc/x|y/z' is a path"                                                       'cd admin && python3 -c "open('"'"'/etc/x|y/z'"'"','"'"'w'"'"')"' admin/
+_x149 2 "P2 B: a file:// URL is a path for node/python — not stripped"                      'cd admin && node -e "require('"'"'fs'"'"').writeFileSync(new URL('"'"'file:///etc/x'"'"'),'"'"'a'"'"')"' admin/
+_x149 0 "P2 B: a regex literal with an escape is still cleaned ('/\\\\d+/')"                 'php -r '"'"'preg_match("/\\d+\\.php/", $s); file_put_contents("admin/x.php", $s);'"'"'' admin/
+_x149 2 "P2 B: a MIME type in a string next to an in-scope write is judged (= HEAD; stated false block — a relative exemption was escaped by indirection, passes 2–4)" 'python3 -c "h='"'"'Content-Type: text/html'"'"'; open('"'"'admin/x'"'"','"'"'w'"'"').write(h)"' admin/
+_x149 2 "P2 B: a date 2026/10/02 in a string (= HEAD, stated)"                                                'python3 -c "d='"'"'2026/10/02'"'"'; open('"'"'admin/x'"'"','"'"'w'"'"').write(d)"' admin/
+_x149 2 "P2 B: img/logo.png in an HTML string (= HEAD, stated)"                                               'php -r '"'"'file_put_contents("admin/x.php", "<img src=img/logo.png>");'"'"'' admin/
+_x149 2 "P2 B: … but with a name-creating call the new relative name is judged (os.renames)" 'python3 -c "import os; os.renames('"'"'admin/x.php'"'"','"'"'archive/2026/x.php'"'"')"' admin/
+_x149 2 "P2 B: … shutil.copy to a new relative name"                                         'python3 -c "import shutil; shutil.copy('"'"'admin/x'"'"','"'"'build/x'"'"')"' admin/
+_x149 2 "P2 B: … os.system cp -r"                                                            'python3 -c "import os; os.system('"'"'cp -r admin/ build/'"'"')"' admin/
+_x149 0 "P2 B: orchestrator: the backtick spelling of the 5c recipe is data too"             'echo "`wc -l < ~/.claude/plugins/cache/z/f`"'
+_x149 2 "P2 B: … but a backtick whose inner line is a substitution runs its output — refused" 'echo "`$(cat ~/.claude/plugins/cache/z/f)`"'
+_x149 2 "P2 B: … and a backtick inner that writes a fence is refused"                        'echo "`rm -rf .apd/pipeline`"'
+printf -- '---\nname: memq\ndescription: quoted memory value\ntools: Read\nmemory: "project"\n---\nbody\n' > "$G149_T/.claude/agents/memq.md"
+_s149 0 "P2 N: memory: \"project\" (quoted) counts as declared"                               memq ".claude/agent-memory/memq/MEMORY.md"
+# --- audit-723 pass 3 shapes ---
+_b149 2 "P3 S: watch \"find . -name x\" — a wrapper's quoted command line is judged as one"  'watch "find . -name spec-card.md"'
+_b149 2 "P3 S: setsid bash -c \"find .\""                                                     'setsid bash -c "find . -name spec-card.md"'
+_b149 2 "P3 S: ssh localhost \"find .\""                                                      'ssh localhost "find . -name spec-card.md"'
+_b149 2 "P3 S: \$(which find) . — a substitution in command position"                        '$(which find) . -name spec-card.md'
+_b149 2 "P3 S: \`which find\` ."                                                              '`which find` . -name spec-card.md'
+_b149 2 "P3 S: npx find ."                                                                    'npx find . -name spec-card.md'
+_b149 2 "P3 S: composer exec -- find ."                                                       'composer exec -- find . -name spec-card.md'
+_b149 2 "P3 S: poetry run find ."                                                             'poetry run find . -name spec-card.md'
+_b149 2 "P3 S: python3 -c with os.system('find . …') shells out"                             'python3 -c "import os; os.system('"'"'find . -name spec-card.md'"'"')"'
+_b149 2 "P3 S: … a python heredoc program with subprocess"                                    'python3 - <<EOF
+import subprocess; subprocess.run(["find", ".", "-name", "spec-card.md"])
+EOF'
+_b149 2 "P3 S: php -r system(…)"                                                              'php -r '"'"'system("find . -name spec-card.md");'"'"''
+_b149 2 "P3 S: awk BEGIN{system(…)}"                                                          'awk '"'"'BEGIN{system("find . -name spec-card.md")}'"'"''
+_b149 2 "P3 S: vim -c :!find ."                                                               'vim -c ":!find . -name spec-card.md" x'
+_b149 0 "P3 S: python3 -c without a shell-out and a dot in a string stays allowed"           'python3 -c "print('"'"'.'"'"')"'
+_b149 2 "P3 S: source /dev/stdin <<EOF"                                                       'source /dev/stdin <<EOF
+find . -name spec-card.md
+EOF'
+_b149 2 "P3 S: . /dev/stdin <<EOF"                                                            '. /dev/stdin <<EOF
+find . -name spec-card.md
+EOF'
+_b149 2 "P3 S: cat <<EOF | sh -s -- arg"                                                      'cat <<EOF | sh -s -- arg
+find . -name spec-card.md
+EOF'
+_b149 2 "P3 S: cat <<EOF | bash -c \"\$(cat)\""                                                'cat <<'"'"'EOF'"'"' | bash -c "$(cat)"
+find . -name spec-card.md
+EOF'
+_b149 2 "P3 S: command -p find . (the stepped wrapper left its option as the command word)"  'command -p find . -name spec-card.md'
+_b149 2 "P3 S: perf stat find ."                                                              'perf stat find . -name spec-card.md'
+_b149 2 "P3 S: docker exec c find ."                                                          'docker exec c find . -name spec-card.md'
+_b149 2 "P3 S: find .. (an ancestor of the project)"                                          'find .. -name spec-card.md'
+_b149 2 "P3 S: ls -R ../"                                                                     'ls -R ../'
+_b149 2 "P3 S: find /. "                                                                      'find /. -name spec-card.md'
+_b149 0 "P3 S: cd .. is not a read"                                                           'cd ..'
+_x149 2 "P3 B: a creator call OUTSIDE the word list — copy_tree('admin/','build/') — the new name is a whole quoted argument, judged" 'python3 -c "from distutils.dir_util import copy_tree; copy_tree('"'"'admin/'"'"','"'"'build/'"'"'); open('"'"'admin/x'"'"','"'"'w'"'"')"' admin/
+_x149 2 "P3 B: fs-extra outputFileSync('build/x/f')"                                          'node -e "require('"'"'fs-extra'"'"').outputFileSync('"'"'build/x/f'"'"','"'"'a'"'"'); require('"'"'fs'"'"').writeFileSync('"'"'admin/x'"'"','"'"'a'"'"')"' admin/
+_x149 2 "P3 B: PHP copy (\"admin/x.php\",\"build/x.php\") with a space before the paren"       'php -r '"'"'copy ("admin/x.php","build/x.php"); file_put_contents("admin/y",1);'"'"'' admin/
+_x149 2 "P3 B: Symfony ->mirror('admin/','build/x')"                                          'php -r '"'"'$fs->mirror("admin/","build/x"); file_put_contents("admin/y",1);'"'"'' admin/
+_x149 2 "P3 B: Ruby Open3.capture2('cp','-r','admin/','build/x')"                             'ruby -e '"'"'Open3.capture2("cp","-r","admin/","build/x"); File.write("admin/y","a")'"'"'' admin/
+_x149 2 "P3 B: a MIME type inside a longer string next to an in-scope write is judged (= HEAD, stated)"    'python3 -c "h='"'"'Content-Type: text/html'"'"'; open('"'"'admin/x'"'"','"'"'w'"'"').write(h)"' admin/
+_x149 2 "P3 B: 'see docs/x' in prose is judged (= HEAD, stated)"                     'python3 -c "open('"'"'admin/x'"'"','"'"'w'"'"').write('"'"'see docs/x for details'"'"')"' admin/
+_x149 2 "P3 B: … but 'see src/x' with an EXISTING src/ is a path (= HEAD, fail closed)"            'python3 -c "open('"'"'admin/x'"'"','"'"'w'"'"').write('"'"'see src/x for details'"'"')"' admin/
+_x149 2 "P3 B: file://localhost/etc/x is /etc/x"                                              'cd admin && node -e "require('"'"'fs'"'"').writeFileSync(new URL('"'"'file://localhost/etc/x'"'"'),'"'"'a'"'"')"' admin/
+printf -- '---\nname: memc\ndescription: memory with a YAML comment\ntools: Read\nmemory: project # keep\n---\nbody\n' > "$G149_T/.claude/agents/memc.md"
+_s149 0 "P3 N: memory: project # comment counts as declared"                                  memc ".claude/agent-memory/memc/MEMORY.md"
+# --- audit-723 pass 4 shapes ---
+_b149 2 "P4 S: \$(which grep) -r x . — the words after a command-position substitution"      '$(which grep) -r x .'
+_b149 2 "P4 S: \$(which find) ./ -name"                                                       '$(which find) ./ -name spec-card.md'
+_b149 2 "P4 S: \$(echo find .) -name"                                                         '$(echo find .) -name spec-card.md'
+_b149 0 "P4 S: \$(date) alone, no dot"                                                        '$(date)'
+_b149 2 "P4 S: exec -a x find . (the -a VALUE is not the command)"                            'exec -a x find . -name spec-card.md'
+_b149 2 "P4 S: cat <<EOF | script -q /dev/null sh"                                            'cat <<EOF | script -q /dev/null sh
+find . -name spec-card.md
+EOF'
+_b149 2 "P4 S: pexpect.run('find . …')"                                                       'python3 -c "import pexpect; pexpect.run('"'"'find . -name spec-card.md'"'"')"'
+_b149 2 "P4 S: perl qx(find . …)"                                                             'perl -e '"'"'print qx(find . -name spec-card.md)'"'"''
+_b149 2 "P4 S: awk \"find . …\" | getline"                                                    'awk '"'"'BEGIN{ "find . -name spec-card.md" | getline x; print x }'"'"''
+_b149 2 "P4 S: sed -n 1e find . (the e command runs shell text)"                             'sed -n '"'"'1e find . -name spec-card.md'"'"' x'
+_b149 2 "P4 S: vim +\":!find . …\""                                                            'vim +":!find . -name spec-card.md" x'
+_b149 0 "P4 S: subprocess.run(['"'"'pytest'"'"', '"'"'.'"'"']) is not a read of the root"     'python3 -c "import subprocess; subprocess.run(['"'"'pytest'"'"', '"'"'.'"'"'])"'
+_b149 0 "P4 S: execSync('"'"'npm test'"'"', {cwd: '"'"'.'"'"'})"                                'node -e "require('"'"'child_process'"'"').execSync('"'"'npm test'"'"', {cwd: '"'"'.'"'"'})"'
+_b149 0 "P4 S: os.system(echo .) has no reader word"                                         'python3 -c "import os; os.system('"'"'echo .'"'"')"'
+_b149 0 "P4 S: node -e with a stray e and a dot in text"                                      'node -e "console.log('"'"'a e b .'"'"')"'
+_b149 0 "P4 S: cat ../README.md — a sibling/parent FILE is not an ancestor read"              'cat ../README.md'
+_b149 0 "P4 S: ls ../sibling"                                                                 'ls ../sibling'
+_b149 0 "P4 S: grep -r x ../other"                                                            'grep -r x ../other'
+_b149 2 "P4 S: find .. stays an ancestor read"                                                'find .. -name spec-card.md'
+_b149 2 "P4 S: find ../.. too"                                                                'find ../.. -name spec-card.md'
+_b149 2 "P4 S: ls -R / "                                                                      'ls -R /'
+_x149 2 "P4 B: a creator call reached by indirection — copy_tree('admin/', 'build/' + n) — the relative name is judged (= HEAD)" 'python3 -c "n=1; from distutils.dir_util import copy_tree; copy_tree('"'"'admin/'"'"', '"'"'build/'"'"' + str(n)); open('"'"'admin/x'"'"','"'"'w'"'"')"' admin/
+_x149 2 "P4 B: … a variable (d='"'"'build/x'"'"'; copy_tree(…, d))"                           'python3 -c "d='"'"'build/x'"'"'; from distutils.dir_util import copy_tree; copy_tree('"'"'admin/'"'"', d); open('"'"'admin/y'"'"','"'"'w'"'"')"' admin/
+_x149 2 "P4 B: … a node template literal"                                                     'node -e "const n=1; require('"'"'fs-extra'"'"').outputFileSync(`build/x/${n}`,'"'"'a'"'"'); require('"'"'fs'"'"').writeFileSync('"'"'admin/x'"'"','"'"'a'"'"')"' admin/
+_x149 2 "P4 B: … new URL('"'"'file:'"'"' + '"'"'//localhost/etc/x'"'"')"                       'cd admin && node -e "require('"'"'fs'"'"').writeFileSync(new URL('"'"'file:'"'"' + '"'"'//localhost/etc/x'"'"'),'"'"'a'"'"')"' admin/
+# --- audit-723 pass 5 shapes ---
+_x149 2 "P5 B: //etc/x is /etc/x on POSIX — judged as the full path too"                   'cd admin && python3 -c "open('"'"'//etc/x'"'"','"'"'w'"'"')"' admin/
+_x149 2 "P5 B: … node //etc/x"                                                              'cd admin && node -e "require('"'"'fs'"'"').writeFileSync('"'"'//etc/x'"'"','"'"'a'"'"')"' admin/
+_x149 2 "P5 B: … file://localhost//etc/x"                                                   'cd admin && node -e "require('"'"'fs'"'"').writeFileSync(new URL('"'"'file://localhost//etc/x'"'"'),'"'"'a'"'"')"' admin/
+_x149 0 "P5 B: a protocol-relative CDN URL next to an in-scope write stays exempt"         'python3 -c "u='"'"'//cdn.example.com/x.js'"'"'; open('"'"'admin/x'"'"','"'"'w'"'"').write(u)"' admin/
+_b149 0 "P5 S: go test ./... — the canonical Go form is not an ancestor read"              'go test ./...'
+_b149 0 "P5 S: go vet ./..."                                                                 'go vet ./...'
+_b149 0 "P5 S: find ... -name x (three dots are a name)"                                    'find ... -name x'
+_b149 2 "P5 S: ls .. stays an ancestor read (stated)"                                        'ls ..'
+_b149 2 "P5 S: assign-then-run: cmd = \"find . …\"; os.system(cmd)"                          'python3 - <<EOF
+import os
+cmd = "find . -name spec-card.md"
+os.system(cmd)
+EOF'
+_b149 2 "P5 S: … node const c = …; execSync(c)"                                              'node -e '"'"'const c="find . -name spec-card.md"; require("child_process").execSync(c)'"'"''
+_b149 2 "P5 S: os.system(cp -r . /tmp/x) — cp is a reader of the tree"                       'python3 -c "import os; os.system('"'"'cp -r . /tmp/x'"'"')"'
+_b149 0 "P5 S: a shell-out without a reader word and a dot elsewhere stays allowed"         'python3 -c "print('"'"'.'"'"'); import os; os.system('"'"'make'"'"')"'
+rm -rf "$G149_T"
 
 
 

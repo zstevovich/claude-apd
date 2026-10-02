@@ -186,6 +186,18 @@ if [ -n "$FILE_PATH" ]; then
 fi
 
 # --- Channel 2: Bash command -----------------------------------------------
+# v7.2.3 (live, efiskalizacija ×3 + audit S1–S4): two passes.
+#   1. NAMED blinded paths over the RAW text — heredoc bodies included, because an
+#      interpreter RUNS its body (`python3 <<EOF … open(".apd/pipeline/spec-card.md")`).
+#   2. The ANCESTOR rule (a bare `.` = the project root; `.apd` reaches the pipeline
+#      dir) over the TOKENIZED statements guard-bash-scope emits (`--emit-words`:
+#      wrappers, assignments and keywords stepped, nested shells and substitutions
+#      as their own statements, heredoc bodies as data). The root counts only as the
+#      argument of a recursive READER — `grep -c .` is a regex, the PHP `.` concat
+#      operator in a heredoc body is data; `env find .`, `sudo find .`, `FOO=1 find .`,
+#      `echo x;find .`, `wc -l $(find . …)`, a `find .` on the next line are reads.
+#      If the tokenizer cannot read the command (OPAQUE, no END), the pre-v7.2.3 rule
+#      applies: any bare `.` token denies (fail closed).
 if [ -n "$COMMAND" ]; then
   for bc in "${BLIND_COMMANDS[@]}"; do
     if [[ "$COMMAND" == *"$bc"* ]]; then
@@ -193,61 +205,183 @@ if [ -n "$COMMAND" ]; then
     fi
   done
 
-  # git is exempt from the ANCESTOR rule below (not from named blinded paths):
-  # the pipeline directory is gitignored, so `git diff .` cannot surface its
-  # content, and that is the role's most legitimate command.
+  # git is exempt from the ANCESTOR rule (not from named blinded paths): the
+  # pipeline directory is gitignored, so `git diff .` cannot surface its content,
+  # and that is the role's most legitimate command.
   _CMD_HEAD="${COMMAND%% *}"; _CMD_HEAD="${_CMD_HEAD##*/}"
 
-  # Word-split without globbing: an unquoted expansion would let `cat
-  # .apd/pipeline/*` expand against the CWD and the token we meant to inspect
-  # would never appear.
+  # --- pass 1: named paths, raw text, bodies included --------------------------
   set -f
   for raw in $COMMAND; do
-    # Shell punctuation rides on the token: `cd .apd; cat pipeline/spec-card.md`
-    # word-splits to `.apd;`, which normalised to nothing resembling `.apd` and
-    # walked through. Strip the operators before looking at the path.
     tok="${raw//[;&|()<>]/}"
     [ -z "$tok" ] && continue
-
     # A blinded path can ride INSIDE a token that is not a path at all —
-    # `git show HEAD:.apd/pipeline/spec-card.md` is the shipped example. The
-    # prefix logic below cannot see that, so the substring test stays as a
-    # separate signal rather than being replaced by it. (Removing it regressed
-    # exactly that case; the suite caught it.)
+    # `git show HEAD:.apd/pipeline/spec-card.md` is the shipped example.
     _plain="${tok//\"/}"; _plain="${_plain//\'/}"
     case "$_plain" in
       *"$PIPE_REL/$ALLOWED_BASENAME") : ;;                   # the review scope — allowed
       *"$PIPE_REL"*) set +f; _deny "pipeline state ($_plain)" "cmd:$_plain" ;;
       *"$MEM_REL"*)  set +f; _deny "project memory ($_plain)" "cmd:$_plain" ;;
     esac
-
     tok=$(_norm "$tok")
-    # A glob cannot be resolved here, so compare its literal prefix: the audit
-    # got through with `.apd/*/spec-card.md`, whose prefix `.apd` is an ancestor.
     case "$tok" in *[*?[]*) tok="${tok%%[*?[]*}"; tok="${tok%/}" ;; esac
-    # An EMPTY normalised token means the project root (`.`, `./`) — the root is
-    # an ancestor of everything blinded, so it must be checked, not skipped.
-    # Skipping it is how `find . -name spec-card.md -exec cat {} +` got through.
-    if [ -z "$tok" ]; then
-      case "${raw//[;&|()<>]/}" in
-        .|./) : ;;          # explicit root — fall through to the check
-        *) continue ;;      # genuinely nothing to compare
-      esac
-    fi
-    [ "$tok" = "$PIPE_REL/$ALLOWED_BASENAME" ] && continue  # the review scope — allowed
-    if _reaches "$tok" "$PIPE_REL" || _reaches "$tok" "$MEM_REL"; then
-      # Ancestors only count against non-git readers; an exact or inside hit
-      # always counts.
-      case "$tok" in
-        "$PIPE_REL"|"$PIPE_REL"/*|"$MEM_REL"|"$MEM_REL"/*)
-          set +f; _deny "pipeline state or project memory ($tok)" "cmd:$tok" ;;
-      esac
-      if [ "$_CMD_HEAD" != "git" ]; then
-        set +f; _deny "a directory that contains pipeline state (${tok:-the project root})" "cmd:${tok:-.}"
-      fi
-    fi
+    [ -z "$tok" ] && continue                                 # the root is judged in pass 2
+    [ "$tok" = "$PIPE_REL/$ALLOWED_BASENAME" ] && continue
+    case "$tok" in
+      "$PIPE_REL"|"$PIPE_REL"/*|"$MEM_REL"|"$MEM_REL"/*) set +f; _deny "pipeline state or project memory ($tok)" "cmd:$tok" ;;
+    esac
   done
   set +f
+
+  # --- pass 2: the ancestor rule over tokenized statements ---------------------
+  _GBS="$(dirname "$0")/guard-bash-scope"
+  _WORDS=$(APD_GBS_DEPTH=0 bash "$_GBS" --emit-words --command "$COMMAND" 2>/dev/null || printf 'OPAQUE\n')
+  _US=$'\x1f'
+  _is_reader() {  # <cmd> <args…> — does this statement read a directory tree it is handed?
+    local c="$1"; shift; local a
+    case "$c" in
+      find|fd|fdfind|bfs|gfind|ls|gls|eza|exa|lsd|tree|du|gdu|cat|head|tail|less|more|diff|cp|gcp|rsync|tar|gtar|zip|7z|7za|unzip|xargs|stat|file|wc|sort|awk|gawk|sed|gsed|python|python3|node|php|ruby|perl|rg|ag|ack) return 0 ;;   # rg/ag/ack recurse by default
+      grep|egrep|fgrep|ggrep|ugrep|ug)
+        for a in "$@"; do
+          case "$a" in
+            -r|-R|--recursive|--dereference-recursive|-d|--directories=recurse|-rn|-nr|-rl|-lr|-ri|-ir|-rni|-rin|-nri|-nir|-Rn|-nR) return 0 ;;
+            --*) ;;
+            -*[rR]*) return 0 ;;   # a short cluster carrying r or R (-rn, -Hrn, -nrw)
+          esac
+        done; return 1 ;;
+    esac
+    return 1
+  }
+  _raw_has_dot() {  # does the RAW command carry a bare `.`/`./` token anywhere? (fail-closed helper)
+    local r2
+    # (pass 3) a dot inside a list literal — `["find", ".", …]` — counts; `tr -d`, because a `]` inside a
+    # `${var//[…]/}` bracket mis-parses on both bashes
+    for r2 in $COMMAND; do case "$(printf '%s' "$r2" | tr -d '][{};&|()<>"'"'"',')" in *[!./]*) ;; "") ;; *) return 0 ;; esac; done
+    return 1
+  }
+  _judge_stmt() {  # <cmd> <args…>
+    local c="$1"; shift; local a t
+    [ -z "$c" ] && return 0
+    case "$c" in git) return 0 ;; esac                 # git exempt from the ancestor rule (not from named paths)
+    # (pass 3) a substitution in COMMAND position (`$(which find) .`) or a dot as the command word
+    # (`. file` sources; `W␟.␟-name` is what `$(echo find) . -name …` leaves) — the real command is
+    # invisible, so fail closed on any bare dot in the command
+    case "$c" in
+      '$'|'$'*)   # a substitution in COMMAND position (`$(which grep) -r x .`): the real command is its output;
+                  # the words after it arrive as a statement of their own — fail closed on any bare dot
+                  # (a bare `$` inside a DATA substitution arrives as an N line and is skipped by the caller)
+                _raw_has_dot && _deny "a directory that contains pipeline state (the project root, behind a substitution)" "cmd:."; return 0 ;;
+      '`'*|.)   _raw_has_dot && _deny "a directory that contains pipeline state (the project root, behind a substitution)" "cmd:."; return 0 ;;   # `which find` . / `. -name` left by $(echo find) .
+    esac
+    while :; do case "$c" in -a) shift; [ $# -gt 0 ] || return 0; c="$1"; shift ;; -*) [ $# -gt 0 ] || return 0; c="$1"; shift ;; *) break ;; esac; done   # `command -p find .`, `exec -a NAME find .`: the stepped wrapper left its option (and -a's value) as the command word
+    local reader=false; _is_reader "$c" "$@" && reader=true
+    # (pass 2/3) a wrapper or runner the tokenizer does not step hands its arguments to the real
+    # command — which word that is cannot be told here, so the whole statement counts as a reader,
+    # and an argument that is itself a command line (`watch "find . -name x"`, `ssh h "…"`) is judged as one
+    case "$c" in
+      stdbuf|setsid|unbuffer|flock|script|watch|busybox|chrt|taskset|strace|ltrace|nohup|command|exec|time|env|nice|ionice|sudo|doas|caffeinate|timeout|hyperfine|parallel|ssh|perf|valgrind|gdb|docker|podman|make|npx|npm|pnpm|yarn|composer|bundle|poetry|uv|pipx|cargo|go|dotnet|mvn|gradle)
+        reader=true
+        for a in "$@"; do
+          case "$a" in *[[:space:]]*) _judge_text "$a" ;; esac
+          case "$a" in sh|bash|zsh|dash|ksh) [ "$_HD_BODIES_JUDGED" != true ] && case "$COMMAND" in *'<<'*) _HD_BODIES_JUDGED=true; _judge_text "$_HD_BODIES" ;; esac ;; esac   # `cat <<EOF | script -q /dev/null sh`
+        done ;;
+    esac
+    case "$c" in
+      xargs)   # the targets come from stdin (`echo . | xargs find`, `… | xargs -I{} sh -c "find {}"`): fail closed on any bare dot
+        _raw_has_dot && _deny "a directory that contains pipeline state (the project root, through xargs)" "cmd:." ;;
+      sh|bash|zsh|dash|ksh|source)   # a heredoc piped into a shell runs its body (`cat <<EOF | sh`, `sh -s -- x`, `source /dev/stdin`): judge the bodies as statements
+        local _hasc=false _pos=false _stdin=false
+        for a in "$@"; do case "$a" in -c) _hasc=true ;; -s) _stdin=true ;; -*) ;; /dev/stdin|-) _stdin=true ;; *) _pos=true ;; esac; done
+        if { [ "$_stdin" = true ] || { [ "$_hasc" = false ] && [ "$_pos" = false ]; }; } && [ "$_HD_BODIES_JUDGED" != true ]; then
+          case "$COMMAND" in *'<<'*) _HD_BODIES_JUDGED=true; _judge_text "$_HD_BODIES" ;; esac
+        fi
+        if [ "$_hasc" = true ]; then for a in "$@"; do case "$a" in *'$('*|*'`'*|'$') _raw_has_dot && _deny "a directory that contains pipeline state (the project root, through a shell fed a substitution)" "cmd:." ;; esac; done; fi ;;
+      python|python2|python3|node|nodejs|php|ruby|perl|awk|gawk)   # (pass 3/4) a program that shells out runs whatever it names: deny when a
+        # shell-out call carries a READER word and a bare dot in the same call (`os.system('find . -name x')`,
+        # `subprocess.run(["find", ".", …])`) — `subprocess.run(['pytest', '.'])` and `os.system('echo .')` are not reads
+        # (quotes, brackets and commas become spaces first — a backslash or a `]` inside an ERE bracket
+        # expression mis-parses on both greps)
+        _flat=$(printf '%s' "$COMMAND" | tr '\n"\047[](){},' '           ')   # \047 = apostrophe (tr knows octal, not \xHH)
+        if printf '%s' "$_flat" | grep -qE '(system|exec|popen|spawn|subprocess|run|shell_exec|passthru|child_process|Open3|proc_open|pexpect|delegator|invoke|qx|%x|`)[^;]* (find|fd|ls|tree|du|rg|ag|ack|grep|cat|head|tail|diff|cp|rsync|tar|zip)( [^;]*)? \.( |$)' \
+           || printf '%s' "$_flat" | grep -qE ' (find|fd|ls|tree|du|rg|ag|ack|grep|cat|head|tail|diff|cp|rsync|tar|zip)( [^;]*)? \.( |$).*(system|exec|popen|spawn|subprocess|run|shell_exec|passthru|child_process|Open3|proc_open|pexpect|delegator|invoke|qx|%x|`)' \
+           || printf '%s' "$_flat" | grep -qE ' (find|fd|ls|tree|du|rg|ag|ack|grep)( [^|]*)? \. [^|]*\| *getline'; then
+          _deny "a directory that contains pipeline state (the project root, through a program that shells out)" "cmd:."
+        fi ;;
+      sed|gsed|vim|vi|nvim|ex|less|more)   # (pass 4) these run shell text through `e`/`:!`/`!`; a reader word and a bare dot in the raw command deny
+        if printf '%s' "$COMMAND" | grep -qE '(^|[^A-Za-z0-9_])(find|fd|ls|tree|du|rg|ag|ack|grep)([^A-Za-z0-9_])' && _raw_has_dot; then
+          _deny "a directory that contains pipeline state (the project root, through an editor or sed shell escape)" "cmd:."
+        fi ;;
+    esac
+    if [ "$reader" = true ]; then   # (pass 2) a reader whose argument is a substitution — `find $(echo .)` — reads whatever it yields
+      for a in "$@"; do case "$a" in '$'|*'$('*|*'`'*) _raw_has_dot && _deny "a directory that contains pipeline state (the project root, through a substitution)" "cmd:." ;; esac; done
+    fi
+    for a in "$@"; do
+      a="${a//\"/}"; a="${a//\'/}"
+      t=$(_norm "$a")
+      case "$t" in *[*?[]*) t="${t%%[*?[]*}"; t="${t%/}" ;; esac
+      # (pass 3/4) `..`, `../..`, `/`, `/.` are ANCESTORS of the project — a read rooted there reaches it;
+      # `../<name>` is a SIBLING (a monorepo reviewer reading ../shared/config.json), not an ancestor
+      case "$t" in *...*) ;; ..|../..|../../..|../../../..|../../../../..|/.|//|/./.) [ "$reader" = true ] && _deny "a directory that contains pipeline state (an ancestor of the project: $t)" "cmd:$t"; continue ;; esac   # (pass 5) never `...`: `go test ./...` is the canonical Go form
+      if [ -z "$t" ]; then
+        case "$a" in
+          *[!./]*|"") ;;                                 # not a root spelling
+          *) [ "$reader" = true ] && _deny "a directory that contains pipeline state (the project root)" "cmd:." ;;   # `.`, `./`, `./.`, `.//`, `././` (pass 2)
+        esac
+        continue
+      fi
+      [ "$t" = "$PIPE_REL/$ALLOWED_BASENAME" ] && continue
+      if _reaches "$t" "$PIPE_REL" || _reaches "$t" "$MEM_REL"; then
+        _deny "a directory that contains pipeline state ($t)" "cmd:$t"
+      fi
+    done
+    return 0
+  }
+  _judge_text() {  # <shell text> — tokenize and judge every statement (used for heredoc bodies fed to a shell)
+    local _t="$1" _tw _tl _tr; local -a _tv
+    [ -n "$_t" ] || return 0
+    _tw=$(APD_GBS_DEPTH=0 bash "$_GBS" --emit-words --command "$_t" 2>/dev/null || printf 'OPAQUE\n')
+    if [ "$(printf '%s\n' "$_tw" | tail -n 1)" = END ] && ! printf '%s\n' "$_tw" | grep -qx 'OPAQUE'; then
+      while IFS= read -r _tl; do
+        case "$_tl" in "W${_US}"*) _tr="${_tl#W${_US}}" ;; "N${_US}"*) _tr="${_tl#N${_US}}"; case "$_tr" in '$'|'$'"$_US"*|'`'*) continue ;; esac ;; *) continue ;; esac
+        _tv=(); IFS="$_US" read -r -a _tv <<< "$_tr"
+        _judge_stmt ${_tv[@]+"${_tv[@]}"}
+      done <<< "$_tw"
+    else
+      local _r3; for _r3 in $_t; do case "${_r3//[;&|()<>\"\']/}" in *[!./]*|"") ;; *) _deny "a directory that contains pipeline state (the project root; a shell body could not be tokenized)" "cmd:." ;; esac; done
+    fi
+  }
+  _HD_BODIES=""; _HD_BODIES_JUDGED=false
+  case "$COMMAND" in *'<<'*) _HD_BODIES=$(printf '%s\n' "$COMMAND" | awk '
+    body { if ($0 == tag || (strip && $0 ~ ("^\t*" tag "$"))) { body = 0; next } print; next }
+    match($0, /<<-?[ \t]*[\x27"]?[A-Za-z_][A-Za-z0-9_]*/) {
+      t = substr($0, RSTART, RLENGTH); strip = (substr(t, 3, 1) == "-"); sub(/^<<-?[ \t]*/, "", t); gsub(/[\x27"]/, "", t); tag = t; body = 1
+    }') ;; esac
+  if [ "$(printf '%s\n' "$_WORDS" | tail -n 1)" = END ] && ! printf '%s\n' "$_WORDS" | grep -qx 'OPAQUE'; then
+    while IFS= read -r _line; do
+      case "$_line" in "W${_US}"*) _rest="${_line#W${_US}}" ;; "N${_US}"*) _rest="${_line#N${_US}}"; case "$_rest" in '$'|'$'"$_US"*|'`'*) continue ;; esac ;; *) continue ;; esac   # an N line is a statement inside a DATA substitution: its leading `$`/backtick is the substitution, not a command
+      _w=(); IFS="$_US" read -r -a _w <<< "$_rest"
+      _judge_stmt ${_w[@]+"${_w[@]}"}
+    done <<< "$_WORDS"
+  else
+    # fail closed: the pre-v7.2.3 crude rule — every bare `.`/`./` and every
+    # ancestor token denies, git head exempt from the ancestor part
+    set -f
+    for raw in $COMMAND; do
+      tok="${raw//[;&|()<>\"\']/}"
+      [ -z "$tok" ] && continue
+      t=$(_norm "$tok")
+      case "$t" in *[*?[]*) t="${t%%[*?[]*}"; t="${t%/}" ;; esac
+      if [ -z "$t" ]; then
+        case "$tok" in .|./) [ "$_CMD_HEAD" != git ] && { set +f; _deny "a directory that contains pipeline state (the project root; the command could not be tokenized)" "cmd:."; } ;; esac
+        continue
+      fi
+      [ "$t" = "$PIPE_REL/$ALLOWED_BASENAME" ] && continue
+      if { _reaches "$t" "$PIPE_REL" || _reaches "$t" "$MEM_REL"; } && [ "$_CMD_HEAD" != git ]; then
+        set +f; _deny "a directory that contains pipeline state ($t)" "cmd:$t"
+      fi
+    done
+    set +f
+  fi
 fi
 
 exit 0

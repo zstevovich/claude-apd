@@ -17,6 +17,8 @@ COMMAND=""
 CWD_ARG=""
 DENY_ALL_WRITES=false
 EMIT_GIT=false   # v7.1.5: lend the tokenizer to guard-git — print git statements, judge nothing
+EMIT_WORDS=false # v7.2.3: lend it to guard-spec-blind — one `W` line per statement (wrappers, assignments, keywords stepped), judge nothing
+_emit_opaque() { { [ "$EMIT_GIT" = true ] || [ "$EMIT_WORDS" = true ]; } && printf 'OPAQUE\n'; return 0; }
 EMIT_NESTED=0
 ALLOWED_PATHS=()
 while [[ $# -gt 0 ]]; do
@@ -31,6 +33,7 @@ while [[ $# -gt 0 ]]; do
     # and still free to run `git diff` or the test command.
     --deny-all-writes) DENY_ALL_WRITES=true; shift ;;
     --emit-git) EMIT_GIT=true; shift ;;
+    --emit-words) EMIT_WORDS=true; shift ;;
     *) ALLOWED_PATHS+=("$1"); shift ;;
   esac
 done
@@ -381,7 +384,7 @@ _add_target() {   # <raw word> [nofollow]
   TARGET_RAW+=("$raw"); TARGET_ABS+=("$abs"); TARGET_NOTE+=(""); TARGET_APD+=("${STMT_APD:-false}")
 }
 _add_unknown_target() {  # <what> — a write whose targets the guard cannot see
-  [ "$EMIT_GIT" = true ] && printf 'OPAQUE\n'   # (audit) depth cap / ANSI-C text: unreadable for guard-git too
+  _emit_opaque   # (audit) depth cap / ANSI-C text: unreadable for guard-git too
   TARGET_RAW+=("$1"); TARGET_ABS+=(""); TARGET_NOTE+=("its targets are not visible to the guard — name the files instead"); TARGET_APD+=("${STMT_APD:-false}")
 }
 
@@ -428,14 +431,26 @@ _recurse_shell() {  # <shell text>
     '$('*|'`'*)
       # (audit R1) the OUTPUT of the substitution is what runs, and that is
       # invisible: when the command names the cache or the pipeline dir, refuse.
-      if _names_fenced_dir; then TARGET_RAW+=("${text:0:60}"); TARGET_ABS+=(""); { [ "$EMIT_GIT" = true ] && printf 'OPAQUE\n'; }; TARGET_NOTE+=("opaque shell body: ${text:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0; fi ;;
-    \$*) TARGET_RAW+=("${text:0:60}"); TARGET_ABS+=(""); { [ "$EMIT_GIT" = true ] && printf 'OPAQUE\n'; }; TARGET_NOTE+=("opaque shell body: ${text:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0 ;;
+      # v7.2.3 (live): NOT when the text is a quoted substitution in ARGUMENT
+      # position (`echo "lines: $(wc -l < <cache file>)"`) — there the output is
+      # data for a command already judged; the inner command is parsed below.
+      # The eval / sh -c / command-position paths reset APD_GBS_DATA before
+      # calling here, so an executed body keeps the refusal.
+      if [ "${APD_GBS_DATA:-}" != 1 ] && _names_fenced_dir; then TARGET_RAW+=("${text:0:60}"); TARGET_ABS+=(""); { _emit_opaque; }; TARGET_NOTE+=("opaque shell body: ${text:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0; fi ;;
+    \$*) TARGET_RAW+=("${text:0:60}"); TARGET_ABS+=(""); { _emit_opaque; }; TARGET_NOTE+=("opaque shell body: ${text:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0 ;;
   esac
   if printf '%s' "$text" | grep -qE '\\x[0-9a-fA-F]|\\[0-7]{3}|\\u[0-9a-fA-F]|\\U[0-9a-fA-F]'; then
     _add_unknown_target "shell text with ANSI-C escapes"; return 0
   fi
   if [ "$APD_GBS_DEPTH" -ge 3 ] 2>/dev/null; then
+    # v7.2.3 (audit B3): beyond the cap the text is unreadable — when the command names a fence, refuse (PROTECT_ONLY skips unknown targets)
+    if _names_fenced_dir; then TARGET_RAW+=("${text:0:60}"); TARGET_ABS+=(""); _emit_opaque; TARGET_NOTE+=("opaque shell body: nested shell beyond the depth cap"); TARGET_APD+=("${STMT_APD:-false}"); return 0; fi
     _add_unknown_target "nested shell (depth > 3)"; return 0
+  fi
+  if [ "$EMIT_WORDS" = true ]; then   # v7.2.3: nested statements are emitted through our stdout, as emit-git does
+    EMIT_NESTED=$((EMIT_NESTED + 1)); if [ "$EMIT_NESTED" -gt 8 ]; then printf 'OPAQUE\n'; return 0; fi
+    APD_GBS_DEPTH=$((APD_GBS_DEPTH + 1)) bash "$0" --emit-words --command "$text" --cwd "$CUR_CWD" 2>/dev/null || printf 'OPAQUE\n'
+    return 0
   fi
   if [ "$EMIT_GIT" = true ]; then   # (v7.1.5) nested git statements are emitted through our stdout
     EMIT_NESTED=$((EMIT_NESTED + 1))
@@ -453,7 +468,10 @@ _recurse_shell() {  # <shell text>
   fi
   if [ -n "${APD_GBS_BUDGET_FILE:-}" ] && [ -f "$APD_GBS_BUDGET_FILE" ]; then   # (v7.1.7, audit I1) the total budget binds here too
     _b=$(cat "$APD_GBS_BUDGET_FILE" 2>/dev/null || echo 0)
-    if [ "${_b:-0}" -le 0 ] 2>/dev/null; then _add_unknown_target "nested shells beyond the budget (40 per command)"; return 0; fi
+    if [ "${_b:-0}" -le 0 ] 2>/dev/null; then
+      if _names_fenced_dir; then TARGET_RAW+=("${text:0:60}"); TARGET_ABS+=(""); TARGET_NOTE+=("opaque shell body: nested shells beyond the budget"); TARGET_APD+=("${STMT_APD:-false}"); return 0; fi   # v7.2.3 (audit B3)
+      _add_unknown_target "nested shells beyond the budget (40 per command)"; return 0
+    fi
     echo $((_b - 1)) > "$APD_GBS_BUDGET_FILE"
   fi
   APD_GBS_DEPTH=$((APD_GBS_DEPTH + 1)) bash "$0" --command "$text" --cwd "$CUR_CWD" \
@@ -502,6 +520,8 @@ _apd_tool_word() {  # <word> <next word> → 0 when <word> is one of APD's own t
 _process_stmt() {
   local n=${#ST[@]} i=0 w name cmd a last lang text has_expr seen_pat expect_expr inplace body abs
   [ "$n" -eq 0 ] && [ ${#RT[@]} -eq 0 ] && return 0
+  STMT_MARK=false   # v7.2.3: this statement's own assignment prefix carried the orchestrator marker
+  STMT_XARGS=false  # v7.2.3: the command word came through xargs (its targets are stdin — emit-words consumers must know)
   # leading assignments, shell keywords, and wrappers (with their own arguments)
   while [ $i -lt $n ]; do
     w="${ST[$i]}"
@@ -509,6 +529,7 @@ _process_stmt() {
       *=*)
         name="${w%%=*}"
         case "$name" in ''|*[!A-Za-z0-9_]*) break ;; esac
+        [ "$name" = APD_ORCHESTRATOR_COMMIT ] && [ "${w#*=}" = 1 ] && STMT_MARK=true
         _setvar "$name" "$(_subst "${w#*=}")"; i=$((i + 1)); continue ;;
       for|select)
         # `for NAME in a b c`: the loop variable takes the candidate that is NOT
@@ -555,7 +576,7 @@ _process_stmt() {
         done; continue ;;
       xargs)
         # the command's targets come from stdin: not visible → fail closed
-        i=$((i + 1))
+        STMT_XARGS=true; i=$((i + 1))
         while [ $i -lt $n ]; do
           case "${ST[$i]}" in -I|-n|-P|-L|-s|-d|-E|-a) i=$((i + 2)) ;; -*) i=$((i + 1)) ;; *) break ;; esac
         done
@@ -571,6 +592,13 @@ _process_stmt() {
   A=()
   if [ $((i + 1)) -lt $n ]; then A=("${ST[@]:$((i + 1))}"); fi
 
+  if [ "$EMIT_WORDS" = true ]; then   # v7.2.3: one W line per statement — the command word by basename, a leading backslash dropped
+    _wc="${cmd##*/}"; _wc="${_wc#\\}"
+    if [ "${APD_GBS_DATA:-}" = 1 ]; then printf 'N'; else printf 'W'; fi   # N = a statement inside a DATA substitution (its leading `$` is the substitution itself, not a command)
+    [ "$STMT_XARGS" = true ] && printf '\x1fxargs'
+    printf '\x1f%s' "${_wc//$'\n'/$'\x1e'}"; for a in ${A[@]+"${A[@]}"}; do printf '\x1f%s' "${a//$'\n'/$'\x1e'}"; done; printf '\n'
+  fi
+
   STMT_APD=false
   # v7.1.4 (audit N1): a VARIABLE in command position (`CMD="rm …"; $CMD`,
   # `"$@"`). Expand this command's own assignments and re-parse the statement;
@@ -579,15 +607,17 @@ _process_stmt() {
   case "$cmd" in
     '$'|'$('*|'`'*)   # a command substitution in command position (the tokenizer emits `$` then a subshell): the inner command is visible (audit F2)…
       # …but its OUTPUT is the command that runs (audit R1): refuse when the command names the cache or the pipeline dir
-      if _names_fenced_dir; then TARGET_RAW+=("${cmd:0:60}"); TARGET_ABS+=(""); { [ "$EMIT_GIT" = true ] && printf 'OPAQUE\n'; }; TARGET_NOTE+=("opaque shell body: ${cmd:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0; fi ;;
+      # (v7.2.3: unless this parse is the DATA text of a quoted substitution — see _recurse_shell)
+      # (audit B2: inside a `(`…`)` group of a data text — `"$($(cat <fence>))"` — the inner substitution's output RUNS)
+      if { [ "${APD_GBS_DATA:-}" != 1 ] || [ ${#CWD_STACK[@]} -gt 0 ]; } && _names_fenced_dir; then TARGET_RAW+=("${cmd:0:60}"); TARGET_ABS+=(""); { _emit_opaque; }; TARGET_NOTE+=("opaque shell body: ${cmd:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0; fi ;;
     *\\*)   # (v7.1.7, audit C2) an undecoded escape in the command word hides the writer
-      TARGET_RAW+=("${cmd:0:60}"); TARGET_ABS+=(""); { [ "$EMIT_GIT" = true ] && printf 'OPAQUE\n'; }; TARGET_NOTE+=("opaque shell body: ${cmd:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0 ;;
+      TARGET_RAW+=("${cmd:0:60}"); TARGET_ABS+=(""); { _emit_opaque; }; TARGET_NOTE+=("opaque shell body: ${cmd:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0 ;;
     \$*)
       text=$(_subst "$cmd${A[@]+ ${A[*]}}")
       case "${text#"${text%%[! ]*}"}" in
-        \$*) TARGET_RAW+=("${cmd:0:60}"); TARGET_ABS+=(""); { [ "$EMIT_GIT" = true ] && printf 'OPAQUE\n'; }; TARGET_NOTE+=("opaque shell body: ${cmd:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0 ;;
+        \$*) TARGET_RAW+=("${cmd:0:60}"); TARGET_ABS+=(""); { _emit_opaque; }; TARGET_NOTE+=("opaque shell body: ${cmd:0:40}"); TARGET_APD+=("${STMT_APD:-false}"); return 0 ;;
       esac
-      _recurse_shell "$text"; return 0 ;;
+      APD_GBS_DATA= _recurse_shell "$text"; return 0 ;;
   esac
   # v7.1.4 (audit M-a/M-a2): APD's own tools, by command word — and the
   # exemption from the pipeline fence covers only THIS statement's targets
@@ -617,11 +647,11 @@ _process_stmt() {
     # (`git -C ""`) — stays one word; a newline inside a word becomes 0x1e so
     # the line is not cut (audit A); a literal 0x1f inside a word is opaque.
     _W=("$cmd" ${A[@]+"${A[@]}"}); _k=0
-    for a in "${_W[@]}"; do case "$a" in *$'\x1f'*|*\\*) printf 'OPAQUE\n' ;; esac; done   # a backslash is an escape the guard did not decode (audit P3: bash 5 runs git \$'\u0070ush' --force)
+    for a in "${_W[@]}"; do case "$a" in *$'\x1f'*|*\\*|'@APD_MARK') printf 'OPAQUE\n' ;; esac; done   # a backslash is an escape the guard did not decode (audit P3: bash 5 runs git \$'\u0070ush' --force); a user word spelled like the marker is unreadable (pass 2)
     while [ $_k -lt ${#_W[@]} ]; do
       a="${_W[$_k]}"
       if [ "$a" = git ] || [ "${a##*/}" = git ]; then
-        printf 'GIT'; _j=$((_k + 1))
+        printf 'GIT'; [ "$STMT_MARK" = true ] && printf '\x1f@APD_MARK'; _j=$((_k + 1))   # v7.2.3: the statement's own marker travels with it (audit G1: a raw-text regex was satisfied by a comment)
         while [ $_j -lt ${#_W[@]} ]; do _w="${_W[$_j]}"; printf '\x1f%s' "${_w//$'\n'/$'\x1e'}"; _j=$((_j + 1)); done; printf '\n'
         [ -n "$HB" ] && printf 'GITBODY\x1f%s\n' "$(printf '%s' "$HB" | tr '\n' ' ')"
       fi
@@ -794,7 +824,7 @@ _process_stmt() {
           fi ;;
       esac ;;
     eval)
-      _recurse_shell "${A[*]}" ;;
+      APD_GBS_DATA= _recurse_shell "${A[*]}" ;;
     bash|sh|zsh|dash|su)
       # `-c <string>` is shell (su -c too); a heredoc-fed shell is shell; a script file is not readable here
       text=""; w=false
@@ -803,7 +833,7 @@ _process_stmt() {
         case "$a" in -c) w=true ;; -c?*) text="${a#-c}"; break ;; esac
       done
       [ -z "$text" ] && [ -n "$HB" ] && text="$HB"
-      [ -n "$text" ] && _recurse_shell "$text" ;;
+      [ -n "$text" ] && APD_GBS_DATA= _recurse_shell "$text" ;;
     python|python2|python3|node|nodejs|ruby|php)
       case "$cmd" in python*) lang=python ;; node*) lang=node ;; ruby) lang=ruby ;; php) lang=php ;; esac
       text=""; w=false
@@ -1180,12 +1210,12 @@ while IFS= read -r _tline; do
       case "$_tval" in
         NL) _flush_stmt
             [ "$HD_PENDING" = true ] || _flush_deferred ;;
-        OPENQ) [ "$EMIT_GIT" = true ] && printf 'OPAQUE\n'; _flush_stmt ;;
+        OPENQ) _emit_opaque; _flush_stmt ;;
         OPENTAG)   # v7.1.7: a heredoc tag spanning lines — the statement's real shape is unreadable here
              _add_unknown_target "heredoc tag spanning lines"
              if _names_fenced_dir; then TARGET_RAW+=("heredoc tag spanning lines"); TARGET_ABS+=(""); TARGET_NOTE+=("opaque shell body: heredoc tag spanning lines"); TARGET_APD+=("${STMT_APD:-false}"); fi ;;
         OPENARITH)   # v7.2 (audit I1): a `$((` whose close sits on a later line — arithmetic or a subshell substitution, unreadable here
-             [ "$EMIT_GIT" = true ] && printf 'OPAQUE\n'
+             _emit_opaque
              _add_unknown_target "arithmetic or subshell substitution spanning lines"
              if _names_fenced_dir; then TARGET_RAW+=("substitution spanning lines"); TARGET_ABS+=(""); TARGET_NOTE+=("opaque shell body: arithmetic or subshell substitution spanning lines"); TARGET_APD+=("${STMT_APD:-false}"); fi ;;
         END) SAW_END=true ;;
@@ -1207,7 +1237,7 @@ _flush_stmt
 # scoped agent is refused, guard-git falls back to the raw scan, the orchestrator is refused
 # when the command names a fence.
 if [ "${SAW_END:-false}" != true ]; then
-  [ "$EMIT_GIT" = true ] && printf 'OPAQUE\n'
+  _emit_opaque
   _add_unknown_target "command tokenizer stopped mid-command"
   if _names_fenced_dir; then TARGET_RAW+=("unreadable command"); TARGET_ABS+=(""); TARGET_NOTE+=("opaque shell body: the tokenizer stopped mid-command"); TARGET_APD+=("false"); fi
 fi
@@ -1216,7 +1246,14 @@ if [ "$EMIT_GIT" != true ] && [ ${#N_CWDS[@]} -gt 0 ]; then   # (v7.1.7) the quo
   _k=0; _save_cwd="$CUR_CWD"; _save_unk="$CWD_UNKNOWN"
   while [ $_k -lt ${#N_CWDS[@]} ]; do
     CUR_CWD="${N_CWDS[$_k]%|*}"; CWD_UNKNOWN="${N_CWDS[$_k]##*|}"
-    _recurse_shell "${N_TXTS[$_k]}"
+    # v7.2.3: output is data — the inner command is judged, not refused for naming a fence. A
+    # backtick record carries its INNER text, which is a command line in command position:
+    # "`$(cat <fence>)`" runs the file's content (audit B2) — parsed with data mode OFF.
+    case "${N_TXTS[$_k]}" in
+      '$('*) APD_GBS_DATA=1 _recurse_shell "${N_TXTS[$_k]}" ;;
+      '`'*)  _bt="${N_TXTS[$_k]#\`}"; _bt="${_bt%\`}"; APD_GBS_DATA= _recurse_shell "$_bt" ;;   # the INNER command line runs; a leading $( in it is command position (R1 applies)
+      *)     APD_GBS_DATA= _recurse_shell "${N_TXTS[$_k]}" ;;
+    esac
     _k=$((_k + 1))
   done
   CUR_CWD="$_save_cwd"; CWD_UNKNOWN="$_save_unk"
@@ -1224,6 +1261,7 @@ fi
 
 # --- 2. Decide ------------------------------------------------------------------
 [ "$EMIT_GIT" = true ] && exit 0   # (v7.1.5) the statements are printed; judging is guard-git's job
+if [ "$EMIT_WORDS" = true ]; then [ "${APD_GBS_DEPTH:-0}" -gt 0 ] || printf 'END\n'; exit 0; fi   # v7.2.3: END is the consumer's canary (top level only)
 if [ ${#TARGET_RAW[@]} -eq 0 ] && [ "$RUNTIME_WRITE" = false ]; then
   exit 0
 fi
@@ -1379,6 +1417,18 @@ done
 # through, audit I4), and the program must run from a working directory that
 # is itself in scope, because a bare file name resolves there (audit I6).
 if [ "$RUNTIME_WRITE" = true ]; then
+  # v7.2.3 (audit B1, pass 2): a NEW top-level name is reachable through any call that creates,
+  # renames, copies a tree, extracts, installs, or shells out — not only mkdir. With none of
+  # these in the program, a name whose first component does not exist cannot receive a write.
+  RT_MKDIR=false; printf '%s' "$RUNTIME_TEXT" | grep -qE 'makedirs|mkdir|mkpath|MkdirAll|create_dir|ensureDir|ensure_dir|FileUtils|rename|move|copytree|copy2|copyfile|copy\(|copyFile|cpSync|extract|unpack|install|system\(|subprocess|spawn|exec|popen|shell_exec|passthru|(^|[^A-Za-z])(cp|mv|tar|rsync|unzip|install|ditto) ' && RT_MKDIR=true
+  # v7.2.3: text that yields path-shaped tokens that are not paths is removed BEFORE the
+  # token scan — HTML/XML tags (`</td>` → `/td`), URLs (`https://x/y` → `//x/y`), and
+  # quoted regex literals that carry a regex metacharacter (`"/^ \[x/"`, `"/\n\];\n/s"`,
+  # `"#^/users/(\d+)$#"`); `"/tmp/x"` has no metacharacter and stays a path.
+  # (pass 2: a regex literal is recognised only by a BACKSLASH escape inside it, a `^` right after
+  # the opening delimiter or a `$` right before the closing one — `"/tmp/$d/out"`, f"/tmp/{n}/out",
+  # '/tmp/a+b/log' are paths and stay; `file://` is a path scheme Node and Python accept — not a URL here)
+  _RT_SCAN=$(printf '%s' "$RUNTIME_TEXT" | LC_ALL=C sed -E 's#[Ff][Ii][Ll][Ee]://[A-Za-z0-9.-]*/#/#g; s#</?[A-Za-z][A-Za-z0-9:-]*># #g; s#(https?|ftps?|ssh|git|s3|gs|wss?|rsync|svn|smb|ldap|data)://[^[:space:]"'"'"']*# #g; s#"/(\^[^"]*|[^"]*\\[^"]*|[^"]*\$)/[a-zA-Z]{0,5}"# #g; s#'"'"'/(\^[^'"'"']*|[^'"'"']*\\[^'"'"']*|[^'"'"']*\$)/[a-zA-Z]{0,5}'"'"'# #g; s@"#(\^[^"#]*|[^"#]*\\[^"#]*|[^"#]*\$)#[a-zA-Z]{0,5}"@ @g' 2>/dev/null || printf '%s' "$RUNTIME_TEXT")
   if [ "$DENY_ALL_WRITES" = true ] && [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
     echo "BLOCKED: Runtime write (runtime) detected, and this agent has no writable scope." >&2
     _scope_hint; log_block "out-of-scope-bash-write" "${COMMAND:0:200}"; exit 2
@@ -1395,8 +1445,9 @@ if [ "$RUNTIME_WRITE" = true ]; then
   _any=false
   while IFS= read -r _p; do
     [ -z "$_p" ] && continue
+    _tail=false
     case "$_p" in
-      \$*) if ! _known_var "$(_var_name "$_p")"; then _p=$(_var_tail "$_p"); case "$_p" in */*) ;; *) continue ;; esac; fi ;;   # audit C4/F1/R2
+      \$*) if ! _known_var "$(_var_name "$_p")"; then _p=$(_var_tail "$_p"); _tail=true; case "$_p" in */*) ;; *) continue ;; esac; fi ;;   # audit C4/F1/R2
       */*|"~"*) ;;
       *) continue ;;
     esac
@@ -1406,14 +1457,52 @@ if [ "$RUNTIME_WRITE" = true ]; then
       _scope_hint; log_block "out-of-scope-bash-write" "${COMMAND:0:200}"; exit 2
     fi
     case "$_s" in */*|"~"*) ;; *) continue ;; esac
+    # v7.2.3 (live, efiskalizacija ×4): tokens a program text yields that are not
+    # paths at all — regex delimiters (`"/^foo/"` → `/`, `"/x/s"` → `/x/`), the PHP
+    # `//` comment, HTML closing tags (`</td>` → `/td`). A lone slash run is never a
+    # write target, and nothing can be written under a TOP-LEVEL name that does not
+    # exist on this machine (creating one needs root) — such a token is not judged.
+    # Stated limit: a root container could `os.makedirs('/x')` first.
+    # A RELATIVE fragment reads the same way (`\n\];\n/s` → `n/s`, `\[x/` → `x/`):
+    # judged only when its first component exists under the program's cwd. The
+    # exemption is OFF when the program also creates directories (`makedirs`,
+    # `mkdir`, `mkpath`, `MkdirAll` …) — then a new top-level name is reachable.
+    # (a tail after an UNKNOWN variable is a suffix, not a path from the root, and a
+    # token with `..` can be normalised onto an existing directory — neither is exempt)
+    _trav=false; _has_traversal "$_s" && _trav=true
+    # (pass 4/5) `//x/y` is `/x/y` on POSIX AND a file-URL body whose host is `x` (`new URL('file:' +
+    # '//localhost/etc/x')`): both readings are judged (audit pass 5: dropping the host alone let
+    # `open('//etc/x')` through as `/x`)
+    _cands=("$_s")
+    case "$_s" in //[!/]*) _c2="${_s#//}"; _cands=("/$_c2"); case "$_c2" in */*) _cands+=("/${_c2#*/}") ;; esac ;; esac
+    for _s in "${_cands[@]}"; do
+    case "$_s" in
+      /|//|///|/dev/null) continue ;;
+      /*) if [ "$RT_MKDIR" != true ] && [ "$_tail" != true ] && [ "$_trav" != true ]; then _first="${_s#/}"; _first="${_first#/}"; _first="/${_first%%/*}"; [ "$_first" = / ] || [ -e "$_first" ] || continue; fi ;;
+    esac
+    # (audit B1, passes 2–4: a RELATIVE name is ALWAYS judged, as at HEAD. A creator-call list
+    # missed 18 spellings in one pass and a "whole quoted argument" rule was escaped by any
+    # indirection (`'build/' + n`, a variable, a template literal) while re-introducing the
+    # MIME / date / template-name false blocks. The live shapes — regex delimiters, `//`,
+    # `</td>` — are handled by _RT_SCAN and the lone-slash rule, not by an exemption. Stated
+    # false blocks, = HEAD: `render('users/index')`, `'Content-Type: text/html'`, `date("Y/m/d")`
+    # next to an in-scope write.)
     _any=true
     case "$_s" in /*|"~"|"~/"*) _abs=$(_canon_cached "$_s") ;; *) _abs=$(_canon_cached "$_s" "$CUR_CWD") ;; esac
+    # v7.2.3: a `..` that survives canonicalisation (a non-existent segment before it) would
+    # be compared as a PREFIX of the scope while landing elsewhere — refuse it, as the
+    # Write guard does for its targets.
+    if _has_traversal "$_abs"; then
+      echo "BLOCKED: Runtime write (runtime) detected with an unresolved traversal in the program ($_p)." >&2
+      _scope_hint; log_block "out-of-scope-bash-write" "${COMMAND:0:200}"; exit 2
+    fi
     if ! _in_scope "$_abs"; then
       echo "BLOCKED: Runtime write (runtime) detected outside the allowed scope." >&2
       echo "  Out-of-scope path in the program: $_p" >&2
       _scope_hint; log_block "out-of-scope-bash-write" "${COMMAND:0:200}"; exit 2
     fi
-  done < <(printf '%s' "$RUNTIME_TEXT" | grep -oE "[\$~./A-Za-z0-9_-][A-Za-z0-9_./~{}\$-]*" 2>/dev/null || true)
+    done   # candidates of one token
+  done < <(printf '%s' "$_RT_SCAN" | grep -oE "[\$~./A-Za-z0-9_-][A-Za-z0-9_./~{}\$-]*" 2>/dev/null || true)
   if [ "$_any" = false ] && [ "$_cwd_ok" = false ]; then
     echo "BLOCKED: Runtime write (runtime) with bare file names, from a working directory outside the allowed scope ($CUR_CWD)." >&2
     _scope_hint; log_block "out-of-scope-bash-write" "${COMMAND:0:200}"; exit 2

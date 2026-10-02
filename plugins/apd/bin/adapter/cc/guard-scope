@@ -59,17 +59,13 @@ source "$LIB_DIR/agent-scope.sh"
 AGENT_FILE="$(_agent_def_file "$AGENT_TYPE" || true)"
 [ -z "$AGENT_FILE" ] && exit 0
 
-if _agent_is_readonly "$AGENT_FILE"; then
-  echo "BLOCKED: agent '$AGENT_TYPE' is declared readonly and may not write files." >&2
-  log_block "out-of-scope-write" "readonly:$AGENT_TYPE:$FILE_PATH"
-  exit 2
-fi
-
 # v7.2.2: the agent's OWN memory directory is writable regardless of scope — and
-# it has to be decided HERE, because the fail-closed no-scope rule below runs
-# before the core, and the v7.0.5 agent-memory exemption lives in the core. It
-# sits AFTER the readonly rule on purpose (audit F5): `readonly: true` is a
-# user's explicit declaration that the agent writes nothing, memory included. A review
+# it has to be decided HERE, because the two fail-closed rules below run before
+# the core, and the v7.0.5 agent-memory exemption lives in the core. It sits
+# BEFORE the readonly rule (v7.2.3): APD itself ships `readonly: true` on the
+# Codex review templates and v6-era CC reviewers carry it (efiskalizacija's
+# did, 7.2.2 would have kept its memory dead) — memory is not code, and the
+# directory exists only because `memory: project` asked for it. A review
 # role has no scope by design (bounded by omitting Write/Edit, not by
 # `readonly: true`), so every `memory: project` write of code-reviewer hit
 # "no declared scope" from v7.0.0 on (Bambi: 7 blocks, last successful write
@@ -84,8 +80,22 @@ fi
 source "$LIB_DIR/path-canon.sh"
 _MEM_REL="$(_canon_abs "$FILE_PATH")"; _MEM_REL="${_MEM_REL#"$(_proj_canon)"/}"
 case "$_MEM_REL" in
-  .claude/agent-memory/"$AGENT_TYPE"/?*) _has_traversal "$_MEM_REL" || exit 0 ;;
+  .claude/agent-memory/"$AGENT_TYPE"/?*)   # (audit N1) only an agent that declares memory has a memory directory
+    if grep -qE '^memory:[[:space:]]*["'"'"']?(project|user|local)["'"'"']?[[:space:]]*(#.*)?$' "$AGENT_FILE" 2>/dev/null; then _has_traversal "$_MEM_REL" || exit 0; fi ;;
 esac
+# v7.2.3 (live, efiskalizacija): the session scratchpad is sanctioned for every
+# agent (v7.0.5 bash guard, v7.1.4 shared rule) — but that rule lived in the
+# core too, behind the same two fail-closed rules, so a review role with
+# `memory: project` (CC hands it Write for its memory) could not write a probe
+# to the scratchpad. Same slot, same shared rule; the canonical path refuses a
+# surviving `..` inside `_is_session_scratchpad` itself.
+_is_session_scratchpad "$(_canon_abs "$FILE_PATH")" && exit 0
+
+if _agent_is_readonly "$AGENT_FILE"; then
+  echo "BLOCKED: agent '$AGENT_TYPE' is declared readonly and may not write files." >&2
+  log_block "out-of-scope-write" "readonly:$AGENT_TYPE:$FILE_PATH"
+  exit 2
+fi
 
 SCOPE_PATHS=()
 while IFS= read -r p; do

@@ -55,9 +55,19 @@ if [ -z "$COMMAND" ]; then
 fi
 COMMAND=$(echo "$COMMAND" | tr -s ' ' | sed 's/^ //')
 
-# The orchestrator's marker, exactly as before: the whole command starts with it.
+# The orchestrator's marker: the whole command starts with it — or (v7.2.3, live:
+# `git add a b && git status --short && APD_ORCHESTRATOR_COMMIT=1 git commit …`
+# was refused on a real project) a git STATEMENT inside the command carries it
+# as its own assignment prefix. The statements are still judged one by one
+# (mass-staging, --no-verify, destructive), the marker only answers "did the
+# orchestrator sign this".
 HAS_PREFIX=false
 echo "$COMMAND" | grep -qE "^APD_ORCHESTRATOR_COMMIT=1 " && HAS_PREFIX=true
+# (v7.2.3, audit G1: a raw-text regex for the mid-command marker was satisfied by a comment
+# or a string — the per-statement marker now travels with the tokenized statement as
+# `@APD_MARK`, emitted by guard-bash-scope from the statement's own assignment prefix.)
+_marked=false
+_signed() { [ "$HAS_PREFIX" = true ] || [ "$_marked" = true ]; }
 
 _block() {  # <reason> <message lines...>
   local reason="$1"; shift
@@ -115,7 +125,11 @@ if [ "$TOKENIZED" = true ]; then
   _parse_git_line() {  # <unit-separator words after GIT> — a non-whitespace delimiter keeps EMPTY words (git -C "")
     local IFS="$US" w rest="${1#$US}"; local -a words=(); local i=0
     read -r -a words <<< "$rest"
-    _sub=""; _args=(); _hooks_off=false
+    _sub=""; _args=(); _hooks_off=false; _marked=false
+    # v7.2.3: the statement carried APD_ORCHESTRATOR_COMMIT=1 — read past the mark by INDEX: under
+    # bash 3.2 a re-slice `words=(${words[@]+"${words[@]:1}"})` collapsed the array into one word
+    # (`_sub='commit --no-verify -m x'`, no rule matched, exit 0 — the suite's 3.2 leg caught it)
+    if [ "${words[0]:-}" = "@APD_MARK" ]; then _marked=true; i=1; fi
     while [ $i -lt ${#words[@]} ]; do
       w="${words[$i]}"
       case "$w" in
@@ -182,11 +196,11 @@ if [ "$TOKENIZED" = true ]; then
               _block "mass-staging" "BLOCKED: git add . / git add -A / git add --all is not allowed." "Use: git add <file1> <file2> ..." ;;
           esac
           _cluster_has "$a" AuU && _block "mass-staging" "BLOCKED: git add . / git add -A / git add --all is not allowed." "Use: git add <file1> <file2> ..."
-          case "$a" in *.claude*) SAW_ADD_CLAUDE=true ;; esac
+          case "$a" in *.claude*) _signed || SAW_ADD_CLAUDE=true ;; esac   # v7.2.3: unsigned on THIS statement
         done ;;
       commit)
         SAW_COMMIT=true
-        if [ "$HAS_PREFIX" = true ]; then
+        if _signed; then
           for a in ${_args[@]+"${_args[@]}"}; do
             if [ "$a" = --all ] || _cluster_has "$a" a mFCctSu; then
               _block "commit-all" "BLOCKED: git commit -a / --all is not allowed. Stage files explicitly."
@@ -209,7 +223,7 @@ if [ "$TOKENIZED" = true ]; then
           esac
           _cluster_has "$a" f o && _block "force-push" "BLOCKED: git push --force is not allowed."
         done
-        [ "$HAS_PREFIX" = true ] || _block "push-no-prefix" "BLOCKED: git push is only allowed with APD_ORCHESTRATOR_COMMIT=1 prefix." ;;
+        _signed || _block "push-no-prefix" "BLOCKED: git push is only allowed with APD_ORCHESTRATOR_COMMIT=1 prefix." ;;
       reset)    _has_word "--hard" ${_args[@]+"${_args[@]}"} && _block "destructive-git" "BLOCKED: Destructive git operation is not allowed." ;;
       clean)
         _dry=false; for a in ${_args[@]+"${_args[@]}"}; do { [ "$a" = --dry-run ] || _cluster_has "$a" n e; } && _dry=true; done
@@ -217,7 +231,17 @@ if [ "$TOKENIZED" = true ]; then
           for a in ${_args[@]+"${_args[@]}"}; do { [ "$a" = --force ] || _cluster_has "$a" fdxX e; } && _block "destructive-git" "BLOCKED: Destructive git operation is not allowed."; done
         fi ;;
       checkout) { _has_word "--" ${_args[@]+"${_args[@]}"} || _has_word "." ${_args[@]+"${_args[@]}"}; } && _block "destructive-git" "BLOCKED: Destructive git operation is not allowed." ;;
-      restore)  _block "destructive-git" "BLOCKED: Destructive git operation is not allowed." ;;
+      restore)
+        # v7.2.3 (live): `git restore --staged <path>` only unstages — the index moves,
+        # the working tree does not. Destructive only when it touches the tree:
+        # no --staged at all, or --staged together with -W/--worktree.
+        _rs=false; _rw=false
+        for a in ${_args[@]+"${_args[@]}"}; do
+          case "$a" in --staged) _rs=true ;; --worktree) _rw=true ;; --) break ;;
+            --*) ;; -*) _cluster_has "$a" S s && _rs=true; _cluster_has "$a" W s && _rw=true ;;   # (audit G2) git bundles short options: -Wq, -qW, -SWq; `-s` takes a value (-sWIP is not W)
+          esac
+        done
+        { [ "$_rs" = false ] || [ "$_rw" = true ]; } && _block "destructive-git" "BLOCKED: Destructive git operation is not allowed." ;;
       stash)
         # v7.2.2 (Bambi audit): `clear` destroys every stash and was never on the
         # list; and a pipeline AGENT has no business moving the tree's uncommitted
@@ -235,7 +259,7 @@ if [ "$TOKENIZED" = true ]; then
     esac
   done <<< "$STMTS"
   # .claude/ protection
-  if [ "$SAW_ADD_CLAUDE" = true ] && [ "$HAS_PREFIX" != true ]; then
+  if [ "$SAW_ADD_CLAUDE" = true ]; then   # set only by an UNSIGNED statement (v7.2.3)
     _block "claude-dir-no-prefix" "BLOCKED: git add .claude/ is only allowed with APD_ORCHESTRATOR_COMMIT=1 prefix."
   fi
   # a prefixed commit that passed every statement check goes through the gate
@@ -283,9 +307,18 @@ _raw_scan_fallback() {
     [ "$HAS_PREFIX" = true ] && exit 0
     _block "claude-dir-no-prefix" "BLOCKED: git add .claude/ is only allowed with APD_ORCHESTRATOR_COMMIT=1 prefix."
   fi
-  if echo "$NORMALIZED_GIT" | grep -qiE "git (reset[[:space:]]+--hard|clean[[:space:]]+-[fdx]|checkout[[:space:]]+--[[:space:]]|checkout[[:space:]]+\.([[:space:]]|$)|restore[[:space:]]|stash[[:space:]]+(drop|clear)|tag[[:space:]]+-d([[:space:]]|$))"; then
+  if echo "$NORMALIZED_GIT" | grep -qiE "git (reset[[:space:]]+--hard|clean[[:space:]]+-[fdx]|checkout[[:space:]]+--[[:space:]]|checkout[[:space:]]+\.([[:space:]]|$)|stash[[:space:]]+(drop|clear)|tag[[:space:]]+-d([[:space:]]|$))"; then
     _block "destructive-git" "BLOCKED: Destructive git operation is not allowed."
   fi
+  # v7.2.3: restore is destructive unless it is --staged without --worktree — judged per
+  # OCCURRENCE (audit G3: one --staged exempted every other restore in the text)
+  while IFS= read -r _occ; do
+    [ -n "$_occ" ] || continue
+    _rs=false; _rw=false
+    printf '%s' "$_occ" | grep -qE "(^|[[:space:]])(--staged|-[a-zA-RT-Z]*S[a-zA-Z]*)([[:space:]]|$)" && _rs=true
+    printf '%s' "$_occ" | grep -qE "(^|[[:space:]])(--worktree|-[a-zA-VX-Z]*W[a-zA-Z]*)([[:space:]]|$)" && _rw=true
+    { [ "$_rs" = false ] || [ "$_rw" = true ]; } && _block "destructive-git" "BLOCKED: Destructive git operation is not allowed."
+  done < <(printf '%s\n' "$NORMALIZED_GIT" | grep -oE 'git restore[^;&|)]*' || true)
   # v7.2.2: the agent stash rule in the raw path too — anything but list/show/help.
   # (a `)` or `"` may follow the word in this path — `echo "$(git stash)"` — so the
   # boundary is "not a word character", not whitespace. The read forms are

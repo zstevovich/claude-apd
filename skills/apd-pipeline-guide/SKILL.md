@@ -320,7 +320,7 @@ These are not phase gates. They stop the individual call and the run continues.
 | `send-message-during-pipeline` | `SendMessage` continues an agent WITHOUT firing SubagentStart/Stop, so the work never reaches `.agents` and the next gate rejects it as "no agent dispatched". Dispatch with `Agent()` instead |
 | `parallel-same-agent` | Two dispatches of the same agent type inside the window — serialize them; concurrent same-role writes are how scope collisions happen |
 | `pipeline-state-write` on a read | You used bash `cat`/`ls` on pipeline state — use `apd pipeline show` |
-| `commit-no-prefix` / `push-no-prefix` | The APD commit prefix is missing. Recurring in practice — check the message shape before every commit |
+| `commit-no-prefix` / `push-no-prefix` | The APD commit prefix is missing. Recurring in practice — check the message shape before every commit. The marker may prefix the whole command or the `git commit`/`git push` statement itself (`git add a b && APD_ORCHESTRATOR_COMMIT=1 git commit …`, v7.2.3) |
 | `forged-done-file` | A `.done` file written by hand. Phase files come from `apd pipeline <phase>`, never from an editor |
 
 **Three of these are new in v7.0** — `spec-blind`, `secret-access` and
