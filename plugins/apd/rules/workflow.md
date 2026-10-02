@@ -472,6 +472,7 @@ builder/reviewer tier per profile and is the authority for the roles it owns.
 - **Model:** `claude-sonnet-5-5` | **Effort:** xhigh (template pin; `cruise` moves builders to `claude-opus-5-5` / high)
 - Implements code according to the spec
 - Defined in `.claude/agents/` with scope guards
+- Carries `skills: [apd-tdd]` (v7.2.2) — the TDD procedure is PRELOADED into every dispatch; builders have no `Skill` tool, so a builder without that line never sees the procedure this file mandates
 - Max 3-4 edit operations per dispatch
 - Clear file ownership — no overlap between agents
 - **Must not** commit, push, or modify files outside its scope

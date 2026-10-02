@@ -7,6 +7,13 @@ effort: xhigh
 color: {{AGENT_COLOR}}
 permissionMode: bypassPermissions
 memory: project
+# v7.2.2: the TDD procedure workflow.md mandates for every builder dispatch is
+# PRELOADED here — a subagent can only invoke a skill through the Skill tool,
+# which no APD builder carries (measured on a real project: 11 dispatches, 0
+# skill loads). Measured on CC 2.1.287: a plugin skill named here is in the
+# subagent's context before its task; `claude-apd:apd-tdd` works too.
+skills:
+  - apd-tdd
 # {{SCOPE_PATHS}} — paths this agent is allowed to modify, separated by spaces
 # Example: src/ tests/
 hooks:

@@ -218,7 +218,18 @@ if [ "$TOKENIZED" = true ]; then
         fi ;;
       checkout) { _has_word "--" ${_args[@]+"${_args[@]}"} || _has_word "." ${_args[@]+"${_args[@]}"}; } && _block "destructive-git" "BLOCKED: Destructive git operation is not allowed." ;;
       restore)  _block "destructive-git" "BLOCKED: Destructive git operation is not allowed." ;;
-      stash)    [ "${_args[0]:-}" = drop ] && _block "destructive-git" "BLOCKED: Destructive git operation is not allowed." ;;
+      stash)
+        # v7.2.2 (Bambi audit): `clear` destroys every stash and was never on the
+        # list; and a pipeline AGENT has no business moving the tree's uncommitted
+        # state at all — `git stash` from a builder removes other agents' work in
+        # a parallel run, `pop`/`apply` drops it back on whatever is there now.
+        # The orchestrator keeps push/pop (it owns the tree); drop/clear stay
+        # destructive for everyone; list/show are reads for everyone.
+        case "${_args[0]:-}" in
+          drop|clear) _block "destructive-git" "BLOCKED: Destructive git operation is not allowed." ;;
+          list|show|--help|-h)  ;;
+          *)          [ -n "$AGENT_TYPE" ] && _block "stash-from-agent" "BLOCKED: git stash is not allowed from a pipeline agent." "  It moves uncommitted work — yours and every other agent's — out of the working tree; the orchestrator owns the tree. Leave your changes in place and report; git stash list / git stash show are allowed." ;;
+        esac ;;
       tag)      _has_word "-d" ${_args[@]+"${_args[@]}"} && _block "destructive-git" "BLOCKED: Destructive git operation is not allowed." ;;
       branch)   _has_word "-D" ${_args[@]+"${_args[@]}"} && _block "force-delete-branch" "BLOCKED: git branch -D (force delete) is not allowed. Use -d for safe delete." ;;
     esac
@@ -272,8 +283,18 @@ _raw_scan_fallback() {
     [ "$HAS_PREFIX" = true ] && exit 0
     _block "claude-dir-no-prefix" "BLOCKED: git add .claude/ is only allowed with APD_ORCHESTRATOR_COMMIT=1 prefix."
   fi
-  if echo "$NORMALIZED_GIT" | grep -qiE "git (reset[[:space:]]+--hard|clean[[:space:]]+-[fdx]|checkout[[:space:]]+--[[:space:]]|checkout[[:space:]]+\.([[:space:]]|$)|restore[[:space:]]|stash[[:space:]]+drop|tag[[:space:]]+-d([[:space:]]|$))"; then
+  if echo "$NORMALIZED_GIT" | grep -qiE "git (reset[[:space:]]+--hard|clean[[:space:]]+-[fdx]|checkout[[:space:]]+--[[:space:]]|checkout[[:space:]]+\.([[:space:]]|$)|restore[[:space:]]|stash[[:space:]]+(drop|clear)|tag[[:space:]]+-d([[:space:]]|$))"; then
     _block "destructive-git" "BLOCKED: Destructive git operation is not allowed."
+  fi
+  # v7.2.2: the agent stash rule in the raw path too — anything but list/show/help.
+  # (a `)` or `"` may follow the word in this path — `echo "$(git stash)"` — so the
+  # boundary is "not a word character", not whitespace. The read forms are
+  # REMOVED from the text before the positive match — a per-command negative
+  # grep let one `git stash list` veto every write in the same command:
+  # `git stash show; echo "$(git stash)"` passed (audit F1).)
+  _RAW_STASH=$(echo "$NORMALIZED_GIT" | sed -E 's/git stash[[:space:]]+(list|show|--help|-h)([^A-Za-z0-9_-]|$)/git stash-read\2/g')
+  if [ -n "$AGENT_TYPE" ] && echo "$_RAW_STASH" | grep -qE "git stash([^A-Za-z0-9_-]|$)"; then
+    _block "stash-from-agent" "BLOCKED: git stash is not allowed from a pipeline agent." "  It moves uncommitted work — yours and every other agent's — out of the working tree; the orchestrator owns the tree. Leave your changes in place and report; git stash list / git stash show are allowed."
   fi
   if echo "$NORMALIZED_GIT" | grep -qE "git branch[[:space:]]+-D([[:space:]]|$)"; then
     _block "force-delete-branch" "BLOCKED: git branch -D (force delete) is not allowed. Use -d for safe delete."

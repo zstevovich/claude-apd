@@ -74,6 +74,10 @@ For each agent in `.claude/agents/*.md`:
 - `omitClaudeMd:` — `true` on `adversarial-reviewer` (v7.2, CC ≥ 2.1.271): the context-free reviewer
   must not load the project's own CLAUDE.md files either; missing → `apd-init` refreshes the agent
   (with a `.bak.pre-v<version>` backup). Not on the reviewer or the supervisor — they need the context
+- `skills:` — builders list `apd-tdd` (v7.2.2: the TDD procedure workflow.md mandates is PRELOADED into
+  the dispatch; a subagent can invoke a skill only through the `Skill` tool, which no APD builder carries —
+  measured 11 dispatches, 0 skill loads on a project whose builders lacked the line). Missing → IMPORTANT,
+  `/apd-setup` step 5c adds it; do not add `Skill` to `tools` instead
 - `memory:` — `project` for builders, but **`none` for `adversarial-reviewer` and
   `supervisor`**. Those two carry the decontextualization contract; flagging them for a
   missing `memory: project` inverts the thing that makes them worth dispatching.

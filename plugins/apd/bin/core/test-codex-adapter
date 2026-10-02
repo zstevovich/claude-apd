@@ -17245,6 +17245,100 @@ _c147 "Codex audit hooks section names track-subagent on SubagentStart/Stop (ins
 
 
 
+section "148. Live-audit findings (Bambi, 2026-10-02): reviewer memory writes reach the exemption, git stash from an agent, the apd-tdd preload (v7.2.2)"
+
+# The first post-update audit on a real project (v7.2.1 audit skill) found three
+# plugin-side defects, each reproduced here before the fix:
+#   9  code-reviewer (`memory: project`) could not write its own memory since
+#      v7.0.0 — the shim's fail-closed "no declared scope" rule ran BEFORE the
+#      core, where the v7.0.5 agent-memory exemption lives (7 blocks on Bambi,
+#      last successful write 2026-07-26). Builders have a scope and never saw it.
+#   10 guard-git let a pipeline agent `git stash` / `pop` / `apply` (only `drop`
+#      was destructive) and let EVERYONE `git stash clear`.
+#   8  workflow.md mandates `/apd-tdd` for every builder dispatch, no builder
+#      carries the Skill tool, no template preloaded it: 11 dispatches, 0 loads.
+#      Measured on CC 2.1.287: `skills: [apd-tdd]` preloads the plugin skill.
+
+G148_T="$(mktemp -d -t apd-g148.XXXXXX)"
+mkdir -p "$G148_T/.claude/agents" "$G148_T/.claude/memory" "$G148_T/src"
+printf 'PROJECT_NAME=g148\nAPD_VERSION=%s\nSTACK=dotnet\n' "$(cat "$APD_PLUGIN_ROOT/VERSION")" > "$G148_T/.claude/.apd-config"
+sed 's/{{PROJECT_NAME}}/g148/g' "$APD_PLUGIN_ROOT/templates/reviewer-template.md" > "$G148_T/.claude/agents/code-reviewer.md"
+sed 's/{{agent-name}}/backend-api/; s/{{SCOPE_PATHS}}/src\//g; s/{{AGENT_COLOR}}/blue/; s/{{Short description.*}}/builder/' "$APD_PLUGIN_ROOT/templates/agent-template.md" > "$G148_T/.claude/agents/backend-api.md"
+printf -- '---\nname: ro-agent\ndescription: declared readonly, with memory\ntools: Read, Write\nreadonly: true\nmemory: project\n---\nbody\n' > "$G148_T/.claude/agents/ro-agent.md"
+G148_GS="$APD_PLUGIN_ROOT/bin/adapter/cc/guard-scope"
+G148_GG="$APD_PLUGIN_ROOT/bin/core/guard-git"
+_c148() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+_s148() {  # <expected rc> <label> <agent_type> <file-path>   — the guard-scope SHIM on hook JSON, as CC calls it
+    local exp="$1" label="$2" at="$3" fp="$4" rc=0
+    ( cd "$G148_T" && printf '%s' "{\"agent_type\":\"$at\",\"tool_input\":{\"file_path\":\"$fp\"}}" | APD_PROJECT_DIR="$G148_T" bash "$G148_GS" ) >/dev/null 2>&1 || rc=$?
+    if [ "$rc" = "$exp" ]; then pass "$label (rc=$rc)"; PASSES=$((PASSES + 1)); else fail "$label: want rc=$exp got rc=$rc — $at → $fp"; FAILS=$((FAILS + 1)); fi
+}
+_g148() {  # <expected rc> <label> <command> [<agent-type>] [<stderr must contain>]
+    local exp="$1" label="$2" cmd="$3" at="${4:-}" must="${5:-}" rc=0 err
+    err=$(APD_PROJECT_DIR="$G148_T" bash "$G148_GG" --command "$cmd" ${at:+--agent-type "$at"} 2>&1 >/dev/null) || rc=$?
+    if [ "$rc" = "$exp" ] && { [ -z "$must" ] || printf '%s' "$err" | grep -q -- "$must"; }; then pass "$label (rc=$rc)"; PASSES=$((PASSES + 1))
+    else fail "$label: want rc=$exp got rc=$rc${must:+ (stderr must have '$must')} — ${at:-orchestrator}: $cmd"; FAILS=$((FAILS + 1)); fi
+}
+
+# --- 9: the reviewer's own memory directory, through the shim ---------------
+_s148 0 "9: code-reviewer (no scope by design) may write its OWN memory file"                 code-reviewer ".claude/agent-memory/code-reviewer/MEMORY.md"
+_s148 0 "9: … a nested file in its own memory directory"                                    code-reviewer ".claude/agent-memory/code-reviewer/notes/2026-10.md"
+_s148 0 "9: … the absolute-path form CC sends"                                              code-reviewer "$G148_T/.claude/agent-memory/code-reviewer/MEMORY.md"
+_s148 2 "9: another agent's memory directory is NOT this agent's memory (narrower than the core)" code-reviewer ".claude/agent-memory/backend-api/MEMORY.md"
+_s148 2 "9: a traversal that survives canonicalisation (directory not created yet) is refused" code-reviewer ".claude/agent-memory/code-reviewer/../../settings.json"
+_s148 2 "9: the directory itself (no file) is not a memory write"                           code-reviewer ".claude/agent-memory/code-reviewer"
+_s148 2 "9: a look-alike directory name does not match"                                     code-reviewer ".claude/agent-memory/code-reviewerX/MEMORY.md"
+_s148 2 "9: the reviewer still cannot write code"                                           code-reviewer "src/x.cs"
+_s148 0 "9: a scoped builder writes its own memory as before (core path)"                   backend-api   ".claude/agent-memory/backend-api/MEMORY.md"
+_s148 0 "9: … and inside its scope"                                                          backend-api   "src/x.cs"
+_s148 2 "9: … and not outside it"                                                            backend-api   "docs/x.md"
+_c148 "9: the shim decides the own-memory case BEFORE its no-declared-scope rule (order in the file)" '[ "$(grep -n "agent-memory/\"\$AGENT_TYPE\"" "$G148_GS" | head -1 | cut -d: -f1)" -lt "$(grep -n "has no declared scope" "$G148_GS" | head -1 | cut -d: -f1)" ]'
+_s148 2 "9: a declared readonly: true agent writes nothing, memory included (audit F5 — the exemption sits AFTER the readonly rule)" ro-agent ".claude/agent-memory/ro-agent/MEMORY.md"
+_c148 "9: … and that order is in the file (readonly rule above the memory case)" '[ "$(grep -n "is declared readonly" "$G148_GS" | head -1 | cut -d: -f1)" -lt "$(grep -n "agent-memory/\"\$AGENT_TYPE\"" "$G148_GS" | head -1 | cut -d: -f1)" ]'
+
+# --- 10: git stash — agent vs orchestrator, parser path and raw path ---------
+_g148 2 "10: agent: bare git stash is refused"                      'git stash'                 backend-api 'pipeline agent'
+_g148 2 "10: agent: git stash push -m"                              'git stash push -m wip'     backend-api 'pipeline agent'
+_g148 2 "10: agent: git stash -u (options before the verb)"         'git stash -u'              backend-api 'pipeline agent'
+_g148 2 "10: agent: git stash pop"                                  'git stash pop'             backend-api 'pipeline agent'
+_g148 2 "10: agent: git stash apply"                                'git stash apply stash@{0}' backend-api 'pipeline agent'
+_g148 2 "10: agent: git stash branch"                               'git stash branch wip'      backend-api 'pipeline agent'
+_g148 0 "10: agent: git stash list is a read"                       'git stash list'            backend-api
+_g148 0 "10: agent: git stash show -p is a read"                    'git stash show -p'         backend-api
+_g148 2 "10: agent: git stash drop stays destructive"               'git stash drop'            backend-api 'Destructive'
+_g148 2 "10: agent: git stash clear is destructive (was allowed)"   'git stash clear'           backend-api 'Destructive'
+_g148 2 "10: agent: git -C . stash (global option stepped)"         'git -C . stash'            backend-api 'pipeline agent'
+_g148 2 "10: agent: stash as the second statement"                  'git status && git stash'   backend-api 'pipeline agent'
+_g148 2 "10: agent: stash inside a quoted substitution (raw path)"  'echo "$(git stash)"'       backend-api 'pipeline agent'
+_g148 0 "10: agent: stash list inside a quoted substitution (raw path) is a read" 'echo "$(git stash list)"' backend-api
+_g148 2 "10: agent: a read in the same command does not veto a write (audit F1, raw path)" 'git stash show; echo "$(git stash)"' backend-api 'pipeline agent'
+_g148 2 "10: agent: … list && a popped substitution"                   'git stash list && echo "$(git stash pop)"' backend-api 'pipeline agent'
+_g148 2 "10: agent: … a read mentioned in a trailing comment"          'git status; echo "$(git stash)" # see git stash list' backend-api 'pipeline agent'
+_g148 0 "10: agent: … while a read alone in that shape stays a read"  'git status; echo "$(git stash list)"' backend-api
+_g148 0 "10: agent: git stash --help is a read (audit F7)"              'git stash --help'           backend-api
+_g148 0 "10: agent: git stash -h is a read"                             'git stash -h'               backend-api
+_g148 0 "10: agent: … also inside a substitution (raw path)"           'echo "$(git stash --help)"' backend-api
+_g148 0 "10: orchestrator: git stash stays allowed (owns the tree)" 'git stash'
+_g148 0 "10: orchestrator: git stash pop stays allowed"             'git stash pop'
+_g148 2 "10: orchestrator: git stash drop stays destructive"        'git stash drop'            '' 'Destructive'
+_g148 2 "10: orchestrator: git stash clear is destructive (was allowed)" 'git stash clear'      '' 'Destructive'
+_g148 2 "10: orchestrator: stash clear inside a substitution (raw path)" 'echo "$(git stash clear)"' '' 'Destructive'
+_g148 0 "10: orchestrator: git stash list"                          'git stash list'
+_c148 "10: the agent refusal is logged under its own reason (stash-from-agent)" 'grep -rqs "stash-from-agent" "$G148_T/.claude/memory" "$G148_T/.apd/memory"'
+
+# --- 8: the apd-tdd preload — template, stack templates, and every sentence about it ---
+_c148 "8: the master builder template preloads apd-tdd via skills:" 'awk "NR==1{next} /^---/{exit} {print}" "$APD_PLUGIN_ROOT/templates/agent-template.md" | grep -A3 "^skills:" | grep -q "^  - apd-tdd"'
+G148_MISS=""; for _t in "$APD_PLUGIN_ROOT"/templates/stack/*/agents/*.tmpl; do awk 'NR==1{next} /^---/{exit} {print}' "$_t" | grep -A6 '^skills:' | grep -q '^  - apd-tdd' || G148_MISS="$G148_MISS $(basename "$_t")"; done
+_c148 "8: every stack builder template preloads apd-tdd too${G148_MISS:+ (missing:$G148_MISS)}" '[ -z "$G148_MISS" ] && ls "$APD_PLUGIN_ROOT"/templates/stack/*/agents/*.tmpl >/dev/null 2>&1'
+_c148 "8: the preloaded skill exists and its H1 is the one the measurement saw in the subagent" 'grep -q "^# APD Test-Driven Development" "$REPO_ROOT/skills/apd-tdd/SKILL.md"'
+_c148 "8: no template hands a builder the Skill tool — the preload IS the mechanism" '! grep -hE "^tools:" "$APD_PLUGIN_ROOT"/templates/*.md "$APD_PLUGIN_ROOT"/templates/stack/*/agents/*.tmpl | grep -qw Skill'
+_c148 "8: workflow.md still mandates /apd-tdd for builders AND names the preload" 'grep -q "Builder agents MUST use /apd-tdd" "$APD_PLUGIN_ROOT/rules/workflow.md" && grep -q "skills: \[apd-tdd\]" "$APD_PLUGIN_ROOT/rules/workflow.md"'
+_c148 "8: setup 5c compares the skills field (existing builders get the line on reconcile)" 'grep -q "\`skills\` (builders preload \`apd-tdd\`" "$REPO_ROOT/skills/apd-setup/SKILL.md"'
+_c148 "8: the CC audit skill checks skills: apd-tdd on builders" 'grep -E "^- .skills:." "$REPO_ROOT/skills/apd-audit/SKILL.md" | grep -q "apd-tdd"'
+rm -rf "$G148_T"
+
+
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"
