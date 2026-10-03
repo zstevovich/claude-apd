@@ -10,6 +10,13 @@
 # settings.json fired and blocked). So `guard-scope` and `guard-secrets`, wired
 # nowhere else, never ran on CC at all.
 #
+# Re-measured from session transcripts, 2026-10-03: on CC 2.1.259–2.1.287 the
+# block is no longer skipped — CC tries to run it and fails ("Hook command
+# references ${CLAUDE_PLUGIN_ROOT} but the hook is not associated with a
+# plugin": the variable exists only for hooks in a plugin's hooks/hooks.json).
+# Not run, or run and failed to launch: either way the block enforces nothing.
+# It stays what this file reads the scope from when there is no `scope:` key.
+#
 # The fix is to enforce session-level from hooks/hooks.json and identify the
 # caller from the hook payload, which carries `agent_type` (the agent's name)
 # for every tool call made inside a subagent and omits it for the orchestrator's
@@ -43,7 +50,29 @@ _agent_is_readonly() {
   grep -qE '^readonly:[[:space:]]*true[[:space:]]*$' "$1" 2>/dev/null
 }
 
+# _agent_declares_memory <file> — frontmatter `memory: project|user|local`.
+# v7.2.4 (audit-724 pass 2): this was a grep over the WHOLE file, so a line in
+# the body ("memory: project") opened the memory exemption for an agent whose
+# frontmatter says `memory: none` — and the body is a file the orchestrator may
+# write. It reads every frontmatter the old grep accepted (audit-724 pass 3):
+# CRLF line endings, a UTF-8 BOM, blank lines before the opening `---`.
+_agent_declares_memory() {
+  LC_ALL=C awk '
+    { sub(/\r$/, "") }
+    !started { sub(/^\357\273\277/, "") }
+    !started && $0 ~ /^[ \t]*$/ { next }
+    !started { started = 1; if ($0 ~ /^---[ \t]*$/) { fm = 1; next } else { exit } }
+    fm && $0 ~ /^(---|\.\.\.)[ \t]*$/ { exit }
+    $0 ~ /^memory:[ \t]*["\047]?(project|user|local)["\047]?[ \t]*(#.*)?$/ { f = 1 }
+    END { exit f ? 0 : 1 }
+  ' "$1" 2>/dev/null
+}
+
 # _agent_is_writable <file> — can this agent modify files at all?
+#
+# (v7.2.4: the CC bash shim no longer asks this — an empty scope is
+# `--deny-all-writes` for every registry agent; the doctor and the dispatch
+# budget still do. The history below is why the question was wrong there.)
 #
 # `readonly: true` is NOT the discriminator, and assuming it was is what left a
 # hole on the Bash channel. APD's own review roles (code-reviewer, adversarial,

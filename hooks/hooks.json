@@ -22,7 +22,7 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-agent-reload"],
-            "timeout": 5
+            "timeout": 30
           }
         ]
       },
@@ -34,7 +34,7 @@
             "if": "Bash(git *)",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-git"],
-            "timeout": 5
+            "timeout": 30
           }
         ]
       },
@@ -45,7 +45,7 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-bash-scope"],
-            "timeout": 5
+            "timeout": 30
           }
         ]
       },
@@ -56,7 +56,7 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-bash-portability"],
-            "timeout": 5
+            "timeout": 30
           }
         ]
       },
@@ -67,7 +67,7 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-spec-blind"],
-            "timeout": 5
+            "timeout": 30
           }
         ]
       },
@@ -78,7 +78,7 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-secrets"],
-            "timeout": 5
+            "timeout": 30
           }
         ]
       },
@@ -89,7 +89,7 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-scope"],
-            "timeout": 5
+            "timeout": 30
           }
         ]
       },
@@ -100,7 +100,7 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-spec-blind"],
-            "timeout": 5
+            "timeout": 30
           }
         ]
       },
@@ -111,7 +111,7 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/guard-send-message"],
-            "timeout": 5
+            "timeout": 30
           }
         ]
       },
@@ -122,7 +122,7 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-orchestrator"],
-            "timeout": 5
+            "timeout": 30
           }
         ]
       },
@@ -133,7 +133,7 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-pipeline-state"],
-            "timeout": 5
+            "timeout": 30
           }
         ]
       },
@@ -145,7 +145,7 @@
             "if": "Write(*/package-lock.json) | Write(*/pnpm-lock.yaml) | Write(*/yarn.lock) | Write(*/composer.lock) | Write(*/Cargo.lock) | Write(*/go.sum) | Write(*/packages.lock.json) | Write(*/Gemfile.lock) | Write(*/poetry.lock) | Edit(*/package-lock.json) | Edit(*/pnpm-lock.yaml) | Edit(*/yarn.lock) | Edit(*/composer.lock) | Edit(*/Cargo.lock) | Edit(*/go.sum) | Edit(*/packages.lock.json) | Edit(*/Gemfile.lock) | Edit(*/poetry.lock)",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-lockfile"],
-            "timeout": 5
+            "timeout": 30
           }
         ]
       }

@@ -46,3 +46,24 @@ _file_mtime() {
     [ -n "$v" ] || v=0
     printf '%s' "$v"
 }
+
+# _cc_transcript_dir — CC's transcript directory for $PROJECT_DIR.
+#
+# CC names it after the RESOLVED working directory, every non-alphanumeric
+# character turned into '-'. Every reader used the path as APD resolved it, which
+# is the same thing only when nothing on the way is a symlink: on macOS a project
+# reached through /var/… (every mktemp directory) is filed under -private-var-…,
+# and the reader looked in a directory that does not exist (measured 2026-10-03
+# with a live CC 2.1.288 session). The given form is tried first, then the
+# physical one. Prints the directory; exits 1 (printing the given-form path,
+# for messages) when neither exists.
+_cc_transcript_dir() {
+    local _root="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects" _p _d
+    for _p in "$PROJECT_DIR" "$(cd "$PROJECT_DIR" 2>/dev/null && pwd -P)"; do
+        [ -n "$_p" ] || continue
+        _d="$_root/$(printf '%s' "$_p" | sed 's#[^A-Za-z0-9]#-#g')"
+        if [ -d "$_d" ]; then printf '%s' "$_d"; return 0; fi
+    done
+    printf '%s' "$_root/$(printf '%s' "$PROJECT_DIR" | sed 's#[^A-Za-z0-9]#-#g')"
+    return 1
+}

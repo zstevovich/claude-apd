@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>v7.2.3</b> &middot; MIT &middot; macOS + Linux
+  <b>v7.2.4</b> &middot; MIT &middot; macOS + Linux
 </p>
 
 <p align="center">
@@ -88,7 +88,7 @@ codex plugin marketplace upgrade codex-apd                    # pulls latest mai
 To pin the upgrade to a specific tag or branch (e.g. for pre-release testing):
 ```bash
 codex plugin marketplace remove codex-apd
-codex plugin marketplace add zstevovich/claude-apd@v7.2.3     # or @<branch> for a feature branch
+codex plugin marketplace add zstevovich/claude-apd@v7.2.4     # or @<branch> for a feature branch
 ```
 
 **Codex — direct-drop install:**
@@ -189,6 +189,7 @@ apd pipeline metrics              # Performance dashboard
 apd pipeline stats                # Skip log
 apd doctor                        # Full diagnostics
 apd verify                        # Setup verification (50+ checks)
+apd verify --no-e2e               # Same, without the synthetic pipeline run (safe mid-work)
 ```
 
 All commands via `bash .claude/bin/apd <command>` (CC) or `bash .codex/bin/apd <command>` (Codex) — the shortcut each runtime's installer scaffolds. User-facing framework messages auto-select the correct path.

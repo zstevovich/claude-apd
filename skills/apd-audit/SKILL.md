@@ -39,8 +39,12 @@ allowed-tools: Read Glob Grep Bash
 ### 1. Run verify-apd first
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/verify-apd
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/verify-apd --no-e2e
 ```
+
+`--no-e2e` (v7.2.4) skips Section 8. That section drives a synthetic pipeline through the
+project's REAL pipeline directory — and through `gh-sync` when it is wired, which opens a
+GitHub issue. An audit reads; run the full form only on an idle project and on the user's go.
 
 If FAIL → fix those first. This skill builds on top of verify-apd, not replaces it.
 
@@ -99,7 +103,9 @@ For each agent in `.claude/agents/*.md`:
   `.bak.pre-v<version>`); do not add a hook line
 
 > **The per-agent `hooks:` block is DATA, not execution.** It never fires (measured on
-> CC 2.1.220) — enforcement runs session-level from `hooks/hooks.json`. But
+> CC 2.1.220; on CC 2.1.259–2.1.287 it is attempted and fails to launch —
+> "references ${CLAUDE_PLUGIN_ROOT} but the hook is not associated with a plugin" — which a
+> transcript shows as a hook error, not as a defect of the project) — enforcement runs session-level from `hooks/hooks.json`. But
 > `bin/lib/agent-scope.sh` resolves an agent's writable scope by reading the `guard-scope`
 > command out of that block when no YAML `scope:` key exists. So a wrong SCOPE_PATHS list
 > there is a live enforcement defect, and a missing block on a writable agent fails closed.

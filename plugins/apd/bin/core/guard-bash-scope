@@ -240,7 +240,10 @@ _scope_hint() {
   if [ "$DENY_ALL_WRITES" = true ] && [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
     echo "  This agent declares no writable scope, so it may not write anywhere —" >&2
     echo "  not through Write/Edit and not through the shell (the session scratchpad" >&2
-    echo "  is the one exception). Fix the scope in its agent definition (an unfilled" >&2
+    echo "  is the one exception, /tmp is not)." >&2
+    echo "  A review role has no scope by design: send scratch output to the session" >&2
+    echo "  scratchpad, and run a mutation proof on a copy of the tree there." >&2
+    echo "  A builder: fix the scope in its agent definition (an unfilled" >&2
     echo "  {{SCOPE_PATHS}} reads as 'no scope')." >&2
   else
     echo "  Allowed paths: ${ALLOWED_PATHS[*]} (relative to the project root; absolute forms of the same paths are fine)" >&2
@@ -368,6 +371,7 @@ RT_CWD_CACHE=false; RT_CWD_UNKNOWN=false; RT_CWD_ALL_IN_SCOPE=true; RT_CWD_ALL_I
 _add_target() {   # <raw word> [nofollow]
   local raw="$1" nofollow="${2:-}" s abs
   case "$raw" in ''|/dev/null|/dev/stdout|/dev/stderr|/dev/tty|'&'*) return 0 ;; esac
+  case "$raw" in /dev/fd/[0-9]|/dev/fd/[0-9][0-9]) return 0 ;; esac   # v7.2.4: a descriptor, like >&2
   case "$raw" in *\\*) TARGET_RAW+=("$raw"); TARGET_ABS+=(""); TARGET_NOTE+=("a backslash escape in a path is not decoded (ANSI-C \$'…', a literal backslash)"); TARGET_APD+=("${STMT_APD:-false}"); return 0 ;; esac   # v7.1.7
   s=$(_subst "$raw")
   if _unresolved "$s"; then
@@ -1388,8 +1392,8 @@ while [ $_i -lt ${#TARGET_RAW[@]} ]; do
   _i=$((_i + 1))
   case "$_note" in "opaque shell body"*) _opaque_block "$_note" ;; esac
   if [ -n "$_note" ]; then
-    # a write the guard cannot place is refused, unless a writable agent with no
-    # scope is involved (then everything is refused anyway, below)
+    # a write the guard cannot place is refused (for an agent with no scope
+    # everything outside the scratchpad is refused anyway, below)
     _block "Out-of-scope target: $_raw ($_note — cannot be resolved, so it is refused)"
   fi
   if _has_traversal "$_abs"; then
@@ -1429,8 +1433,18 @@ if [ "$RUNTIME_WRITE" = true ]; then
   # the opening delimiter or a `$` right before the closing one — `"/tmp/$d/out"`, f"/tmp/{n}/out",
   # '/tmp/a+b/log' are paths and stay; `file://` is a path scheme Node and Python accept — not a URL here)
   _RT_SCAN=$(printf '%s' "$RUNTIME_TEXT" | LC_ALL=C sed -E 's#[Ff][Ii][Ll][Ee]://[A-Za-z0-9.-]*/#/#g; s#</?[A-Za-z][A-Za-z0-9:-]*># #g; s#(https?|ftps?|ssh|git|s3|gs|wss?|rsync|svn|smb|ldap|data)://[^[:space:]"'"'"']*# #g; s#"/(\^[^"]*|[^"]*\\[^"]*|[^"]*\$)/[a-zA-Z]{0,5}"# #g; s#'"'"'/(\^[^'"'"']*|[^'"'"']*\\[^'"'"']*|[^'"'"']*\$)/[a-zA-Z]{0,5}'"'"'# #g; s@"#(\^[^"#]*|[^"#]*\\[^"#]*|[^"#]*\$)#[a-zA-Z]{0,5}"@ @g' 2>/dev/null || printf '%s' "$RUNTIME_TEXT")
+  # An agent with NO scope may not run a program that writes, even one that
+  # writes into the scratchpad. v7.2.4 tried judging such a program by the
+  # token rule (audit-724 F1: the scratchpad write was refused) and the second
+  # audit pass showed what that rule does not see — bare names, string
+  # concatenation, `.`, argv, library calls: `open('<sp>/x','w');
+  # open('evil.py','w')` passed. Scoped agents carry that weakness (stated);
+  # the agent with no scope stays the strict caller. Send a program's output
+  # into the scratchpad with a redirect instead.
   if [ "$DENY_ALL_WRITES" = true ] && [ ${#ALLOWED_PATHS[@]} -eq 0 ]; then
     echo "BLOCKED: Runtime write (runtime) detected, and this agent has no writable scope." >&2
+    echo "  A program that writes files is refused for an agent with no scope, even into the" >&2
+    echo "  scratchpad — redirect its output there instead (python3 x.py > <scratchpad>/out)." >&2
     _scope_hint; log_block "out-of-scope-bash-write" "${COMMAND:0:200}"; exit 2
   fi
   # Where would a BARE file name land? In the working directory. A cwd outside

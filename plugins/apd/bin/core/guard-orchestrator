@@ -3,8 +3,7 @@
 # Agents have agent_id; orchestrator does not.
 # If no agent_id → this is the orchestrator → block code file writes.
 #
-# Uses CLAUDE_PLUGIN_OPTION_STACK (from userConfig) to determine which
-# file extensions are code files for the project's stack.
+# One list of code extensions for every stack (see below).
 # Interface: --file-path <path> --agent-id <id>
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
@@ -49,32 +48,36 @@ case "$REL_PATH" in
     ;;
 esac
 
-# Determine code extensions based on stack (from userConfig or APD config)
-STACK="${CLAUDE_PLUGIN_OPTION_STACK:-}"
-[ -z "$STACK" ] && [ -n "$APD_CONFIG_FILE" ] && STACK=$(grep '^STACK=' "$APD_CONFIG_FILE" 2>/dev/null | cut -d= -f2-)
+# Code extensions: ONE list, whatever the stack (v7.2.4).
+#
+# Until v7.2.3 the list was narrowed by STACK, read from the userConfig option
+# first — one value per USER, so a `nodejs` option left over from another
+# project let the orchestrator write `.cs` files in a .NET repo. Reading the
+# project's config first fixed that and exposed the real flaw (audit-724 R1):
+# a narrowed list is wrong for every project with more than one language
+# (a KMP project's iOS `.swift`, an Android NDK's `.cpp`/`.h`, a .NET backend's
+# React `.tsx`), and a stack value outside the case list (`kmp`, `kotlin`) had
+# silently been the SAFE one because it fell to the full list. The orchestrator
+# writes no code in any language, so the list does not depend on the stack.
+#
+# It covers source code, shell and SQL, build scripts and project files (a
+# `.kts`/`.gradle` build, MSBuild `.csproj`/`.props`/`.targets`), stylesheets,
+# HTML and server-side templates — what workflow.md says the orchestrator never
+# writes. Matched case-insensitively (`Foo.CS` is code). Data-format files
+# (`.json`, `.yaml`, `.toml`, `.xml`) stay allowed above on purpose: APD's own
+# config and the tool configs the orchestrator maintains live in them.
+CODE_EXT="php|phtml|js|jsx|ts|tsx|mjs|cjs|mts|cts|vue|svelte|astro|coffee|py|pyi|ipynb|rb|erb|go|rs|java|kt|kts|scala|groovy|gradle"
+CODE_EXT="${CODE_EXT}|cs|fs|vb|razor|cshtml|xaml|csproj|fsproj|vbproj|props|targets|sln|c|cc|cpp|h|hpp|m|mm|swift|dart|lua|pl|ex|exs|r|jl"
+CODE_EXT="${CODE_EXT}|sh|bash|zsh|ps1|psm1|bat|cmd|sql|prisma|proto|graphql|tf|cmake|mk"
+CODE_EXT="${CODE_EXT}|css|scss|sass|less|html|htm|twig|ejs|hbs|jinja|j2|njk|pug|liquid"
 
-case "${STACK:-}" in
-  php)
-    CODE_EXT="php" ;;
-  nodejs|node)
-    CODE_EXT="js|ts|tsx|jsx|mjs|cjs" ;;
-  python)
-    CODE_EXT="py" ;;
-  dotnet)
-    CODE_EXT="cs|fs" ;;
-  go)
-    CODE_EXT="go" ;;
-  java)
-    CODE_EXT="java|kt|scala" ;;
-  *)
-    # Fallback: all common code extensions
-    CODE_EXT="php|js|ts|tsx|jsx|py|rb|go|rs|java|cs|cpp|c|h|swift|kt|scala|vue|svelte" ;;
+# Build files with no extension to match
+_IS_DOCKERFILE=false
+case "$(basename "$REL_PATH" | tr '[:upper:]' '[:lower:]')" in
+  dockerfile|dockerfile.*|*.dockerfile|containerfile|containerfile.*|makefile|gnumakefile|jenkinsfile|rakefile|gemfile|podfile|vagrantfile|justfile) _IS_DOCKERFILE=true ;;
 esac
 
-# Also always block: shell scripts, SQL, HTML templates with code
-CODE_EXT="${CODE_EXT}|sh|sql"
-
-if echo "$REL_PATH" | grep -qE "\.(${CODE_EXT})$"; then
+if [ "$_IS_DOCKERFILE" = true ] || echo "$REL_PATH" | grep -qiE "\.(${CODE_EXT})$"; then
   echo "BLOCKED: Orchestrator cannot write code files directly." >&2
   echo "  File: $REL_PATH" >&2
   echo "  Dispatch the appropriate Builder agent instead." >&2
@@ -91,5 +94,5 @@ if echo "$REL_PATH" | grep -qE "\.(${CODE_EXT})$"; then
   exit 2
 fi
 
-# Allow everything else (config files, data files, etc.)
+# Allow everything else (data files, images, …)
 exit 0

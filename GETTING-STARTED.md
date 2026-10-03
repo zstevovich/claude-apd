@@ -286,6 +286,7 @@ Shows: pipeline state, spec card validation, spec freeze hash, implementation pl
 | `apd pipeline metrics` | Show pipeline performance dashboard |
 | `apd doctor` | Full pipeline diagnostics |
 | `apd verify` | Full setup verification (50+ checks) |
+| `apd verify --no-e2e` | The same without the synthetic end-to-end pipeline — it never touches `.apd/pipeline/` |
 | `apd trace` | Check spec traceability coverage |
 | `apd init` | Initialize or update APD in a project |
 | `apd profile <name>` | Switch the agent model profile (burn / cruise / eco) |

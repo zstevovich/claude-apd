@@ -17,9 +17,20 @@ mkdir -p "$PIPELINE_DIR"
 
 # File lock — prevent concurrent pipeline operations (POSIX-compatible, no flock)
 LOCK_DIR="$PIPELINE_DIR/.lock"
+# v7.2.4: `status` and `show` only read. They used to take the lock like every
+# other step — creating and removing `.lock` moves the mtime of the pipeline
+# directory on every status call, and a status asked while another session held
+# the lock was refused as if it were a write. They skip the lock; every step
+# that changes state still takes it.
+case "${1:-}" in
+    status|show) _PA_READONLY=1 ;;
+    *)           _PA_READONLY=0 ;;
+esac
 # Clean up legacy lock file (from old flock-based implementation)
-[ -f "$LOCK_DIR" ] && rm -f "$LOCK_DIR"
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+[ "$_PA_READONLY" = 0 ] && [ -f "$LOCK_DIR" ] && rm -f "$LOCK_DIR"
+if [ "$_PA_READONLY" = 1 ]; then
+    :
+elif ! mkdir "$LOCK_DIR" 2>/dev/null; then
     # Lock already held. Decide between "stale" (>5 min — reclaim) and "active"
     # (someone else is running — bail out). The reclaim path must re-check the
     # mkdir return code so two concurrent stale-detecting processes can't both
@@ -41,8 +52,9 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
         exit 1
     fi
 fi
-# Auto-remove lock on exit
-trap 'rmdir "$LOCK_DIR" 2>/dev/null; exit' EXIT INT TERM
+# Auto-remove lock on exit (a read-only step holds none — it must not remove
+# the lock of the session that does)
+[ "$_PA_READONLY" = 0 ] && trap 'rmdir "$LOCK_DIR" 2>/dev/null; exit' EXIT INT TERM
 
 # Breadcrumb from a prior killed reset — let the user see it once.
 if [ -f "$PIPELINE_DIR/.reset-in-progress" ]; then
@@ -81,6 +93,85 @@ _audit_info() {
     [ -d "${MEMORY_DIR:-}" ] && echo "$(date +"%Y-%m-%d %H:%M:%S")|${_t}|orchestrator|$1|$2" >> "$MEMORY_DIR/guard-audit.log"
     return 0
 }
+# v7.2.4 — _guard_cancel_report <step>: guards CC cancelled on timeout.
+#
+# A PreToolUse hook that outlives its `timeout` is cancelled and THE TOOL CALL
+# RUNS (measured on CC 2.1.280 from a live transcript and again on CC 2.1.288
+# with a sleeping hook and a blocking control). So a slow guard is not a slow
+# call, it is an unguarded one — and nothing in APD could see it: the guard
+# never reached its own log line. The transcript is the only witness: CC writes
+# an attachment `"type":"hook_cancelled"` with `"timedOut":true` and the hook
+# command (the `"command"` field must name an APD plugin path). This counts
+# them for the current task window (main session and
+# subagents, lines stamped at or after the spec) and says so at the two review
+# advances. It reports and logs; it does not block — the calls already ran, and
+# the remedy (re-dispatch the pass) is a judgment about what they were.
+#
+# Sets GC_TOTAL. Silent when there is no spec, no transcript directory, or
+# nothing was cancelled.
+_guard_cancel_report() {
+    GC_TOTAL=0
+    [ -f "$PIPELINE_DIR/spec.done" ] || return 0
+    local _step="$1" _ts _iso _base _f _rows _line _task
+    _ts=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f1)
+    case "$_ts" in ''|*[!0-9]*) return 0 ;; esac
+    _base=$(_cc_transcript_dir) || return 0
+    # transcript timestamps are UTC ISO-8601; a string compare on the first 19
+    # characters orders them
+    _iso=$(date -u -r "$_ts" +"%Y-%m-%dT%H:%M:%S" 2>/dev/null || date -u -d "@$_ts" +"%Y-%m-%dT%H:%M:%S" 2>/dev/null)
+    [ -n "$_iso" ] || return 0
+    _rows=$(for _f in "$_base"/*.jsonl "$_base"/*/subagents/agent-*.jsonl; do
+        [ -f "$_f" ] || continue
+        [ "$(_file_mtime "$_f")" -ge "$_ts" ] 2>/dev/null || continue
+        LC_ALL=C grep -h '"type":"hook_cancelled"' "$_f" 2>/dev/null || true
+    done | LC_ALL=C awk -v since="$_iso" '
+        index($0, "\"timedOut\":true") == 0 { next }
+        index($0, "\"hookEvent\":\"PreToolUse\"") == 0 { next }
+        {
+            # the timestamp of the record itself is the LAST one on the line
+            t = ""; rest = $0
+            while (match(rest, /"timestamp":"[^"]*"/)) { t = substr(rest, RSTART + 13, 19); rest = substr(rest, RSTART + RLENGTH) }
+            if (t == "" || t < since) next
+            # the guard is named by the hook command field, and only an APD
+            # plugin path counts (not any `…/bin/core/<x>`)
+            # the hook command of the attachment object itself (real CC lines
+            # carry it inside "attachment":{…}; fall back to the type marker)
+            c = ""; a0 = index($0, "\"attachment\":{"); if (a0 == 0) a0 = index($0, "\"type\":\"hook_cancelled\"")
+            seg = substr($0, a0)
+            if (match(seg, /"command":"[^"]*"/)) c = substr(seg, RSTART, RLENGTH)
+            g = ""
+            if (match(c, /\/plugins\/apd\/bin\/(adapter\/cc|core)\/[A-Za-z0-9_-]+/)) {
+                g = substr(c, RSTART, RLENGTH); sub(/.*\//, "", g)
+            }
+            if (g == "") next          # not an APD hook
+            n[g]++
+        }
+        END { for (g in n) printf "%s %d\n", g, n[g] }
+    ' | LC_ALL=C sort)
+    [ -n "$_rows" ] || return 0
+    local _summary="" _g _c
+    while read -r _g _c; do
+        [ -n "$_g" ] || continue
+        GC_TOTAL=$((GC_TOTAL + _c))
+        _summary="${_summary}${_summary:+ }${_g}=${_c}"
+    done <<GC_EOF
+$_rows
+GC_EOF
+    [ "$GC_TOTAL" -gt 0 ] || return 0
+    _task=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f3)
+    echo "" >&2
+    echo "  ${MARK_WARN:-!} ${GC_TOTAL} guard run(s) were cancelled on timeout since the spec — each of those tool calls ran UNGUARDED:" >&2
+    echo "      ${_summary}" >&2
+    case " $_summary" in
+        *" guard-spec-blind="*) echo "      guard-spec-blind among them: spec-blindness was not enforced for those calls of the adversarial pass." >&2 ;;
+    esac
+    echo "      The machine was too slow for the hook timeout. Read what those calls were in the session transcript" >&2
+    echo "      (\"type\":\"hook_cancelled\" → the toolUseID) before trusting the pass; re-dispatch it if in doubt." >&2
+    # `status` is a read: it shows the count and writes nothing
+    [ "$_step" = status ] || _audit_info "guard-cancelled" "task=${_task} step=${_step} total=${GC_TOTAL} ${_summary}"
+    return 0
+}
+
 # _wall_nudge_emit — advisory only; printed at phase advances (the output the
 # orchestrator actually reads) and logged once per emission
 _wall_nudge_emit() {
@@ -418,9 +509,8 @@ _reconstruct_from_transcripts() {
     local RA_SPEC_TS _meta _jsonl _id _stop _start _type _sh _eh
     local _alog="$PIPELINE_DIR/.agents"
     RA_SPEC_TS=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f1)
-    # CC transcript dir: project path with every non-alnum char → '-'
-    RA_BASE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$PROJECT_DIR" | sed 's#[^A-Za-z0-9]#-#g')"
-    [ -d "$RA_BASE" ] || return 1
+    # CC transcript dir: the resolved project path, every non-alnum char → '-'
+    RA_BASE=$(_cc_transcript_dir) || return 1
     [ "${RA_DRY_RUN:-0}" = "1" ] || touch "$_alog"
     for _meta in "$RA_BASE"/*/subagents/agent-*.meta.json; do
         [ -f "$_meta" ] || continue
@@ -1275,6 +1365,7 @@ case "$STEP" in
 
         apd_header "Reviewer Complete" "+$ELAPSED"
         _wall_nudge_emit
+        _guard_cancel_report reviewer
         show_pipeline "verifier"
         # GitHub sync (best-effort)
         bash "$SCRIPT_DIR/gh-sync" reviewer 2>/dev/null || true
@@ -1764,6 +1855,7 @@ function _check() {
         echo "$NOW" > "$PIPELINE_DIR/verified.timestamp"
         apd_header "COMMIT ALLOWED" "total: $TOTAL"
         show_pipeline ""
+        _guard_cancel_report verifier
         echo "    Ready: APD_ORCHESTRATOR_COMMIT=1 git commit ..."
         echo "    ${D}After commit, before any new task: advance the reset step${R}" >&2
         # GitHub sync (best-effort)
@@ -1874,8 +1966,8 @@ function _c() {
             elif [ -f "$PIPELINE_DIR/.agents" ]; then
                 _mid=$(grep '|start|' "$PIPELINE_DIR/.agents" 2>/dev/null | head -1 | awk -F'|' '{print $4}')
                 if [ -n "$_mid" ]; then
-                    _mslug=$(printf '%s' "$PROJECT_DIR" | sed 's#[^A-Za-z0-9]#-#g')
-                    _matx=$(ls "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$_mslug"/*/subagents/agent-"$_mid".jsonl 2>/dev/null | head -1)
+                    _mbase=$(_cc_transcript_dir || true)
+                    _matx=$(ls "$_mbase"/*/subagents/agent-"$_mid".jsonl 2>/dev/null | head -1)
                     if [ -n "$_matx" ] && [ -f "$_matx" ]; then
                         _mmain="$(dirname "$(dirname "$_matx")").jsonl"
                         if [ -f "$_mmain" ]; then
@@ -2228,6 +2320,7 @@ EOF
             fi
         done
         print_pipeline_state
+        _guard_cancel_report status
         ;;
 
     show)

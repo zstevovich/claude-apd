@@ -13,6 +13,7 @@ exec </dev/null
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
+source "$(dirname "$0")/../lib/agent-scope.sh"
 
 # Tag every audit entry this self-test triggers as SYNTHETIC, not BLOCK/INFO.
 # verify-apd's guard-coverage section actually invokes each guard (~10 per run)
@@ -21,6 +22,20 @@ source "$(dirname "$0")/../lib/style.sh"
 # polluting `apd report` and any guard-audit analytics. Child guard/pipeline
 # processes inherit this and route through _audit_type() in style.sh.
 export APD_AUDIT_SYNTHETIC=1
+
+# v7.2.4: `--no-e2e` skips Section 8. That section drives a synthetic pipeline
+# through the project's real pipeline directory (and through gh-sync, when it is
+# wired) — the right thing after a setup, the wrong thing inside an audit of a
+# project somebody is working in. It used to be skippable only by accident:
+# PIPELINE_TEST_SKIPPED was never initialised, so an inherited environment
+# variable decided. It is initialised here and has one switch.
+NO_E2E=false
+for _arg in "$@"; do
+    case "$_arg" in
+        --no-e2e) NO_E2E=true ;;
+    esac
+done
+PIPELINE_TEST_SKIPPED=0
 
 # Section 8's synthetic pipeline advances spec, which launches a detached
 # stall-watch against the project. A self-test must not leave a daemon running
@@ -52,13 +67,15 @@ apd_header "Verification"
 # Section 6 would otherwise FAIL on the stub's missing model/guard-git
 # fields before Section 8 even gets a chance to clean up.
 # ============================================================
-if [ -n "${APD_AGENTS_DIR:-}" ] && [ -d "$APD_AGENTS_DIR" ]; then
+# v7.2.4 (audit-724 D2): `--no-e2e` touches nothing, so it skips this too —
+# Section 6 already ignores the reserved namespace.
+if [ "$NO_E2E" != true ] && [ -n "${APD_AGENTS_DIR:-}" ] && [ -d "$APD_AGENTS_DIR" ]; then
     for _stale_stub in "$APD_AGENTS_DIR"/apd-verify-*.md; do
         [ -f "$_stale_stub" ] && rm -f "$_stale_stub"
     done
 fi
 # Also purge synthetic pipeline state if the prior run left APD-VERIFY-* artifacts
-if [ -n "${PIPELINE_DIR:-}" ] && [ -f "$PIPELINE_DIR/spec-card.md" ]; then
+if [ "$NO_E2E" != true ] && [ -n "${PIPELINE_DIR:-}" ] && [ -f "$PIPELINE_DIR/spec-card.md" ]; then
     if grep -qE '^##? *\[?APD-VERIFY-' "$PIPELINE_DIR/spec-card.md" 2>/dev/null; then
         bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
     fi
@@ -468,8 +485,10 @@ for agent_file in "$APD_AGENTS_DIR"/*.md; do
 
     # guard-scope hook — only needed for agents with Write/Edit tools
     if grep -q 'Write\|Edit' "$agent_file" 2>/dev/null && head -50 "$agent_file" | grep -q 'tools:.*Write\|tools:.*Edit'; then
-        if grep -q 'guard-scope' "$agent_file" 2>/dev/null; then
-            pass "Agent $AGENT_NAME — guard-scope registered"
+        # v7.2.4: a declaration the resolver reads as EMPTY (`scope: []`, an
+        # unfilled placeholder) is not a declared scope (audit-724 D5).
+        if [ -n "$(_agent_scope_paths "$agent_file" 2>/dev/null)" ]; then
+            pass "Agent $AGENT_NAME — write scope declared"
         else
             warn "Agent $AGENT_NAME — guard-scope is NOT registered (agent has Write/Edit but no scope protection)"
         fi
@@ -491,9 +510,17 @@ for agent_file in "$APD_AGENTS_DIR"/*.md; do
         warn "Agent $AGENT_NAME — guard-secrets is NOT registered"
     fi
 
-    # Hook paths use ${CLAUDE_PLUGIN_ROOT} (not {{PROJECT_PATH}})
+    # Hook paths use ${CLAUDE_PLUGIN_ROOT} (not {{PROJECT_PATH}}).
+    # v7.2.4: this is a check of the DECLARATION, and says so. The block does
+    # not enforce anything on CC — it did not run at all on 2.1.220, and on
+    # 2.1.259–2.1.287 CC tries it and fails ("references ${CLAUDE_PLUGIN_ROOT}
+    # but the hook is not associated with a plugin"). Enforcement is
+    # session-level; this block is where agent-scope.sh reads the scope from
+    # when the agent has no YAML `scope:` key.
     if grep -q '${CLAUDE_PLUGIN_ROOT}' "$agent_file" 2>/dev/null; then
-        pass "Agent $AGENT_NAME — hook paths use \${CLAUDE_PLUGIN_ROOT}"
+        pass "Agent $AGENT_NAME — hook block uses \${CLAUDE_PLUGIN_ROOT} (a declaration: enforcement is session-level)"
+    elif [ -n "$(_agent_scope_paths "$agent_file" 2>/dev/null)" ] && awk 'NR==1 && /^---/ {fm=1; next} fm && /^---/ {exit} fm && /^scope:/ {f=1} END {exit f?0:1}' "$agent_file" 2>/dev/null; then
+        pass "Agent $AGENT_NAME — scope declared by the YAML \`scope:\` key (no hook block needed)"
     elif grep -q '{{PROJECT_PATH}}' "$agent_file" 2>/dev/null; then
         fail "Agent $AGENT_NAME — hook paths use {{PROJECT_PATH}} instead of \${CLAUDE_PLUGIN_ROOT}"
     else
@@ -692,7 +719,11 @@ _apd_verify_pipeline_busy() {
     return 1
 }
 
-if _apd_verify_pipeline_busy; then
+if [ "$NO_E2E" = true ]; then
+    pass "end-to-end test skipped (--no-e2e) — the project's pipeline directory was not touched"
+    SUM_PIPELINE="skipped (--no-e2e)"
+    PIPELINE_TEST_SKIPPED=1
+elif _apd_verify_pipeline_busy; then
     warn "active pipeline detected (spec-card.md or .done markers from a real task) — skipping end-to-end test to avoid contaminating state"
     warn "run \`apd pipeline reset\` and re-run \`apd verify\` if you want to exercise the end-to-end test"
     SUM_PIPELINE="skipped (active pipeline)"

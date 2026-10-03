@@ -6,7 +6,8 @@
 # short-circuits (`ALLOWED_PATHS` empty → exit 0) right after its protected-path
 # checks: the pipeline dir and the plugin cache were guarded, the agent's own
 # write scope was not. The per-agent frontmatter hook that carried the paths
-# never fired (measured, CC 2.1.220 — see bin/lib/agent-scope.sh), so bash
+# never fired (measured, CC 2.1.220; on 2.1.259+ CC tries it and it fails to
+# launch — see bin/lib/agent-scope.sh), so bash
 # writes outside an agent's scope went unchecked.
 #
 # Resolution mirrors bin/adapter/cc/guard-scope: caller identified by
@@ -70,21 +71,34 @@ while IFS= read -r p; do
   [ -n "$p" ] && SCOPE_PATHS+=("$p")
 done < <(_agent_scope_paths "$AGENT_FILE")
 
-# No declared scope. What that means depends on whether the agent can write at
-# all, and the first version of this shim did not ask: it fell through for
-# EVERYONE, so a writable agent whose scope did not resolve was blocked on
-# Write/Edit and unbounded on the shell — the sanctioned channel guarded, the
-# one beside it open, which is the worst of both.
+# No declared scope → no writes through the shell, for EVERY agent in the
+# registry. The session scratchpad stays open (the core's shared rule), and a
+# command that writes nothing — `git diff`, the test command — is untouched.
 #
-# Read-only roles genuinely have no scope by design and legitimately run bash
-# (`git diff`, the test command, `… > /tmp/out`); blocking them would break the
-# review steps for nothing. So they keep the fall-through, and only a writable
-# agent fails closed — same rule, same message shape as the Write/Edit path.
+# History, because this branch has been wrong twice. The first version fell
+# through for everyone. The second (v7.0) failed closed only for an agent that
+# carries Write/Edit in `tools:` and kept the fall-through for the review roles,
+# on the reasoning that they "legitimately run `… > /tmp/out`" and are bounded
+# elsewhere. They were not bounded anywhere on this channel: measured
+# 2026-10-02, `echo x > src/…`, `rm -rf src/…` and `sed -i … src/…` all exited 0
+# for code-reviewer, adversarial-reviewer and supervisor, while the same roles
+# were refused on Write/Edit — the sanctioned channel guarded, the one beside it
+# open, which is the exact shape the v7.0 comment called the worst of both.
+# `permissionMode: plan` does not close it either: a subagent's mode is not
+# honoured when the main session runs in auto mode.
+#
+# The cost is stated in the review templates: a reviewer's scratch output goes
+# to the session scratchpad, not `/tmp`, and a mutation proof runs on a copy of
+# the tree there, not in place.
+#
+# An agent's own memory directory is NOT opened on this channel. Passing it as
+# the agent's scope was tried (audit-724 F3) and gave a review role every
+# escape a scoped agent has (a symlink created inside the scope and written
+# through, a program that names the scope and then writes elsewhere — pass 2).
+# CC's memory feature writes through Write/Edit, which the guard-scope shim
+# exempts; a shell write into the memory directory is refused (stated).
 if [ ${#SCOPE_PATHS[@]} -eq 0 ]; then
-  if _agent_is_writable "$AGENT_FILE"; then
-    exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" ${CWD_ARGS[@]+"${CWD_ARGS[@]}"} --deny-all-writes
-  fi
-  exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" ${CWD_ARGS[@]+"${CWD_ARGS[@]}"}
+  exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" ${CWD_ARGS[@]+"${CWD_ARGS[@]}"} --deny-all-writes
 fi
 
 exec "$CORE_DIR/guard-bash-scope" --command "$COMMAND" ${CWD_ARGS[@]+"${CWD_ARGS[@]}"} ${SCOPE_PATHS[@]+"${SCOPE_PATHS[@]}"}

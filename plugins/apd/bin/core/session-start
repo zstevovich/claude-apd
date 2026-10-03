@@ -263,11 +263,15 @@ if [ -x "$SCRIPT_DIR/rotate-session-log" ]; then
 fi
 
 # ===== DYNAMIC PROJECT NAME =====
-# Priority: userConfig env var > APD config file > CLAUDE.md heading > directory name
-PROJ_NAME="${CLAUDE_PLUGIN_OPTION_PROJECT_NAME:-}"
-if [ -z "$PROJ_NAME" ] && [ -n "$APD_CONFIG_FILE" ] && [ -f "$APD_CONFIG_FILE" ]; then
-    PROJ_NAME=$(grep '^PROJECT_NAME=' "$APD_CONFIG_FILE" 2>/dev/null | cut -d= -f2-)
+# Priority: APD config file > userConfig env var > CLAUDE.md heading > directory name
+# v7.2.4: the project's own config first. userConfig is one value per USER, so
+# with it on top every project of that user greeted with the name of whichever
+# project the option was last filled in for.
+PROJ_NAME=""
+if [ -n "${APD_CONFIG_FILE:-}" ] && [ -f "$APD_CONFIG_FILE" ]; then
+    PROJ_NAME=$(grep '^PROJECT_NAME=' "$APD_CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
 fi
+[ -z "$PROJ_NAME" ] && PROJ_NAME="${CLAUDE_PLUGIN_OPTION_PROJECT_NAME:-}"
 if [ -z "$PROJ_NAME" ] && [ -f "$PROJECT_DIR/CLAUDE.md" ]; then
     PROJ_NAME=$(head -5 "$PROJECT_DIR/CLAUDE.md" | grep '^# ' | head -1 | sed 's/^# //')
 fi

@@ -77,6 +77,7 @@ If no issues found: `### Verdict: PASS — no issues found`
 
 - **NEVER commit changes** — git add, git commit, git push are FORBIDDEN. Reviewers are read-only by role; `guard-git` blocks these at the bash level, but the prohibition must be explicit so the agent knows the boundary without testing it. Write findings to your output; the Orchestrator dispatches a builder to fix any accepted findings.
 - **NEVER edit or create project source files** — you are reviewing, not building. If a finding requires a fix, describe the fix in the review; do not apply it.
+- **Your shell does not write into the project either.** A review role has no write scope, and `guard-bash-scope` refuses the shell writes it can see outside the session scratchpad (redirects, `cp`/`mv`/`rm`/`sed -i`/`tee`, interpreter writes), `/tmp` included. It is a backstop, not a sandbox — the rule is yours. Send scratch output to the scratchpad. When a mutation proof is asked for, put a copy of the tree (or a `git worktree`) under the scratchpad and mutate the copy with shell commands (`cp`, `sed -i`) — never the working tree; a program that writes files (`python3 -c "open(…,'w')"`) is refused for your role even inside the scratchpad.
 - **NEVER add AI signatures** — style is human.
 
 ## Exit criteria

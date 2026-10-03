@@ -41,6 +41,7 @@ set -u
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
+source "$(dirname "$0")/../lib/portable.sh"
 
 DAYS=14
 while [[ $# -gt 0 ]]; do
@@ -60,8 +61,9 @@ if [ ! -f "$HISTORY_LOG" ]; then
     exit 0
 fi
 
-# Transcript base for THIS project — same slug derivation as reconstruct-agents.
-RA_BASE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$PROJECT_DIR" | sed 's#[^A-Za-z0-9]#-#g')"
+# Transcript base for THIS project — the same rule as reconstruct-agents
+# (lib/portable.sh: the given path, then the physical one).
+RA_BASE=$(_cc_transcript_dir || true)
 CUTOFF=$(date -v-${DAYS}d +"%Y-%m-%d" 2>/dev/null || date -d "${DAYS} days ago" +"%Y-%m-%d" 2>/dev/null || echo "1970-01-01")
 
 BOX_W=80

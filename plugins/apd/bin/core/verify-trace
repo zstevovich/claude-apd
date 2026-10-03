@@ -49,7 +49,13 @@ if [ "$TOTAL" -eq 0 ]; then
 fi
 
 # --- Build test file patterns based on stack ---
-STACK="${CLAUDE_PLUGIN_OPTION_STACK:-}"
+# v7.2.4: the project's config first, the userConfig option as the fallback.
+# This read the option ONLY — a value shared by every project of the user — so
+# a project whose stack differed from the option searched for the wrong test
+# file names, and a project with no option searched for all of them.
+STACK=""
+[ -n "${APD_CONFIG_FILE:-}" ] && STACK=$(grep '^STACK=' "$APD_CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
+[ -z "$STACK" ] && STACK="${CLAUDE_PLUGIN_OPTION_STACK:-}"
 
 build_find_patterns() {
     case "$STACK" in
@@ -69,10 +75,10 @@ build_find_patterns() {
             echo '-name *_test.go'
             ;;
         java)
-            echo '-name *Test.java -o -name *Spec.java'
+            echo '-name *Test.java -o -name *Spec.java -o -name *Test.kt -o -name *Tests.kt -o -name *Spec.kt'
             ;;
         *)
-            echo '-name *.test.ts -o -name *.spec.ts -o -name *.test.js -o -name *.spec.js -o -name *.test.tsx -o -name *.spec.tsx -o -name test_*.py -o -name *_test.py -o -name *Test.php -o -name *.Tests.cs -o -name *Test.cs -o -name *_test.go -o -name *Test.java -o -name *Spec.java'
+            echo '-name *.test.ts -o -name *.spec.ts -o -name *.test.js -o -name *.spec.js -o -name *.test.tsx -o -name *.spec.tsx -o -name test_*.py -o -name *_test.py -o -name *Test.php -o -name *.Tests.cs -o -name *Test.cs -o -name *_test.go -o -name *Test.java -o -name *Spec.java -o -name *Test.kt -o -name *Tests.kt -o -name *Spec.kt'
             ;;
     esac
 }
@@ -83,14 +89,21 @@ PATTERNS=$(build_find_patterns)
 # Files matching test naming conventions
 TEST_FILES=$(eval "find '$PROJECT_DIR' -type d \( -name node_modules -o -name .git -o -name vendor \) -prune -o -type f \( $PATTERNS \) -print" 2>/dev/null || true)
 
-# Files inside test directories regardless of naming
-TEST_DIR_FILES=$(find "$PROJECT_DIR" -type d \( -name node_modules -o -name .git -o -name vendor \) -prune -o -type f \( -path "*/__tests__/*" -o -path "*/tests/*" -o -path "*/test/*" -o -path "*/spec/*" \) -print 2>/dev/null || true)
+# Files inside test directories regardless of naming. `*Test/` is the Kotlin
+# source-set convention (commonTest, jvmTest, androidUnitTest, iosTest, …) —
+# none of those is a `test/` directory, so a KMP project's tests were invisible.
+# Matched on the path RELATIVE to the project (audit-724 R2): `-path "*/test/*"`
+# on the absolute path also matched the directories ABOVE the project, so a
+# project living under ~/Projects/Test/ (or …/tests/, …/spec/) counted every
+# file as a test file and the trace gate passed on markers in production code.
+TEST_DIR_FILES=$(cd "$PROJECT_DIR" 2>/dev/null && find . -type d \( -name node_modules -o -name .git -o -name vendor \) -prune -o -type f -print 2>/dev/null \
+    | APD_VT_ROOT="$PROJECT_DIR" LC_ALL=C awk 'BEGIN { root = ENVIRON["APD_VT_ROOT"] } { r = substr($0, 3) } r ~ /(^|\/)(__tests__|tests|test|spec)\// || r ~ /(^|\/)[^\/]*Test\// { print root "/" r }' || true)
 
 # Combine and deduplicate
 ALL_TEST_FILES=$(printf '%s\n' "$TEST_FILES" "$TEST_DIR_FILES" | sort -u | grep -v '^$' || true)
 
 # --- Discover non-test code files (for informational trace counts) ---
-ALL_CODE_FILES=$(find "$PROJECT_DIR" -type d \( -name node_modules -o -name .git -o -name vendor \) -prune -o -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.py" -o -name "*.php" -o -name "*.cs" -o -name "*.go" -o -name "*.java" \) -print 2>/dev/null | sort -u | grep -v '^$' || true)
+ALL_CODE_FILES=$(find "$PROJECT_DIR" -type d \( -name node_modules -o -name .git -o -name vendor \) -prune -o -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.py" -o -name "*.php" -o -name "*.cs" -o -name "*.go" -o -name "*.java" -o -name "*.kt" \) -print 2>/dev/null | sort -u | grep -v '^$' || true)
 
 # --- Scan test files for @trace markers ---
 # Output: one R* ID per line for each occurrence found

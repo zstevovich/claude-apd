@@ -81,7 +81,7 @@ source "$LIB_DIR/path-canon.sh"
 _MEM_REL="$(_canon_abs "$FILE_PATH")"; _MEM_REL="${_MEM_REL#"$(_proj_canon)"/}"
 case "$_MEM_REL" in
   .claude/agent-memory/"$AGENT_TYPE"/?*)   # (audit N1) only an agent that declares memory has a memory directory
-    if grep -qE '^memory:[[:space:]]*["'"'"']?(project|user|local)["'"'"']?[[:space:]]*(#.*)?$' "$AGENT_FILE" 2>/dev/null; then _has_traversal "$_MEM_REL" || exit 0; fi ;;
+    if _agent_declares_memory "$AGENT_FILE"; then _has_traversal "$_MEM_REL" || exit 0; fi ;;   # v7.2.4: frontmatter only
 esac
 # v7.2.3 (live, efiskalizacija): the session scratchpad is sanctioned for every
 # agent (v7.0.5 bash guard, v7.1.4 shared rule) — but that rule lived in the

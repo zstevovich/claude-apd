@@ -350,10 +350,16 @@ fi
 # ============================================================
 section "Shortcut"
 
-if [ -f "$PROJECT_DIR/.codex/bin/apd" ]; then
+# v7.2.4: name the shortcut of the runtime that is asking, in the order
+# resolve-project.sh picks APD_SHORTCUT. The Codex one used to be reported
+# first whenever it existed, so a CC session on a hybrid project was told its
+# shortcut was `.codex/bin/apd`.
+if [ "${APD_RUNTIME:-}" = "codex" ] && [ -f "$PROJECT_DIR/.codex/bin/apd" ]; then
     pass "apd shortcut exists (.codex/bin/apd)"
 elif [ -f "$CLAUDE_DIR/bin/apd" ]; then
     pass "apd shortcut exists (.claude/bin/apd)"
+elif [ -f "$PROJECT_DIR/.codex/bin/apd" ]; then
+    pass "apd shortcut exists (.codex/bin/apd)"
 else
     warn "apd shortcut missing — run session-start (CC) or \`apd cdx init\` (Codex) to create"
 fi

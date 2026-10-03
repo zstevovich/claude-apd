@@ -11968,8 +11968,10 @@ _lk_proj() {   # $1 = dir
     echo "PROJECT_NAME=lock-test" > "$1/.apd/config"
 }
 _lk_run() {    # $1 = dir; echoes "<rc>|<output>"
+    # v7.2.4: probed through `rollback`, a step that changes state. `status`
+    # and `show` take no lock any more (§150) — they were the probe here.
     local out rc
-    out=$(APD_PROJECT_DIR="$1" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" status 2>&1)
+    out=$(APD_PROJECT_DIR="$1" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" rollback 2>&1)
     rc=$?
     printf '%s|%s' "$rc" "$out"
 }
@@ -11983,7 +11985,7 @@ _lk_blocks() {  # $1 = label, $2 = dir, $3 = expected message
     fi
 }
 _lk_free() {    # $1 = label, $2 = dir — the lock must not be what stops us.
-    # Asserted on the message, not the exit code: `status` on a bare fixture can
+    # Asserted on the message, not the exit code: `rollback` on a bare fixture can
     # exit non-zero for unrelated reasons, and conflating the two would let a
     # broken lock look "allowed".
     local res out
@@ -13446,8 +13448,12 @@ _gc_bash unscoped "echo x > src/a.ts"       2 "no resolvable scope blocks the wr
 _gc_bash unscoped "echo x > /etc/passwd"    2 "…anywhere, not just outside the project"
 # but it is a WRITE ban, not a shell ban — it must still be able to look around
 _gc_bash unscoped "git diff --stat"         0 "…while reads and test commands still run"
-# and the same rule must NOT catch the roles that have no scope by design
-_gc_bash rev      "echo x > /tmp/out.txt"   0 "a read-only role keeps its shell (no scope by design)"
+# v7.2.4: the same rule now covers the roles that have no scope by design —
+# this row used to assert the opposite (`> /tmp/out.txt` allowed for a review
+# role), which was the hole an external audit measured: the same role could
+# `echo > src/…` too. The review role keeps its shell for reads (§150).
+_gc_bash rev      "echo x > /tmp/out.txt"   2 "a review role (no Write/Edit, no scope) is bounded on the shell too (v7.2.4)"
+_gc_bash rev      "git diff --stat"         0 "…and keeps its shell for reads"
 
 # `2>&1` is a file-descriptor duplication, not a write. Counting it as one made
 # the guard block `pytest -q 2>&1 | tail -20` — the ordinary test command of an
@@ -17712,6 +17718,282 @@ _b149 2 "P5 S: … node const c = …; execSync(c)"                             
 _b149 2 "P5 S: os.system(cp -r . /tmp/x) — cp is a reader of the tree"                       'python3 -c "import os; os.system('"'"'cp -r . /tmp/x'"'"')"'
 _b149 0 "P5 S: a shell-out without a reader word and a dot elsewhere stays allowed"         'python3 -c "print('"'"'.'"'"'); import os; os.system('"'"'make'"'"')"'
 rm -rf "$G149_T"
+
+
+section "150. Guard gaps from the PLAZMA audit (2026-10-02): review roles bounded on the shell, guards cancelled on timeout made visible, the project's config before userConfig, the orchestrator's code list, Kotlin tests, verify-apd --no-e2e, a lock-free status (v7.2.4)"
+
+# A handoff from an audit of PLAZMA (Opus 5.5, plugin 7.2.3, CC 2.1.280/287), every
+# claim re-measured here before a line changed:
+#   1  a PreToolUse hook that outlives its `timeout` is CANCELLED and the tool call
+#      RUNS — 10 guard runs of one Bambi adversarial pass (2026-09-29), re-measured
+#      live on CC 2.1.288 (sleeping hook, timeout 2 → the command ran; timeout 20 →
+#      blocked). All PreToolUse guards had `timeout: 5`. Now 30, and the review
+#      advances count `hook_cancelled` in the task's transcripts.
+#   2  the CC bash shim let every agent WITHOUT Write/Edit in `tools:` (code-reviewer,
+#      adversarial-reviewer, supervisor) write anywhere through the shell
+#      (`echo > src/…`, `rm -rf src/…`, `sed -i … src/…` all exit 0) — the Write/Edit
+#      channel beside it was closed. Every registry agent without a scope is now
+#      `--deny-all-writes` on the shell too; the scratchpad stays open.
+#   3  userConfig (one value per USER) won over the project's config in session-start
+#      and guard-orchestrator; verify-trace read only the option. guard-orchestrator
+#      blocked `sh|sql` beyond source code while the rules said templates, CSS and
+#      build files. verify-trace did not know Kotlin. /apd-audit ran verify-apd's
+#      synthetic pipeline with no switch. `status` took the pipeline lock. The doctor
+#      named the Codex shortcut first in a CC session.
+# And one found while writing the cancel report: every transcript reader built CC's
+# directory name from the path as given — CC files it under the RESOLVED path, so a
+# project reached through a symlink (every macOS mktemp dir) had no transcripts.
+
+G150_T="$(mktemp -d -t apd-g150.XXXXXX)"
+_c150() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+
+# ---------------------------------------------------------------- 2. the review roles' shell
+G150_P="$G150_T/p"; mkdir -p "$G150_P/.claude/agents" "$G150_P/src" "$G150_P/lib" "$G150_P/.apd/pipeline"
+printf 'PROJECT_NAME=g150\nSTACK=dotnet\n' > "$G150_P/.claude/.apd-config"
+for _r in reviewer adversarial-reviewer supervisor; do
+    _n="$_r"; [ "$_r" = reviewer ] && _n=code-reviewer
+    sed 's/{{PROJECT_NAME}}/g150/g' "$APD_PLUGIN_ROOT/templates/$_r-template.md" > "$G150_P/.claude/agents/$_n.md"
+done
+printf -- '---\nname: mobile\ntools: Read, Write, Edit, Bash\nscope: [src/]\n---\nbody\n' > "$G150_P/.claude/agents/mobile.md"
+# a writable builder whose scope never got filled in — the strict caller at HEAD
+printf -- '---\nname: unscoped\ntools: Read, Write, Edit, Bash\nscope: [{{SCOPE_PATHS}}]\n---\nbody\n' > "$G150_P/.claude/agents/unscoped.md"
+# frontmatter says no memory; a body line must not grant it (audit-724 pass 2)
+printf -- '---\nname: bodymem\ntools: Read, Glob, Grep, Bash, Write\nmemory: none\n---\nmemory: project\n' > "$G150_P/.claude/agents/bodymem.md"
+G150_SP="/private/tmp/claude-501/-Users-x/abc/scratchpad"
+_b150() {  # <rc> <label> <agent_type> <command> — the guard-bash-scope SHIM on hook JSON
+    local exp="$1" label="$2" at="$3" cmd="$4" rc=0
+    jq -cn --arg a "$at" --arg c "$cmd" --arg d "$G150_P" '{tool_name:"Bash",agent_type:$a,cwd:$d,tool_input:{command:$c}}' \
+        | ( cd "$G150_P" && APD_PROJECT_DIR="$G150_P" bash "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-bash-scope" ) >/dev/null 2>&1 || rc=$?
+    if [ "$rc" = "$exp" ]; then pass "$label (rc=$rc)"; PASSES=$((PASSES + 1)); else fail "$label: want rc=$exp got rc=$rc — $at: $cmd"; FAILS=$((FAILS + 1)); fi
+}
+for _a in code-reviewer adversarial-reviewer supervisor; do
+    _b150 2 "$_a: echo > src/… is refused on the shell (was 0)"              "$_a" 'echo x > src/a.txt'
+    _b150 2 "$_a: sed -i on a source file is refused (was 0)"               "$_a" "sed -i '' s/a/b/ src/a.txt"
+    _b150 2 "$_a: rm -rf of a source dir is refused (was 0)"               "$_a" 'rm -rf src/a'
+    _b150 2 "$_a: /tmp is not the scratchpad — refused"                     "$_a" 'git diff HEAD > /tmp/review.txt'
+    _b150 0 "$_a: the session scratchpad stays writable"                    "$_a" "git diff HEAD > $G150_SP/review.txt"
+    _b150 0 "$_a: git diff HEAD (a read) stays allowed"                     "$_a" 'git diff HEAD'
+done
+_b150 0 "code-reviewer: the test command with 2>&1 | tail stays allowed"   code-reviewer 'dotnet test src/App.Tests --no-build 2>&1 | tail -20'
+_b150 0 "code-reviewer: an interpreter READING a source file stays allowed" code-reviewer "python3 -c \"import json; print(json.load(open('src/a.json')))\""
+_b150 0 "code-reviewer: a mutation on a copy under the scratchpad is allowed" code-reviewer "cp -r src $G150_SP/copy && sed -i '' s/a/b/ $G150_SP/copy/a.txt"
+_b150 2 "code-reviewer: … but the copy back into the tree is refused"     code-reviewer "cp $G150_SP/copy/a.txt src/a.txt"
+_b150 0 "control: a scoped builder writes inside its scope"                mobile 'echo x > src/a.txt'
+_b150 2 "control: … and is refused outside it"                             mobile 'echo x > lib/a.txt'
+_b150 0 "an agent APD does not own (no registry file) keeps the old fall-through (stated)" Explore 'echo x > lib/a.txt'
+# audit-724 pass 1
+_b150 2 "F1 stated: a program that WRITES is refused for an agent with no scope, even into the scratchpad" adversarial-reviewer "python3 -c \"open('$G150_SP/x','w').write('a')\""
+_b150 0 "F1 stated: … its output redirected into the scratchpad is the way (allowed)" adversarial-reviewer "python3 -c \"print(1)\" > $G150_SP/out.txt"
+# audit-724 pass 2, P2-R1: what the token rule does not see, for the writable builder with no scope
+_b150 2 "P2-R1 unscoped builder: a program naming the scratchpad then writing a bare name is refused" unscoped "python3 -c \"open('$G150_SP/x','w'); open('evil.py','w')\""
+_b150 2 "P2-R1 unscoped builder: … a concatenated path is refused"   unscoped "python3 -c \"open('$G150_SP/x','w'); open('src'+'/x','w')\""
+_b150 2 "P2-R1 unscoped builder: … node writeFileSync of a bare name" unscoped "node -e \"require('fs').writeFileSync('$G150_SP/x','a'); require('fs').writeFileSync('evil.js','a')\""
+_b150 2 "P2-R1 unscoped builder: … perl open of a bare name"         unscoped "perl -e 'open(F,\">$G150_SP/x\"); open(G,\">evil.pl\")'"
+_b150 2 "F1 adversarial-reviewer: … an interpreter writing into the project is still refused" adversarial-reviewer "python3 -c \"open('src/x','w').write('a')\""
+_b150 2 "F1 adversarial-reviewer: … reading src and writing /tmp in one program is refused" adversarial-reviewer "python3 -c \"import shutil; shutil.copy('src/a','/tmp/a')\""
+_b150 0 "F2: >/dev/fd/2 is a descriptor, not a write target" adversarial-reviewer 'echo oops >/dev/fd/2'
+_b150 2 "F3 stated: code-reviewer (memory: project) writes its memory through Write/Edit, not the shell" code-reviewer 'echo note >> .claude/agent-memory/code-reviewer/notes.md'
+_b150 2 "P2-H1: no symlink escape through a memory dir (it is not a scope)" code-reviewer 'mkdir -p .claude/agent-memory/code-reviewer && ln -s ../../../src .claude/agent-memory/code-reviewer/l && echo a > .claude/agent-memory/code-reviewer/l/x'
+_c150 "guard-scope shim: a body line 'memory: project' does not grant the memory exemption (frontmatter says none)" \
+    '! ( cd "$G150_P" && printf "%s" "{\"agent_type\":\"bodymem\",\"tool_input\":{\"file_path\":\"$G150_P/.claude/agent-memory/bodymem/n.md\"}}" | APD_PROJECT_DIR="$G150_P" bash "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-scope" ) >/dev/null 2>&1'
+for _form in crlf bom blank; do
+    case "$_form" in
+        crlf)  printf -- '---\r\nname: m%s\r\ntools: Read, Bash, Write\r\nmemory: project\r\n---\r\nbody\r\n' "$_form" ;;
+        bom)   printf -- '\357\273\277---\nname: m%s\ntools: Read, Bash, Write\nmemory: project\n---\nbody\n' "$_form" ;;
+        blank) printf -- '\n---\nname: m%s\ntools: Read, Bash, Write\nmemory: project\n---\nbody\n' "$_form" ;;
+    esac > "$G150_P/.claude/agents/m$_form.md"
+    _c150 "guard-scope shim: memory: project declared in a $_form frontmatter still opens its own memory dir (HEAD did)" \
+        '( cd "$G150_P" && printf "%s" "{\"agent_type\":\"m$_form\",\"tool_input\":{\"file_path\":\"$G150_P/.claude/agent-memory/m$_form/n.md\"}}" | APD_PROJECT_DIR="$G150_P" bash "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-scope" ) >/dev/null 2>&1'
+done
+_c150 "guard-scope shim control: the real memory: project reviewer still writes its memory via Write/Edit" \
+    '( cd "$G150_P" && printf "%s" "{\"agent_type\":\"code-reviewer\",\"tool_input\":{\"file_path\":\"$G150_P/.claude/agent-memory/code-reviewer/n.md\"}}" | APD_PROJECT_DIR="$G150_P" bash "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-scope" ) >/dev/null 2>&1'
+_b150 2 "F3 code-reviewer: … another agent's memory dir is refused"               code-reviewer 'echo note >> .claude/agent-memory/mobile/notes.md'
+_b150 2 "F3 code-reviewer: … a traversal out of its memory dir is refused"        code-reviewer 'echo x > .claude/agent-memory/code-reviewer/../../settings.json'
+_b150 2 "F3 code-reviewer: … and the project is still refused"                    code-reviewer 'echo x > src/a.txt'
+_b150 2 "F3 adversarial-reviewer (memory: none): no memory dir to write"           adversarial-reviewer 'echo note >> .claude/agent-memory/adversarial-reviewer/notes.md'
+_c150 "the deny message tells a review role where its scratch output goes (scratchpad, not /tmp)" \
+    '( jq -cn --arg d "$G150_P" '"'"'{tool_name:"Bash",agent_type:"adversarial-reviewer",cwd:$d,tool_input:{command:"echo x > /tmp/o"}}'"'"' | ( cd "$G150_P" && APD_PROJECT_DIR="$G150_P" bash "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-bash-scope" ) 2>&1 >/dev/null ) | grep -q "A review role has no scope by design"'
+for _r in reviewer adversarial-reviewer supervisor; do
+    _c150 "$_r template states the shell bound and the scratchpad mutation copy" \
+        'grep -q "Your shell does not write into the project either" "$APD_PLUGIN_ROOT/templates/$_r-template.md" && grep -q "mutate the copy" "$APD_PLUGIN_ROOT/templates/$_r-template.md"'
+done
+
+# ---------------------------------------------------------------- 1a. the hook timeout
+_c150 "hooks.json: every PreToolUse hook has timeout >= 30 (a cancelled guard lets the call run)" \
+    '[ "$(jq "[.hooks.PreToolUse[].hooks[].timeout] | map(select(. < 30)) | length" "$APD_PLUGIN_ROOT/../../hooks/hooks.json")" = 0 ] && [ "$(jq "[.hooks.PreToolUse[].hooks[]] | length" "$APD_PLUGIN_ROOT/../../hooks/hooks.json")" -ge 12 ]'
+
+# ---------------------------------------------------------------- 1b. the cancel report
+# Fixture: a Lean task driven to the reviewer advance (the §L3 helpers), transcripts
+# under the RESOLVED path while PROJECT_DIR is given through a symlink.
+G150_R="$G150_T/real"; mkdir -p "$G150_R"; ln -s "$G150_R" "$G150_T/link"; G150_L="$G150_T/link"
+_l3_fixture "$G150_L" 2
+G150_CC="$G150_T/cc"; G150_SLUG=$(cd "$G150_R" && pwd -P | sed 's#[^A-Za-z0-9]#-#g'); G150_TD="$G150_CC/projects/$G150_SLUG"
+mkdir -p "$G150_TD/s1/subagents"
+_iso150() { date -u -r "$1" +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u -d "@$1" +"%Y-%m-%dT%H:%M:%S.000Z"; }
+_hc150() {  # <event> <command> <timedOut> <epoch>
+    printf '{"attachment":{"type":"hook_cancelled","hookName":"%s:Bash","hookEvent":"%s","command":"%s","durationMs":7083,"timedOut":%s,"timeoutMs":5000},"type":"attachment","timestamp":"%s"}\n' "$1" "$1" "$2" "$3" "$(_iso150 "$4")"
+}
+G150_NOW=$(date +%s); G150_A='bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc'
+{
+    _hc150 PreToolUse "$G150_A/guard-spec-blind" true $((G150_NOW + 5))
+    _hc150 PreToolUse "$G150_A/guard-spec-blind" true $((G150_NOW + 6))
+    _hc150 PreToolUse "$G150_A/guard-secrets" true $((G150_NOW + 7))
+    _hc150 PreToolUse "$G150_A/guard-secrets" false $((G150_NOW + 8))      # cancelled, not on timeout
+    _hc150 PreToolUse "$G150_A/guard-git" true $((G150_NOW - 4000))        # before the spec
+    _hc150 PreToolUse 'sleep 9; exit 2' true $((G150_NOW + 9))              # not an APD hook
+    _hc150 PostToolUse "$G150_A/pipeline-post-commit" true $((G150_NOW + 9)) # not a guard of a call
+} > "$G150_TD/s1/subagents/agent-a150.jsonl"
+_hc150 PreToolUse "$G150_A/guard-git" true $((G150_NOW + 10)) > "$G150_TD/s1.jsonl"
+# audit-724 C1/C2/C4: a non-APD hook under some other …/bin/core/ is not counted; a cwd
+# field before the attachment does not rename the guard; an earlier nested timestamp
+# does not drop the record
+_hc150 PreToolUse 'bash /opt/other/bin/core/lint-check' true $((G150_NOW + 11)) >> "$G150_TD/s1.jsonl"
+printf '{"tool":{"command":"ls"},"attachment":{"hookEvent":"PreToolUse","command":"bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-bash-portability","type":"hook_cancelled","timedOut":true},"type":"attachment","timestamp":"%s"}\n' "$(_iso150 $((G150_NOW + 13)))" >> "$G150_TD/s1.jsonl"
+printf '{"cwd":"/x/plugins/apd/bin/core/guard-git","meta":{"timestamp":"2000-01-01T00:00:00.000Z"},"attachment":{"type":"hook_cancelled","hookEvent":"PreToolUse","command":"bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-secrets","timedOut":true},"type":"attachment","timestamp":"%s"}\n' "$(_iso150 $((G150_NOW + 12)))" >> "$G150_TD/s1.jsonl"
+G150_ST=$(CLAUDE_CONFIG_DIR="$G150_CC" APD_PROJECT_DIR="$G150_L" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" status 2>&1)
+_c150 "status: 6 guard runs cancelled on timeout since the spec, per guard (pre-spec, non-timeout, non-APD — incl. another …/bin/core/ — and PostToolUse lines not counted; a cwd field does not rename a guard; a nested earlier timestamp does not drop a record; an earlier unrelated command field does not hide the hook's)" \
+    'printf "%s" "$G150_ST" | grep -q "6 guard run(s) were cancelled on timeout" && printf "%s" "$G150_ST" | grep -q "guard-bash-portability=1 guard-git=1 guard-secrets=2 guard-spec-blind=2"'
+_c150 "status: names the spec-blindness consequence when guard-spec-blind is among them" \
+    'printf "%s" "$G150_ST" | grep -q "spec-blindness was not enforced"'
+_c150 "status: found the transcripts under the RESOLVED path while PROJECT_DIR was a symlink" \
+    'printf "%s" "$G150_ST" | grep -q "guard run(s) were cancelled"'
+_c150 "status writes no guard-cancelled audit line (a read)" \
+    '! grep -rqs "guard-cancelled" "$G150_L/.apd" "$G150_L/.claude" 2>/dev/null'
+G150_RV=$(CLAUDE_CONFIG_DIR="$G150_CC" _l3_run "$G150_L" 2)
+_c150 "the reviewer advance reports the cancelled guards" \
+    'printf "%s" "$G150_RV" | grep -q "6 guard run(s) were cancelled on timeout"'
+_c150 "… and logs one INFO guard-cancelled line with step=reviewer and the per-guard counts" \
+    '[ "$(grep -rhs "|guard-cancelled|" "$G150_L/.apd" "$G150_L/.claude" 2>/dev/null | grep -c "step=reviewer total=6 guard-bash-portability=1 guard-git=1 guard-secrets=2 guard-spec-blind=2")" = 1 ]'
+G150_Q="$G150_T/quiet"; _l3_fixture "$G150_Q" 2
+G150_QV=$(CLAUDE_CONFIG_DIR="$G150_CC" _l3_run "$G150_Q" 2)
+_c150 "a task with no cancelled guard prints nothing about them (control)" \
+    '! printf "%s" "$G150_QV" | grep -q "cancelled on timeout"'
+# reconstruct-agents reads the same directory rule (the slug fix is shared)
+printf '{"agentType":"backend-builder"}\n' > "$G150_TD/s1/subagents/agent-ab150.meta.json"
+printf '{"x":1}\n' > "$G150_TD/s1/subagents/agent-ab150.jsonl"
+_c150 "reconstruct-agents finds transcripts filed under the resolved path (PROJECT_DIR through a symlink)" \
+    'CLAUDE_CONFIG_DIR="$G150_CC" APD_PROJECT_DIR="$G150_L" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reconstruct-agents >/dev/null 2>&1; grep -q "|backend-builder|ab150$" "$G150_L/.apd/pipeline/.agents"'
+
+# ---------------------------------------------------------------- 3a. status / show take no lock
+G150_K="$G150_T/lock"; mkdir -p "$G150_K/.apd/pipeline" "$G150_K/.apd/memory"; echo "PROJECT_NAME=k" > "$G150_K/.apd/config"
+mkdir "$G150_K/.apd/pipeline/.lock"; touch -t 202001010000.00 "$G150_K/.apd/pipeline"
+_mt150() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
+G150_KM=$(_mt150 "$G150_K/.apd/pipeline")
+_c150 "status while another session holds the lock: answers (exit 0) — HEAD refused it as 'locked'" \
+    'APD_PROJECT_DIR="$G150_K" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" status >/dev/null 2>&1'
+_c150 "show plan while the lock is held: exit 0" \
+    'APD_PROJECT_DIR="$G150_K" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" show plan >/dev/null 2>&1'
+_c150 "… the other session's lock is still there, and the pipeline dir mtime did not move" \
+    '[ -d "$G150_K/.apd/pipeline/.lock" ] && [ "$(_mt150 "$G150_K/.apd/pipeline")" = "$G150_KM" ]'
+_c150 "control: a writing step (rollback) is still refused while the lock is held" \
+    '! APD_PROJECT_DIR="$G150_K" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" rollback >/dev/null 2>&1'
+
+# ---------------------------------------------------------------- 3b. guard-orchestrator
+G150_O="$G150_T/orch"; mkdir -p "$G150_O/.apd"; printf 'PROJECT_NAME=o\nSTACK=dotnet\n' > "$G150_O/.apd/config"
+_o150() {  # <rc> <label> <rel-path> [<option-stack>]
+    local rc=0
+    ( cd "$G150_O" && APD_PROJECT_DIR="$G150_O" CLAUDE_PLUGIN_OPTION_STACK="${4:-}" bash "$APD_PLUGIN_ROOT/bin/core/guard-orchestrator" --file-path "$G150_O/$3" ) >/dev/null 2>&1 || rc=$?
+    if [ "$rc" = "$1" ]; then pass "$2 (rc=$rc)"; PASSES=$((PASSES + 1)); else fail "$2: want rc=$1 got rc=$rc — $3"; FAILS=$((FAILS + 1)); fi
+}
+_o150 2 "orchestrator: src/A.cs refused on a dotnet project with a nodejs userConfig option (was allowed)" src/A.cs nodejs
+_o150 2 "orchestrator: … and web/App.tsx refused on the same .NET project (one list, every stack)" web/App.tsx
+printf 'PROJECT_NAME=o\nSTACK=kmp\n' > "$G150_O/.apd/config"
+_o150 2 "R1: STACK=kmp — the iOS app's .swift is refused (HEAD sent kmp to the full list)" iosApp/ContentView.swift
+_o150 2 "R1: STACK=kmp — an NDK .cpp is refused"        app/src/main/cpp/native.cpp
+_o150 2 "R1: STACK=kmp — a .h is refused"               app/src/main/cpp/native.h
+printf 'PROJECT_NAME=o\nSTACK=dotnet\n' > "$G150_O/.apd/config"
+_o150 2 "D3: upper-case extension Foo.CS refused"      src/Foo.CS
+_o150 2 "D3: a Twig template refused"                  templates/base.html.twig
+_o150 2 "D3: a Makefile refused"                       Makefile
+_o150 2 "D3: lowercase dockerfile refused"             dockerfile
+_o150 2 "D3: a Containerfile refused"                  Containerfile
+_o150 2 "P2: a Jenkinsfile refused"                    Jenkinsfile
+_o150 2 "P2: terraform .tf refused"                    infra/main.tf
+_o150 2 "P2: a .graphql schema refused"                api/schema.graphql
+_o150 2 "P2: a .zsh script refused"                    scripts/setup.zsh
+_o150 2 "P2: a .mts module refused"                    src/x.mts
+_o150 0 "P2 control: .envrc stays with the .env* allowlist (stated)" .envrc
+_o150 2 "orchestrator: Directory.Build.props refused"   Directory.Build.props
+_o150 2 "orchestrator: App.csproj refused"              src/App.csproj
+_o150 2 "orchestrator: build.gradle.kts refused"        app/build.gradle.kts
+_o150 2 "orchestrator: a stylesheet refused"            web/site.css
+_o150 2 "orchestrator: a Razor view refused"            Views/Home.cshtml
+_o150 2 "orchestrator: a Dockerfile refused"            Dockerfile
+_o150 2 "orchestrator: api.Dockerfile refused"          deploy/api.Dockerfile
+_o150 0 "orchestrator: appsettings.json allowed (data format, stated)" appsettings.json
+_o150 0 "orchestrator: a CI yaml allowed (data format, stated)"        .github/workflows/ci.yml
+_o150 0 "orchestrator: an XML manifest allowed (data format, stated)"  app/AndroidManifest.xml
+_o150 0 "orchestrator: an HTML page under docs/ allowed"              docs/index.html
+_o150 0 "orchestrator: a markdown file allowed"                        notes.md
+_c150 "workflow.md names every file kind the guard blocks, and each named extension is blocked (join)" \
+    '( _wf=$(grep -o "guard-orchestrator\` mechanically blocks[^—]*" "$APD_PLUGIN_ROOT/rules/workflow.md"); [ -n "$_wf" ] || exit 1; for _e in kts gradle csproj props targets; do printf "%s" "$_wf" | grep -q "\.$_e" || exit 1; ( cd "$G150_O" && APD_PROJECT_DIR="$G150_O" bash "$APD_PLUGIN_ROOT/bin/core/guard-orchestrator" --file-path "$G150_O/x.$_e" ) >/dev/null 2>&1 && exit 1; done; true )'
+
+# ---------------------------------------------------------------- 3c. session-start name, verify-trace stack + Kotlin
+G150_N="$G150_T/name"; mkdir -p "$G150_N/.apd/pipeline" "$G150_N/.apd/memory"; printf 'PROJECT_NAME=Plazma\nSTACK=dotnet\n' > "$G150_N/.apd/config"
+G150_NO=$(cd "$G150_N" && APD_PROJECT_DIR="$G150_N" CLAUDE_PLUGIN_OPTION_PROJECT_NAME=FiscalFusionAI bash "$APD_PLUGIN_ROOT/bin/core/session-start" 2>&1)
+_c150 "session-start: the project's PROJECT_NAME wins over the user-wide option (banner said FiscalFusionAI on PLAZMA)" \
+    'printf "%s" "$G150_NO" | grep -q "Plazma" && ! printf "%s" "$G150_NO" | grep -q "FiscalFusionAI"'
+G150_V="$G150_T/trace"; mkdir -p "$G150_V/.apd/pipeline" "$G150_V/.apd/memory" "$G150_V/shared/src/commonTest/kotlin" "$G150_V/tests"
+printf 'PROJECT_NAME=v\nSTACK=kotlin\n' > "$G150_V/.apd/config"
+printf '**Acceptance criteria:**\n- R1: one\n- R2: two\n' > "$G150_V/.apd/pipeline/spec-card.md"
+printf 'class Foo { // @trace R1\n}\n' > "$G150_V/shared/src/commonTest/kotlin/FooCheck.kt"
+printf 'class Bar { // @trace R2\n}\n' > "$G150_V/shared/src/BarTest.kt"
+_c150 "verify-trace: a KMP commonTest/ source set and a *Test.kt file count as tests (R1+R2 covered, exit 0)" \
+    '( cd "$G150_V" && APD_PROJECT_DIR="$G150_V" bash "$APD_PLUGIN_ROOT/bin/core/verify-trace" --summary ) >/dev/null 2>&1'
+printf 'PROJECT_NAME=v\nSTACK=dotnet\n' > "$G150_V/.apd/config"; mkdir -p "$G150_V/src"
+printf '// @trace R1 R2\n' > "$G150_V/src/FooTest.cs"; rm -f "$G150_V/shared/src/BarTest.kt" "$G150_V/shared/src/commonTest/kotlin/FooCheck.kt"
+_c150 "verify-trace: STACK comes from the project's config (dotnet → *Test.cs found) even with a nodejs userConfig option" \
+    '( cd "$G150_V" && APD_PROJECT_DIR="$G150_V" CLAUDE_PLUGIN_OPTION_STACK=nodejs bash "$APD_PLUGIN_ROOT/bin/core/verify-trace" --summary ) >/dev/null 2>&1'
+for _anc in Test tests LoadTest; do
+    G150_W="$G150_T/$_anc/proj"; mkdir -p "$G150_W/.apd/pipeline" "$G150_W/.apd/memory" "$G150_W/src"
+    printf 'PROJECT_NAME=w\n' > "$G150_W/.apd/config"; printf '**Acceptance criteria:**\n- R1: one\n' > "$G150_W/.apd/pipeline/spec-card.md"
+    printf '// @trace R1\n' > "$G150_W/src/a.ts"
+    _c150 "R2: a project under …/$_anc/ — a marker in production code is NOT test coverage (exit 1)" \
+        '! ( cd "$G150_W" && APD_PROJECT_DIR="$G150_W" bash "$APD_PLUGIN_ROOT/bin/core/verify-trace" --summary ) >/dev/null 2>&1'
+done
+mkdir -p "$G150_W/tests"; printf '// @trace R1\n' > "$G150_W/tests/a.ts"
+G150_BS="$G150_T/back\\slash/proj"; mkdir -p "$G150_BS/.apd/pipeline" "$G150_BS/.apd/memory" "$G150_BS/tests"
+printf 'PROJECT_NAME=b\n' > "$G150_BS/.apd/config"; printf '**Acceptance criteria:**\n- R1: one\n' > "$G150_BS/.apd/pipeline/spec-card.md"
+printf '// @trace R1\n' > "$G150_BS/tests/a.ts"
+_c150 "R2: a backslash in the project path does not lose the test file (root read through ENVIRON)" \
+    '( cd "$G150_BS" && APD_PROJECT_DIR="$G150_BS" bash "$APD_PLUGIN_ROOT/bin/core/verify-trace" --summary ) >/dev/null 2>&1'
+_c150 "R2 control: … a marker inside the project's own tests/ still covers (exit 0)" \
+    '( cd "$G150_W" && APD_PROJECT_DIR="$G150_W" bash "$APD_PLUGIN_ROOT/bin/core/verify-trace" --summary ) >/dev/null 2>&1'
+
+# ---------------------------------------------------------------- 3d. verify-apd --no-e2e, §6 wording; doctor shortcut
+G150_E="$G150_T/e2e"; mkdir -p "$G150_E/.claude/agents" "$G150_E/.claude/bin" "$G150_E/.codex/bin" "$G150_E/.apd/pipeline" "$G150_E/.apd/memory"
+printf 'PROJECT_NAME=e\nSTACK=dotnet\n' > "$G150_E/.apd/config"; ( cd "$G150_E" && git init -q . )
+printf -- '---\nname: api\ntools: Read, Write, Edit, Bash\nmodel: claude-sonnet-5-5\nscope: [src/]\n---\nFORBIDDEN: NEVER commit\n' > "$G150_E/.claude/agents/api.md"
+printf '#!/bin/bash\n' > "$G150_E/.claude/bin/apd"; printf '#!/bin/bash\n' > "$G150_E/.codex/bin/apd"
+printf -- '---\nname: empty\ntools: Read, Write, Edit, Bash\nmodel: claude-sonnet-5-5\nscope: []\n---\nFORBIDDEN: NEVER commit\n' > "$G150_E/.claude/agents/empty.md"
+# leftovers of a killed earlier verify run: --no-e2e must not clean them up either (audit-724 D2)
+printf -- '---\nname: apd-verify-x\n---\n' > "$G150_E/.claude/agents/apd-verify-x.md"
+printf '## APD-VERIFY-TEST\n- R1: x\n' > "$G150_E/.apd/pipeline/spec-card.md"
+touch -t 202001010000.00 "$G150_E/.apd/pipeline"; G150_EM=$(_mt150 "$G150_E/.apd/pipeline")
+G150_EO=$(cd "$G150_E" && APD_PROJECT_DIR="$G150_E" bash "$APD_PLUGIN_ROOT/bin/core/verify-apd" --no-e2e 2>&1)
+_c150 "verify-apd --no-e2e: Section 8 skipped by the switch, said so in the summary" \
+    'printf "%s" "$G150_EO" | grep -q "skipped (--no-e2e)"'
+_c150 "… and the project's pipeline dir was not touched (no spec.done, no .agents, mtime unchanged)" \
+    '[ ! -e "$G150_E/.apd/pipeline/spec.done" ] && [ ! -e "$G150_E/.apd/pipeline/.agents" ] && [ "$(_mt150 "$G150_E/.apd/pipeline")" = "$G150_EM" ] || { ls -la "$G150_E/.apd/pipeline" >&2; false; }'
+_c150 "D2: --no-e2e left the leftovers of an earlier run alone (stub and synthetic spec still there)" \
+    '[ -f "$G150_E/.claude/agents/apd-verify-x.md" ] && [ -f "$G150_E/.apd/pipeline/spec-card.md" ]'
+_c150 "D5: scope: [] is NOT reported as a declared scope" \
+    '! printf "%s" "$G150_EO" | sed "s/\x1b\[[0-9;]*m//g" | grep -q "✓ Agent empty — write scope declared"'
+_c150 "verify-apd §6: an agent declaring its scope by the YAML key passes both scope checks (was 'NOT registered' + 'neither')" \
+    'printf "%s" "$G150_EO" | sed "s/\x1b\[[0-9;]*m//g" | grep -q "✓ Agent api — write scope declared" && printf "%s" "$G150_EO" | sed "s/\x1b\[[0-9;]*m//g" | grep -q "✓ Agent api — scope declared by the YAML"'
+_c150 "/apd-audit step 1 runs verify-apd with --no-e2e" \
+    'grep -q "core/verify-apd --no-e2e" "$APD_PLUGIN_ROOT/../../skills/apd-audit/SKILL.md"'
+G150_DO=$(cd "$G150_E" && APD_PROJECT_DIR="$G150_E" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-doctor" 2>&1)
+_c150 "doctor in a CC session on a hybrid project names .claude/bin/apd (was .codex/bin/apd)" \
+    'printf "%s" "$G150_DO" | grep -q "apd shortcut exists (.claude/bin/apd)"'
+G150_DC=$(cd "$G150_E" && APD_PROJECT_DIR="$G150_E" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-doctor" 2>&1)
+_c150 "… and a Codex session on the same project names .codex/bin/apd" \
+    'printf "%s" "$G150_DC" | grep -q "apd shortcut exists (.codex/bin/apd)"'
+
+# ---------------------------------------------------------------- the premise, re-measured
+_c150 "agent-scope.sh states the re-measure: per-agent hooks are attempted and fail to launch on CC 2.1.259+" \
+    'grep -q "not associated with a" "$APD_PLUGIN_ROOT/bin/lib/agent-scope.sh" && grep -q "2.1.259" "$APD_PLUGIN_ROOT/../../skills/apd-audit/SKILL.md"'
+rm -rf "$G150_T"
 
 
 
