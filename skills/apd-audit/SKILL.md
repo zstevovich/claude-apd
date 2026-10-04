@@ -196,7 +196,7 @@ Check `.claude/memory/`:
 
 ### 8. Drift Detection (v6.10+)
 
-Run the dedicated drift script — it scans four dimensions where projects typically lag behind the framework baseline:
+Run the dedicated drift script — it scans five dimensions where projects typically lag behind the framework baseline:
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-audit-drift
@@ -210,9 +210,11 @@ bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/pipeline-audit-drift
 
 4. **Feature claim drift** (v6.12.3+) — scans `workflow.md` and `CLAUDE.md` for orchestrator confabulation patterns claiming features the framework does not ship. Specifically: any line that mentions BOTH a contracts command (`verify-contracts`, `apd contracts`) AND an unsupported language (PHP/Python/Java/Go/Ruby/Kotlin/Rust). First documented instance: Festico apd-setup (2026-05-28) — orchestrator wrote "apd verify-contracts automatically checks PHP DTO ↔ TS types" which is false; framework supports TS ↔ C# only. Detection prevents silent gaps in cross-layer review coverage where humans rely on a feature that errors at runtime.
 
+5. **Every other file the framework copies into the project** (v7.3) — the three review agents (`code-reviewer`, `adversarial-reviewer`, `supervisor`), the builder charter block inside each builder, and on Codex `AGENTS.md`, `.apd/rules/{brainstorm,tdd,debug,finish}.md`, the Codex `workflow.md` and the Codex review agents. Each is compared with the framework's CURRENT text and with its shipped-copy record under `.apd/.shipped/`: record ≠ framework text = the merge has not happened (IMPORTANT); no record and an older shipped text = init refreshes it (IMPORTANT); no record and an EARLIER shipped text with local edits = init merges from the nearest earlier text the plugin ships (`templates/shipped-history.d/`) (IMPORTANT); no record and no stored earlier text for that file (the two workflow.md copies) = edited and cut off from updates (IMPORTANT); local edits on the current text = INFO; a file that shares less than half its lines with every text the framework shipped (a hand-written `AGENTS.md`, a project's own reviewer) is the PROJECT'S OWN — INFO, not tracked, never given a record. `principles.md` is NOT tracked — init seeds it and `/apd-setup` rewrites it for the project. A CONFLICT is reported by init with a recipe that names three files on disk: the copy, the record (`.apd/.shipped/<key>.md`) and the framework's text for this project (`.apd/.shipped/<key>.new.md`). `model:`/`effort:` lines belong to `apd profile` and are never a difference. This is the dimension that sees what dimension 2 cannot: init raises `APD_VERSION` on every run, so the version says nothing about which text the agents carry (measured: three agents one release behind, version current, drift CLEAN — before v7.3).
+
 **Output buckets:** CRITICAL (drift blocks pipeline structurally, rare) / IMPORTANT (drift compromises guard coverage or orchestrator guidance, most common) / INFO (patch-level, non-blocking) / CLEAN (project tracks current baseline).
 
-**Recovery:** all drift findings point to `/apd-setup` (v6.10+ auto-fixes settings.json missing patterns + refreshes workflow.md + bumps `APD_VERSION` in `.apd-config`). Manual fixes are documented per item in the drift script output.
+**Recovery:** all drift findings point to `/apd-setup` (v6.10+ auto-fixes settings.json missing patterns + refreshes workflow.md + bumps `APD_VERSION` in `.apd-config`); dimension-5 findings are fixed by `apd init --quick` itself (it merges or refreshes, with a backup) — the agent text takes effect in the next session. Manual fixes are documented per item in the drift script output.
 
 **Exit code:** drift script exits 1 if any CRITICAL or IMPORTANT finding, 0 if only INFO or CLEAN. Use in CI / pre-commit hooks if desired.
 

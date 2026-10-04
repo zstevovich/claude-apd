@@ -361,7 +361,11 @@ fi
 # a user-authored file.
 AGENTS_TEMPLATE="$APD_PLUGIN_ROOT/templates/codex/AGENTS.md"
 if [ ! -f "$PROJECT_DIR/AGENTS.md" ] && [ -f "$AGENTS_TEMPLATE" ]; then
-    sed "s/{{PROJECT_NAME}}/$(basename "$PROJECT_DIR")/g" "$AGENTS_TEMPLATE" > "$PROJECT_DIR/AGENTS.md"
+    # v7.3: a literal substitution — the same render the shipped-copy sync compares against
+    APD_SS_NAME="$(basename "$PROJECT_DIR")" LC_ALL=C awk 'BEGIN { name = ENVIRON["APD_SS_NAME"]; ph = "{{PROJECT_NAME}}" } { out = ""; s = $0; while ((i = index(s, ph)) > 0) { out = out substr(s, 1, i - 1) name; s = substr(s, i + length(ph)) } print out s }' "$AGENTS_TEMPLATE" > "$PROJECT_DIR/AGENTS.md"
+    # v7.3: the shipped-copy record (lib/shipped-sync.sh) — taken BEFORE the Stack
+    # row is filled in below, so that fill is a local edit init merges around.
+    mkdir -p "$PROJECT_DIR/.apd/.shipped" 2>/dev/null && cp "$PROJECT_DIR/AGENTS.md" "$PROJECT_DIR/.apd/.shipped/cdx-agents-md.md" 2>/dev/null || true
     # Fill the Stack table row from detected stacks — the row shipped as an unfilled
     # "Fill during project setup" placeholder, so the Codex orchestrator read a generic
     # instruction instead of the real stack (Codex audit 2026-07-14). Detection only;
@@ -405,6 +409,7 @@ if [ -d "$CDX_RULES_SRC" ]; then
         dst="$PROJECT_DIR/.apd/rules/$rule.md"
         if [ -f "$src" ] && [ ! -f "$dst" ]; then
             cp "$src" "$dst"
+            mkdir -p "$PROJECT_DIR/.apd/.shipped" 2>/dev/null && cp "$src" "$PROJECT_DIR/.apd/.shipped/cdx-rule-$rule.md" 2>/dev/null || true   # v7.3 record
             echo "[wrote] .apd/rules/$rule.md"
             CHANGES=$((CHANGES + 1))
         fi
@@ -429,6 +434,7 @@ if [ ! -d "$PROJECT_DIR/.claude" ]; then
         sed 's|\.claude/bin/apd|.codex/bin/apd|g' \
             "$APD_PLUGIN_ROOT/rules/workflow.md" \
             > "$PROJECT_DIR/.apd/rules/workflow.md"
+        mkdir -p "$PROJECT_DIR/.apd/.shipped" 2>/dev/null && cp "$PROJECT_DIR/.apd/rules/workflow.md" "$PROJECT_DIR/.apd/.shipped/cdx-workflow.md" 2>/dev/null || true   # v7.3 record
         echo "[wrote] .apd/rules/workflow.md (shortcut paths rewritten to .codex/)"
         CHANGES=$((CHANGES + 1))
     fi
@@ -935,10 +941,12 @@ hooks_path = Path(sys.argv[1])
 script = sys.argv[2]
 out_path = Path(sys.argv[3])
 
+# v7.3: 30 s (was 10). session-start runs apd-init, which now also syncs every
+# copied file; a hook cancelled on timeout would stop init half way.
 desired = {
     "type": "command",
     "command": f"bash {script}",
-    "timeout": 10,
+    "timeout": 30,
 }
 marker = "bin/adapter/cdx/session-start"
 

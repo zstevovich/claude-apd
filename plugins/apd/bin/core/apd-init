@@ -56,9 +56,42 @@ fi
 # --- Visual helpers ---
 source "$(dirname "$0")/../lib/style.sh"
 source "$(dirname "$0")/../lib/workflow-markers.sh"
+source "$(dirname "$0")/../lib/shipped-sync.sh"   # v7.3: one sync for every copied file
 
 FIXES=0
 SKIPS=0
+
+# v7.3: every agent init writes from a template goes through the SAME render the
+# shipped-copy sync compares against (lib/shipped-sync.sh). The old
+# `sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g"` read `&`, `/` and `\` in a project's
+# name as sed syntax — "Plaz&ma" came out as "Plaz{{PROJECT_NAME}}ma".
+# _init_backup <file> <slot> → 0 when a backup HOLDING the file's current content
+# exists; INIT_BAK names it. The slot is first-wins only for the same content: a
+# slot that already holds another text gets a numbered sibling, so the copy
+# replaced now is never in no file at all (audit-730 pass 3).
+_init_backup() {
+    INIT_BAK="$2"
+    if [ -f "$INIT_BAK" ]; then
+        cmp -s "$INIT_BAK" "$1" && return 0
+        INIT_BAK="$2.$(date +%s).$$"
+    fi
+    cp -p "$1" "$INIT_BAK" 2>/dev/null
+}
+
+_init_render_agent() {   # <template> <destination> → 0 when the agent was written
+    # `agentraw`: the TEMPLATE's model:/effort: — a creation or a marker refresh
+    # writes the template as it is, and the pin logic around the call decides
+    # what the profile owns (audit-730 F1: carrying the project's pins here kept
+    # a stale `effort: low` through a refresh that used to reset it).
+    # Written THROUGH the destination (`cat >`), so a symlinked agent stays a
+    # symlink (F6), and a destination that cannot be written says so.
+    local _t
+    _t=$(mktemp -t apd-agent.XXXXXX 2>/dev/null) || { warn "$(basename "$2"): no temp file (TMPDIR?) — not written"; return 1; }
+    if _ss_render agentraw "$1" "$2" "$_t" && { cat "$_t" > "$2"; } 2>/dev/null; then rm -f "$_t"; return 0; fi
+    rm -f "$_t"
+    warn "$(basename "$2"): could not write $2 — left as it was (check permissions)"
+    return 1
+}
 
 apd_logo
 apd_header "Init"
@@ -339,6 +372,23 @@ if [ "$MODE" = "update" ]; then
     REVIEWER_PIN=$(awk '/^model:/ {print $2; exit}' "$APD_PLUGIN_ROOT/templates/reviewer-template.md" 2>/dev/null)
     ADVERSARIAL_PIN=$(awk '/^model:/ {print $2; exit}' "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" 2>/dev/null)
 
+    # v7.3: a PURE-CODEX project (config in .apd/, no .claude/ directory) gets no
+    # CC-native step. Until now this whole section ran for it: every session start
+    # (the Codex session-start hook calls init) created .claude/rules/workflow.md,
+    # .claude/memory/* and .claude/.apd-version and tried to write CC review
+    # agents — the Codex runtime imposing .claude/ on a project that never asked
+    # for it, after which the installer and the resolver treated the project as a
+    # hybrid and read the CC copy of the rules. Measured 2026-10-03 on a fixture.
+    CC_SIDE=true
+    case "${APD_CONFIG_FILE:-}" in
+        "$PROJECT_DIR"/.apd/*) [ -d "$CLAUDE_DIR" ] || CC_SIDE=false ;;
+    esac
+    if [ "$CC_SIDE" = false ]; then
+        ok "pure-Codex project — CC-native steps skipped (.claude/ is not created)"
+    elif [ ! -f "$CLAUDE_DIR/.apd-config" ] && [ ! -d "$CLAUDE_DIR/agents" ] && [ -f "$PROJECT_DIR/.apd/config" ] && [ -d "$PROJECT_DIR/.codex" ]; then
+        warn ".claude/ holds no APD config and no agents while the project is configured in .apd/config — it was most likely created by an APD init before v7.3 on a pure-Codex project. It makes APD read .claude/rules/workflow.md instead of .apd/rules/workflow.md; if Claude Code is not used here, remove .claude/ by hand"
+    fi
+    if [ "$CC_SIDE" = true ]; then
     # --- code-reviewer agent ---
     if [ -f "$CLAUDE_DIR/agents/code-reviewer.md" ]; then
         # Check model. Three-way since v7.0, because "a profile is declared" and
@@ -368,16 +418,22 @@ if [ "$MODE" = "update" ]; then
         # Check scope directive (v4.7.10+) — regenerate if missing
         if ! grep -q 'reviewed-files' "$CLAUDE_DIR/agents/code-reviewer.md" 2>/dev/null; then
             if [ -f "$APD_PLUGIN_ROOT/templates/reviewer-template.md" ]; then
-                sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/reviewer-template.md" > "$CLAUDE_DIR/agents/code-reviewer.md"
-                fix "code-reviewer: refreshed from template (added .reviewed-files scope directive)"
-                FIXES=$((FIXES + 1))
+                # (audit-730, pre-existing) this refresh replaced the whole file with no
+                # backup — every local line of an old customised reviewer was lost
+                if ! _init_backup "$CLAUDE_DIR/agents/code-reviewer.md" "$CLAUDE_DIR/agents/code-reviewer.md.bak.pre-v$APD_VER"; then
+                    warn "code-reviewer: no .reviewed-files directive, but the backup could not be written — NOT refreshed (never without a backup)"
+                elif _init_render_agent "$APD_PLUGIN_ROOT/templates/reviewer-template.md" "$CLAUDE_DIR/agents/code-reviewer.md"; then
+                    fix "code-reviewer: refreshed from template (added .reviewed-files scope directive; previous copy kept as $(basename "$INIT_BAK"))"
+                    FIXES=$((FIXES + 1))
+                fi
             fi
         fi
     else
         if [ -f "$APD_PLUGIN_ROOT/templates/reviewer-template.md" ]; then
-            sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/reviewer-template.md" > "$CLAUDE_DIR/agents/code-reviewer.md"
-            fix "Created code-reviewer.md (${REVIEWER_PIN:-template pin}/max, read-only)"
-            FIXES=$((FIXES + 1))
+            if _init_render_agent "$APD_PLUGIN_ROOT/templates/reviewer-template.md" "$CLAUDE_DIR/agents/code-reviewer.md"; then
+                fix "Created code-reviewer.md (${REVIEWER_PIN:-template pin}/max, read-only)"
+                FIXES=$((FIXES + 1))
+            fi
         fi
     fi
 
@@ -420,8 +476,9 @@ if [ "$MODE" = "update" ]; then
         if [ -n "$MISSING_MARKER" ]; then
             if [ -f "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" ]; then
                 # Rule 0: the refresh REPLACES the file — keep what was there (first backup per version wins).
-                [ -f "$CLAUDE_DIR/agents/adversarial-reviewer.md.bak.pre-v$APD_VER" ] \
-                    || cp -p "$CLAUDE_DIR/agents/adversarial-reviewer.md" "$CLAUDE_DIR/agents/adversarial-reviewer.md.bak.pre-v$APD_VER" 2>/dev/null || true
+              if ! _init_backup "$CLAUDE_DIR/agents/adversarial-reviewer.md" "$CLAUDE_DIR/agents/adversarial-reviewer.md.bak.pre-v$APD_VER"; then
+                warn "adversarial-reviewer: missing $MISSING_MARKER, but the backup could not be written — NOT refreshed (never without a backup)"
+              else
                 # The template carries the DEFAULT model/effort. When a profile is
                 # declared, the profile owns those lines — refreshing blind would
                 # silently revert a burn/eco project to sonnet on the next
@@ -429,7 +486,7 @@ if [ "$MODE" = "update" ]; then
                 PREV_MODEL=$(grep -m1 '^model:' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null || true)
                 PREV_EFFORT=$(grep -m1 '^effort:' "$CLAUDE_DIR/agents/adversarial-reviewer.md" 2>/dev/null || true)
 
-                sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" > "$CLAUDE_DIR/agents/adversarial-reviewer.md"
+                if _init_render_agent "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" "$CLAUDE_DIR/agents/adversarial-reviewer.md"; then
 
                 # Restore the profile-applied pin only if the profile actually
                 # owns this role; otherwise the template pin IS the intent.
@@ -439,15 +496,18 @@ if [ "$MODE" = "update" ]; then
                     rm -f "$CLAUDE_DIR/agents/adversarial-reviewer.md.bak"
                 fi
 
-                fix "adversarial-reviewer: refreshed from template (added $MISSING_MARKER)"
+                fix "adversarial-reviewer: refreshed from template (added $MISSING_MARKER; previous copy kept as $(basename "$INIT_BAK"))"
                 FIXES=$((FIXES + 1))
+                fi   # written
+              fi   # backup exists
             fi
         fi
     else
         if [ -f "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" ]; then
-            sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" > "$CLAUDE_DIR/agents/adversarial-reviewer.md"
-            fix "Created adversarial-reviewer.md (${ADVERSARIAL_PIN:-template pin}/max, context-free review)"
-            FIXES=$((FIXES + 1))
+            if _init_render_agent "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" "$CLAUDE_DIR/agents/adversarial-reviewer.md"; then
+                fix "Created adversarial-reviewer.md (${ADVERSARIAL_PIN:-template pin}/max, context-free review)"
+                FIXES=$((FIXES + 1))
+            fi
         fi
     fi
 
@@ -472,21 +532,24 @@ if [ "$MODE" = "update" ]; then
             # The project copy may carry local edits; a rewrite that drops them is
             # a deletion. Keep the first pre-refresh copy beside it (first-wins,
             # never overwritten) and name it in the fix line.
-            [ -f "$CLAUDE_DIR/agents/supervisor.md.bak.pre-v7.1" ] || cp "$CLAUDE_DIR/agents/supervisor.md" "$CLAUDE_DIR/agents/supervisor.md.bak.pre-v7.1" 2>/dev/null || true
-            sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/supervisor-template.md" > "$CLAUDE_DIR/agents/supervisor.md"
+            if ! _init_backup "$CLAUDE_DIR/agents/supervisor.md" "$CLAUDE_DIR/agents/supervisor.md.bak.pre-v7.1"; then
+                warn "supervisor: no Question/Notes contract, but the backup could not be written — NOT refreshed (never without a backup)"
+            elif _init_render_agent "$APD_PLUGIN_ROOT/templates/supervisor-template.md" "$CLAUDE_DIR/agents/supervisor.md"; then
             if _profile_owns supervisor; then
                 [ -n "$PREV_MODEL" ] && sed -i.bak "s|^model:.*|$PREV_MODEL|" "$CLAUDE_DIR/agents/supervisor.md" 2>/dev/null
                 [ -n "$PREV_EFFORT" ] && sed -i.bak "s|^effort:.*|$PREV_EFFORT|" "$CLAUDE_DIR/agents/supervisor.md" 2>/dev/null
                 rm -f "$CLAUDE_DIR/agents/supervisor.md.bak"
             fi
-            fix "supervisor: refreshed from template (added the Question/Notes contract; previous copy kept as supervisor.md.bak.pre-v7.1)"
+            fix "supervisor: refreshed from template (added the Question/Notes contract; previous copy kept as $(basename "$INIT_BAK"))"
             FIXES=$((FIXES + 1))
+            fi   # backup exists and the agent was written
         fi
     else
         if [ -f "$APD_PLUGIN_ROOT/templates/supervisor-template.md" ]; then
-            sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$APD_PLUGIN_ROOT/templates/supervisor-template.md" > "$CLAUDE_DIR/agents/supervisor.md"
-            fix "Created supervisor.md (frontier final review — every profile, Full mode)"
-            FIXES=$((FIXES + 1))
+            if _init_render_agent "$APD_PLUGIN_ROOT/templates/supervisor-template.md" "$CLAUDE_DIR/agents/supervisor.md"; then
+                fix "Created supervisor.md (frontier final review — every profile, Full mode)"
+                FIXES=$((FIXES + 1))
+            fi
         fi
     fi
 
@@ -537,9 +600,29 @@ block = (rest if end == -1 else rest[:end]).rstrip() + "\n\n"
 raw = open(agent_path, encoding="utf-8", newline="").read()
 eol = "\r\n" if "\r\n" in raw else "\n"
 body = raw.replace("\r\n", "\n")
-if MARK in body:
-    sys.exit(2)                      # already carries the charter
 lines = body.split("\n")
+# v7.3 (audit-730 F8): "already carries the charter" means a marker OUTSIDE a
+# code fence. A marker quoted in an example used to count, so that builder
+# never received a charter at all.
+# (pass 2, N2) …but a marker inside a fence that never CLOSES counts: for an
+# unterminated fence the insert position below is the end of the file, i.e.
+# inside it — skipping that marker appended one more block on every init.
+_fence = None
+_in_fence_mark = False
+for _l in lines:
+    _s = _l.lstrip()
+    if _fence is None:
+        if _s.startswith("```") or _s.startswith("~~~"):
+            _fence = _s[:3]
+            _in_fence_mark = False
+        elif MARK in _l:
+            sys.exit(2)              # already carries the charter
+    elif _s.startswith(_fence):
+        _fence = None
+    elif MARK in _l:
+        _in_fence_mark = True
+if _fence is not None and _in_fence_mark:
+    sys.exit(2)                      # the block sits in the unterminated fence
 
 # --- frontmatter bounds -----------------------------------------------------
 fm_end = 0
@@ -590,9 +673,8 @@ if fence is not None:
 out = "\n".join(lines[:ins]).rstrip() + "\n\n" + block + "\n".join(lines[ins:]).lstrip("\n")
 open(agent_path, "w", encoding="utf-8", newline="").write(out.replace("\n", eol))
 PYCHARTER
-            if grep -qF "$CHARTER_MARK" "$_ag" 2>/dev/null; then
-                CHARTER_ADDED=$((CHARTER_ADDED + 1))
-            fi
+            # reached only when the inserter exited 0 (`|| continue` above): a block was written
+            CHARTER_ADDED=$((CHARTER_ADDED + 1))
         done
         if [ "$CHARTER_ADDED" -gt 0 ]; then
             fix "Builder charter added to $CHARTER_ADDED agent(s) — how the diff is judged, where the bar rises, red-green proof"
@@ -658,176 +740,148 @@ PYCHARTER
     # orchestrator to write into section 7) described an instruction that the
     # skill never gave. Local edits are still honoured: by the merge, not by
     # leaving the file behind.
+    # v7.3: the state machine itself lives in lib/shipped-sync.sh (`_shipped_sync`)
+    # — the same code now carries the review agents, the builder charter,
+    # principles.md and the Codex-side copies (below). What stays here is what
+    # is workflow.md's own: the marker sweep and the wording of its recoveries.
     WF_SHIPPED="$APD_PLUGIN_ROOT/rules/workflow.md"
     WF_PROJECT="$CLAUDE_DIR/rules/workflow.md"
-    WF_RECORD="$PROJECT_DIR/.apd/.workflow.md.shipped"
-    WF_LOCK="$PROJECT_DIR/.apd/.workflow-merge.lock"
-    WF_HANDMERGE="git merge-file -p .claude/rules/workflow.md .apd/.workflow.md.shipped '$WF_SHIPPED' > /tmp/workflow.merged (edit the <<<<<<< markers there), cp /tmp/workflow.merged .claude/rules/workflow.md, then cp '$WF_SHIPPED' .apd/.workflow.md.shipped"
-    # (audit F9/F12) one reading of the record for both scripts: a regular, non-empty
-    # file is a record; missing or empty is "none"; a directory in its place is a
-    # broken record that must be removed by hand (never written into, never cmp-ed).
-    WF_REC=none
-    if [ -d "$WF_RECORD" ]; then WF_REC=dir; elif [ -f "$WF_RECORD" ] && [ -s "$WF_RECORD" ]; then WF_REC=ok; fi
-    WF_NOREC=false   # set when nothing under .apd/ can be written: the sweep still runs, the record does not
-    _wf_record() { [ "$WF_REC" = dir ] && return 1; [ "$WF_NOREC" = true ] && return 1; cp "$WF_SHIPPED" "$WF_RECORD" 2>/dev/null; }
-    # (audit F1 residual) the pre-audit backup slot was first-wins: a second refresh
-    # lost the edits made after the first. Never skip a backup — number the next one.
-    _wf_backup() {  # → WF_BAKNAME
-        local b="$WF_PROJECT.bak.preaudit"; [ -e "$b" ] && b="$b.$(date +%s).$$"   # epoch + pid: two refreshes in one second cannot collide
-        cp "$WF_PROJECT" "$b" 2>/dev/null && WF_BAKNAME=$(basename "$b")
-    }
-    # (audit F6/F7) a `fix` line was printed whether the copies succeeded or not — a
-    # read-only record meant "merged" every hour with nothing merged, and "backup:"
-    # named a file `cp` had refused to write. Nothing is applied without its backup,
-    # and every write is checked; a failure is a `warn` that names the file.
-    _wf_copy_writable() { [ -w "$WF_PROJECT" ] && [ -w "$(dirname "$WF_PROJECT")" ]; }
-    _wf_writable() {  # the copy, its directory (backups) AND the record — the merge path needs all three
-        _wf_copy_writable || return 1
-        [ "$WF_NOREC" = true ] && return 1
-        if [ "$WF_REC" = ok ]; then [ -w "$WF_RECORD" ]; else [ "$WF_REC" != dir ] && [ -w "$PROJECT_DIR/.apd" ]; fi
-    }
-    if [ -f "$WF_PROJECT" ] && [ -f "$WF_SHIPPED" ]; then
-        mkdir -p "$PROJECT_DIR/.apd" 2>/dev/null || true
-        [ "$WF_REC" = dir ] && warn "workflow.md: .apd/.workflow.md.shipped is a DIRECTORY — remove it (rmdir .apd/.workflow.md.shipped) so init can record the shipped copy; merges are off until then"
-        # (audit F4) two session starts at once ran this block concurrently: the
-        # slower one merged against a copy the faster one had already replaced
-        # and wrote the OLD result over the new — the framework change vanished
-        # while the record claimed it was applied. One holder at a time; a lock
-        # older than two minutes is a dead run (SIGKILL leaves it) and is reclaimed
-        # — whether it is a directory or (audit F11) a stray file. In practice a
-        # skipped run is retried when the hourly init cache expires (audit F13).
-        # (audit F11, pass 3) test the link itself: a symlink lock followed by -d could never be rmdir-ed, a dangling one was invisible to -e
-        WF_LOCK_STALE=false
-        if { [ -e "$WF_LOCK" ] || [ -L "$WF_LOCK" ]; } && [ -n "$(find "$WF_LOCK" -maxdepth 0 -mmin +2 2>/dev/null)" ]; then
-            WF_LOCK_STALE=true
-            if [ -L "$WF_LOCK" ] || [ ! -d "$WF_LOCK" ]; then rm -f "$WF_LOCK" 2>/dev/null || true; else rmdir "$WF_LOCK" 2>/dev/null || true; fi
-        fi
-        WF_HELD=false
-        if ! mkdir "$WF_LOCK" 2>/dev/null; then
-            if [ -e "$WF_LOCK" ] || [ -L "$WF_LOCK" ]; then
-                if [ "$WF_LOCK_STALE" = true ]; then
-                    # stale, and it could not be removed: .apd/ is not writable → the same path as an uncreatable lock
-                    WF_NOREC=true
-                    warn "workflow.md: a stale merge lock $WF_LOCK could not be removed (.apd/ not writable?) — the shipped-copy record and merges are off until that is fixed; stale-copy refresh still runs"
-                else
-                    WF_HELD=true
-                    ok "workflow.md (another init holds the merge lock $WF_LOCK — left for that run; a lock older than 2 min is reclaimed)"
-                fi
-            else
-                # (audit F10) the lock could not be created because .apd/ itself is not
-                # writable (or is a file): HEAD needed no .apd/ to refresh a stale copy,
-                # so the sweep still runs — without a record, and saying why.
-                WF_NOREC=true
-                warn "workflow.md: cannot write under .apd/ ($PROJECT_DIR/.apd not writable, or not a directory) — the shipped-copy record and merges are off until that is fixed; stale-copy refresh still runs"
-            fi
-        fi
-        if [ "$WF_HELD" = false ]; then
-            WF_DONE=false
-            # 1. (audit F1) a damaged or stale copy is refreshed in EVERY state, exactly
-            # as before v7.1.6 — empty file, stale guard paths, a missing guidance
-            # marker. The record is the merge base, not a licence to keep a broken
-            # copy: with the sweep gated on "no record", an emptied copy stayed empty
-            # and a deleted section rode through the merge as a "local edit".
-            WF_STALE_REASON=""
-            if [ ! -s "$WF_PROJECT" ]; then
-                WF_STALE_REASON="empty file"
-            elif grep -q 'CLAUDE_PLUGIN_ROOT' "$WF_PROJECT" 2>/dev/null || grep -qF '.claude/.pipeline' "$WF_PROJECT" 2>/dev/null; then
-                WF_STALE_REASON="stale paths"
-            else
-                for wf_marker in ${WORKFLOW_MARKERS[@]+"${WORKFLOW_MARKERS[@]}"}; do
-                    if grep -q "$wf_marker" "$WF_SHIPPED" 2>/dev/null \
-                       && ! grep -q "$wf_marker" "$WF_PROJECT" 2>/dev/null; then
-                        WF_STALE_REASON="missing '$wf_marker' guidance"
-                        break
-                    fi
-                done
-            fi
-            if [ -n "$WF_STALE_REASON" ]; then
-                WF_BAKNAME=""
-                if ! _wf_copy_writable; then
-                    warn "workflow.md: $WF_STALE_REASON, but .claude/rules/workflow.md or its directory is not writable — nothing changed"
-                elif _wf_backup && cp "$WF_SHIPPED" "$WF_PROJECT" 2>/dev/null; then
-                    fix "workflow.md: refreshed ($WF_STALE_REASON; backup: $WF_BAKNAME)"
-                    FIXES=$((FIXES + 1))
-                    if ! _wf_record && [ "$WF_NOREC" = false ] && [ "$WF_REC" != dir ]; then
-                        warn "workflow.md: the shipped-copy record .apd/.workflow.md.shipped could not be written — check permissions on .apd/"
-                    fi
-                else
-                    warn "workflow.md: $WF_STALE_REASON, but the backup or the copy could not be written${WF_BAKNAME:+ (backup made: $WF_BAKNAME)} — check permissions; it will be retried"
-                fi
-                WF_DONE=true
-            fi
-            # 2. the record: merge the framework's changes forward
-            if [ "$WF_DONE" = true ] || [ "$WF_REC" = dir ] || [ "$WF_NOREC" = true ]; then
-                :
-            elif [ "$WF_REC" = ok ] && ! cmp -s "$WF_RECORD" "$WF_SHIPPED"; then
-                # the framework's file changed since this project last took it
-                if ! _wf_writable; then
-                    warn "workflow.md: the framework's text changed, but .claude/rules/workflow.md, its directory or .apd/.workflow.md.shipped is not writable — nothing changed"
-                elif cmp -s "$WF_PROJECT" "$WF_RECORD"; then
-                    # no local edits: a plain refresh; the record IS the backup
-                    if cp "$WF_SHIPPED" "$WF_PROJECT" 2>/dev/null && _wf_record; then
-                        fix "workflow.md: refreshed from the shipped copy (framework text changed; no local edits)"
-                        FIXES=$((FIXES + 1))
-                    else
-                        warn "workflow.md: refresh from the shipped copy FAILED (copy or .apd/.workflow.md.shipped not written) — check permissions; it will be retried"
-                    fi
-                elif command -v git >/dev/null 2>&1; then
-                    WF_MERGED=$(mktemp -t apd-wfmerge.XXXXXX 2>/dev/null || echo "")
-                    if [ -z "$WF_MERGED" ] || ! cp "$WF_PROJECT" "$WF_MERGED" 2>/dev/null; then
-                        # (audit F8) not a conflict: no temp file
-                        warn "workflow.md: the framework's text changed but no temp file could be created for the merge (TMPDIR?) — copy left untouched"
-                    else
-                        WF_MRC=0
-                        git merge-file -L "project copy" -L "shipped when recorded" -L "shipped now" "$WF_MERGED" "$WF_RECORD" "$WF_SHIPPED" >/dev/null 2>&1 || WF_MRC=$?
-                        if [ "$WF_MRC" -eq 0 ]; then
-                            WF_BAK="$WF_PROJECT.bak.pre-v$APD_VER"
-                            if ! { [ -f "$WF_BAK" ] || cp "$WF_PROJECT" "$WF_BAK" 2>/dev/null; }; then
-                                warn "workflow.md: could not write the backup $(basename "$WF_BAK") — merge NOT applied (never without a backup)"
-                            elif ! cp "$WF_MERGED" "$WF_PROJECT" 2>/dev/null; then
-                                warn "workflow.md: could not write .claude/rules/workflow.md — merge NOT applied (backup kept)"
-                            elif ! _wf_record; then
-                                warn "workflow.md: merged, but .apd/.workflow.md.shipped could not be updated — it will be merged again until that file is writable"
-                            else
-                                fix "workflow.md: merged the framework's changes, local edits kept (backup: $(basename "$WF_BAK"))"
-                                FIXES=$((FIXES + 1))
-                            fi
-                        elif [ "$WF_MRC" -lt 128 ]; then
-                            # (audit F8) git merge-file returns the NUMBER of conflicts (1..127); anything higher is an error
-                            # (audit F3 residual) the hand command uses -p into a temp file — an in-place merge-file writes the markers into the LIVE rules file CC loads
-                            warn "workflow.md: the framework's changes CONFLICT with local edits ($WF_MRC hunk(s)) — copy left untouched. Resolve by hand: $WF_HANDMERGE; or take the shipped file: cp '$WF_SHIPPED' .claude/rules/workflow.md (back it up first). /apd-setup step 5c walks through it"
-                        else
-                            warn "workflow.md: git merge-file failed (exit $WF_MRC) — copy left untouched; by hand: $WF_HANDMERGE"
-                        fi
-                    fi
-                    [ -n "$WF_MERGED" ] && rm -f "$WF_MERGED"
-                else
-                    warn "workflow.md: the framework's text changed and git is not available to merge it — see /apd-setup step 5c"
-                fi
-            elif [ "$WF_REC" = ok ]; then
-                ok "workflow.md"   # framework unchanged since recorded; local edits, if any, are the project's (audit-drift reports them)
-            elif cmp -s "$WF_PROJECT" "$WF_SHIPPED"; then
-                if _wf_record; then ok "workflow.md (shipped-copy record started: .apd/.workflow.md.shipped)"
-                else warn "workflow.md: could not write the shipped-copy record .apd/.workflow.md.shipped (permissions?)"; fi
-            else
-                # No record (set up before v7.1.6) and a copy that differs: REPORTED
-                # here — init runs at session start, audit-drift does not — with the
-                # two honest recoveries; the record starts once one of them is done.
-                WF_DELTA=$(diff "$WF_SHIPPED" "$WF_PROJECT" 2>/dev/null | grep -c '^[<>]') || true
-                warn "workflow.md: differs from the shipped copy (${WF_DELTA:-?} line(s)) and there is no shipped-copy record to merge from. LOCAL EDITS to keep: cp '$WF_SHIPPED' .apd/.workflow.md.shipped (they become local, merged forward from now on — anything the framework changed before today stays unmerged and audit-drift keeps reporting the difference). An OLDER framework text: cp '$WF_SHIPPED' .claude/rules/workflow.md (back it up first). /apd-setup step 5c asks which"
-            fi
-            [ -d "$WF_LOCK" ] && { rmdir "$WF_LOCK" 2>/dev/null || true; }
-        fi
-    elif [ -f "$WF_SHIPPED" ]; then
-        mkdir -p "$CLAUDE_DIR/rules" "$PROJECT_DIR/.apd"
-        if cp "$WF_SHIPPED" "$WF_PROJECT" 2>/dev/null && _wf_record; then
-            fix "Copied workflow.md"
-            FIXES=$((FIXES + 1))
+    _wf_stale_reason() {
+        local wf_marker
+        if [ ! -s "$WF_PROJECT" ]; then
+            printf 'empty file'
+        elif grep -q 'CLAUDE_PLUGIN_ROOT' "$WF_PROJECT" 2>/dev/null || grep -qF '.claude/.pipeline' "$WF_PROJECT" 2>/dev/null; then
+            printf 'stale paths'
         else
-            warn "workflow.md: could not copy the shipped file or write .apd/.workflow.md.shipped — check permissions"
+            for wf_marker in ${WORKFLOW_MARKERS[@]+"${WORKFLOW_MARKERS[@]}"}; do
+                if grep -q "$wf_marker" "$WF_SHIPPED" 2>/dev/null \
+                   && ! grep -q "$wf_marker" "$WF_PROJECT" 2>/dev/null; then
+                    printf "missing '%s' guidance" "$wf_marker"
+                    break
+                fi
+            done
         fi
+    }
+    _ss_reset
+    SS_LABEL="workflow.md"
+    SS_SHIPPED="$WF_SHIPPED"; SS_PROJECT="$WF_PROJECT"
+    SS_RECORD="$PROJECT_DIR/.apd/.workflow.md.shipped"
+    SS_LOCK="$PROJECT_DIR/.apd/.workflow-merge.lock"
+    SS_DISP_PROJECT=".claude/rules/workflow.md"; SS_DISP_RECORD=".apd/.workflow.md.shipped"
+    SS_HANDMERGE="git merge-file -p .claude/rules/workflow.md .apd/.workflow.md.shipped '$WF_SHIPPED' > /tmp/workflow.merged (edit the <<<<<<< markers there), cp /tmp/workflow.merged .claude/rules/workflow.md, then cp '$WF_SHIPPED' .apd/.workflow.md.shipped"
+    SS_MSG_CONFLICT="; or take the shipped file: cp '$WF_SHIPPED' .claude/rules/workflow.md (back it up first). /apd-setup step 5c walks through it"
+    SS_MSG_NOGIT=" — see /apd-setup step 5c"
+    SS_MSG_NORECORD="LOCAL EDITS to keep: cp '$WF_SHIPPED' .apd/.workflow.md.shipped (they become local, merged forward from now on — anything the framework changed before today stays unmerged and audit-drift keeps reporting the difference). An OLDER framework text: cp '$WF_SHIPPED' .claude/rules/workflow.md (back it up first). /apd-setup step 5c asks which"
+    SS_STALE_FN=_wf_stale_reason
+    # v7.3: with no record, a copy whose hash is a text the framework shipped
+    # earlier is an unedited old copy — refreshed (backup kept). Projects set up
+    # before v7.1.6 and never taken through step 5c stayed on the old rules:
+    # four of eight local projects, 144–217 lines behind (measured 2026-10-03).
+    SS_HISTORY_KEY=cc-workflow
+    SS_CREATE=true
+    _shipped_sync
+
+    fi   # CC_SIDE (agents, charter, workflow.md)
+
+    # --- every other copy the framework ships into a project (v7.3) ---
+    # The registry (lib/shipped-sync.sh) lists them; audit-drift reads the same
+    # list. Until v7.3 each was written once, or refreshed only when a marker
+    # was missing — so a release that changed a template reached no installed
+    # project while APD_VERSION said it had (v7.2.4, measured on PLAZMA).
+    SS_TMP=$(mktemp -d -t apd-shipped.XXXXXX 2>/dev/null || echo "")
+    SS_AGENTS_CHANGED=0
+    if [ -n "$SS_TMP" ] && [ -d "$SS_TMP" ]; then
+        while IFS='|' read -r _ss_key _ss_kind _ss_tmpl _ss_rel; do
+            [ -n "$_ss_key" ] || continue
+            _ss_reset
+            SS_SHIPPED="$SS_TMP/$_ss_key.md"
+            SS_PIN_DEFAULTS="$APD_PLUGIN_ROOT/$_ss_tmpl"
+            _ss_render "$_ss_kind" "$APD_PLUGIN_ROOT/$_ss_tmpl" "$PROJECT_DIR/$_ss_rel" "$SS_SHIPPED" || continue
+            SS_LABEL="$_ss_rel"
+            SS_PROJECT="$PROJECT_DIR/$_ss_rel"
+            SS_RECORD=$(_ss_record_path "$_ss_key")
+            # model:/effort: belong to `apd profile` and the pin repair above: the
+            # record is compared with those two lines as the project has them NOW,
+            # or every profile switch would read as a framework change
+            SS_PIN_DEFAULTS="$APD_PLUGIN_ROOT/$_ss_tmpl"
+            [ "$_ss_kind" = agent ] && SS_PINS_FROM="$PROJECT_DIR/$_ss_rel"
+            SS_LOCK="$PROJECT_DIR/.apd/.shipped/.$_ss_key.lock"
+            SS_DISP_PROJECT="$_ss_rel"; SS_DISP_RECORD=".apd/.shipped/$_ss_key.md"
+            SS_HISTORY_KEY="$_ss_key"; SS_CANON_NAME=$(_ss_project_name "$_ss_kind"); SS_KIND="$_ss_kind"
+            SS_HANDMERGE="git merge-file -p $_ss_rel .apd/.shipped/$_ss_key.md .apd/.shipped/$_ss_key.new.md > /tmp/$_ss_key.merged (edit the <<<<<<< markers there), cp /tmp/$_ss_key.merged $_ss_rel, then cp .apd/.shipped/$_ss_key.new.md .apd/.shipped/$_ss_key.md"
+            SS_MSG_CONFLICT=" (.apd/.shipped/$_ss_key.new.md is the framework's text for this project). Or take the framework's text: cp .apd/.shipped/$_ss_key.new.md $_ss_rel (back the copy up first), then the same cp to the record"
+            SS_MSG_NOGIT=" — install git, or take the framework's text: move $_ss_rel aside and run apd init"
+            SS_MSG_NORECORD="No earlier shipped text is available as a merge base for it. It will not receive framework changes until a record exists: mkdir -p .apd/.shipped && cp <the framework text this copy was made from> .apd/.shipped/$_ss_key.md — or take the framework's text: move $_ss_rel aside and run apd init (current template: $APD_PLUGIN_ROOT/$_ss_tmpl)"
+            _shipped_sync
+            # a conflict: leave the framework's text for this project next to the record — the recipe names it
+            if [ "$SS_RESULT" = conflict ]; then cp "$SS_SHIPPED" "$PROJECT_DIR/.apd/.shipped/$_ss_key.new.md" 2>/dev/null || true
+            else rm -f "$PROJECT_DIR/.apd/.shipped/$_ss_key.new.md" 2>/dev/null || true; fi
+            case "$_ss_kind:$SS_RESULT" in
+                agent:refreshed|agent:merged) SS_AGENTS_CHANGED=$((SS_AGENTS_CHANGED + 1)) ;;
+            esac
+        done < <(_ss_registry)
+
+        # --- the builder charter: a block inside project-owned builder agents ---
+        if _ss_charter_shipped "$SS_TMP/charter.shipped" && [ -d "$CLAUDE_DIR/agents" ]; then
+            for _ag in "$CLAUDE_DIR"/agents/*.md; do
+                [ -f "$_ag" ] || continue
+                case "$(basename "$_ag")" in apd-verify-*) continue ;; esac
+                _ag_name=$(basename "$_ag" .md)
+                if ! _ss_charter_extract "$_ag" "$SS_TMP/charter.$_ag_name"; then
+                    # no block, a marker only inside a code fence, or more than one block
+                    _ch_n=$(grep -cF "$SS_CHARTER_MARK" "$_ag" 2>/dev/null) || true
+                    [ "${_ch_n:-0}" -gt 1 ] && warn "builder charter ($_ag_name): $_ch_n charter markers in .claude/agents/$_ag_name.md — the block is not synced until there is exactly one"
+                    continue
+                fi
+                if [ ! -w "$_ag" ]; then
+                    cmp -s "$SS_TMP/charter.$_ag_name" "$SS_TMP/charter.shipped" || warn "builder charter ($_ag_name): .claude/agents/$_ag_name.md is not writable — the charter block was not checked against the framework's"
+                    continue
+                fi
+                _ss_reset
+                SS_LABEL="builder charter ($_ag_name)"
+                SS_SHIPPED="$SS_TMP/charter.shipped"; SS_PROJECT="$SS_TMP/charter.$_ag_name"
+                SS_RECORD=$(_ss_record_path "charter-$_ag_name")
+                SS_LOCK="$PROJECT_DIR/.apd/.shipped/.charter-$_ag_name.lock"
+                SS_DISP_PROJECT="the charter block of .claude/agents/$_ag_name.md"; SS_DISP_RECORD=".apd/.shipped/charter-$_ag_name.md"
+                SS_HISTORY_KEY="charter"; SS_KIND=plain
+                SS_BACKUP_SRC="$_ag"
+                SS_HANDMERGE="edit the block that starts at '$SS_CHARTER_MARK' in .claude/agents/$_ag_name.md against the one in $APD_PLUGIN_ROOT/templates/agent-template.md"
+                SS_MSG_CONFLICT="; then delete .apd/.shipped/charter-$_ag_name.md so init records the new text on its next run"
+                SS_MSG_NOGIT=" — install git, or copy the block by hand from $APD_PLUGIN_ROOT/templates/agent-template.md"
+                SS_MSG_NORECORD="The block is not one the framework shipped in an earlier version, so it was edited here. It will not receive framework changes; to take the framework's block, replace it by hand from $APD_PLUGIN_ROOT/templates/agent-template.md"
+                # the record is committed only AFTER the block is back in the agent
+                # (SS_DEFER_RECORD → <record>.pending): a kill in between then leaves
+                # the old record with the old block, which the next init simply redoes
+                _ch_rec=$(_ss_record_path "charter-$_ag_name")
+                rm -f "$_ch_rec.pending" "$_ag".charter.[0-9]* 2>/dev/null   # leftovers of a killed run
+                SS_DEFER_RECORD=true
+                _shipped_sync
+                case "$SS_RESULT" in
+                    refreshed|merged)
+                        if _ss_charter_splice "$_ag" "$SS_TMP/charter.$_ag_name"; then
+                            [ -f "$_ch_rec.pending" ] && mv -f "$_ch_rec.pending" "$_ch_rec" 2>/dev/null
+                            SS_AGENTS_CHANGED=$((SS_AGENTS_CHANGED + 1))
+                        else
+                            rm -f "$_ch_rec.pending"
+                            warn "builder charter ($_ag_name): the new block could not be written into .claude/agents/$_ag_name.md — left as it was; it will be retried"
+                        fi ;;
+                    *)
+                        # nothing to splice (record started, or nothing changed): the pending record is the record
+                        [ -f "$_ch_rec.pending" ] && mv -f "$_ch_rec.pending" "$_ch_rec" 2>/dev/null ;;
+                esac
+            done
+        fi
+        rm -rf "$SS_TMP"
+        if [ "$SS_AGENTS_CHANGED" -gt 0 ]; then
+            # Agent definitions are read when a session starts: the running one
+            # keeps the text it loaded.
+            warn "$SS_AGENTS_CHANGED agent text(s) were updated from the framework — they take effect in the NEXT session (agent definitions are cached at session start)"
+        fi
+    else
+        warn "shipped-copy sync skipped: no temp directory (TMPDIR?)"
     fi
 
+if [ "$CC_SIDE" = true ]; then   # settings, legacy paths, memory, .apd-version — CC-native
     # --- settings.json: remove stale SessionStart hooks ---
     # Plugin hooks.json handles SessionStart via ${CLAUDE_PLUGIN_ROOT}.
     # Old project setups may override it with hardcoded paths that no longer exist.
@@ -1094,6 +1148,7 @@ print('%d added, %d legacy Write twin(s) stripped' % (added, stripped))
         fix "Updated .apd-version: $CURRENT_VER → $PLUGIN_VER"
         FIXES=$((FIXES + 1))
     fi
+fi   # CC_SIDE
 fi
 
 # ===========================================================

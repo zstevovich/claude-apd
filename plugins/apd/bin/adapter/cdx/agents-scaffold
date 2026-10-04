@@ -105,7 +105,18 @@ case "$SUB" in
         fi
 
         # Copy template with {{PROJECT_NAME}} substituted
-        sed "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$TEMPLATE" > "$TARGET"
+        # v7.3: a literal substitution (a name with `&` or `/` is not sed syntax),
+        # the same one the shipped-copy sync renders with
+        APD_SS_NAME="$PROJECT_NAME" LC_ALL=C awk 'BEGIN { name = ENVIRON["APD_SS_NAME"]; ph = "{{PROJECT_NAME}}" } { out = ""; s = $0; while ((i = index(s, ph)) > 0) { out = out substr(s, 1, i - 1) name; s = substr(s, i + length(ph)) } print out s }' "$TEMPLATE" > "$TARGET"
+        # v7.3: the review roles are tracked copies (lib/shipped-sync.sh) — record
+        # the text as shipped, before any scope override below (a local edit).
+        case "$(basename "$TARGET" .md)" in
+            code-reviewer|adversarial-reviewer)
+                case "$TARGET" in
+                    "$PROJECT_DIR"/.apd/agents/*)
+                        mkdir -p "$PROJECT_DIR/.apd/.shipped" 2>/dev/null && cp "$TARGET" "$PROJECT_DIR/.apd/.shipped/cdx-agent-$(basename "$TARGET")" 2>/dev/null || true ;;
+                esac ;;
+        esac
 
         # Scope override: if caller passed scope paths, rewrite the scope: block
         if [ "${#SCOPE_ARGS[@]}" -gt 0 ]; then

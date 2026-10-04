@@ -8874,9 +8874,12 @@ fi
 # that floor and adds the sanctioned path: a shipped-copy record + a three-way
 # `git merge-file` (local edits survive; a conflict leaves the file alone); the
 # marker sweep (list from lib/workflow-markers.sh) is the pre-record fallback.
-if grep -q 'WF_STALE_REASON' "$INIT_SCRIPT" && grep -q 'bak.preaudit' "$INIT_SCRIPT" \
-   && grep -q 'lib/workflow-markers.sh' "$INIT_SCRIPT" && grep -q 'git merge-file' "$INIT_SCRIPT" \
-   && ! grep -q 'WF_STALE_REASON="differs from the shipped' "$INIT_SCRIPT"; then
+# v7.3: the state machine moved to lib/shipped-sync.sh (shared with every other
+# copied file); init keeps workflow.md's marker sweep (`_wf_stale_reason`).
+SS_LIB_SCRIPT="$APD_PLUGIN_ROOT/bin/lib/shipped-sync.sh"
+if grep -q '_wf_stale_reason' "$INIT_SCRIPT" && grep -q 'SS_STALE_FN=_wf_stale_reason' "$INIT_SCRIPT" && grep -q 'bak.preaudit' "$SS_LIB_SCRIPT" \
+   && grep -q 'lib/workflow-markers.sh' "$INIT_SCRIPT" && grep -q 'git merge-file -L' "$SS_LIB_SCRIPT" \
+   && ! grep -q 'differs from the shipped' "$INIT_SCRIPT" && ! grep -q "printf 'differs" "$INIT_SCRIPT"; then
     pass "apd-init never overwrites workflow.md on a bare byte difference: markers refresh (pre-record) or a three-way merge (v7.1.6)"
     PASSES=$((PASSES + 1))
 else
@@ -16605,7 +16608,8 @@ if [ "$(id -u)" = 0 ]; then pass "stale lock inside a read-only .apd → sweep s
     _c139 "a stale lock that cannot be removed (.apd read-only): the stale-copy sweep still runs and init says why (audit F11 pass 3 + F10)" 'echo "$_o" | grep -q "stale merge lock.*could not be removed" && echo "$_o" | grep -q "missing .SUPERVISION. guidance" && cmp -s "$P/.claude/rules/workflow.md" "$G139_SH"'
 fi
 # (audit F12) an EMPTY record is no record for BOTH scripts
-P=$(_p139 p6er); cp "$G139_W/shipped.v1" "$P/.claude/rules/workflow.md"; : > "$P/$G139_REC"; _o=$(_i139 "$P"); _d=$(_d139 "$P")
+# v7.3: an UNEDITED earlier shipped text with no record is now refreshed by hash (§151), so the pre-record report needs a copy somebody edited
+P=$(_p139 p6er); cp "$G139_W/shipped.v1" "$P/.claude/rules/workflow.md"; printf '\nLOCAL-139-edit\n' >> "$P/.claude/rules/workflow.md"; : > "$P/$G139_REC"; _o=$(_i139 "$P"); _d=$(_d139 "$P")
 _c139 "empty record: init takes the pre-record path (warn with the two commands), drift reports the MISSING record, not 'changed since recorded' (audit F12)" 'echo "$_o" | grep -q "no shipped-copy record" && _imp139 "$_d" "differs from the shipped file" && echo "$_d" | grep -q "No shipped-copy record" && ! echo "$_d" | grep -q "changed since this project recorded it"'
 # 7. record = old, copy = old + a local edit elsewhere → clean merge keeps both, backup, record updated
 P=$(_p139 p7); { echo "LOCAL-ONLY top line"; cat "$G139_W/shipped.v1"; } > "$P/.claude/rules/workflow.md"; cp "$G139_W/shipped.v1" "$P/$G139_REC"; _o=$(_i139 "$P")
@@ -17994,6 +17998,455 @@ _c150 "… and a Codex session on the same project names .codex/bin/apd" \
 _c150 "agent-scope.sh states the re-measure: per-agent hooks are attempted and fail to launch on CC 2.1.259+" \
     'grep -q "not associated with a" "$APD_PLUGIN_ROOT/bin/lib/agent-scope.sh" && grep -q "2.1.259" "$APD_PLUGIN_ROOT/../../skills/apd-audit/SKILL.md"'
 rm -rf "$G150_T"
+
+
+section "151. One sync for every file the framework copies into a project: review agents, the builder charter, principles.md and the Codex copies follow the framework; drift reads content, not the version (v7.3.0)"
+
+# 2026-10-03, PLAZMA, one day after v7.2.4 changed the three review-agent
+# templates: `.apd-config` said APD_VERSION=7.2.4, `apd audit-drift` said CLEAN,
+# verify-apd and the doctor were green — and all three project agents were
+# byte-identical to the v7.2.3 templates. Three mechanisms, none covering it:
+# init raises APD_VERSION on every run whatever the agents carry; drift dimension
+# B compares that version, not content; init refreshes a review agent only when a
+# MARKER is missing. The same "written once" rule held for the builder charter
+# block, principles.md and every Codex-side copy (AGENTS.md, the four phase
+# rules, the Codex workflow.md, the Codex review agents). workflow.md alone had
+# the fix (v7.1.6: shipped-copy record + git merge-file). That state machine is
+# now lib/shipped-sync.sh and carries all of them; projects with no record are
+# recognised by the hash of every text the framework ever shipped
+# (templates/shipped-history).
+
+_c151() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+G151_W="$(mktemp -d -t apd-g151.XXXXXX)"; mkdir -p "$G151_W/plugin"; cp -R "$APD_PLUGIN_ROOT/." "$G151_W/plugin/"
+G151_T="$G151_W/plugin/templates"
+_i151() { ( cd "$1" && APD_PROJECT_DIR="$1" bash "$G151_W/plugin/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g'; }
+_d151() { ( cd "$1" && APD_PROJECT_DIR="$1" bash "$G151_W/plugin/bin/core/pipeline-audit-drift" 2>&1; echo "EXIT=$?" ) | sed 's/\x1b\[[0-9;]*m//g'; }
+_imp151() {  # <drift output> <pattern> → 0 when a matching line sits in the IMPORTANT bucket
+    printf '%s\n' "$1" | awk -v pat="$2" '/^IMPORTANT:/{s=1} /^INFO:/||/^CLEAN:/||/^CRITICAL:/{s=0} s && $0 ~ pat {f=1} END{exit f?0:1}'
+}
+_inf151() {  # … in the INFO bucket
+    printf '%s\n' "$1" | awk -v pat="$2" '/^INFO:/{s=1} /^IMPORTANT:/||/^CLEAN:/||/^CRITICAL:/{s=0} s && $0 ~ pat {f=1} END{exit f?0:1}'
+}
+
+# ---------------------------------------------------------------- a project, set up by init
+G151_P="$G151_W/proj"; mkdir -p "$G151_P/.claude/agents" "$G151_P/src"
+( cd "$G151_P" && git init -q . 2>/dev/null; git config user.email t@t.io; git config user.name t )
+( cd "$G151_P" && APD_PROJECT_DIR="$G151_P" CLAUDE_PLUGIN_OPTION_PROJECT_NAME='Plaz&ma' CLAUDE_PLUGIN_OPTION_STACK=dotnet CLAUDE_PLUGIN_OPTION_AUTHOR_NAME=t bash "$G151_W/plugin/bin/core/apd-init" --quick >/dev/null 2>&1 )
+printf -- '---\nname: backend\ntools: Read, Write, Edit, Bash\nmodel: claude-sonnet-5-5\nscope: [src/]\n---\n\nYou are the backend builder.\n\n## Stack\n- dotnet\n\n## Project rules\n- keep this line\n' > "$G151_P/.claude/agents/backend.md"
+printf -- '---\r\nname: winbuilder\r\ntools: Read, Write, Edit, Bash\r\nmodel: claude-sonnet-5-5\r\nscope: [src/]\r\n---\r\n\r\nYou build.\r\n\r\n## Stack\r\n- dotnet\r\n' > "$G151_P/.claude/agents/winbuilder.md"
+printf 'MODEL_PROFILE=eco\n' >> "$G151_P/.claude/.apd-config"   # a declared profile owns the model lines (init's pin repair stands down)
+_i151 "$G151_P" >/dev/null; G151_O=$(_i151 "$G151_P")
+G151_A="$G151_P/.claude/agents"; G151_R="$G151_P/.apd/.shipped"
+_c151 "setup: init starts a shipped-copy record for each review agent and each builder's charter (principles.md is the project's — no record)" \
+    '[ -s "$G151_R/cc-code-reviewer.md" ] && [ -s "$G151_R/cc-adversarial-reviewer.md" ] && [ -s "$G151_R/cc-supervisor.md" ] && [ -s "$G151_R/charter-backend.md" ] && [ -s "$G151_R/charter-winbuilder.md" ] && ! ls "$G151_R" | grep -q principles'
+_c151 "setup: a project name with & is substituted literally in the agents ({{PROJECT_NAME}} → Plaz&ma)" \
+    'grep -qF "for Plaz&ma." "$G151_A/code-reviewer.md" && ! grep -q "PROJECT_NAME" "$G151_A/code-reviewer.md"'
+G151_D=$(_d151 "$G151_P")
+_c151 "setup: drift reports nothing about the tracked copies of a fresh project" \
+    '! printf "%s" "$G151_D" | grep -q "agents/\|principles\|charter"'
+
+# ---------------------------------------------------------------- the PLAZMA shape: no record, an older shipped text, version current
+# The framework's three review templates change (as v7.2.4 did); the project's
+# copies are the previous shipped text; no record exists (set up before v7.3).
+rm -rf "$G151_R"
+for _t in reviewer adversarial-reviewer supervisor; do printf '\nNEWLINE-151 from the framework.\n' >> "$G151_T/$_t-template.md"; done
+sed -i.bak 's/^model: .*/model: claude-haiku-4-5/' "$G151_A/code-reviewer.md" && rm -f "$G151_A/code-reviewer.md.bak"   # a profile owns this line
+G151_D=$(_d151 "$G151_P")
+_c151 "NEGATIVE CONTROL: agents one framework text behind with APD_VERSION current — drift says IMPORTANT for all three (it said CLEAN)" \
+    '_imp151 "$G151_D" "agents/code-reviewer.md.*EARLIER version" && _imp151 "$G151_D" "agents/adversarial-reviewer.md.*EARLIER version" && _imp151 "$G151_D" "agents/supervisor.md.*EARLIER version"'
+_c151 "… and exits 1" 'printf "%s" "$G151_D" | grep -q "EXIT=1"'
+G151_O=$(_i151 "$G151_P")
+_c151 "init refreshes all three (older shipped text, no local edits) and keeps a backup of each" \
+    '[ "$(printf "%s\n" "$G151_O" | grep -c "agents/.*refreshed from the shipped copy (it carried an older shipped text")" = 3 ] && ls "$G151_A"/code-reviewer.md.bak.pre-v* "$G151_A"/adversarial-reviewer.md.bak.pre-v* "$G151_A"/supervisor.md.bak.pre-v* >/dev/null 2>&1'
+_c151 "… the copies carry the framework's new text" \
+    'grep -q "NEWLINE-151" "$G151_A/code-reviewer.md" && grep -q "NEWLINE-151" "$G151_A/adversarial-reviewer.md" && grep -q "NEWLINE-151" "$G151_A/supervisor.md"'
+_c151 "… the profile's model line survived the refresh (model:/effort: are the project's)" \
+    'grep -q "^model: claude-haiku-4-5$" "$G151_A/code-reviewer.md"'
+_c151 "… init says the new text takes effect in the next session" 'printf "%s" "$G151_O" | grep -q "NEXT session"'
+G151_D=$(_d151 "$G151_P")
+_c151 "after the refresh drift is silent about the agents" '! printf "%s" "$G151_D" | grep -q "agents/"'
+G151_O=$(_i151 "$G151_P")
+_c151 "a second init changes nothing (no refresh, no merge, no next-session notice)" \
+    '! printf "%s" "$G151_O" | grep -q "agents/.*\(refreshed\|merged\)" && ! printf "%s" "$G151_O" | grep -q "NEXT session"'
+
+# ---------------------------------------------------------------- a profile switch is not a framework change
+cp "$G151_R/cc-code-reviewer.md" "$G151_W/rec.before"
+sed -i.bak 's/^model: .*/model: claude-opus-5-5/' "$G151_A/code-reviewer.md" && rm -f "$G151_A/code-reviewer.md.bak"
+G151_O=$(_i151 "$G151_P"); G151_D=$(_d151 "$G151_P")
+_c151 "a changed model: line is neither a framework change nor a local edit (init: nothing; drift: nothing; record untouched)" \
+    '! printf "%s" "$G151_O" | grep -q "code-reviewer.md.*\(refreshed\|merged\)" && ! printf "%s" "$G151_D" | grep -q "code-reviewer" && cmp -s "$G151_R/cc-code-reviewer.md" "$G151_W/rec.before"'
+
+# ---------------------------------------------------------------- a local edit: kept, reported as INFO
+awk '{print} /^## Your role/ && !d {print ""; print "LOCAL-151 project rule."; d=1}' "$G151_A/supervisor.md" > "$G151_W/x" && cat "$G151_W/x" > "$G151_A/supervisor.md"
+G151_O=$(_i151 "$G151_P"); G151_D=$(_d151 "$G151_P")
+_c151 "a local edit with the framework's text unchanged: init leaves it, drift says INFO (not IMPORTANT)" \
+    'grep -q "LOCAL-151" "$G151_A/supervisor.md" && ! printf "%s" "$G151_O" | grep -q "supervisor.md.*\(refreshed\|merged\)" && _inf151 "$G151_D" "agents/supervisor.md.*local edits" && ! _imp151 "$G151_D" "agents/supervisor.md"'
+# … then the framework changes ANOTHER part of the file: merged, both kept
+printf '\nNEWER-151 second framework change.\n' >> "$G151_T/supervisor-template.md"
+G151_D=$(_d151 "$G151_P")
+_c151 "the framework's text changes again: drift says IMPORTANT (changed since recorded) until init merges" \
+    '_imp151 "$G151_D" "agents/supervisor.md.*changed since this project recorded"'
+G151_O=$(_i151 "$G151_P")
+_c151 "init MERGES: the local edit and the framework's change are both in the copy, backup kept" \
+    'printf "%s" "$G151_O" | grep -q "agents/supervisor.md: merged the framework.s changes, local edits kept" && grep -q "LOCAL-151" "$G151_A/supervisor.md" && grep -q "NEWER-151" "$G151_A/supervisor.md"'
+# … a change to the SAME line: conflict, copy untouched
+sed -i.bak 's/^## Exit criteria.*/## Exit criteria (project wording)/' "$G151_A/supervisor.md" && rm -f "$G151_A/supervisor.md.bak"
+sed -i.bak 's/^## Exit criteria.*/## Exit criteria (framework wording)/' "$G151_T/supervisor-template.md" && rm -f "$G151_T/supervisor-template.md.bak"
+cp "$G151_A/supervisor.md" "$G151_W/sup.before"
+G151_O=$(_i151 "$G151_P"); G151_D=$(_d151 "$G151_P")
+_c151 "a conflict on the same line: init says CONFLICT and leaves the copy byte-identical; drift keeps saying IMPORTANT" \
+    'printf "%s" "$G151_O" | grep -q "agents/supervisor.md: the framework.s changes CONFLICT" && cmp -s "$G151_A/supervisor.md" "$G151_W/sup.before" && _imp151 "$G151_D" "agents/supervisor.md.*changed since this project recorded"'
+_c151 "… and the by-hand recipe names three files that exist: the copy, the record, and the framework's text left as .new.md" \
+    'printf "%s" "$G151_O" | grep -q "git merge-file -p .claude/agents/supervisor.md .apd/.shipped/cc-supervisor.md .apd/.shipped/cc-supervisor.new.md" && [ -s "$G151_R/cc-supervisor.new.md" ] && grep -q "framework wording" "$G151_R/cc-supervisor.new.md" && [ -s "$G151_R/cc-supervisor.md" ]'
+
+# ---------------------------------------------------------------- no record, a text the framework never shipped
+rm -f "$G151_R/cc-adversarial-reviewer.md"; printf '\nSOMEBODY-EDITED-151\n' >> "$G151_A/adversarial-reviewer.md"; cp "$G151_A/adversarial-reviewer.md" "$G151_W/adv.before"
+G151_O=$(_i151 "$G151_P"); G151_D=$(_d151 "$G151_P")
+_c151 "no record + an edited copy: the edit is kept, the nearest earlier shipped text becomes the base and the record starts (was: reported forever)" \
+    'grep -q "SOMEBODY-EDITED-151" "$G151_A/adversarial-reviewer.md" && grep -q "NEWLINE-151" "$G151_A/adversarial-reviewer.md" && [ -s "$G151_R/cc-adversarial-reviewer.md" ] && ! printf "%s" "$G151_O" | grep -q "adversarial-reviewer.md: differs from the shipped copy"'
+
+# ---------------------------------------------------------------- no record + local edits on an EARLIER shipped text (efiskalizacija's code-reviewer)
+# The previous shipped text (from templates/shipped-history.d — no git needed) with
+# three local edits and no record: the framework's change since then must arrive,
+# and the three edits must stay.
+G151_E="$G151_W/edited"; mkdir -p "$G151_E/.claude/agents" "$G151_E/.claude/rules"; ( cd "$G151_E" && git init -q . 2>/dev/null )
+printf 'PROJECT_NAME=efis\nAPD_VERSION=%s\nSTACK=php\nMODEL_PROFILE=eco\n' "$(cat "$APD_PLUGIN_ROOT/VERSION")" > "$G151_E/.claude/.apd-config"
+cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$G151_E/.claude/rules/workflow.md"
+sed 's/{{PROJECT_NAME}}/efis/g' "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" > "$G151_E/.claude/agents/adversarial-reviewer.md"
+sed 's/{{PROJECT_NAME}}/efis/g' "$APD_PLUGIN_ROOT/templates/supervisor-template.md" > "$G151_E/.claude/agents/supervisor.md"
+G151_PREV=""; _best=999999
+for _f in "$APD_PLUGIN_ROOT"/templates/shipped-history.d/cc-code-reviewer/*.md; do   # the earlier text nearest to today's, i.e. the previous release's
+    _n=$(sed 's/^model:.*/model:/; s/^effort:.*/effort:/' "$APD_PLUGIN_ROOT/templates/reviewer-template.md" | diff - "$_f" | grep -c '^[<>]') || true
+    if [ "$_n" -gt 0 ] && [ "$_n" -lt "$_best" ]; then _best="$_n"; G151_PREV="$_f"; fi
+done
+sed 's/{{PROJECT_NAME}}/efis/g; s/^model:$/model: claude-opus-5-5/; s/^effort:$/effort: max/' "$G151_PREV" \
+    | awk '{print} /^memory:/ {print "scope: .claude/agent-memory/code-reviewer/"}' | sed 's/for efis\./for eFis./' > "$G151_E/.claude/agents/code-reviewer.md"
+printf '\nLOCAL-TAIL-151 project note.\n' >> "$G151_E/.claude/agents/code-reviewer.md"
+_dr151() { ( cd "$1" && APD_PROJECT_DIR="$1" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-audit-drift" 2>&1; echo "EXIT=$?" ) | sed 's/\x1b\[[0-9;]*m//g'; }   # the REAL plugin (this fixture is judged against today's templates)
+G151_D=$(_dr151 "$G151_E")
+_c151 "an EARLIER shipped text with local edits and no record: drift says IMPORTANT (made from an earlier text and edited)" \
+    '[ -n "$G151_PREV" ] && _imp151 "$G151_D" "agents/code-reviewer.md.*EARLIER shipped text and edited locally"'
+G151_O=$( ( cd "$G151_E" && APD_PROJECT_DIR="$G151_E" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c151 "init merges from the nearest earlier text: the framework's new paragraph arrives and all three local edits stay; backup kept" \
+    'printf "%s" "$G151_O" | grep -q "agents/code-reviewer.md: merged the framework.s changes, local edits kept .*nearest earlier shipped text" && grep -q "Your shell does not write into the project either" "$G151_E/.claude/agents/code-reviewer.md" && grep -q "^scope: .claude/agent-memory/code-reviewer/$" "$G151_E/.claude/agents/code-reviewer.md" && grep -q "for eFis\." "$G151_E/.claude/agents/code-reviewer.md" && grep -q "LOCAL-TAIL-151" "$G151_E/.claude/agents/code-reviewer.md" && ls "$G151_E"/.claude/agents/code-reviewer.md.bak.pre-v* >/dev/null 2>&1'
+G151_D=$(_dr151 "$G151_E")
+_c151 "… afterwards drift says INFO (local edits), not IMPORTANT, and the record exists" \
+    '_inf151 "$G151_D" "agents/code-reviewer.md.*local edits" && ! _imp151 "$G151_D" "agents/code-reviewer.md" && [ -s "$G151_E/.apd/.shipped/cc-code-reviewer.md" ]'
+
+# ---------------------------------------------------------------- the builder charter: a block inside a project-owned agent
+grep -v 'apd:builder-charter' "$G151_A/backend.md" | grep -q 'keep this line'   # fixture sanity
+sed -i.bak 's/Three independent passes read your diff/Three independent passes (v151) read your diff/' "$G151_T/agent-template.md" && rm -f "$G151_T/agent-template.md.bak"
+_tail151() { awk '/^## Stack/{f=1} f' "$1"; }
+_tail151 "$G151_A/backend.md" > "$G151_W/be.tail"; sed -n '1,/^---[[:space:]]*$/p' "$G151_A/backend.md" | head -6 > "$G151_W/be.head"
+G151_D=$(_d151 "$G151_P")
+_c151 "the charter text changes in the framework: drift says IMPORTANT for each builder's block" \
+    '_imp151 "$G151_D" "builder charter in .claude/agents/backend.md.*changed since" && _imp151 "$G151_D" "builder charter in .claude/agents/winbuilder.md.*changed since"'
+G151_O=$(_i151 "$G151_P")
+_c151 "init refreshes the charter block in both builders" \
+    'printf "%s" "$G151_O" | grep -q "builder charter (backend): refreshed" && printf "%s" "$G151_O" | grep -q "builder charter (winbuilder): refreshed" && grep -q "passes (v151) read" "$G151_A/backend.md" && grep -q "passes (v151) read" "$G151_A/winbuilder.md"'
+_c151 "… exactly one charter block per builder, and everything the project wrote around it is untouched" \
+    '[ "$(grep -c "apd:builder-charter" "$G151_A/backend.md")" = 1 ] && [ "$(grep -c "^## Charter" "$G151_A/backend.md")" = 1 ] && _tail151 "$G151_A/backend.md" | cmp -s - "$G151_W/be.tail" && grep -q "^You are the backend builder\.$" "$G151_A/backend.md" && grep -q "^scope: \[src/\]$" "$G151_A/backend.md"'
+_c151 "… a CRLF builder keeps CRLF on every line" \
+    '[ "$(LC_ALL=C grep -vc "$(printf "\r")\$" "$G151_A/winbuilder.md")" = 0 ]'
+_c151 "… a review agent (no Write) still carries no charter" '! grep -q "apd:builder-charter" "$G151_A/code-reviewer.md"'
+awk '{print} /^### Where the bar rises/ && !d {print ""; print "LOCAL-CHARTER-151"; d=1}' "$G151_A/backend.md" > "$G151_W/x" && cat "$G151_W/x" > "$G151_A/backend.md"
+sed -i.bak 's/^### If the same shape exists elsewhere/### If the same shape exists elsewhere (v151b)/' "$G151_T/agent-template.md" && rm -f "$G151_T/agent-template.md.bak"
+G151_O=$(_i151 "$G151_P")
+_c151 "a local edit inside the charter + a framework change elsewhere in it: merged, both kept" \
+    'printf "%s" "$G151_O" | grep -q "builder charter (backend): merged" && grep -q "LOCAL-CHARTER-151" "$G151_A/backend.md" && grep -q "elsewhere (v151b)" "$G151_A/backend.md" && [ "$(grep -c "apd:builder-charter" "$G151_A/backend.md")" = 1 ]'
+
+# … the same earlier text, but the local edit sits on the line next to the framework's change: a conflict with NO record
+G151_X="$G151_W/anc-conflict"; mkdir -p "$G151_X/.claude/agents" "$G151_X/.claude/rules"; ( cd "$G151_X" && git init -q . 2>/dev/null )
+cp "$G151_E/.claude/.apd-config" "$G151_X/.claude/.apd-config"; cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$G151_X/.claude/rules/workflow.md"
+cp "$G151_E/.claude/agents/adversarial-reviewer.md" "$G151_E/.claude/agents/supervisor.md" "$G151_X/.claude/agents/"
+sed 's/{{PROJECT_NAME}}/efis/g; s/^model:$/model: claude-opus-5-5/; s/^effort:$/effort: max/' "$G151_PREV" \
+    | sed 's/^- \*\*NEVER edit or create project source files\*\*.*/- **NEVER edit or create project source files** (project wording, edited)./; s/^- \*\*NEVER add AI signatures\*\*.*/- **NEVER add AI signatures** (project wording, edited)./' > "$G151_X/.claude/agents/code-reviewer.md"
+cp "$G151_X/.claude/agents/code-reviewer.md" "$G151_W/x.before"
+G151_O=$( ( cd "$G151_X" && APD_PROJECT_DIR="$G151_X" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c151 "no record + a conflicting local edit: CONFLICT, copy byte-identical, and the base it was merged against is kept as the record with the framework's text beside it" \
+    'printf "%s" "$G151_O" | grep -q "agents/code-reviewer.md: the framework.s changes CONFLICT" && cmp -s "$G151_X/.claude/agents/code-reviewer.md" "$G151_W/x.before" && [ -s "$G151_X/.apd/.shipped/cc-code-reviewer.md" ] && [ -s "$G151_X/.apd/.shipped/cc-code-reviewer.new.md" ] && ! grep -q "Your shell does not write" "$G151_X/.apd/.shipped/cc-code-reviewer.md" && grep -q "Your shell does not write" "$G151_X/.apd/.shipped/cc-code-reviewer.new.md"'
+( cd "$G151_X" && git merge-file -p .claude/agents/code-reviewer.md .apd/.shipped/cc-code-reviewer.md .apd/.shipped/cc-code-reviewer.new.md > "$G151_W/x.merged" 2>/dev/null; true )
+grep -v '^<<<<<<<\|^=======\|^>>>>>>>' "$G151_W/x.merged" > "$G151_X/.claude/agents/code-reviewer.md"; cp "$G151_X/.apd/.shipped/cc-code-reviewer.new.md" "$G151_X/.apd/.shipped/cc-code-reviewer.md"
+G151_O=$( ( cd "$G151_X" && APD_PROJECT_DIR="$G151_X" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c151 "… following the printed recipe (merge, resolve, copy .new.md onto the record) ends the conflict: init is quiet and removes .new.md" \
+    '! printf "%s" "$G151_O" | grep -q "code-reviewer.md.*\(CONFLICT\|differs\)" && [ ! -e "$G151_X/.apd/.shipped/cc-code-reviewer.new.md" ] && grep -q "project wording, edited" "$G151_X/.claude/agents/code-reviewer.md"'
+
+# ---------------------------------------------------------------- audit-730 pass 1
+_ri151() { ( cd "$1" && APD_PROJECT_DIR="$1" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g'; }   # init of the REAL plugin
+_fx151() {  # <dir> [profile] — a CC project with the three current review agents
+    mkdir -p "$1/.claude/agents" "$1/.claude/rules"; ( cd "$1" && git init -q . 2>/dev/null )
+    printf 'PROJECT_NAME=efis\nAPD_VERSION=%s\nSTACK=php\n' "$(cat "$APD_PLUGIN_ROOT/VERSION")" > "$1/.claude/.apd-config"
+    [ -n "${2:-}" ] && printf 'MODEL_PROFILE=%s\n' "$2" >> "$1/.claude/.apd-config"
+    cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$1/.claude/rules/workflow.md"
+    for _t in reviewer:code-reviewer adversarial-reviewer:adversarial-reviewer supervisor:supervisor; do
+        sed 's/{{PROJECT_NAME}}/efis/g' "$APD_PLUGIN_ROOT/templates/${_t%%:*}-template.md" > "$1/.claude/agents/${_t##*:}.md"
+    done
+}
+_prev151() { sed 's/{{PROJECT_NAME}}/efis/g; s/^model:$/model: claude-opus-5-5/; s/^effort:$/effort: max/' "$G151_PREV"; }   # the previous shipped code-reviewer, rendered
+
+# F1: a marker refresh writes the TEMPLATE's pins when no profile owns the role
+G151_F="$G151_W/f1"; _fx151 "$G151_F"
+grep -v '^### Notes' "$G151_F/.claude/agents/supervisor.md" | sed 's/^effort: .*/effort: low/' > "$G151_W/x" && cat "$G151_W/x" > "$G151_F/.claude/agents/supervisor.md"
+G151_O=$(_ri151 "$G151_F"); G151_TE=$(grep -m1 '^effort:' "$APD_PLUGIN_ROOT/templates/supervisor-template.md")
+_c151 "F1: a marker refresh with no profile declared resets a stale effort: to the template's (it kept 'effort: low' through the refresh)" \
+    'printf "%s" "$G151_O" | grep -q "supervisor: refreshed from template" && [ "$(grep -m1 "^effort:" "$G151_F/.claude/agents/supervisor.md")" = "$G151_TE" ] && [ "$G151_TE" != "effort: low" ]'
+
+# F2: a file the framework never wrote is the project's own — not tracked, not warned about, never given a record
+G151_F="$G151_W/f2"; _fx151 "$G151_F" eco; mkdir -p "$G151_F/.codex"
+{ printf '# efis — agent notes\n\n'; for _i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do printf 'Project rule %s: this file was written by the team, not by APD.\n' "$_i"; done; } > "$G151_F/AGENTS.md"
+{ printf -- '---\nname: code-reviewer\ntools: Read, Grep, Glob, Bash\nmodel: claude-opus-5-5\n---\n\n'; for _i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf 'House review rule %s. reviewed-files\n' "$_i"; done; } > "$G151_F/.claude/agents/code-reviewer.md"
+cp "$G151_F/AGENTS.md" "$G151_W/f2.agents"; cp "$G151_F/.claude/agents/code-reviewer.md" "$G151_W/f2.rev"
+G151_O=$(_ri151 "$G151_F"); G151_D=$(_dr151 "$G151_F")
+_c151 "F2: a hand-written AGENTS.md and a project-authored reviewer are left alone — no CONFLICT, no record, no .new.md, no warning" \
+    'cmp -s "$G151_F/AGENTS.md" "$G151_W/f2.agents" && cmp -s "$G151_F/.claude/agents/code-reviewer.md" "$G151_W/f2.rev" && printf "%s" "$G151_O" | grep -q "AGENTS.md (the project.s own text" && printf "%s" "$G151_O" | grep -q "agents/code-reviewer.md (the project.s own text" && ! printf "%s" "$G151_O" | grep -q "AGENTS.md.*\(CONFLICT\|differs\)" && [ ! -e "$G151_F/.apd/.shipped/cdx-agents-md.md" ] && [ ! -e "$G151_F/.apd/.shipped/cdx-agents-md.new.md" ] && [ ! -e "$G151_F/.apd/.shipped/cc-code-reviewer.md" ]'
+_c151 "F2: … drift calls them the project's own text (INFO), not IMPORTANT" \
+    '_inf151 "$G151_D" "AGENTS.md.*project.s own text" && _inf151 "$G151_D" "agents/code-reviewer.md.*project.s own text" && ! _imp151 "$G151_D" "AGENTS.md" && ! _imp151 "$G151_D" "agents/code-reviewer.md"'
+
+# F3: an edit on the CURRENT text (a line the framework did not touch recently) is an edit on the current text
+G151_F="$G151_W/f3"; _fx151 "$G151_F" eco
+sed 's/^- \*\*NEVER add AI signatures\*\*.*/- **NEVER add AI signatures** — house wording./' "$G151_F/.claude/agents/code-reviewer.md" > "$G151_W/x" && cat "$G151_W/x" > "$G151_F/.claude/agents/code-reviewer.md"; cp "$G151_F/.claude/agents/code-reviewer.md" "$G151_W/f3.before"
+G151_D=$(_dr151 "$G151_F"); G151_O=$(_ri151 "$G151_F")
+_c151 "F3: one reworded line on the current text, no record: drift INFO (no record yet), init starts the record, no CONFLICT, copy untouched" \
+    '_inf151 "$G151_D" "agents/code-reviewer.md.*local edits.*no record yet" && ! _imp151 "$G151_D" "agents/code-reviewer.md" && printf "%s" "$G151_O" | grep -q "agents/code-reviewer.md (local edits kept; shipped-copy record started" && cmp -s "$G151_F/.claude/agents/code-reviewer.md" "$G151_W/f3.before"'
+
+# N1 (pass 2): the previous text + a local paragraph at the same place the framework added one — the pending
+# framework change must NOT read as "local edits on the current text" (a tie went to the newer text and it was never delivered)
+G151_F="$G151_W/n1"; _fx151 "$G151_F" eco
+{ _prev151; printf '\nLOCAL-N1 paragraph appended by the project.\n'; } > "$G151_F/.claude/agents/code-reviewer.md"; cp "$G151_F/.claude/agents/code-reviewer.md" "$G151_W/n1.before"
+G151_D=$(_dr151 "$G151_F"); G151_O=$(_ri151 "$G151_F")
+_c151 "N1: an EARLIER text + local lines is never 'local edits on the current text': drift IMPORTANT, and init either delivers the framework's paragraph or reports a CONFLICT" \
+    '_imp151 "$G151_D" "agents/code-reviewer.md.*EARLIER shipped text and edited" && ! printf "%s" "$G151_O" | grep -q "code-reviewer.md (local edits kept; shipped-copy record started" && grep -q "LOCAL-N1" "$G151_F/.claude/agents/code-reviewer.md" && { grep -q "Your shell does not write into the project either" "$G151_F/.claude/agents/code-reviewer.md" || { printf "%s" "$G151_O" | grep -q "code-reviewer.md: the framework.s changes CONFLICT" && cmp -s "$G151_F/.claude/agents/code-reviewer.md" "$G151_W/n1.before"; }; }'
+G151_D=$(_dr151 "$G151_F")
+_c151 "N1: … and afterwards drift never says 'Effect: none' while the framework's paragraph is missing from the copy" \
+    'grep -q "Your shell does not write into the project either" "$G151_F/.claude/agents/code-reviewer.md" || _imp151 "$G151_D" "agents/code-reviewer.md"'
+
+# F4: an older text whose model: line is missing merges cleanly (the stored texts carry blank pins)
+G151_F="$G151_W/f4"; _fx151 "$G151_F" eco
+_prev151 | grep -v '^model:' > "$G151_F/.claude/agents/code-reviewer.md"
+G151_O=$(_ri151 "$G151_F")
+_c151 "F4: no record + the previous text without a model: line: the framework's change arrives without a CONFLICT, and the record is not a blank-pin text" \
+    '! printf "%s" "$G151_O" | grep -q "code-reviewer.md.*CONFLICT" && grep -q "Your shell does not write into the project either" "$G151_F/.claude/agents/code-reviewer.md" && ! grep -q "^model:$" "$G151_F/.apd/.shipped/cc-code-reviewer.md"'
+
+# F5: a CRLF agent stays CRLF and is compared in its own line endings
+G151_F="$G151_W/f5"; _fx151 "$G151_F" eco
+awk '{ printf "%s\r\n", $0 }' "$G151_F/.claude/agents/supervisor.md" > "$G151_W/x" && cat "$G151_W/x" > "$G151_F/.claude/agents/supervisor.md"; cp "$G151_F/.claude/agents/supervisor.md" "$G151_W/f5.sup"
+_prev151 | awk '{ printf "%s\r\n", $0 }' > "$G151_F/.claude/agents/code-reviewer.md"
+G151_O=$(_ri151 "$G151_F")
+_c151 "F5: a CRLF copy of the CURRENT text is current (record started, file untouched) — it was 'refreshed' to LF as an older text" \
+    'cmp -s "$G151_F/.claude/agents/supervisor.md" "$G151_W/f5.sup" && printf "%s" "$G151_O" | grep -q "agents/supervisor.md (shipped-copy record started" && ! printf "%s" "$G151_O" | grep -q "supervisor.md.*refreshed"'
+_c151 "F5: a CRLF copy of the PREVIOUS text is refreshed and every line is still CRLF" \
+    'printf "%s" "$G151_O" | grep -q "agents/code-reviewer.md: refreshed" && grep -q "Your shell does not write into the project either" "$G151_F/.claude/agents/code-reviewer.md" && [ "$(LC_ALL=C grep -vc "$(printf "\r")\$" "$G151_F/.claude/agents/code-reviewer.md")" = 0 ]'
+G151_O=$(_ri151 "$G151_F"); G151_D=$(_dr151 "$G151_F")
+_c151 "F5: … and the next init and drift see no difference in a CRLF agent" \
+    '! printf "%s" "$G151_O" | grep -q "agents/.*\(refreshed\|merged\|CONFLICT\)" && ! printf "%s" "$G151_D" | grep -q "agents/"'
+
+# F6 + the pre-existing marker refresh: a symlinked agent stays a symlink, and the refresh keeps a backup
+G151_F="$G151_W/f6"; _fx151 "$G151_F" eco; mkdir -p "$G151_F/shared"
+grep -v 'reviewed-files' "$G151_F/.claude/agents/code-reviewer.md" > "$G151_F/shared/rev.md"; printf '\nLOCAL-F6 line.\n' >> "$G151_F/shared/rev.md"
+rm -f "$G151_F/.claude/agents/code-reviewer.md"; ln -s ../../shared/rev.md "$G151_F/.claude/agents/code-reviewer.md"
+G151_O=$(_ri151 "$G151_F")
+_c151 "F6: the .reviewed-files marker refresh writes THROUGH a symlinked agent (still a symlink, target updated)" \
+    '[ -L "$G151_F/.claude/agents/code-reviewer.md" ] && grep -q "reviewed-files" "$G151_F/shared/rev.md"'
+_c151 "… and keeps the previous copy as a backup (it overwrote with none — every local line of a customised old reviewer was lost)" \
+    'ls "$G151_F"/.claude/agents/code-reviewer.md.bak.pre-v* >/dev/null 2>&1 && grep -q "LOCAL-F6" "$G151_F"/.claude/agents/code-reviewer.md.bak.pre-v*'
+
+# F8: a charter marker quoted inside a code fence is not the charter; two blocks are not synced
+G151_F="$G151_W/f8"; _fx151 "$G151_F" eco
+printf -- '---\nname: docs\ntools: Read, Write, Edit\nmodel: claude-sonnet-5-5\nscope: [docs/]\n---\n\nYou write docs.\n\n```\n<!-- apd:builder-charter -->\n## Charter — an example\n```\n\n## Stack\n- md\n' > "$G151_F/.claude/agents/docs.md"
+G151_O=$(_ri151 "$G151_F")   # init inserts a real charter (the marker text exists only inside the fence → the inserter sees it; see below)
+cp "$G151_F/.claude/agents/docs.md" "$G151_W/f8.docs"
+G151_O=$(_ri151 "$G151_F")
+_c151 "F8: a marker quoted inside a code fence is not the charter: the builder still receives a real one, outside the fence, and the example is intact" \
+    '[ "$(grep -c "apd:builder-charter" "$G151_W/f8.docs")" = 2 ] && grep -q "^## Charter — how this work will be judged" "$G151_W/f8.docs" && grep -q "^## Charter — an example" "$G151_W/f8.docs"'
+_c151 "F8: … and the next init leaves that agent byte-identical (one block outside the fence, synced as usual)" \
+    'cmp -s "$G151_F/.claude/agents/docs.md" "$G151_W/f8.docs" && ! printf "%s" "$G151_O" | grep -q "builder charter (docs).*\(CONFLICT\|refreshed\|merged\|markers\)"'
+awk '/apd:builder-charter/{f=1} /^## Stack/{f=0} f' "$APD_PLUGIN_ROOT/templates/agent-template.md" > "$G151_W/blk"
+{ printf -- '---\nname: twice\ntools: Read, Write, Edit\nmodel: claude-sonnet-5-5\nscope: [src/]\n---\n\nYou build.\n\n'; cat "$G151_W/blk"; printf '\n## Stack\n- x\n\n'; cat "$G151_W/blk"; } > "$G151_F/.claude/agents/twice.md"; cp "$G151_F/.claude/agents/twice.md" "$G151_W/f8.twice"
+G151_O=$(_ri151 "$G151_F")
+_c151 "F8: an agent with two charter blocks is not synced and init says why" \
+    'cmp -s "$G151_F/.claude/agents/twice.md" "$G151_W/f8.twice" && printf "%s" "$G151_O" | grep -q "builder charter (twice): 2 charter markers"'
+
+# N2 (pass 2): a builder whose body ends in an UNTERMINATED code fence gets one charter block, not one per init
+printf -- '---\nname: openfence\ntools: Read, Write, Edit\nmodel: claude-sonnet-5-5\nscope: [src/]\n---\n\nYou build.\n\n```\nan example that never closes\n' > "$G151_F/.claude/agents/openfence.md"
+_ri151 "$G151_F" >/dev/null; G151_N1=$(wc -l < "$G151_F/.claude/agents/openfence.md"); _ri151 "$G151_F" >/dev/null; _ri151 "$G151_F" >/dev/null
+_c151 "N2: an unterminated fence: three inits leave ONE charter marker and the same line count (it grew by a block per init)" \
+    '[ "$(grep -c "apd:builder-charter" "$G151_F/.claude/agents/openfence.md")" = 1 ] && [ "$(wc -l < "$G151_F/.claude/agents/openfence.md")" = "$G151_N1" ]'
+# R1 (pass 2): a marker refresh that cannot write says so and does not claim a fix
+G151_F="$G151_W/r1"; _fx151 "$G151_F" eco
+grep -v '^### Notes' "$G151_F/.claude/agents/supervisor.md" > "$G151_W/x" && cat "$G151_W/x" > "$G151_F/.claude/agents/supervisor.md"; : > "$G151_F/.claude/agents/supervisor.md.bak.pre-v7.1"
+chmod a-w "$G151_F/.claude/agents/supervisor.md"; G151_O=$(_ri151 "$G151_F"); chmod u+w "$G151_F/.claude/agents/supervisor.md"
+if [ "$(id -u)" = 0 ]; then pass "R1: (skipped as root — a read-only file is writable)"; PASSES=$((PASSES + 1)); else
+_c151 "R1: a supervisor marker refresh that cannot write the agent warns and prints no 'refreshed' fix" \
+    'printf "%s" "$G151_O" | grep -q "supervisor.md: could not write" && ! printf "%s" "$G151_O" | grep -q "supervisor: refreshed from template"'
+fi
+
+# N3 (pass 3): the nearest text is chosen by a MINIMAL diff. Apple's and GNU's plain diff are heuristics; a
+# non-minimal script made the NEXT release's text look nearer than the text the copy was made from, and the
+# newer base hid a framework line as a "local deletion". The auditor's case, rebuilt from the stored texts.
+G151_F="$G151_W/n3"; mkdir -p "$G151_F/.apd" "$G151_F/.codex"; ( cd "$G151_F" && git init -q . 2>/dev/null ); printf 'PROJECT_NAME=n3\n' > "$G151_F/.apd/config"
+G151_HD="$APD_PLUGIN_ROOT/templates/shipped-history.d/cdx-agents-md"
+G151_OLD=$(ls "$G151_HD"/edeac680*.md 2>/dev/null | head -1); G151_NXT=$(ls "$G151_HD"/d66f237c*.md 2>/dev/null | head -1)
+_c151 "N3 fixture: both stored AGENTS.md texts exist and the later one is the earlier one plus exactly one line" \
+    '[ -s "$G151_OLD" ] && [ -s "$G151_NXT" ] && [ "$(diff "$G151_OLD" "$G151_NXT" | grep -c "^[<>]")" = 1 ]'
+G151_LINE=$(diff "$G151_OLD" "$G151_NXT" | sed -n 's/^> //p' | head -1)
+# ten local edits spread over the file: every 17th non-empty line reworded (a deterministic stand-in for a project's edits)
+sed "s/{{PROJECT_NAME}}/$(basename "$G151_F")/g" "$G151_OLD" | awk 'NF { c++ } NF && c % 17 == 0 && e < 10 { print $0 " (project edit)"; e++; next } { print }' > "$G151_F/AGENTS.md"
+G151_O=$( ( cd "$G151_F" && APD_PROJECT_DIR="$G151_F" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c151 "N3: a copy made from an earlier text with ten local edits receives the line the NEXT release added (or a CONFLICT) — never 'merged' with that line missing" \
+    '[ -n "$G151_LINE" ] && { grep -qF "$G151_LINE" "$G151_F/AGENTS.md" || printf "%s" "$G151_O" | grep -q "AGENTS.md: the framework.s changes CONFLICT"; } && [ "$(grep -c "(project edit)" "$G151_F/AGENTS.md")" = 10 ]'
+_c151 "N3: the distance is computed with a minimal diff in both places" \
+    '[ "$(grep -c "n=\$(diff -d " "$APD_PLUGIN_ROOT/bin/lib/shipped-sync.sh")" = 2 ] && ! awk "/^_ss_ancestor\\(\\)/{f=1} f && /^}/{exit} f" "$APD_PLUGIN_ROOT/bin/lib/shipped-sync.sh" | grep -q "diff \"\$"'
+# a backup slot that already holds OTHER content gets a numbered sibling (pass 3)
+G151_F="$G151_W/bk"; _fx151 "$G151_F" eco
+printf 'an unrelated earlier backup\n' > "$G151_F/.claude/agents/code-reviewer.md.bak.pre-v$(cat "$APD_PLUGIN_ROOT/VERSION")"
+_prev151 > "$G151_F/.claude/agents/code-reviewer.md"; cp "$G151_F/.claude/agents/code-reviewer.md" "$G151_W/bk.before"
+G151_O=$(_ri151 "$G151_F")
+_c151 "a refresh whose backup slot already holds another text writes a numbered backup — the replaced copy is in a file" \
+    'printf "%s" "$G151_O" | grep -q "agents/code-reviewer.md: refreshed" && _found=0 && for _b in "$G151_F"/.claude/agents/code-reviewer.md.bak.pre-v*; do cmp -s "$_b" "$G151_W/bk.before" && _found=1; done && [ "$_found" = 1 ] && grep -q "an unrelated earlier backup" "$G151_F/.claude/agents/code-reviewer.md.bak.pre-v$(cat "$APD_PLUGIN_ROOT/VERSION")"'
+
+# K1 (pass 5): an init killed between the charter's record and its splice must be redone by the next init.
+# The killed state, built by hand: the record already holds the NEW block, the builder still has the OLD one.
+G151_F="$G151_W/k1"; _fx151 "$G151_F" eco
+printf -- '---\nname: api\ntools: Read, Write, Edit, Bash\nmodel: claude-sonnet-5-5\nscope: [src/]\n---\n\nYou build.\n\n## Stack\n- x\n' > "$G151_F/.claude/agents/api.md"
+_ri151 "$G151_F" >/dev/null
+mkdir -p "$G151_W/pk1"; cp -R "$APD_PLUGIN_ROOT/." "$G151_W/pk1/"
+sed -i.bak 's/Three independent passes read your diff/Three independent passes (k1) read your diff/' "$G151_W/pk1/templates/agent-template.md" && rm -f "$G151_W/pk1/templates/agent-template.md.bak"
+_ki151() { ( cd "$G151_F" && APD_PROJECT_DIR="$G151_F" "$@" bash "$G151_W/pk1/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g'; }
+# what a run killed right after the sync leaves behind under the NEW code: a .pending record, the old block
+awk '/apd:builder-charter/{f=1} /^## Stack/{f=0} f' "$G151_W/pk1/templates/agent-template.md" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > "$G151_F/.apd/.shipped/charter-api.md.pending"
+G151_O=$(_ki151 env)
+_c151 "K1: a charter sync interrupted before the splice is redone by the next init (the record is committed only after the block is in the agent)" \
+    'printf "%s" "$G151_O" | grep -q "builder charter (api): refreshed" && grep -q "passes (k1) read" "$G151_F/.claude/agents/api.md" && grep -q "passes (k1) read" "$G151_F/.apd/.shipped/charter-api.md" && [ ! -e "$G151_F/.apd/.shipped/charter-api.md.pending" ]'
+# … and the real thing: init KILLED right after the charter sync (before the splice), then a normal init
+G151_F2="$G151_W/k1b"; _fx151 "$G151_F2" eco
+printf -- '---\nname: api\ntools: Read, Write, Edit, Bash\nmodel: claude-sonnet-5-5\nscope: [src/]\n---\n\nYou build.\n\n## Stack\n- x\n' > "$G151_F2/.claude/agents/api.md"
+_ri151 "$G151_F2" >/dev/null
+mkdir -p "$G151_W/pk2"; cp -R "$APD_PLUGIN_ROOT/." "$G151_W/pk2/"
+sed -i.bak 's/Three independent passes read your diff/Three independent passes (k2) read your diff/' "$G151_W/pk2/templates/agent-template.md" && rm -f "$G151_W/pk2/templates/agent-template.md.bak"
+mkdir -p "$G151_W/pk2kill"; cp -R "$G151_W/pk2/." "$G151_W/pk2kill/"
+sed -i.bak 's/^\( *\)if _ss_charter_splice "\$_ag" /\1kill -9 $$; if _ss_charter_splice "$_ag" /' "$G151_W/pk2kill/bin/core/apd-init" && rm -f "$G151_W/pk2kill/bin/core/apd-init.bak"
+( cd "$G151_F2" && APD_PROJECT_DIR="$G151_F2" bash "$G151_W/pk2kill/bin/core/apd-init" --quick >/dev/null 2>&1 ) 2>/dev/null
+_c151 "K1 fixture: the killed init really died before the splice (the kill line was planted, the builder still has the old block)" \
+    'grep -q "kill -9" "$G151_W/pk2kill/bin/core/apd-init" && ! grep -q "passes (k2) read" "$G151_F2/.claude/agents/api.md"'
+rmdir "$G151_F2"/.apd/.shipped/.charter-api.lock 2>/dev/null
+G151_O=$( ( cd "$G151_F2" && APD_PROJECT_DIR="$G151_F2" bash "$G151_W/pk2/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c151 "K1: the init after a kill between the charter sync and the splice delivers the block (it read the half-done state as 'current, with local edits')" \
+    'grep -q "passes (k2) read" "$G151_F2/.claude/agents/api.md" && grep -q "passes (k2) read" "$G151_F2/.apd/.shipped/charter-api.md"'
+_c151 "K1: the charter record is deferred in the code path (no direct record write before the splice)" \
+    'grep -q "SS_DEFER_RECORD=true" "$APD_PLUGIN_ROOT/bin/core/apd-init" && grep -q "\.pending" "$APD_PLUGIN_ROOT/bin/lib/shipped-sync.sh" && [ "$(awk "/SS_DEFER_RECORD=true/{a=NR} /_ss_charter_splice \"\\\$_ag\"/{b=NR} /mv -f \"\\\$_ch_rec.pending\" \"\\\$_ch_rec\"/{if(!c)c=NR} END{print (a && b && c && a<b && b<c)?1:0}" "$APD_PLUGIN_ROOT/bin/core/apd-init")" = 1 ]'
+# the splice replaces the agent in one step and keeps its mode
+chmod 640 "$G151_F/.claude/agents/api.md"
+sed -i.bak 's/(k1) read your diff/(k1b) read your diff/' "$G151_W/pk1/templates/agent-template.md" && rm -f "$G151_W/pk1/templates/agent-template.md.bak"
+G151_O=$(_ki151 env)
+_c151 "the charter splice keeps the agent's file mode and leaves no temp file behind" \
+    'grep -q "passes (k1b) read" "$G151_F/.claude/agents/api.md" && [ "$(stat -c %a "$G151_F/.claude/agents/api.md" 2>/dev/null || stat -f %Lp "$G151_F/.claude/agents/api.md")" = 640 ] && ! ls "$G151_F"/.claude/agents/api.md.charter.* >/dev/null 2>&1'
+# K2 (pass 5): a held merge lock must not stamp the hourly init cache
+mkdir -p "$G151_F/.apd/pipeline" "$G151_F/.apd/.shipped/.cc-supervisor.lock"; rm -f "$G151_F/.apd/pipeline/.last-init-check"
+( cd "$G151_F" && APD_PROJECT_DIR="$G151_F" bash "$APD_PLUGIN_ROOT/bin/core/session-start" --startup >/dev/null 2>&1 )
+_c151 "K2: session-start does not stamp the hourly cache while init reported a held merge lock" \
+    '[ ! -e "$G151_F/.apd/pipeline/.last-init-check" ]'
+rmdir "$G151_F/.apd/.shipped/.cc-supervisor.lock"
+( cd "$G151_F" && APD_PROJECT_DIR="$G151_F" bash "$APD_PLUGIN_ROOT/bin/core/session-start" --startup >/dev/null 2>&1 )
+_c151 "K2 control: … and stamps it when no lock was held" '[ -s "$G151_F/.apd/pipeline/.last-init-check" ]'
+
+# N1 as a unit: both the framework and the project changed the SAME line of the earlier text — a real tie (2 : 2).
+# The OLDER text must be the base (an honest conflict); the newer one would file the framework's change as a local edit.
+G151_U="$G151_W/unit"; mkdir -p "$G151_U/templates/shipped-history.d/k"
+printf 'a\nb\nc\n' > "$G151_U/templates/shipped-history.d/k/old.md"; printf 'old\n' > "$G151_U/templates/shipped-history.d/k/ORDER"
+printf 'a\nb-framework\nc\n' > "$G151_U/shipped"; printf 'a\nb-project\nc\n' > "$G151_U/copy"
+_c151 "N1 unit: on a tie the EARLIER text is the merge base, never the current one" \
+    '( APD_PLUGIN_ROOT="$G151_U"; PROJECT_DIR="$G151_U"; source "$REPO_ROOT/plugins/apd/bin/lib/shipped-sync.sh"; _ss_ancestor k plain "$G151_U/copy" "$G151_U/out" "$G151_U/shipped" && cmp -s "$G151_U/out" "$G151_U/templates/shipped-history.d/k/old.md" )'
+printf 'a\nb-framework\nc\nproject line\n' > "$G151_U/copy"
+_c151 "N1 unit control: a copy strictly nearer to the current text takes the current text" \
+    '( APD_PLUGIN_ROOT="$G151_U"; PROJECT_DIR="$G151_U"; source "$REPO_ROOT/plugins/apd/bin/lib/shipped-sync.sh"; _ss_ancestor k plain "$G151_U/copy" "$G151_U/out" "$G151_U/shipped" && cmp -s "$G151_U/out" "$G151_U/shipped" )'
+
+# the session-start hook runs init: its timeout must cover the sync (a cancelled hook stops init half way)
+_c151 "hooks.json: the two session-start hooks (SessionStart, PostCompact) have timeout >= 30, and the Codex installer writes 30 for its SessionStart hook" \
+    '[ "$(jq "[.hooks.SessionStart[].hooks[].timeout, (.hooks.PostCompact[].hooks[] | select(.args[0] | test(\"session-start\")) | .timeout)] | map(select(. < 30)) | length" "$REPO_ROOT/hooks/hooks.json")" = 0 ] && [ "$(jq "[.hooks.SessionStart[].hooks[].timeout] | length" "$REPO_ROOT/hooks/hooks.json")" -ge 1 ] && grep -B6 "marker = \"bin/adapter/cdx/session-start\"" "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" | grep -q "\"timeout\": 30"'
+
+# F9: every function of the library is defined once
+_c151 "F9: lib/shipped-sync.sh defines each function exactly once" \
+    '[ -z "$(grep -o "^_ss_[a-z_0-9]*()\|^_shipped_sync()" "$APD_PLUGIN_ROOT/bin/lib/shipped-sync.sh" | sort | uniq -d)" ] && [ "$(grep -c "^_ss_registry()" "$APD_PLUGIN_ROOT/bin/lib/shipped-sync.sh")" = 1 ]'
+
+# ---------------------------------------------------------------- principles.md is the project's file
+# Init seeds it and /apd-setup rewrites it for the project. A trial on copies of
+# eight real projects found it edited line by line in seven; tracked, it would
+# report a conflict on every init.
+printf '\nPRINCIPLE-151\n' >> "$G151_T/principles/en.md"; sed -i.bak 's/English/Serbian (project choice)/' "$G151_P/.claude/rules/principles.md" && rm -f "$G151_P/.claude/rules/principles.md.bak"
+cp "$G151_P/.claude/rules/principles.md" "$G151_W/pr.before"
+G151_O=$(_i151 "$G151_P"); G151_D=$(_d151 "$G151_P")
+_c151 "principles.md is not a tracked copy: init leaves a project-edited one alone when the template changes, drift does not mention it" \
+    'cmp -s "$G151_P/.claude/rules/principles.md" "$G151_W/pr.before" && ! printf "%s" "$G151_O" | grep -q "principles.md.*\(refreshed\|merged\|CONFLICT\|differs\)" && ! printf "%s" "$G151_D" | grep -q "principles"'
+
+# ---------------------------------------------------------------- the Codex-side copies (a pure-Codex project)
+G151_C="$G151_W/cdx"; mkdir -p "$G151_C/.apd/rules" "$G151_C/.apd/agents" "$G151_C/.apd/memory" "$G151_C/.codex"
+printf 'PROJECT_NAME=cdx\nAPD_VERSION=%s\nSTACK=python\n' "$(cat "$APD_PLUGIN_ROOT/VERSION")" > "$G151_C/.apd/config"
+sed 's/{{PROJECT_NAME}}/cdx/g' "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md" > "$G151_C/AGENTS.md"
+for _r in brainstorm tdd debug finish; do cp "$APD_PLUGIN_ROOT/templates/codex/rules/$_r.md" "$G151_C/.apd/rules/$_r.md"; done
+sed 's|\.claude/bin/apd|.codex/bin/apd|g' "$APD_PLUGIN_ROOT/rules/workflow.md" > "$G151_C/.apd/rules/workflow.md"
+sed 's/{{PROJECT_NAME}}/cdx/g' "$APD_PLUGIN_ROOT/templates/codex/agents/code-reviewer.md" > "$G151_C/.apd/agents/code-reviewer.md"
+for _f in codex/AGENTS.md codex/rules/tdd.md codex/agents/code-reviewer.md; do printf '\nCDX-151\n' >> "$G151_T/$_f"; done
+printf '\nCDX-151\n' >> "$G151_W/plugin/rules/workflow.md"
+G151_D=$( ( cd "$G151_C" && APD_PROJECT_DIR="$G151_C" APD_RUNTIME=codex bash "$G151_W/plugin/bin/core/pipeline-audit-drift" 2>&1; echo "EXIT=$?" ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c151 "Codex: drift says IMPORTANT for AGENTS.md, a phase rule, the Codex workflow.md and a Codex review agent that are one text behind" \
+    '_imp151 "$G151_D" "\\[AGENTS.md\\].*EARLIER version" && _imp151 "$G151_D" ".apd/rules/tdd.md.*EARLIER version" && _imp151 "$G151_D" ".apd/rules/workflow.md.*EARLIER version" && _imp151 "$G151_D" ".apd/agents/code-reviewer.md.*EARLIER version"'
+G151_O=$( ( cd "$G151_C" && APD_PROJECT_DIR="$G151_C" APD_RUNTIME=codex bash "$G151_W/plugin/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c151 "Codex: init refreshes all four and leaves the unchanged rules alone" \
+    'grep -q "CDX-151" "$G151_C/AGENTS.md" && grep -q "CDX-151" "$G151_C/.apd/rules/tdd.md" && grep -q "CDX-151" "$G151_C/.apd/rules/workflow.md" && grep -q "CDX-151" "$G151_C/.apd/agents/code-reviewer.md" && ! grep -q "CDX-151" "$G151_C/.apd/rules/debug.md" && grep -q "\.codex/bin/apd" "$G151_C/.apd/rules/workflow.md" && ! grep -q "\.claude/bin/apd" "$G151_C/.apd/rules/workflow.md"'
+_c151 "Codex: init on a PURE-Codex project creates no .claude/ (it created rules/, memory/ and .apd-version there on every session start)" \
+    '[ ! -e "$G151_C/.claude" ] && printf "%s" "$G151_O" | grep -q "pure-Codex project — CC-native steps skipped"'
+sed -i.bak 's/^| Stack | .*/| Stack | python | Detected stacks. |/' "$G151_C/AGENTS.md" && rm -f "$G151_C/AGENTS.md.bak"
+printf '\nCDX-151b\n' >> "$G151_T/codex/AGENTS.md"
+G151_O=$( ( cd "$G151_C" && APD_PROJECT_DIR="$G151_C" APD_RUNTIME=codex bash "$G151_W/plugin/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c151 "Codex: AGENTS.md with the Stack row filled in (a local edit) receives a later framework change by merge" \
+    'grep -q "^| Stack | python | Detected stacks. |" "$G151_C/AGENTS.md" && grep -q "CDX-151b" "$G151_C/AGENTS.md"'
+_c151 "the Codex installer and agents-scaffold write the record when they create a copy (AGENTS.md before the Stack fill)" \
+    'grep -q "\.apd/\.shipped/cdx-agents-md\.md" "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" && grep -q "\.shipped/cdx-rule-\$rule\.md" "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" && grep -q "\.shipped/cdx-workflow\.md" "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config" && grep -q "\.shipped/cdx-agent-" "$APD_PLUGIN_ROOT/bin/adapter/cdx/agents-scaffold" && [ "$(awk "/cdx-agents-md.md/{a=NR} /AGENTS_STACK_JSON=/{b=NR} END{print (a && b && a<b)?1:0}" "$APD_PLUGIN_ROOT/bin/adapter/cdx/install-codex-config")" = 1 ]'
+
+# Codex workflow.md has hashes but no stored texts: an EDITED copy with no record has no merge base
+G151_N="$G151_W/noanc"; mkdir -p "$G151_N/.apd/rules" "$G151_N/.codex"; printf 'PROJECT_NAME=n\n' > "$G151_N/.apd/config"
+{ sed 's|\.claude/bin/apd|.codex/bin/apd|g' "$APD_PLUGIN_ROOT/rules/workflow.md"; printf '\nEDITED-BY-HAND-151\n'; } > "$G151_N/.apd/rules/workflow.md"; cp "$G151_N/.apd/rules/workflow.md" "$G151_W/noanc.before"
+G151_O=$( ( cd "$G151_N" && APD_PROJECT_DIR="$G151_N" APD_RUNTIME=codex bash "$G151_W/plugin/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+G151_D=$( ( cd "$G151_N" && APD_PROJECT_DIR="$G151_N" APD_RUNTIME=codex bash "$G151_W/plugin/bin/core/pipeline-audit-drift" 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c151 "an edited copy with no record and no stored ancestor: reported, never overwritten; drift IMPORTANT (no record)" \
+    'printf "%s" "$G151_O" | grep -q ".apd/rules/workflow.md: differs from the shipped copy .* no shipped-copy record" && cmp -s "$G151_N/.apd/rules/workflow.md" "$G151_W/noanc.before" && _imp151 "$G151_D" ".apd/rules/workflow.md.*no shipped-copy record"'
+# CC workflow.md: an unedited OLDER shipped text with no record is refreshed by hash (four of eight local projects were stuck there)
+rm -f "$G151_P/.apd/.workflow.md.shipped"; cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$G151_P/.claude/rules/workflow.md"
+G151_O=$(_i151 "$G151_P")
+_c151 "workflow.md with no record that is an earlier shipped text, unedited: refreshed with a backup (was: reported, by-hand recovery)" \
+    'printf "%s" "$G151_O" | grep -q "workflow.md: refreshed from the shipped copy (it carried an older shipped text" && grep -q "CDX-151" "$G151_P/.claude/rules/workflow.md" && ls "$G151_P"/.claude/rules/workflow.md.bak.pre-v* >/dev/null 2>&1 && [ -s "$G151_P/.apd/.workflow.md.shipped" ]'
+
+mkdir -p "$G151_W/polluted/.apd" "$G151_W/polluted/.codex" "$G151_W/polluted/.claude/rules"; printf 'PROJECT_NAME=pol\n' > "$G151_W/polluted/.apd/config"
+G151_O=$( ( cd "$G151_W/polluted" && APD_PROJECT_DIR="$G151_W/polluted" APD_RUNTIME=codex bash "$G151_W/plugin/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c151 "Codex: a .claude/ left behind by an older init (no config, no agents) is named, not deleted" \
+    'printf "%s" "$G151_O" | grep -q "created by an APD init before v7.3 on a pure-Codex project" && [ -d "$G151_W/polluted/.claude/rules" ]'
+
+# ---------------------------------------------------------------- the history list guards the NEXT release
+_c151 "shipped-history --check: every current template's text is in templates/shipped-history" \
+    'bash "$APD_PLUGIN_ROOT/bin/core/shipped-history" --check >/dev/null 2>&1'
+_c151 "… and it FAILS when a template changed and the list was not regenerated (the v7.2.4 omission, now a red row)" \
+    '! bash "$G151_W/plugin/bin/core/shipped-history" --check >/dev/null 2>&1'
+_c151 "every text key has its earlier TEXTS on disk, named by their own canonical hash (the merge bases)" \
+    '_ok=1; for _k in cc-code-reviewer cc-adversarial-reviewer cc-supervisor cdx-agents-md cdx-rule-tdd cdx-agent-code-reviewer charter; do _d="$APD_PLUGIN_ROOT/templates/shipped-history.d/$_k"; [ -d "$_d" ] || _ok=0; for _f in "$_d"/*.md; do [ "$(shasum -a 256 < "$_f" 2>/dev/null | cut -d" " -f1 || sha256sum < "$_f" | cut -d" " -f1)" = "$(basename "$_f" .md)" ] || _ok=0; done; done; [ "$_ok" = 1 ]'
+_c151 "every registry key and the charter have at least one line in the list" \
+    '_ok=1; for _k in cc-code-reviewer cc-adversarial-reviewer cc-supervisor cc-workflow cdx-agents-md cdx-rule-brainstorm cdx-rule-tdd cdx-rule-debug cdx-rule-finish cdx-workflow cdx-agent-code-reviewer cdx-agent-adversarial-reviewer charter; do grep -q "^$_k [0-9a-f]\{64\}$" "$APD_PLUGIN_ROOT/templates/shipped-history" || _ok=0; done; [ "$_ok" = 1 ]'
+
+# ---------------------------------------------------------------- one mechanism, one registry
+_c151 "init and audit-drift both read the registry from lib/shipped-sync.sh; workflow.md goes through the same function" \
+    'grep -q "lib/shipped-sync.sh" "$APD_PLUGIN_ROOT/bin/core/apd-init" && grep -q "lib/shipped-sync.sh" "$APD_PLUGIN_ROOT/bin/core/pipeline-audit-drift" && grep -q "done < <(_ss_registry)" "$APD_PLUGIN_ROOT/bin/core/apd-init" && grep -q "done < <(_ss_registry)" "$APD_PLUGIN_ROOT/bin/core/pipeline-audit-drift" && [ "$(grep -c "^ *_shipped_sync$" "$APD_PLUGIN_ROOT/bin/core/apd-init")" = 3 ] && ! grep -q "git merge-file -L" "$APD_PLUGIN_ROOT/bin/core/apd-init"'
+
+_c151 "docs: both audit skills describe dimension E and the record directory; the setup skill tells the orchestrator not to redo it; SPEC names the lib, the tool and the texts" \
+    'grep -q "\.apd/\.shipped/" "$REPO_ROOT/skills/apd-audit/SKILL.md" && grep -q "five dimensions" "$REPO_ROOT/skills/apd-audit/SKILL.md" && grep -q "\*\*E — every other file" "$APD_PLUGIN_ROOT/skills/apd-audit/SKILL.md" && grep -q "\.apd/\.shipped/" "$REPO_ROOT/skills/apd-setup/SKILL.md" && grep -q "shipped-sync\.sh" "$REPO_ROOT/docs/SPEC.md" && grep -q "bin/core/shipped-history" "$REPO_ROOT/docs/SPEC.md" && grep -q "shipped-history\.d" "$REPO_ROOT/docs/SPEC.md"'
+_c151 "docs: no skill or SPEC line still lists principles.md as a tracked copy (join against the registry)" \
+    '! grep -q "principles" "$APD_PLUGIN_ROOT/bin/lib/shipped-sync.sh" || { ! awk "/^_ss_registry\\(\\)/{f=1} f && /^}/{exit} f" "$APD_PLUGIN_ROOT/bin/lib/shipped-sync.sh" | grep -q "printf.*principles" && grep -q "principles.md. is NOT tracked" "$REPO_ROOT/skills/apd-audit/SKILL.md" && grep -q "NOT tracked" "$REPO_ROOT/docs/SPEC.md"; }'
+
+# ---------------------------------------------------------------- a worktree carries the records
+( cd "$G151_P" && printf '.apd/\n*.bak*\n' > .gitignore && git add -A >/dev/null 2>&1 && git commit -qm base >/dev/null 2>&1 && git worktree add -q "$G151_W/wt" -b wt151 >/dev/null 2>&1 )
+( cd "$G151_W/wt" && bash "$G151_W/plugin/bin/core/worktree-bootstrap" >/dev/null 2>&1 )
+_c151 "worktree-bootstrap carries the records of copies that equal main's (review agent + charter)" \
+    '[ -s "$G151_W/wt/.apd/.shipped/cc-code-reviewer.md" ] && [ -s "$G151_W/wt/.apd/.shipped/charter-backend.md" ]'
+( cd "$G151_P" && git worktree remove --force "$G151_W/wt" >/dev/null 2>&1 )
+rm -rf "$G151_W"
 
 
 

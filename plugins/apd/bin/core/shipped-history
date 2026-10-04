@@ -1,0 +1,157 @@
+#!/bin/bash
+# APD shipped-history — the hashes of every text the framework has shipped for
+# the files it copies into projects (templates/shipped-history).
+#
+# Why: a project set up before v7.3 has no shipped-copy record, so init cannot
+# tell "an older shipped text, unedited" from "a local edit" by looking at the
+# copy alone. With this list it can: a copy whose canonical hash is in the list
+# is a text the framework shipped, so nothing local is lost by refreshing it
+# (lib/shipped-sync.sh, the no-record branch).
+#
+# Usage (maintainer tool — run from the framework repository):
+#   shipped-history --check   exit 1 when a CURRENT template's hash is missing
+#                             from the list (a template was changed and the list
+#                             was not regenerated — the next version could not
+#                             recognise this one's text). Needs no git.
+#   shipped-history --write   regenerate: the existing list + every git tag +
+#                             the working tree. Append-only by construction.
+#   shipped-history --print   the same list on stdout, nothing written.
+
+set -u
+APD_PLUGIN_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_ROOT="$(cd "$APD_PLUGIN_ROOT/../.." && pwd)"
+PROJECT_DIR="$REPO_ROOT"
+# shellcheck source=/dev/null
+source "$APD_PLUGIN_ROOT/bin/lib/shipped-sync.sh"
+HIST="$APD_PLUGIN_ROOT/templates/shipped-history"
+
+# key|path relative to the plugin payload|transform
+ROWS='cc-code-reviewer|templates/reviewer-template.md|canon
+cc-adversarial-reviewer|templates/adversarial-reviewer-template.md|canon
+cc-supervisor|templates/supervisor-template.md|canon
+cc-workflow|rules/workflow.md|canon
+cdx-agents-md|templates/codex/AGENTS.md|canon
+cdx-rule-brainstorm|templates/codex/rules/brainstorm.md|canon
+cdx-rule-tdd|templates/codex/rules/tdd.md|canon
+cdx-rule-debug|templates/codex/rules/debug.md|canon
+cdx-rule-finish|templates/codex/rules/finish.md|canon
+cdx-workflow|rules/workflow.md|cdxwf
+cdx-agent-code-reviewer|templates/codex/agents/code-reviewer.md|canon
+cdx-agent-adversarial-reviewer|templates/codex/agents/adversarial-reviewer.md|canon
+charter|templates/agent-template.md|charter'
+
+TMP="$(mktemp -d -t apd-shist.XXXXXX)" || exit 1
+trap 'rm -rf "$TMP"' EXIT
+
+HISTD="$APD_PLUGIN_ROOT/templates/shipped-history.d"
+KEEP_TEXTS=false   # --write stores the canonical text of every version (the merge base for an edited copy)
+
+# _hash_text <transform> <file> [<key>] → canonical sha256, or nothing. With
+# KEEP_TEXTS the canonical text is stored as shipped-history.d/<key>/<sha>.md —
+# not for the two workflow.md keys (a 44 KB plain copy per version: their
+# hashes are enough to refresh an UNEDITED older copy; an edited one with no
+# record keeps the report and its by-hand recovery).
+_hash_text() {
+    local tr="$1" f="$2" key="${3:-}" h
+    [ -s "$f" ] || return 0
+    case "$tr" in
+        canon)  _ss_canon "$f" > "$TMP/x.canon" ;;
+        cdxwf)  sed 's|\.claude/bin/apd|.codex/bin/apd|g' "$f" > "$TMP/x.wf"; _ss_canon "$TMP/x.wf" > "$TMP/x.canon" ;;
+        charter)
+            LC_ALL=C awk -v mark="$SS_CHARTER_MARK" 'index($0, mark) { f = 1 } f && /^## Stack/ { exit } f { print }' "$f" | _ss_trim_tail > "$TMP/x.ch"
+            [ -s "$TMP/x.ch" ] || return 0
+            _ss_canon "$TMP/x.ch" > "$TMP/x.canon" ;;
+        *) return 0 ;;
+    esac
+    [ -s "$TMP/x.canon" ] || return 0
+    h=$(_ss_sha256 < "$TMP/x.canon")
+    if [ "$KEEP_TEXTS" = true ] && [ -n "$key" ] && [ "$key" != cdx-workflow ] && [ "$key" != cc-workflow ]; then
+        mkdir -p "$HISTD/$key"
+        [ -f "$HISTD/$key/$h.md" ] || cp "$TMP/x.canon" "$HISTD/$key/$h.md"
+        # first appearance order, oldest → newest (tags are walked in version order,
+        # the working tree last): lib/shipped-sync.sh breaks a distance tie by it
+        grep -qxF "$h" "$TMP/order.$key" 2>/dev/null || printf '%s\n' "$h" >> "$TMP/order.$key"
+    fi
+    printf '%s\n' "$h"
+}
+
+_current() {   # the working tree
+    local key rel tr h
+    while IFS='|' read -r key rel tr; do
+        [ -n "$key" ] || continue
+        h=$(_hash_text "$tr" "$APD_PLUGIN_ROOT/$rel" "$key")
+        [ -n "$h" ] && printf '%s %s\n' "$key" "$h"
+    done <<EOF
+$ROWS
+EOF
+}
+
+_from_tags() {  # every tag; the payload lived at the repo root before v6.0
+    local tag key rel tr h pfx
+    command -v git >/dev/null 2>&1 || return 0
+    git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1 || return 0
+    for tag in $(git -C "$REPO_ROOT" tag --sort=v:refname); do
+        while IFS='|' read -r key rel tr; do
+            [ -n "$key" ] || continue
+            for pfx in "plugins/apd/" ""; do
+                if git -C "$REPO_ROOT" show "$tag:$pfx$rel" > "$TMP/x.tag" 2>/dev/null && [ -s "$TMP/x.tag" ]; then
+                    h=$(_hash_text "$tr" "$TMP/x.tag" "$key")
+                    [ -n "$h" ] && printf '%s %s\n' "$key" "$h"
+                    break
+                fi
+            done
+        done <<EOF
+$ROWS
+EOF
+    done
+}
+
+_all() {
+    # tags first, the working tree last — in THIS shell, not a pipeline: the order
+    # files are appended to as the texts are met
+    _from_tags > "$TMP/all.tags"; _current > "$TMP/all.cur"
+    { [ -f "$HIST" ] && grep -v '^#' "$HIST"; cat "$TMP/all.tags" "$TMP/all.cur"; } | grep -E '^[a-z0-9-]+ [0-9a-f]{64}$' | LC_ALL=C sort -u
+}
+
+case "${1:-}" in
+    --check)
+        missing=0
+        while read -r key h; do
+            [ -n "$key" ] || continue
+            if ! grep -qxF "$key $h" "$HIST" 2>/dev/null; then
+                echo "MISSING from templates/shipped-history: $key $h (the current template changed — run: bash plugins/apd/bin/core/shipped-history --write)" >&2
+                missing=$((missing + 1))
+            elif [ "$key" != cdx-workflow ] && [ "$key" != cc-workflow ] && [ ! -f "$HISTD/$key/$h.md" ]; then
+                echo "MISSING text templates/shipped-history.d/$key/$h.md (run: bash plugins/apd/bin/core/shipped-history --write)" >&2
+                missing=$((missing + 1))
+            elif [ "$key" != cdx-workflow ] && [ "$key" != cc-workflow ] && [ "$(tail -1 "$HISTD/$key/ORDER" 2>/dev/null)" != "$h" ]; then
+                echo "templates/shipped-history.d/$key/ORDER does not end with the current text $h (run: bash plugins/apd/bin/core/shipped-history --write)" >&2
+                missing=$((missing + 1))
+            fi
+        done <<EOF
+$(_current)
+EOF
+        [ "$missing" -eq 0 ] || exit 1
+        echo "shipped-history: every current template is listed"
+        ;;
+    --write)
+        KEEP_TEXTS=true
+        _all > "$TMP/new" || exit 1
+        for _o in "$TMP"/order.*; do
+            [ -f "$_o" ] || continue
+            _k="${_o##*/order.}"
+            # texts met in an earlier run but not in this one keep their place at the front
+            { [ -f "$HISTD/$_k/ORDER" ] && grep -vxFf "$_o" "$HISTD/$_k/ORDER"; cat "$_o"; } > "$TMP/ord.new" 2>/dev/null
+            cp "$TMP/ord.new" "$HISTD/$_k/ORDER"
+        done
+        {
+            echo "# APD shipped-history — canonical sha256 of every text the framework has shipped"
+            echo "# for a file it copies into projects. Written by bin/core/shipped-history --write;"
+            echo "# append-only (a removed line makes an old project copy read as a local edit)."
+            cat "$TMP/new"
+        } > "$HIST"
+        echo "wrote $(grep -vc '^#' "$HIST") line(s) to templates/shipped-history, $(find "$HISTD" -type f -name '*.md' | wc -l | tr -d ' ') text(s) in templates/shipped-history.d/"
+        ;;
+    --print) _all ;;
+    *) echo "usage: shipped-history --check | --write | --print" >&2; exit 2 ;;
+esac

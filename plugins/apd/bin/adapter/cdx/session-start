@@ -100,9 +100,13 @@ if [ -x "$APD_INIT" ]; then
     fi
     if [ "$RUN_CHECK" = true ]; then
         cd "$PROJECT_DIR" || { _ss_log "EXIT: cd failed"; exit 0; }
-        bash "$APD_INIT" --quick >/dev/null 2>&1 || _ss_log "WARN: apd-init --quick exited $?"
+        _INIT_OUT=$(bash "$APD_INIT" --quick 2>&1) || _ss_log "WARN: apd-init --quick exited $?"
         mkdir -p "$PIPELINE_DIR" 2>/dev/null
-        date +%s > "$LAST_CHECK_FILE" 2>/dev/null || true
+        # v7.3: a held merge lock means a copy was skipped — do not stamp the cache
+        case "$_INIT_OUT" in
+            *"holds the merge lock"*) _ss_log "gap-analysis: a merge lock was held — cache not stamped" ;;
+            *) date +%s > "$LAST_CHECK_FILE" 2>/dev/null || true ;;
+        esac
         _ss_log "gap-analysis: ran"
     else
         _ss_log "gap-analysis: skipped (cache fresh)"

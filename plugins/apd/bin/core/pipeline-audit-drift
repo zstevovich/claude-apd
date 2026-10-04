@@ -1,12 +1,15 @@
 #!/bin/bash
-# APD Audit Drift — qualitative drift detection across four dimensions:
+# APD Audit Drift — qualitative drift detection across five dimensions:
 #   A. settings.json deny patterns (missing baseline entries)
 #   B. .apd-config APD_VERSION (stale vs current plugin)
 #   C. workflow.md content: guidance markers, then a byte comparison against
 #      the shipped copy once every marker is present (v7.0.3)
 #   D. feature-claim drift in workflow.md / CLAUDE.md (v6.12.3)
+#   E. every other file the framework copies into a project — review agents,
+#      the builder charter block, principles.md, the Codex-side copies —
+#      against the framework's current text and its shipped-copy record (v7.3)
 # A, C and D read CC files and are skipped on a pure-Codex project; B reads
-# .apd/config there. Marker rule: a marker must exist in the SHIPPED
+# .apd/config there, and E covers the Codex-side copies. Marker rule: a marker must exist in the SHIPPED
 # workflow.md, or it can never flag (test-codex-adapter §136 enforces this —
 # `DEPRECATED` sat in this list for two releases after v7.0 deleted it).
 #
@@ -23,6 +26,7 @@ set -u
 source "$(dirname "$0")/../lib/resolve-project.sh"
 source "$(dirname "$0")/../lib/style.sh"
 source "$(dirname "$0")/../lib/workflow-markers.sh"   # v7.1.6: the one marker list
+source "$(dirname "$0")/../lib/shipped-sync.sh"       # v7.3: the registry of tracked copies
 
 # Framework-self short-circuit: drift checks are irrelevant for the framework
 # source repo (no project state to drift from).
@@ -233,6 +237,95 @@ if [ -f "$WORKFLOW_FILE" ] && [ -f "$FRAMEWORK_WORKFLOW" ]; then
         IMPORTANT+=("  Recovery: re-run '/apd-setup' to refresh workflow.md (init keeps the current copy as workflow.md.bak.preaudit). If the difference is deliberate, that file is a plain copy of the framework's — put project-specific rules in CLAUDE.md instead")
         IMPORTANT+=("  No shipped-copy record (.apd/.workflow.md.shipped): the project was set up before v7.1.6 — step 5c creates it, and from then on init merges framework changes into the copy on its own")
     fi
+fi
+
+# ============================================================
+# Dimension E — the framework's other copies (v7.3)
+# ============================================================
+# Until v7.3 nothing compared these with the framework's text: dimension B asks
+# whether APD_VERSION equals the plugin's, and init raises APD_VERSION on every
+# run whatever the agents carry. Measured on PLAZMA 2026-10-03: three review
+# agents one release behind, APD_VERSION current, this script CLEAN.
+#
+# Same registry and the same renders as init (lib/shipped-sync.sh), so a state
+# init would act on is a state this reports:
+#   record ≠ the framework's text      → IMPORTANT (the merge has not happened)
+#   no record, an OLDER shipped text   → IMPORTANT (init refreshes it)
+#   no record, an earlier text + edits → IMPORTANT (init merges from the nearest earlier text)
+#   no record, no stored text to merge → IMPORTANT (edited, and cut off from updates)
+#   local edits on the current text    → INFO      (init merges framework changes around them)
+#   nothing like any shipped text      → INFO      (the project's own file, not tracked)
+E_TMP=$(mktemp -d -t apd-driftE.XXXXXX 2>/dev/null || echo "")
+if [ -n "$E_TMP" ] && [ -d "$E_TMP" ]; then
+    _e_judge() {   # <label> <copy> <shipped render> <record> <history key> <canon name> <kind>
+        local label="$1" copy="$2" shipped="$3" record="$4" hkey="$5" cname="$6" kind="$7" base rs delta arc
+        rs=$(_ss_record_state "$record")
+        if [ "$rs" = dir ]; then
+            IMPORTANT+=("[$label] its shipped-copy record ${record#"$PROJECT_DIR"/} is a DIRECTORY — init cannot record or merge until it is removed")
+            IMPORTANT+=("  Recovery: rmdir ${record#"$PROJECT_DIR"/}, then apd init --quick")
+        elif [ "$rs" = ok ]; then
+            base="$record"
+            if [ -n "$E_PINS" ]; then cp "$record" "$E_TMP/base" 2>/dev/null && { _ss_carry_pins "$E_TMP/base" "$E_PINS"; _ss_like "$E_TMP/base" "$E_PINS"; base="$E_TMP/base"; }; fi
+            if ! cmp -s "$base" "$shipped"; then
+                delta=$(diff "$base" "$shipped" 2>/dev/null | grep -c '^[<>]') || true
+                IMPORTANT+=("[$label] the framework's text changed since this project recorded it (${delta:-?} changed line(s))")
+                IMPORTANT+=("  Effect: the copy carries an older framework text until the change is merged")
+                IMPORTANT+=("  Recovery: init merges it on the next session start (or now: apd init --quick), keeping local edits; a CONFLICT is reported by init with the by-hand recipe")
+            elif ! cmp -s "$copy" "$shipped"; then
+                delta=$(diff "$shipped" "$copy" 2>/dev/null | grep -c '^[<>]') || true
+                INFO+=("[$label] carries local edits (${delta:-?} line(s) differ from the framework's text)")
+                INFO+=("  Effect: none — init merges framework changes around them")
+            fi
+        elif cmp -s "$copy" "$shipped"; then
+            :   # current; init starts the record on its next run
+        elif _ss_history_has "$hkey" "$copy" "$cname"; then
+            IMPORTANT+=("[$label] carries a text the framework shipped in an EARLIER version (no local edits, no record)")
+            IMPORTANT+=("  Effect: the role runs on instructions the framework has since changed")
+            IMPORTANT+=("  Recovery: apd init --quick refreshes it (backup kept) and starts the record")
+        else
+            arc=1
+            _ss_ancestor "$hkey" "$kind" "$copy" "$E_TMP/anc" "$shipped"; arc=$?
+            if [ "$arc" -eq 0 ]; then
+                # no record, local edits on an earlier (or the current) shipped text
+                if cmp -s "$E_TMP/anc" "$shipped"; then
+                    delta=$(diff "$shipped" "$copy" 2>/dev/null | grep -c '^[<>]') || true
+                    INFO+=("[$label] carries local edits (${delta:-?} line(s) differ from the framework's text); no record yet")
+                    INFO+=("  Effect: none — init starts the record on its next run and merges framework changes around the edits")
+                else
+                    delta=$(diff "$E_TMP/anc" "$shipped" 2>/dev/null | grep -c '^[<>]') || true
+                    IMPORTANT+=("[$label] was made from an EARLIER shipped text and edited locally; the framework changed ${delta:-?} line(s) since (no record)")
+                    IMPORTANT+=("  Effect: the role runs on instructions the framework has since changed")
+                    IMPORTANT+=("  Recovery: apd init --quick merges the framework's changes around the local edits (backup kept), or reports a CONFLICT with the by-hand recipe")
+                fi
+            elif [ "$arc" -eq 2 ]; then
+                INFO+=("[$label] is the project's own text — not derived from any text the framework shipped")
+                INFO+=("  Effect: it is not tracked: framework changes to this file's template do not reach it, by the project's choice")
+            else
+                delta=$(diff "$shipped" "$copy" 2>/dev/null | grep -c '^[<>]') || true
+                IMPORTANT+=("[$label] differs from the framework's text (${delta:-?} line(s)) and has no shipped-copy record")
+                IMPORTANT+=("  Effect: edited locally and cut off from framework changes — init cannot merge without a record and will not overwrite an edit")
+                IMPORTANT+=("  Recovery: see the init message for this file (it names the record to create, or how to take the framework's text)")
+            fi
+        fi
+    }
+    while IFS='|' read -r e_key e_kind e_tmpl e_rel; do
+        [ -n "$e_key" ] || continue
+        SS_PIN_DEFAULTS="$APD_PLUGIN_ROOT/$e_tmpl"
+        _ss_render "$e_kind" "$APD_PLUGIN_ROOT/$e_tmpl" "$PROJECT_DIR/$e_rel" "$E_TMP/shipped" || continue
+        E_PINS=""; [ "$e_kind" = agent ] && E_PINS="$PROJECT_DIR/$e_rel"
+        _e_judge "$e_rel" "$PROJECT_DIR/$e_rel" "$E_TMP/shipped" "$(_ss_record_path "$e_key")" "$e_key" "$(_ss_project_name "$e_kind")" "$e_kind"
+    done < <(_ss_registry)
+    if _ss_charter_shipped "$E_TMP/charter.shipped" && [ -d "$CLAUDE_DIR/agents" ]; then
+        for e_ag in "$CLAUDE_DIR"/agents/*.md; do
+            [ -f "$e_ag" ] || continue
+            case "$(basename "$e_ag")" in apd-verify-*) continue ;; esac
+            e_n=$(basename "$e_ag" .md)
+            _ss_charter_extract "$e_ag" "$E_TMP/charter.copy" || continue
+            E_PINS=""; SS_PIN_DEFAULTS=""
+            _e_judge "builder charter in .claude/agents/$e_n.md" "$E_TMP/charter.copy" "$E_TMP/charter.shipped" "$(_ss_record_path "charter-$e_n")" "charter" "" plain
+        done
+    fi
+    rm -rf "$E_TMP"
 fi
 
 # ============================================================

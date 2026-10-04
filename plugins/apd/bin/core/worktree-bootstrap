@@ -57,6 +57,28 @@ if [ -f "$MAIN_ROOT/.apd/.workflow.md.shipped" ] && [ ! -e "$WT_ROOT/.apd/.workf
     fi
 fi
 
+# v7.3: the same for every other shipped-copy record (.apd/.shipped/<key>.md —
+# review agents, charter blocks, principles, the Codex copies), under the same
+# origin rule: the worktree's copy does not exist yet, or equals main's copy.
+if [ -d "$MAIN_ROOT/.apd/.shipped" ]; then
+    # shellcheck source=/dev/null
+    source "$(dirname "$0")/../lib/shipped-sync.sh"
+    _wtb_carry() {   # <record name> <path relative to the project>
+        local rec="$MAIN_ROOT/.apd/.shipped/$1" rel="$2"
+        [ -f "$rec" ] && [ ! -e "$WT_ROOT/.apd/.shipped/$1" ] || return 0
+        if [ ! -e "$WT_ROOT/$rel" ] || cmp -s "$WT_ROOT/$rel" "$MAIN_ROOT/$rel"; then
+            mkdir -p "$WT_ROOT/.apd/.shipped" && cp "$rec" "$WT_ROOT/.apd/.shipped/$1" 2>/dev/null && echo "  copied .apd/.shipped/$1"
+        fi
+    }
+    while IFS='|' read -r _k _kind _tmpl _rel; do
+        [ -n "$_k" ] && _wtb_carry "$_k.md" "$_rel"
+    done < <(PROJECT_DIR="$MAIN_ROOT" _ss_registry)
+    for _c in "$MAIN_ROOT"/.apd/.shipped/charter-*.md; do
+        [ -f "$_c" ] || continue
+        _n=$(basename "$_c" .md); _wtb_carry "$_n.md" ".claude/agents/${_n#charter-}.md"
+    done
+fi
+
 # (2) Idempotent: worktree already has APD config → nothing to do.
 if [ -f "$WT_ROOT/.claude/.apd-config" ] || [ -f "$WT_ROOT/.apd/config" ]; then
     exit 0

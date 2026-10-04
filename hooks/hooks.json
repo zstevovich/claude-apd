@@ -8,7 +8,7 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/session-start", "--startup"],
-            "timeout": 5,
+            "timeout": 30,
             "statusMessage": "Loading APD context..."
           }
         ]
@@ -219,7 +219,7 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/session-start"],
-            "timeout": 5,
+            "timeout": 30,
             "statusMessage": "Reinjecting APD context after compaction..."
           }
         ]
