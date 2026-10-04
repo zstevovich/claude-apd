@@ -278,7 +278,7 @@ if [ -n "$E_TMP" ] && [ -d "$E_TMP" ]; then
             fi
         elif cmp -s "$copy" "$shipped"; then
             :   # current; init starts the record on its next run
-        elif _ss_history_has "$hkey" "$copy" "$cname"; then
+        elif _ss_history_has "$hkey" "$copy" "$cname" "$kind"; then
             IMPORTANT+=("[$label] carries a text the framework shipped in an EARLIER version (no local edits, no record)")
             IMPORTANT+=("  Effect: the role runs on instructions the framework has since changed")
             IMPORTANT+=("  Recovery: apd init --quick refreshes it (backup kept) and starts the record")

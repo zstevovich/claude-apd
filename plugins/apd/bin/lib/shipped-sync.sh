@@ -103,14 +103,31 @@ _ss_canon() {
     ' "$1" 2>/dev/null
 }
 
-# _ss_history_has <key> <file> [<project-name>] — 0 when the copy equals a text
-# the framework shipped under <key> in some earlier version.
+# _ss_history_has <key> <file> [<project-name>] [<kind>] — 0 when the copy equals
+# a text the framework shipped under <key> in some earlier version: by canonical
+# hash, or (with <kind>) by comparing it with each stored text rendered for the
+# project.
 _ss_history_has() {
-    local hist="$APD_PLUGIN_ROOT/templates/shipped-history" h
-    [ -f "$hist" ] || return 1
-    h=$(_ss_canon "$2" "${3:-}" | _ss_sha256)
-    [ -n "$h" ] || return 1
-    grep -qxF "$1 $h" "$hist" 2>/dev/null
+    local hist="$APD_PLUGIN_ROOT/templates/shipped-history" h kind="${4:-}" dir f tmp
+    if [ -f "$hist" ]; then
+        h=$(_ss_canon "$2" "${3:-}" | _ss_sha256)
+        [ -n "$h" ] && grep -qxF "$1 $h" "$hist" 2>/dev/null && return 0
+    fi
+    # v7.3.1: the canonical form puts the project's name back to the placeholder
+    # WHEREVER it occurs, so a short name that is also a piece of ordinary text
+    # ("ro", "api", "app") never hashes to a shipped text. Where the earlier
+    # texts themselves are shipped, compare the copy with each one rendered for
+    # this project — the render substitutes only the placeholder.
+    dir="$APD_PLUGIN_ROOT/templates/shipped-history.d/$1"
+    [ -n "$kind" ] && [ -d "$dir" ] || return 1
+    tmp=$(mktemp -t apd-sshist.XXXXXX 2>/dev/null) || return 1
+    for f in "$dir"/*.md; do
+        [ -f "$f" ] || continue
+        _ss_render "$kind" "$f" "$2" "$tmp" || continue
+        if cmp -s "$tmp" "$2"; then rm -f "$tmp" "$tmp.pins" "$tmp.like"; return 0; fi
+    done
+    rm -f "$tmp" "$tmp.pins" "$tmp.like"
+    return 1
 }
 
 # _ss_carry_pins <rendered-file> <project-copy> [<current template>] — rewrite
@@ -321,7 +338,7 @@ _shipped_sync() {
             elif cmp -s "$SS_PROJECT" "$SS_SHIPPED"; then
                 if _ss_write_record; then ok "$SS_LABEL (shipped-copy record started: $SS_DISP_RECORD)"; SS_RESULT=ok
                 else warn "$SS_LABEL: could not write the shipped-copy record $SS_DISP_RECORD (permissions?)"; SS_RESULT=error; fi
-            elif [ -n "$SS_HISTORY_KEY" ] && _ss_history_has "$SS_HISTORY_KEY" "$SS_PROJECT" "$SS_CANON_NAME"; then
+            elif [ -n "$SS_HISTORY_KEY" ] && _ss_history_has "$SS_HISTORY_KEY" "$SS_PROJECT" "$SS_CANON_NAME" "$SS_KIND"; then
                 # No record, and the copy is a text the framework shipped in an
                 # EARLIER version, unedited: there is nothing local to keep.
                 _ss_bak="$_ss_bsrc.bak.pre-v$APD_VER"
@@ -395,6 +412,73 @@ _shipped_sync() {
         SS_RESULT=skipped
     fi
     unset -f _ss_write_record _ss_backup _ss_backup_ver _ss_copy_writable _ss_writable _ss_merge_from
+}
+
+# ---------------------------------------------------------------------------
+# GIT VISIBILITY (v7.3.1)
+# A backup written next to a copy that git ignores is not itself ignored: after
+# v7.3.0 refreshed an ignored AGENTS.md, `AGENTS.md.bak.pre-v7.3.0` sat in the
+# repo root as an untracked file — in `git status`, and one `git add -A` from a
+# commit (reported from PLAZMA, the same in all five projects checked). The
+# backups under .claude/ and .apd/ were hidden only because those directories
+# usually are.
+#
+# The pattern goes into `.git/info/exclude`, not `.gitignore`: exclude is local
+# to the clone and outside history, so init changes no tracked file of the
+# project for the sake of its own backups. Append-only, one line per pattern,
+# only when git does not already ignore the path. Not a git repository, no git,
+# an unwritable exclude file → nothing happens (the backup is merely visible).
+# ---------------------------------------------------------------------------
+
+# _ss_git_exclude <dir inside the repo> <literal path relative to that dir> <probe path> <glob suffix>
+# Adds `/<repo-relative literal path><glob suffix>`, unless git already ignores <probe>.
+_ss_git_exclude() {
+    local dir="$1" pat="$2" probe="$3" prefix ex line
+    command -v git >/dev/null 2>&1 || return 0
+    [ -d "$dir" ] || return 0
+    prefix=$(cd "$dir" 2>/dev/null && git rev-parse --show-prefix 2>/dev/null) || return 0
+    ( cd "$dir" && git check-ignore -q "$probe" 2>/dev/null ) && return 0
+    ex=$(cd "$dir" && git rev-parse --git-path info/exclude 2>/dev/null) || return 0
+    [ -n "$ex" ] || return 0
+    case "$ex" in /*) : ;; *) ex="$dir/$ex" ;; esac
+    # the path is a LITERAL in a pattern file: `[`, `*`, `?` and `\` in a directory
+    # or a file name are escaped, so the line matches that one copy's backups and
+    # nothing else (audit-731 F3: `[` made the line match nothing, `*` a sibling's)
+    line="/$(printf '%s' "$prefix$pat" | sed 's/[][\\*?]/\\&/g')$4"
+    grep -qxF "$line" "$ex" 2>/dev/null && return 0
+    mkdir -p "$(dirname "$ex")" 2>/dev/null || return 0
+    # A file that cannot be written is left alone in silence (the redirection sits
+    # inside the group, or the shell prints its own "Permission denied" at every
+    # session start — audit-731 F1). A missing final newline in an existing file
+    # must not glue the pattern to the last line.
+    if [ -s "$ex" ] && [ -n "$(tail -c 1 "$ex" 2>/dev/null)" ]; then { printf '\n' >> "$ex"; } 2>/dev/null || return 0; fi
+    { printf '%s\n' "$line" >> "$ex"; } 2>/dev/null || return 0
+}
+
+# _ss_exclude_backups <copy> — hide `<copy>.bak.*` from git status when a backup
+# exists and git shows it. Covers a backup written by this run and one left by
+# an earlier version.
+_ss_exclude_backups() {
+    local f="$1" b
+    for b in "$f".bak.*; do
+        [ -e "$b" ] || continue
+        _ss_git_exclude "$(dirname "$f")" "$(basename "$f")" "$b" ".bak.*"
+        return 0
+    done
+    return 0
+}
+
+# _ss_exclude_transients — the sync's own short-lived files under .apd/: the
+# framework text left beside a conflict and a deferred record. (The merge locks
+# need no line: they are empty directories, which git never lists.)
+# The RECORDS are not excluded: whether a project commits `.apd/.shipped/*.md`
+# is its choice (committed, a team shares one merge base).
+_ss_exclude_transients() {
+    local d="$PROJECT_DIR/.apd"
+    [ -d "$d/.shipped" ] || return 0
+    _ss_git_exclude "$d" ".shipped/" ".shipped/x.new.md"     "*.new.md"
+    _ss_git_exclude "$d" ".shipped/" ".shipped/x.md.pending" "*.pending"
+    return 0
 }
 
 # ---------------------------------------------------------------------------

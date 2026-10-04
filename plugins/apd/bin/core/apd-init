@@ -780,6 +780,7 @@ PYCHARTER
     SS_HISTORY_KEY=cc-workflow
     SS_CREATE=true
     _shipped_sync
+    _ss_exclude_backups "$WF_PROJECT"   # v7.3.1: a backup beside a copy must not show up in git status
 
     fi   # CC_SIDE (agents, charter, workflow.md)
 
@@ -819,6 +820,7 @@ PYCHARTER
             case "$_ss_kind:$SS_RESULT" in
                 agent:refreshed|agent:merged) SS_AGENTS_CHANGED=$((SS_AGENTS_CHANGED + 1)) ;;
             esac
+            _ss_exclude_backups "$PROJECT_DIR/$_ss_rel"
         done < <(_ss_registry)
 
         # --- the builder charter: a block inside project-owned builder agents ---
@@ -869,9 +871,11 @@ PYCHARTER
                         # nothing to splice (record started, or nothing changed): the pending record is the record
                         [ -f "$_ch_rec.pending" ] && mv -f "$_ch_rec.pending" "$_ch_rec" 2>/dev/null ;;
                 esac
+                _ss_exclude_backups "$_ag"
             done
         fi
         rm -rf "$SS_TMP"
+        _ss_exclude_transients
         if [ "$SS_AGENTS_CHANGED" -gt 0 ]; then
             # Agent definitions are read when a session starts: the running one
             # keeps the text it loaded.
@@ -1165,6 +1169,11 @@ if [ -d "$PROJECT_DIR/.codex" ]; then
     if [ -x "$CODEX_INIT" ]; then
         CODEX_OUT=$(bash "$CODEX_INIT" "$PROJECT_DIR" 2>&1 || true)
         echo "$CODEX_OUT" | sed 's/^/  /'
+        # v7.3.1 (audit-731 F2): the installer keeps `.codex/hooks.json.bak.<epoch>`
+        # and `.codex/config.toml.bak.<epoch>` when it rewrites those files — the
+        # same untracked backup in a project that commits `.codex/`
+        _ss_exclude_backups "$PROJECT_DIR/.codex/hooks.json"
+        _ss_exclude_backups "$PROJECT_DIR/.codex/config.toml"
         if echo "$CODEX_OUT" | grep -qE '^\[wrote\]'; then
             FIXES=$((FIXES + 1))
         fi

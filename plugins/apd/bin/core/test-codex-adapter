@@ -10128,6 +10128,12 @@ _gf_add_transcript() {  # $1=projdir $2=fcdir $3=agentid(17-hex, validator-valid
     mkdir -p "$2/projects/$_slug/sess/subagents"
     printf '{"agentType":"database","description":"d"}\n' > "$2/projects/$_slug/sess/subagents/agent-$3.meta.json"
     printf '{"l":1}\n' > "$2/projects/$_slug/sess/subagents/agent-$3.jsonl"
+    # v7.3.1: both files carry ONE mtime. Written a few milliseconds apart they
+    # usually share a second and reconstruct falls back to "start = stop − 60 s";
+    # across a second boundary start = stop − 1 s, the validator's 3 s minimum
+    # rejects the pair and "explicit recovery" failed — once on ubuntu-24.04-arm
+    # in the v7.3.0 CI run, reproduced by putting 1.2 s between the two writes.
+    touch -r "$2/projects/$_slug/sess/subagents/agent-$3.jsonl" "$2/projects/$_slug/sess/subagents/agent-$3.meta.json"
 }
 
 GF_FC="$(mktemp -d -t apd-gffc.XXXXXX)"
@@ -18447,6 +18453,195 @@ _c151 "worktree-bootstrap carries the records of copies that equal main's (revie
     '[ -s "$G151_W/wt/.apd/.shipped/cc-code-reviewer.md" ] && [ -s "$G151_W/wt/.apd/.shipped/charter-backend.md" ]'
 ( cd "$G151_P" && git worktree remove --force "$G151_W/wt" >/dev/null 2>&1 )
 rm -rf "$G151_W"
+
+
+section "152. A backup the sync writes is not left in git status: local excludes for backups and transient files, never the project's .gitignore (v7.3.1)"
+
+# PLAZMA, the day v7.3.0 landed: init refreshed an AGENTS.md that the project's
+# .gitignore ignores, and the backup `AGENTS.md.bak.pre-v7.3.0` sat in the repo
+# root as an untracked file — in `git status`, one `git add -A` from a commit.
+# Checked on five local projects: the backups under .claude/ and .apd/ are hidden
+# only because those directories are ignored there; the root-level one never is.
+# Init now adds `<copy>.bak.*` to `.git/info/exclude` (local to the clone, outside
+# history) whenever a backup exists that git would show, and the sync's transient
+# files under .apd/ the same way. The project's .gitignore is not touched.
+
+_c152() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+G152_W="$(mktemp -d -t apd-g152.XXXXXX)"
+G152_HD="$APD_PLUGIN_ROOT/templates/shipped-history.d"
+_i152() { ( cd "$1" && APD_PROJECT_DIR="$1" APD_RUNTIME="${2:-}" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g'; }
+_st152() { ( cd "$1" && git status --porcelain --untracked-files=all 2>/dev/null ); }
+_prevtext152() {  # <key> <name> — the previous shipped text of a key, rendered
+    local k="$1" h; h=$(sed -n '$!p' "$G152_HD/$k/ORDER" | tail -1)
+    sed "s/{{PROJECT_NAME}}/$2/g; s/^model:\$/model: claude-opus-5-5/; s/^effort:\$/effort: max/" "$G152_HD/$k/$h.md"
+}
+_cdx152() {  # <dir> — a Codex project in a git repo; AGENTS.md = the previous shipped text
+    mkdir -p "$1/.apd/rules" "$1/.codex"; ( cd "$1" && git init -q . 2>/dev/null; git config user.email t@t.io; git config user.name t )
+    printf 'PROJECT_NAME=%s\nAPD_VERSION=%s\n' "$(basename "$1")" "$(cat "$APD_PLUGIN_ROOT/VERSION")" > "$1/.apd/config"
+    _prevtext152 cdx-agents-md "$(basename "$1")" > "$1/AGENTS.md"
+}
+
+# 1. the PLAZMA shape: AGENTS.md ignored by the project's .gitignore, refreshed by init
+G152_A="$G152_W/plazma"; _cdx152 "$G152_A"
+printf 'AGENTS.md\n.apd/\n.codex/\n' > "$G152_A/.gitignore"; ( cd "$G152_A" && git add .gitignore && git commit -qm base )
+cp "$G152_A/.gitignore" "$G152_W/gi.before"
+G152_O=$(_i152 "$G152_A" codex)
+_c152 "fixture: init refreshed the ignored AGENTS.md and wrote a backup beside it" \
+    'printf "%s" "$G152_O" | grep -q "AGENTS.md: refreshed" && ls "$G152_A"/AGENTS.md.bak.pre-v* >/dev/null 2>&1'
+_c152 "the backup of an ignored AGENTS.md is not in git status (it was untracked in the repo root)" \
+    '! _st152 "$G152_A" | grep -q "AGENTS.md.bak"'
+_c152 "… by a local exclude line, with the project's .gitignore byte-identical" \
+    'grep -qxF "/AGENTS.md.bak.*" "$G152_A/.git/info/exclude" && cmp -s "$G152_A/.gitignore" "$G152_W/gi.before"'
+_i152 "$G152_A" codex >/dev/null
+_c152 "a second init adds no duplicate line" '[ "$(grep -cxF "/AGENTS.md.bak.*" "$G152_A/.git/info/exclude")" = 1 ]'
+
+# 2. a backup left by an EARLIER version, nothing refreshed in this run
+G152_B="$G152_W/leftover"; _cdx152 "$G152_B"; printf '.apd/\n.codex/\nAGENTS.md\n' > "$G152_B/.gitignore"
+sed "s/{{PROJECT_NAME}}/leftover/g" "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md" > "$G152_B/AGENTS.md"; printf 'old\n' > "$G152_B/AGENTS.md.bak.pre-v7.3.0"
+( cd "$G152_B" && git add .gitignore && git commit -qm base )
+G152_O=$(_i152 "$G152_B" codex)
+_c152 "a backup left behind by v7.3.0 is hidden by the next init even though nothing was refreshed" \
+    '! printf "%s" "$G152_O" | grep -q "AGENTS.md: refreshed" && ! _st152 "$G152_B" | grep -q "AGENTS.md.bak" && [ -f "$G152_B/AGENTS.md.bak.pre-v7.3.0" ]'
+
+# 3. a TRACKED AGENTS.md: the backup is hidden, the change to the tracked file is not
+G152_C="$G152_W/tracked"; _cdx152 "$G152_C"; printf '.apd/\n.codex/\n' > "$G152_C/.gitignore"
+( cd "$G152_C" && git add -A && git commit -qm base )
+_i152 "$G152_C" codex >/dev/null
+_c152 "a tracked AGENTS.md: its backup is hidden, and the refresh itself still shows as a modification" \
+    '! _st152 "$G152_C" | grep -q "AGENTS.md.bak" && _st152 "$G152_C" | grep -q "^ M AGENTS.md$"'
+
+# 4. an exclude file with no final newline keeps its content, the pattern gets its own line
+G152_D="$G152_W/nonl"; _cdx152 "$G152_D"; printf '.apd/\n.codex/\n' > "$G152_D/.gitignore"; ( cd "$G152_D" && git add -A && git commit -qm base )
+mkdir -p "$G152_D/.git/info"; printf '# mine\nscratch/' > "$G152_D/.git/info/exclude"
+_i152 "$G152_D" codex >/dev/null
+_c152 "an existing exclude file without a final newline: its lines are intact and the pattern is a line of its own" \
+    'grep -qxF "scratch/" "$G152_D/.git/info/exclude" && grep -qxF "# mine" "$G152_D/.git/info/exclude" && grep -qxF "/AGENTS.md.bak.*" "$G152_D/.git/info/exclude"'
+
+# 5. a pattern the project already has: nothing is added
+G152_E="$G152_W/already"; _cdx152 "$G152_E"; printf '.apd/\n.codex/\n*.bak.*\n' > "$G152_E/.gitignore"; ( cd "$G152_E" && git add -A && git commit -qm base )
+_i152 "$G152_E" codex >/dev/null
+_c152 "a backup the project's own .gitignore already covers adds nothing to the exclude file" \
+    'ls "$G152_E"/AGENTS.md.bak.pre-v* >/dev/null 2>&1 && ! grep -q "AGENTS.md.bak" "$G152_E/.git/info/exclude" 2>/dev/null'
+
+# 6. the project is a subdirectory of the repository
+G152_F="$G152_W/mono"; mkdir -p "$G152_F"; ( cd "$G152_F" && git init -q . 2>/dev/null; git config user.email t@t.io; git config user.name t; printf 'x\n' > README; git add -A; git commit -qm base )
+mkdir -p "$G152_F/svc/.apd/rules" "$G152_F/svc/.codex"; printf 'PROJECT_NAME=svc\n' > "$G152_F/svc/.apd/config"; _prevtext152 cdx-agents-md svc > "$G152_F/svc/AGENTS.md"
+printf '.apd/\n.codex/\n' > "$G152_F/svc/.gitignore"
+_i152 "$G152_F/svc" codex >/dev/null
+_c152 "a project in a subdirectory: the pattern is anchored at the project's path and the backup is hidden" \
+    'ls "$G152_F"/svc/AGENTS.md.bak.pre-v* >/dev/null 2>&1 && grep -qxF "/svc/AGENTS.md.bak.*" "$G152_F/.git/info/exclude" && ! _st152 "$G152_F" | grep -q "AGENTS.md.bak"'
+
+# 7. a linked worktree of a FRESH repo (no line in the main exclude yet): the exclude file of the COMMON git dir
+G152_M="$G152_W/wtmain"; mkdir -p "$G152_M"; ( cd "$G152_M" && git init -q . 2>/dev/null; git config user.email t@t.io; git config user.name t; printf '.apd/\n.codex/\n' > .gitignore; sed "s/{{PROJECT_NAME}}/wt/g" "$APD_PLUGIN_ROOT/templates/codex/AGENTS.md" > AGENTS.md; git add -A; git commit -qm base; git worktree add -q "$G152_W/wt" -b wt152 >/dev/null 2>&1 )
+mkdir -p "$G152_W/wt/.apd/rules" "$G152_W/wt/.codex"; printf 'PROJECT_NAME=wt\n' > "$G152_W/wt/.apd/config"; printf 'older\n' > "$G152_W/wt/AGENTS.md.bak.pre-v7.2.0"
+_c152 "worktree fixture: the backup shows before init and the main exclude has no line" \
+    '_st152 "$G152_W/wt" | grep -q "AGENTS.md.bak" && ! grep -q "AGENTS.md.bak" "$G152_M/.git/info/exclude" 2>/dev/null'
+_i152 "$G152_W/wt" codex >/dev/null
+_c152 "a linked worktree: a backup there is hidden (the line lands in the COMMON git dir's exclude)" \
+    '! _st152 "$G152_W/wt" | grep -q "AGENTS.md.bak" && grep -qxF "/AGENTS.md.bak.*" "$G152_M/.git/info/exclude"'
+( cd "$G152_M" && git worktree remove --force "$G152_W/wt" >/dev/null 2>&1 )
+
+# 8. no git repository: init works and nothing is created for git
+G152_G="$G152_W/nogit"; mkdir -p "$G152_G/.apd/rules" "$G152_G/.codex"; printf 'PROJECT_NAME=nogit\n' > "$G152_G/.apd/config"; _prevtext152 cdx-agents-md nogit > "$G152_G/AGENTS.md"
+G152_O=$( ( cd "$G152_G" && GIT_CEILING_DIRECTORIES="$G152_W" APD_PROJECT_DIR="$G152_G" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c152 "outside a git repository the refresh still happens and no .git appears" \
+    'printf "%s" "$G152_O" | grep -q "AGENTS.md: refreshed" && [ ! -e "$G152_G/.git" ]'
+
+# 9. a CC project that commits .claude/: an agent's backup, and the sync's transient files with .apd/ NOT ignored
+G152_H="$G152_W/cc"; mkdir -p "$G152_H/.claude/agents" "$G152_H/.claude/rules"; ( cd "$G152_H" && git init -q . 2>/dev/null; git config user.email t@t.io; git config user.name t )
+printf 'PROJECT_NAME=efis\nAPD_VERSION=%s\nSTACK=php\nMODEL_PROFILE=eco\n' "$(cat "$APD_PLUGIN_ROOT/VERSION")" > "$G152_H/.claude/.apd-config"
+cp "$APD_PLUGIN_ROOT/rules/workflow.md" "$G152_H/.claude/rules/workflow.md"
+sed 's/{{PROJECT_NAME}}/efis/g' "$APD_PLUGIN_ROOT/templates/adversarial-reviewer-template.md" > "$G152_H/.claude/agents/adversarial-reviewer.md"
+sed 's/{{PROJECT_NAME}}/efis/g' "$APD_PLUGIN_ROOT/templates/supervisor-template.md" > "$G152_H/.claude/agents/supervisor.md"
+# the previous reviewer text with an edit on the line next to the framework's change → a CONFLICT that leaves .new.md
+_prevtext152 cc-code-reviewer efis | sed 's/^- \*\*NEVER edit or create project source files\*\*.*/- **NEVER edit or create project source files** (project wording)./; s/^- \*\*NEVER add AI signatures\*\*.*/- **NEVER add AI signatures** (project wording)./' > "$G152_H/.claude/agents/code-reviewer.md"
+( cd "$G152_H" && git add -A && git commit -qm base )
+printf 'older\n' > "$G152_H/.claude/agents/supervisor.md.bak.pre-v7.2.0"
+G152_O=$(_i152 "$G152_H")
+_c152 "fixture: the reviewer conflicts and the framework's text is left as .new.md" \
+    'printf "%s" "$G152_O" | grep -q "code-reviewer.md: the framework.s changes CONFLICT" && [ -s "$G152_H/.apd/.shipped/cc-code-reviewer.new.md" ]'
+_c152 "an agent backup in a committed .claude/ is hidden" '! _st152 "$G152_H" | grep -q "\.bak\."'
+_c152 "the sync's transient files (.new.md) are hidden; the records themselves stay visible — committing them is the project's choice" \
+    '! _st152 "$G152_H" | grep -q "\.new\.md" && _st152 "$G152_H" | grep -q "^?? .apd/.shipped/cc-supervisor.md$"'
+: > "$G152_H/.apd/.shipped/charter-x.md.pending"
+_c152 "… a deferred record (.pending) left by a killed run is covered too" '! _st152 "$G152_H" | grep -q "\.pending"'
+# the workflow.md call and the builder call, each with a backup of its own
+printf -- '---\nname: backend\ntools: Read, Write, Edit, Bash\nmodel: claude-sonnet-5-5\nscope: [src/]\n---\n\nYou build.\n\n## Stack\n- x\n' > "$G152_H/.claude/agents/backend.md"
+printf 'old\n' > "$G152_H/.claude/rules/workflow.md.bak.preaudit"; printf 'old\n' > "$G152_H/.claude/agents/backend.md.bak.pre-v7.0.0"
+_c152 "fixture: both backups show before init" '_st152 "$G152_H" | grep -q "workflow.md.bak" && _st152 "$G152_H" | grep -q "backend.md.bak"'
+_i152 "$G152_H" >/dev/null
+_c152 "a workflow.md backup is hidden (the workflow.md call)" '! _st152 "$G152_H" | grep -q "workflow.md.bak" && grep -qxF "/.claude/rules/workflow.md.bak.*" "$G152_H/.git/info/exclude"'
+_c152 "a builder agent's backup is hidden (the charter loop's call)" '! _st152 "$G152_H" | grep -q "backend.md.bak" && grep -qxF "/.claude/agents/backend.md.bak.*" "$G152_H/.git/info/exclude"'
+_c152 "a copy with NO backup gets no line (adversarial-reviewer has none here)" '! grep -q "adversarial-reviewer.md.bak" "$G152_H/.git/info/exclude"'
+# F3: glob characters in a name are escaped — the line matches that copy's backups and nothing else
+printf -- '---\nname: we[ird]\ntools: Read, Write, Edit\nmodel: claude-sonnet-5-5\nscope: [src/]\n---\n\nYou build.\n\n## Stack\n- x\n' > "$G152_H/.claude/agents/we[ird].md"
+printf -- '---\nname: st*r\ntools: Read, Write, Edit\nmodel: claude-sonnet-5-5\nscope: [src/]\n---\n\nYou build.\n\n## Stack\n- x\n' > "$G152_H/.claude/agents/st*r.md"
+printf 'old\n' > "$G152_H/.claude/agents/we[ird].md.bak.x"; printf 'old\n' > "$G152_H/.claude/agents/st*r.md.bak.x"; printf 'mine\n' > "$G152_H/.claude/agents/stXXr.md.bak.x"
+_i152 "$G152_H" >/dev/null
+_c152 "F3: a '[' in an agent's file name: its backup is hidden (the unescaped line matched nothing)" '! _st152 "$G152_H" | grep -qF "we[ird].md.bak"'
+_c152 "F3: a '*' in an agent's file name hides ITS backup only — a sibling's stays visible" '! _st152 "$G152_H" | grep -qF "st*r.md.bak" && _st152 "$G152_H" | grep -qF "stXXr.md.bak.x"'
+
+# 10. a project that NEGATES the pattern keeps its backup visible, and the line is still written once (the dedup)
+G152_N="$G152_W/neg"; _cdx152 "$G152_N"; printf '.apd/\n.codex/\n!AGENTS.md.bak.*\n' > "$G152_N/.gitignore"; ( cd "$G152_N" && git add -A && git commit -qm base )
+_i152 "$G152_N" codex >/dev/null; _i152 "$G152_N" codex >/dev/null; _i152 "$G152_N" codex >/dev/null
+_c152 "a line git does not honour (the project negates it) is still written exactly once over three inits" \
+    '[ "$(grep -cxF "/AGENTS.md.bak.*" "$G152_N/.git/info/exclude")" = 1 ]'
+# 11. F1: an exclude file that cannot be written — silence, not a shell error at every session start
+G152_R="$G152_W/ro"; _cdx152 "$G152_R"; printf '.apd/\n.codex/\n' > "$G152_R/.gitignore"; ( cd "$G152_R" && git add -A && git commit -qm base )
+mkdir -p "$G152_R/.git/info"; printf '# mine\n' > "$G152_R/.git/info/exclude"; chmod a-w "$G152_R/.git/info/exclude" "$G152_R/.git/info"
+G152_O=$(_i152 "$G152_R" codex); chmod u+w "$G152_R/.git/info" "$G152_R/.git/info/exclude"
+if [ "$(id -u)" = 0 ]; then pass "F1: (skipped as root — a read-only file is writable)"; PASSES=$((PASSES + 1)); else
+_c152 "F1: a read-only exclude file: init prints no raw shell error and the refresh itself still happened" \
+    '! printf "%s" "$G152_O" | grep -q "Permission denied\|shipped-sync.sh: line" && printf "%s" "$G152_O" | grep -q "AGENTS.md: refreshed" && [ "$(cat "$G152_R/.git/info/exclude")" = "# mine" ]'
+fi
+# a project whose NAME is also a piece of ordinary text ("ro" is in "project", "from", "error"): an unedited older
+# AGENTS.md is still recognised as one (the canonical hash put the placeholder back at every "ro")
+_c152 "a short project name that occurs inside ordinary words: the older text is REFRESHED, not 'merged' as if it had local edits" \
+    'printf "%s" "$G152_O" | grep -q "AGENTS.md: refreshed from the shipped copy (it carried an older shipped text" && ! printf "%s" "$G152_O" | grep -q "AGENTS.md: merged"'
+# … the dangerous direction: the rendered comparison is byte-exact. A whitespace-only edit on a short-named
+# project is a LOCAL EDIT — merged around, never "an older text with no local edits" (which would overwrite it)
+G152_S="$G152_W/ro2"; mkdir -p "$G152_S"; G152_S="$G152_S/ro"; _cdx152 "$G152_S"; printf '.apd/\n.codex/\n' > "$G152_S/.gitignore"
+awk 'NR == 12 { print $0 "   "; next } { print }' "$G152_S/AGENTS.md" > "$G152_W/x" && cat "$G152_W/x" > "$G152_S/AGENTS.md"
+G152_D=$( ( cd "$G152_S" && APD_PROJECT_DIR="$G152_S" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-audit-drift" 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+G152_O2=$(_i152 "$G152_S" codex)
+_c152 "a whitespace-only edit on a short-named project is merged as a local edit, not refreshed as 'no local edits' — the trailing spaces survive" \
+    'printf "%s" "$G152_O2" | grep -q "AGENTS.md: merged the framework.s changes, local edits kept" && ! printf "%s" "$G152_O2" | grep -q "AGENTS.md: refreshed" && [ "$(grep -c "   \$" "$G152_S/AGENTS.md")" -ge 1 ]'
+_c152 "drift agrees: that copy is 'edited locally', and the unedited short-named one was 'no local edits'" \
+    'printf "%s" "$G152_D" | grep -q "AGENTS.md\] was made from an EARLIER shipped text and edited locally"'
+G152_S2="$G152_W/ro3"; mkdir -p "$G152_S2"; G152_S2="$G152_S2/ro"; _cdx152 "$G152_S2"
+G152_D=$( ( cd "$G152_S2" && APD_PROJECT_DIR="$G152_S2" APD_RUNTIME=codex bash "$APD_PLUGIN_ROOT/bin/core/pipeline-audit-drift" 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c152 "drift on an UNEDITED older copy of a short-named project: 'EARLIER version (no local edits)' (it said 'edited locally')" \
+    'printf "%s" "$G152_D" | grep -q "AGENTS.md\] carries a text the framework shipped in an EARLIER version (no local edits"'
+# escaping, the two characters no row had: a backslash and a question mark in an agent's file name
+printf -- '---\nname: q\ntools: Read, Write, Edit\nmodel: claude-sonnet-5-5\nscope: [src/]\n---\n\nYou build.\n\n## Stack\n- x\n' > "$G152_H/.claude/agents/wh?t.md"; cp "$G152_H/.claude/agents/wh?t.md" "$G152_H/.claude/agents/back\\slash.md"
+printf 'old\n' > "$G152_H/.claude/agents/wh?t.md.bak.x"; printf 'mine\n' > "$G152_H/.claude/agents/whXt.md.bak.x"; printf 'old\n' > "$G152_H/.claude/agents/back\\slash.md.bak.x"
+_i152 "$G152_H" >/dev/null
+_c152 "a '?' in an agent's file name hides its own backup only, and a backslash in one is hidden too" \
+    '! _st152 "$G152_H" | grep -qF "wh?t.md.bak" && _st152 "$G152_H" | grep -qF "whXt.md.bak.x" && ! _st152 "$G152_H" | grep -q "slash.md.bak"'
+# a read-only exclude file WITHOUT a final newline: the newline repair must be as silent as the append
+G152_R2="$G152_W/ro4"; mkdir -p "$G152_R2"; G152_R2="$G152_R2/proj"; _cdx152 "$G152_R2"; printf '.apd/\n.codex/\n' > "$G152_R2/.gitignore"; ( cd "$G152_R2" && git add -A && git commit -qm base )
+mkdir -p "$G152_R2/.git/info"; printf '# mine' > "$G152_R2/.git/info/exclude"; chmod a-w "$G152_R2/.git/info/exclude"
+G152_O2=$(_i152 "$G152_R2" codex); chmod u+w "$G152_R2/.git/info/exclude"
+if [ "$(id -u)" = 0 ]; then pass "(skipped as root — a read-only file is writable)"; PASSES=$((PASSES + 1)); else
+_c152 "a read-only exclude file with no final newline: no shell error from the newline repair either" \
+    '! printf "%s" "$G152_O2" | grep -q "Permission denied\|shipped-sync.sh: line"'
+fi
+# 12. F2: the Codex installer's own backups in a project that commits .codex/
+G152_X="$G152_W/cdxbak"; mkdir -p "$G152_X/.apd/rules" "$G152_X/.codex"; ( cd "$G152_X" && git init -q . 2>/dev/null; git config user.email t@t.io; git config user.name t )
+printf 'PROJECT_NAME=cdxbak\n' > "$G152_X/.apd/config"; printf '.apd/\n' > "$G152_X/.gitignore"
+printf '{}\n' > "$G152_X/.codex/hooks.json"; printf 'old\n' > "$G152_X/.codex/hooks.json.bak.1700000000"; printf 'old\n' > "$G152_X/.codex/config.toml.bak.1700000000"; printf '# c\n' > "$G152_X/.codex/config.toml"
+( cd "$G152_X" && git add .gitignore && git commit -qm base )
+_i152 "$G152_X" codex >/dev/null
+_c152 "F2: the Codex installer's hooks.json / config.toml backups are hidden in a project that does not ignore .codex/" \
+    '! _st152 "$G152_X" | grep -q "\.bak\."'
+# 13. the mechanism never touches a .gitignore
+_c152 "the library has no code that names .gitignore (the exclude file only)" \
+    '! grep -v "^ *#" "$APD_PLUGIN_ROOT/bin/lib/shipped-sync.sh" | grep -q "\.gitignore"'
+
+# the §93 fixture no longer depends on which second its two files land in
+_c152 "§93 fixture: the transcript's two files are given one mtime (the race that failed once on ubuntu-24.04-arm)" \
+    'awk "/^_gf_add_transcript\\(\\)/{f=1} f && /^}/{exit} f" "$APD_PLUGIN_ROOT/bin/core/test-codex-adapter" | grep -q "touch -r "'
+rm -rf "$G152_W"
 
 
 
