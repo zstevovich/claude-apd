@@ -100,7 +100,7 @@ Common configuration choices for production .NET services:
 
 - **Snake_case naming convention** for tables and columns (PostgreSQL common, applicable to other RDBMS)
 - **Soft delete** via `deleted_at` column where applicable; query filters on `DbContext.OnModelCreating`
-- **`EnableRetryOnFailure(3, TimeSpan.FromSeconds(2))`** on connection string for transient failure resilience
+- **`EnableRetryOnFailure(3, TimeSpan.FromSeconds(2), null)`** in the provider options (`UseNpgsql(cs, o => o.EnableRetryOnFailure(…))`, same for `UseSqlServer`) for transient failure resilience — **with it enabled, a transaction you open yourself must run inside the execution strategy** (see below): after a bare `BeginTransactionAsync()` the first `SaveChangesAsync` or query throws `InvalidOperationException` ("the configured execution strategy does not support user-initiated transactions")
 - **Concurrency tokens** (`xmin` for Postgres, `rowversion` for SQL Server) on entities with concurrent update potential
 - **EF Core Design tools** MUST match runtime EF Core version exactly (e.g., both 10.0.0)
 
@@ -114,6 +114,18 @@ modelBuilder.Entity<User>()
     .HasColumnType("xid")
     .ValueGeneratedOnAddOrUpdate()
     .IsConcurrencyToken();
+```
+
+```csharp
+// A user-initiated transaction under EnableRetryOnFailure: the whole unit is
+// what gets retried, so everything in the delegate must be safe to run again.
+var strategy = db.Database.CreateExecutionStrategy();
+await strategy.ExecuteAsync(async () =>
+{
+    await using var tx = await db.Database.BeginTransactionAsync(ct);
+    // ... several SaveChangesAsync calls ...
+    await tx.CommitAsync(ct);
+});
 ```
 
 ## FluentValidation — Pitfall to Avoid

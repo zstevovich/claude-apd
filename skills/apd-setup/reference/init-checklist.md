@@ -91,4 +91,10 @@ After all generation steps, run the mechanical check:
 bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/verify-apd
 ```
 
+On an existing project (maintenance — `apd-init` printed `Mode: Update` in step 1) run it without the synthetic pipeline test — see step 6 of the skill:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/verify-apd --no-e2e
+```
+
 The check must report `0 FAIL` before the skill finishes. If a FAIL is reported, escalate to the user with the concrete file and line — do NOT silently rerun the skill or attempt to patch the failure on the fly.

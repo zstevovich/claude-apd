@@ -1198,6 +1198,10 @@ if [ "$QUICK" = true ]; then
     [ "$FIXES" -gt 0 ] && echo "  ${D}(quick mode: $FIXES fix(es) applied)${R}"
     exit 0
 fi
-echo "  Running verification..."
+# v7.3.2: `--no-e2e`. Init repairs configuration; it has no business driving a
+# synthetic task through the project's pipeline directory, which the full check
+# does whenever that directory looks idle. The end-to-end test stays one
+# explicit command away.
+echo "  Running verification (static + guards; end-to-end test: apd verify)..."
 echo ""
-bash "$SCRIPT_DIR/verify-apd"
+bash "$SCRIPT_DIR/verify-apd" --no-e2e

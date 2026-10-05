@@ -288,7 +288,7 @@ Shows: pipeline state, spec card validation, spec freeze hash, implementation pl
 | `apd verify` | Full setup verification (50+ checks) |
 | `apd verify --no-e2e` | The same without the synthetic end-to-end pipeline — it never touches `.apd/pipeline/` |
 | `apd trace` | Check spec traceability coverage |
-| `apd init` | Initialize or update APD in a project |
+| `apd init` | Initialize or update APD in a project; ends with the verification without the end-to-end test (`apd verify` runs that) |
 | `apd profile <name>` | Switch the agent model profile (burn / cruise / eco) |
 | `apd roles list` | Show the 8 generic developer roles |
 | `apd run-role <role> --launch` | Enter CC **as** the role — charter (scope/boundary) injected automatically (producer = own worktree, operator = main checkout) |

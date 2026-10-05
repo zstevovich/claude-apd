@@ -190,9 +190,19 @@ If everything is in sync, say so in one line and move on.
 
 ### 6. Verify
 
+**First setup** (in step 1 `apd-init` printed `Mode: New project`) — the full check, end-to-end test included:
+
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/verify-apd
 ```
+
+**Maintenance of an existing project** (in step 1 `apd-init` printed `Mode: Update`) — the same check without Section 8:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/verify-apd --no-e2e
+```
+
+Section 8 drives a synthetic task through the project's real pipeline directory. On a fresh project that is the proof the pipeline works; on a project somebody is working in — a second session, a worktree, a task between two steps — it is a risk with nothing to prove, since that pipeline has already carried real tasks. Say in the report that the end-to-end test was not run and that `apd verify` runs it on request.
 
 The check must report `0 FAIL` before this skill finishes. If a FAIL surfaces, escalate to the user with the concrete file and line — do NOT silently rerun.
 
@@ -213,7 +223,7 @@ You're done when:
 - `apd-init` and `session-start` ran successfully and the `apd` shortcut works
 - For new setup: every file in the "What gets generated" table exists with no placeholders left
 - For maintenance: every gap analysis row is either ✓ or has been fixed
-- `bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/verify-apd` passes (X PASS / 0 FAIL)
+- `bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/verify-apd` passes (X PASS / 0 FAIL) — with `--no-e2e` when maintaining an existing project (step 6)
 - The reviewer agent exists with `claude-opus-5-5 / max / plan / orange`
 - `.claude/.apd-config` (or `.apd/config`) is present with `PROJECT_NAME`, `APD_VERSION`, `STACK`
 - `.mcp.json` recommendations have been presented to the user (and either accepted or skipped explicitly)

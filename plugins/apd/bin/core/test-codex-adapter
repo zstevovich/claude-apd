@@ -18645,6 +18645,246 @@ rm -rf "$G152_W"
 
 
 
+section "153. Init and a maintenance setup no longer drive the synthetic pipeline; a task that has not reached its spec counts as an active pipeline; EnableRetryOnFailure with its transaction rule (v7.3.2)"
+
+# From the first setup on v7.3.1 (PLAZMA, 2026-10-05), two notes for the framework,
+# each re-measured here before a line changed:
+#   1  `apd-init` without --quick and step 6 of /apd-setup ran the FULL verify-apd —
+#      Section 8, a synthetic task through the project's real pipeline directory —
+#      while /apd-audit had used --no-e2e since v7.2.4. Section 8 does skip a busy
+#      pipeline, but "busy" meant a spec, a .done marker or a lock: measured on
+#      v7.3.1, a real task's .guide-marker, .brainstorm-marker and drafted plan were
+#      all gone after the run (the marker overwritten, then the closing reset).
+#   2  the .NET conventions template recommended EnableRetryOnFailure with no word
+#      that a transaction opened by hand then has to run inside the execution
+#      strategy (EF Core throws InvalidOperationException otherwise).
+
+G153_T="$(mktemp -d -t apd-g153.XXXXXX)"
+_c153() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+_mk153() {
+    local d="$G153_T/$1"
+    mkdir -p "$d/.claude/agents" "$d/.claude/bin" "$d/.apd/pipeline" "$d/.apd/memory"
+    printf 'PROJECT_NAME=e\nSTACK=dotnet\n' > "$d/.apd/config"; ( cd "$d" && git init -q . )
+    printf -- '---\nname: api\ntools: Read, Write, Edit, Bash\nmodel: claude-sonnet-5-5\nscope: [src/]\n---\nFORBIDDEN: NEVER commit\n' > "$d/.claude/agents/api.md"
+    printf '%s' "$d"
+}
+_v153() { local d="$1"; shift; ( cd "$d" && APD_PROJECT_DIR="$d" bash "$APD_PLUGIN_ROOT/bin/core/verify-apd" "$@" 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g'; }
+_ls153() { ls -A "$1/.apd/pipeline" 2>/dev/null | LC_ALL=C sort | tr '\n' ' '; }
+
+# ---------------------------------------------------------------- 1. pre-spec state of a real task is "busy"
+G153_G=$(_mk153 guide); printf 'Real-task|2026-10-05T10:00:00Z\n' > "$G153_G/.apd/pipeline/.guide-marker"
+G153_GO=$(_v153 "$G153_G")
+_c153 "a real task's .guide-marker (no spec yet): the end-to-end test is skipped as an active pipeline" \
+    'printf "%s" "$G153_GO" | grep -q "skipped (active pipeline)"'
+_c153 "… and the marker is still there, naming the real task (it was overwritten and then reset away)" \
+    '[ "$(cat "$G153_G/.apd/pipeline/.guide-marker" 2>/dev/null)" = "Real-task|2026-10-05T10:00:00Z" ]'
+_c153 "… and nothing else appeared in the pipeline directory" '[ "$(_ls153 "$G153_G")" = ".guide-marker " ]'
+
+G153_B=$(_mk153 brainstorm); printf 'Real-task|2026-10-05T10:00:00Z\n' > "$G153_B/.apd/pipeline/.brainstorm-marker"
+G153_BO=$(_v153 "$G153_B")
+_c153 "a real task's .brainstorm-marker alone: skipped, the marker survives byte for byte" \
+    'printf "%s" "$G153_BO" | grep -q "skipped (active pipeline)" && [ "$(cat "$G153_B/.apd/pipeline/.brainstorm-marker" 2>/dev/null)" = "Real-task|2026-10-05T10:00:00Z" ]'
+
+G153_P=$(_mk153 plan); printf '## Plan: invoices export\n\n### Section 1\n**Implements:** R1\n' > "$G153_P/.apd/pipeline/implementation-plan.md"
+cp "$G153_P/.apd/pipeline/implementation-plan.md" "$G153_T/plan.orig"
+G153_PO=$(_v153 "$G153_P")
+_c153 "a plan drafted before the spec: skipped, the plan survives byte for byte" \
+    'printf "%s" "$G153_PO" | grep -q "skipped (active pipeline)" && cmp -s "$G153_T/plan.orig" "$G153_P/.apd/pipeline/implementation-plan.md"'
+_c153 "the skip message names the pre-spec state it now reads (plan, guide/brainstorm marker)" \
+    'printf "%s" "$G153_PO" | grep -q "plan, guide/brainstorm marker"'
+
+# a marker whose FIRST field only starts like the reserved name belongs to nobody's synthetic run
+G153_N=$(_mk153 near); printf 'APD-VERIFYING-invoices|2026-10-05T10:00:00Z\n' > "$G153_N/.apd/pipeline/.guide-marker"
+G153_NO=$(_v153 "$G153_N")
+_c153 "a task named APD-VERIFYING-… is a real task (the reserved prefix is APD-VERIFY- with the dash)" \
+    'printf "%s" "$G153_NO" | grep -q "skipped (active pipeline)" && [ -f "$G153_N/.apd/pipeline/.guide-marker" ]'
+
+# controls: what a killed synthetic run leaves behind is NOT a task, and an idle project still runs Section 8
+G153_S=$(_mk153 synth); printf 'APD-VERIFY-TEST|2026-10-05T10:00:00Z\n' > "$G153_S/.apd/pipeline/.guide-marker"
+printf 'APD-VERIFY-OPT-OUT|2026-10-05T10:00:00Z\n' > "$G153_S/.apd/pipeline/.brainstorm-marker"
+printf '## Plan: APD-VERIFY-TEST\n\n### Section 1\n**Implements:** R1\n' > "$G153_S/.apd/pipeline/implementation-plan.md"
+G153_SO=$(_v153 "$G153_S")
+_c153 "control: leftovers of a killed synthetic run (both markers + its plan) do not block the end-to-end test" \
+    '! printf "%s" "$G153_SO" | grep -q "skipped (" && printf "%s" "$G153_SO" | grep -q "pipeline-advance: spec"'
+_c153 "… and the run cleaned them up" '[ -z "$(_ls153 "$G153_S")" ]'
+G153_I=$(_mk153 idle); G153_IO=$(_v153 "$G153_I")
+_c153 "control: an idle project still runs the end-to-end test" \
+    '! printf "%s" "$G153_IO" | grep -q "skipped (" && printf "%s" "$G153_IO" | grep -q "pipeline-advance: spec"'
+# a real marker beside a synthetic plan: one real artefact is enough
+G153_M=$(_mk153 mixed); printf 'Real-task|2026-10-05T10:00:00Z\n' > "$G153_M/.apd/pipeline/.brainstorm-marker"
+printf 'APD-VERIFY-TEST|2026-10-05T10:00:00Z\n' > "$G153_M/.apd/pipeline/.guide-marker"
+G153_MO=$(_v153 "$G153_M")
+_c153 "a real brainstorm marker beside a synthetic guide marker: skipped, both files untouched" \
+    'printf "%s" "$G153_MO" | grep -q "skipped (active pipeline)" && [ "$(_ls153 "$G153_M")" = ".brainstorm-marker .guide-marker " ]'
+
+# ---------------------------------------------------------------- 2. apd-init without --quick
+G153_J=$(_mk153 init)
+G153_JO=$( ( cd "$G153_J" && APD_PROJECT_DIR="$G153_J" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c153 "apd-init without --quick runs the verification without Section 8 and the summary says so" \
+    'printf "%s" "$G153_JO" | grep -q "skipped (--no-e2e)"'
+_c153 "… no synthetic step ran (it printed 'pipeline-advance: spec' on an idle project)" \
+    '! printf "%s" "$G153_JO" | grep -q "pipeline-advance: spec"'
+_c153 "… and the output names the command that runs the end-to-end test" \
+    'printf "%s" "$G153_JO" | grep -q "end-to-end test: apd verify"'
+_c153 "… the rest of the verification still ran (sections 1 to 7 are in the output)" \
+    'printf "%s" "$G153_JO" | grep -q "1. Prerequisites" && printf "%s" "$G153_JO" | grep -q "7\. "'
+G153_Q=$(_mk153 quick)
+G153_QO=$( ( cd "$G153_Q" && APD_PROJECT_DIR="$G153_Q" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c153 "control: --quick still runs no verification at all" '! printf "%s" "$G153_QO" | grep -q "1. Prerequisites"'
+
+# ---------------------------------------------------------------- 3. /apd-setup step 6 and its checklist
+G153_K="$APD_PLUGIN_ROOT/../../skills/apd-setup/SKILL.md"
+G153_K6=$(awk '/^### 6\. Verify/{f=1; next} f && /^## /{exit} f' "$G153_K")
+_c153 "/apd-setup step 6: maintenance of an existing project runs verify-apd --no-e2e" \
+    'printf "%s" "$G153_K6" | grep -A4 "Maintenance of an existing project" | grep -q "core/verify-apd --no-e2e"'
+_c153 "/apd-setup step 6: a first setup still runs the full check (a line ending in verify-apd)" \
+    'printf "%s" "$G153_K6" | grep -A4 "First setup" | grep -q "core/verify-apd\$"'
+_c153 "/apd-setup step 6 tells the skill to report that the end-to-end test was not run" \
+    'printf "%s" "$G153_K6" | grep -q "end-to-end test was not run"'
+_c153 "the setup checklist carries the same split (its Verification section names --no-e2e for an existing project)" \
+    'awk "/^## Verification/{f=1} f" "$APD_PLUGIN_ROOT/../../skills/apd-setup/reference/init-checklist.md" | grep -q "core/verify-apd --no-e2e"'
+_c153 "the switch both documents name is one verify-apd parses" \
+    'grep -q -- "--no-e2e) NO_E2E=true" "$APD_PLUGIN_ROOT/bin/core/verify-apd"'
+
+# ---------------------------------------------------------------- 4. the .NET template
+G153_D="$APD_PLUGIN_ROOT/templates/stack/dotnet/skills/dotnet-conventions.md"
+_c153 "dotnet-conventions: the EnableRetryOnFailure line itself carries the transaction rule" \
+    'grep "EnableRetryOnFailure(" "$G153_D" | grep -q "must run inside the execution strategy" && grep "EnableRetryOnFailure(" "$G153_D" | grep -q "InvalidOperationException"'
+_c153 "dotnet-conventions: the example opens its transaction inside CreateExecutionStrategy().ExecuteAsync" \
+    '[ "$(awk "/CreateExecutionStrategy\\(\\)/{s=NR} /strategy\\.ExecuteAsync/{e=NR} /BeginTransactionAsync\\(ct\\)/{b=NR} END{print (s && e && b && s < e && e < b) ? \"ok\" : \"no\"}" "$G153_D")" = ok ]'
+G153_F="$G153_T/scaf"; mkdir -p "$G153_F/.apd"; printf 'PROJECT_NAME=s\nSTACK=dotnet\n' > "$G153_F/.apd/config"
+( cd "$G153_F" && APD_PROJECT_DIR="$G153_F" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-stack-scaffold" dotnet >/dev/null 2>&1 )
+_c153 "a project scaffolded for .NET receives the rule (the generated dotnet-conventions skill names CreateExecutionStrategy)" \
+    '[ -n "$(grep -rl "CreateExecutionStrategy" "$G153_F/.claude" 2>/dev/null)" ]'
+# ---------------------------------------------------------------- 5. audit-732: the cleanup before the busy check, other task state, row repairs
+# M2: a killed synthetic run's spec card beside a real task's marker and plan — the
+# defensive cleanup reset everything BEFORE the busy check looked.
+G153_C=$(_mk153 killed); printf '## APD-VERIFY-TEST\n**Acceptance criteria:**\n- R1: x\n' > "$G153_C/.apd/pipeline/spec-card.md"
+printf 'Real-task|2026-10-05T10:00:00Z\n' > "$G153_C/.apd/pipeline/.guide-marker"
+printf '## Plan: invoices\n' > "$G153_C/.apd/pipeline/implementation-plan.md"
+G153_CO=$(_v153 "$G153_C")
+_c153 "M2: a killed run's spec card beside a real marker and plan: the leftovers go, the real files stay, the test is skipped" \
+    'printf "%s" "$G153_CO" | grep -q "skipped (active pipeline)" && [ "$(_ls153 "$G153_C")" = ".guide-marker implementation-plan.md " ] && [ "$(cat "$G153_C/.apd/pipeline/.guide-marker")" = "Real-task|2026-10-05T10:00:00Z" ] && [ "$(cat "$G153_C/.apd/pipeline/implementation-plan.md")" = "## Plan: invoices" ]'
+# a real spec that quotes the reserved name lower down is a real spec
+G153_R=$(_mk153 quoting); printf '## Invoices export\n**Acceptance criteria:**\n- R1: x\n\n## APD-VERIFY-TEST is what the docs call the synthetic task\n' > "$G153_R/.apd/pipeline/spec-card.md"
+cp "$G153_R/.apd/pipeline/spec-card.md" "$G153_T/spec.orig"; G153_RO=$(_v153 "$G153_R")
+_c153 "a real spec card with an APD-VERIFY- heading lower down is not reset by the cleanup (it was)" \
+    'cmp -s "$G153_T/spec.orig" "$G153_R/.apd/pipeline/spec-card.md" && printf "%s" "$G153_RO" | grep -q "skipped (active pipeline)"'
+for _v in crlf nopipe; do
+    G153_X=$(_mk153 "mk-$_v")
+    case "$_v" in crlf) printf 'Real-task|2026-10-05T10:00:00Z\r\n' > "$G153_X/.apd/pipeline/.guide-marker" ;; nopipe) printf 'Real-task' > "$G153_X/.apd/pipeline/.guide-marker" ;; esac
+    cp "$G153_X/.apd/pipeline/.guide-marker" "$G153_T/mk.orig"; G153_XO=$(_v153 "$G153_X")
+    _c153 "a guide marker written $_v (CRLF line / no field separator, no newline) is somebody's marker: skipped, byte-identical afterwards" \
+        'printf "%s" "$G153_XO" | grep -q "skipped (active pipeline)" && cmp -s "$G153_T/mk.orig" "$G153_X/.apd/pipeline/.guide-marker"'
+done
+G153_L=$(_mk153 lateplan); printf '## Plan: invoices\n\n## Plan: APD-VERIFY-TEST is the fixture name\n' > "$G153_L/.apd/pipeline/implementation-plan.md"
+G153_LO=$(_v153 "$G153_L")
+_c153 "a real plan that names the synthetic heading on a LATER line is a real plan (read by its first line)" \
+    'printf "%s" "$G153_LO" | grep -q "skipped (active pipeline)" && [ -f "$G153_L/.apd/pipeline/implementation-plan.md" ]'
+# N1 (audit pass 2): a ledger of a dispatch OUTSIDE a task is nobody's state — one
+# Explore subagent must not switch the end-to-end test off
+G153_O=$(_mk153 ledger); printf '2026-10-05T10:00:00Z|start|Explore|ab12cd34\n' > "$G153_O/.apd/pipeline/.agents"; printf 'x\n' > "$G153_O/.apd/pipeline/.guarded-writes"
+G153_OO=$(_v153 "$G153_O")
+_c153 "N1: an .agents ledger and .guarded-writes with no spec do not block the end-to-end test" \
+    '! printf "%s" "$G153_OO" | grep -q "skipped (" && printf "%s" "$G153_OO" | grep -q "pipeline-advance: spec"'
+# N2: an empty marker or plan is what a killed synthetic run leaves; it names no task
+G153_Z=$(_mk153 emptyleft); printf '## APD-VERIFY-TEST\n- R1: x\n' > "$G153_Z/.apd/pipeline/spec-card.md"
+printf '2026-10-05T10:00:00Z|x|APD-VERIFY-TEST\n' > "$G153_Z/.apd/pipeline/spec.done"; : > "$G153_Z/.apd/pipeline/implementation-plan.md"; : > "$G153_Z/.apd/pipeline/.guide-marker"
+G153_ZO=$(_v153 "$G153_Z")
+_c153 "N2: a killed run's card with an EMPTY plan and an EMPTY marker heals by itself (the test runs, the directory ends empty)" \
+    '! printf "%s" "$G153_ZO" | grep -q "skipped (" && printf "%s" "$G153_ZO" | grep -q "pipeline-advance: spec" && [ -z "$(_ls153 "$G153_Z")" ]'
+# the carry is a rename inside the pipeline directory: a run killed between the two renames is repaired by the next one
+G153_Y=$(_mk153 keep); printf 'Real-task|2026-10-05T10:00:00Z\n' > "$G153_Y/.apd/pipeline/.apd-verify-keep..guide-marker"
+printf '## Plan: invoices\n' > "$G153_Y/.apd/pipeline/.apd-verify-keep.implementation-plan.md"
+G153_YO=$(_v153 "$G153_Y")
+_c153 "a run killed mid-carry: the next run puts the set-aside marker and plan back, says so, and skips the test" \
+    'printf "%s" "$G153_YO" | grep -q "skipped (active pipeline)" && printf "%s" "$G153_YO" | grep -q "put back what an interrupted .apd verify. had set aside: .guide-marker implementation-plan.md" && [ "$(_ls153 "$G153_Y")" = ".guide-marker implementation-plan.md " ] && [ "$(cat "$G153_Y/.apd/pipeline/.guide-marker")" = "Real-task|2026-10-05T10:00:00Z" ]'
+G153_Y2=$(_mk153 keep2); printf 'Old-task|2026-10-01T10:00:00Z\n' > "$G153_Y2/.apd/pipeline/.apd-verify-keep..guide-marker"
+printf 'New-task|2026-10-05T10:00:00Z\n' > "$G153_Y2/.apd/pipeline/.guide-marker"; _v153 "$G153_Y2" >/dev/null
+_c153 "… a set-aside copy never replaces a real marker written since (the newer one stays, the copy is kept beside it)" \
+    '[ "$(cat "$G153_Y2/.apd/pipeline/.guide-marker")" = "New-task|2026-10-05T10:00:00Z" ] && [ -f "$G153_Y2/.apd/pipeline/.apd-verify-keep..guide-marker" ]'
+G153_S2=$(_mk153 symk); printf 'Real-task|2026-10-05T10:00:00Z\n' > "$G153_T/elsewhere"
+ln -s "$G153_T/elsewhere" "$G153_S2/.apd/pipeline/.guide-marker"; printf '## APD-VERIFY-TEST\n- R1: x\n' > "$G153_S2/.apd/pipeline/spec-card.md"; _v153 "$G153_S2" >/dev/null
+_c153 "a symlinked marker beside a killed run's card is still the same symlink afterwards, target untouched" \
+    '[ -L "$G153_S2/.apd/pipeline/.guide-marker" ] && [ "$(cat "$G153_T/elsewhere")" = "Real-task|2026-10-05T10:00:00Z" ]'
+# audit pass 3: a set-aside file is never overwritten, never restored into another task, and is named while it lingers
+G153_V=$(_mk153 nokeep); printf '## APD-VERIFY-TEST\n- R1: x\n' > "$G153_V/.apd/pipeline/spec-card.md"
+printf 'New-task|2026-10-05T10:00:00Z\n' > "$G153_V/.apd/pipeline/.guide-marker"; printf 'Old-task|2026-10-01T10:00:00Z\n' > "$G153_V/.apd/pipeline/.apd-verify-keep..guide-marker"
+G153_VO=$(_v153 "$G153_V")
+_c153 "a real marker that cannot be set aside (an earlier set-aside file holds the name): NO reset — card, marker and the earlier file all intact" \
+    '[ -f "$G153_V/.apd/pipeline/spec-card.md" ] && [ "$(cat "$G153_V/.apd/pipeline/.guide-marker")" = "New-task|2026-10-05T10:00:00Z" ] && [ "$(cat "$G153_V/.apd/pipeline/.apd-verify-keep..guide-marker")" = "Old-task|2026-10-01T10:00:00Z" ]'
+_c153 "… and the lingering file is named in the output" 'printf "%s" "$G153_VO" | grep -q "not put back: .apd-verify-keep..guide-marker"'
+G153_U=$(_mk153 othertask); printf '## Invoices export\n- R1: x\n' > "$G153_U/.apd/pipeline/spec-card.md"
+printf 'Old-task|2026-10-01T10:00:00Z\n' > "$G153_U/.apd/pipeline/.apd-verify-keep..guide-marker"; printf '## Plan: old\n' > "$G153_U/.apd/pipeline/.apd-verify-keep.implementation-plan.md"
+G153_UB=$(_ls153 "$G153_U"); G153_UO=$(_v153 "$G153_U")
+_c153 "a set-aside marker and plan are NOT restored into a pipeline that now holds another task's spec" \
+    '[ "$(_ls153 "$G153_U")" = "$G153_UB" ] && printf "%s" "$G153_UO" | grep -q "puts them back once the pipeline is idle" && printf "%s" "$G153_UO" | grep -q "skipped (active pipeline)"'
+G153_UN=$(_v153 "$G153_Y2" --no-e2e)
+_c153 "--no-e2e names a lingering set-aside file too, and moves nothing" \
+    'printf "%s" "$G153_UN" | grep -q "not put back: .apd-verify-keep..guide-marker" && [ -f "$G153_Y2/.apd/pipeline/.apd-verify-keep..guide-marker" ]'
+_c153 "… and a project with none prints no such line" '! printf "%s" "$G153_IO" | grep -q "not put back"'
+G153_DD=$(_mk153 keepdir); mkdir "$G153_DD/.apd/pipeline/.apd-verify-keep..guide-marker"; G153_DO=$(_v153 "$G153_DD")
+_c153 "a set-aside NAME that is a directory is not moved anywhere (the end-to-end test still runs)" \
+    '[ -d "$G153_DD/.apd/pipeline/.apd-verify-keep..guide-marker" ] && [ ! -d "$G153_DD/.apd/pipeline/.guide-marker" ] && printf "%s" "$G153_DO" | grep -q "pipeline-advance: spec"' 
+# L1: --no-e2e touches nothing, and now says what it saw
+G153_W=$(_mk153 leftover); printf '## APD-VERIFY-TEST\n- R1: x\n' > "$G153_W/.apd/pipeline/spec-card.md"
+G153_WO=$(_v153 "$G153_W" --no-e2e)
+_c153 "L1: --no-e2e over a killed run's leftovers leaves them and names the command that cleans them" \
+    '[ -f "$G153_W/.apd/pipeline/spec-card.md" ] && printf "%s" "$G153_WO" | grep -q "interrupted end-to-end test" && printf "%s" "$G153_WO" | grep -q "apd verify"'
+_c153 "… and says nothing of the kind on a clean project" '! _v153 "$G153_Q" --no-e2e | grep -q "interrupted end-to-end test"'
+# L3: the two rows that could not fail, replaced
+G153_AO=$( ( cd "$G153_I" && APD_PROJECT_DIR="$G153_I" bash "$APD_PLUGIN_ROOT/bin/apd" verify 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' )
+_c153 "executed: 'apd verify' through the dispatcher runs the end-to-end test on an idle project" \
+    'printf "%s" "$G153_AO" | grep -q "pipeline-advance: spec"'
+_c153 "dotnet-conventions: the transaction example is a fenced block of its own (a closed fence, a blank line, its own opening fence)" \
+    '[ "$(awk "/^\`\`\`/{c++} /A user-initiated transaction under EnableRetryOnFailure/{print (c % 2 == 1 && prev ~ /^\`\`\`csharp/) ? \"ok\" : \"no\"} {prev=\$0}" "$G153_D")" = ok ]'
+_c153 "dotnet-conventions: the call is written with the three arguments both providers take, and the exception is attributed to the first operation, not to BeginTransactionAsync" \
+    'grep -q "EnableRetryOnFailure(3, TimeSpan.FromSeconds(2), null)" "$G153_D" && grep "EnableRetryOnFailure(3" "$G153_D" | grep -q "the first \`SaveChangesAsync\` or query throws"'
+# M1: the criterion names what init prints
+_c153 "M1: step 6 decides by apd-init's Mode line, and init prints exactly those two modes" \
+    'printf "%s" "$G153_K6" | grep -q "Mode: New project" && printf "%s" "$G153_K6" | grep -q "Mode: Update" && printf "%s" "$G153_JO" | grep -q "Mode: Update" && ( cd "$G153_T" && mkdir -p fresh && cd fresh && git init -q . && APD_PROJECT_DIR="$G153_T/fresh" bash "$APD_PLUGIN_ROOT/bin/core/apd-init" --quick 2>&1 ) | sed "s/\x1b\[[0-9;]*m//g" | grep -q "Mode: New project"'
+_c153 "M1: neither setup document decides by .apd/config (a CC project's config is .claude/.apd-config)" \
+    '! printf "%s" "$G153_K6" | grep -q "\.apd/config" && ! awk "/^## Verification/{f=1} f" "$APD_PLUGIN_ROOT/../../skills/apd-setup/reference/init-checklist.md" | grep -q "\.apd/config"'
+# audit pass 4: set-aside files go back together and only into an idle pipeline
+G153_P1=$(_mk153 p1); printf 'Newer-task|2026-10-05T10:00:00Z\n' > "$G153_P1/.apd/pipeline/.guide-marker"
+printf 'Old-task|2026-10-01T10:00:00Z\n' > "$G153_P1/.apd/pipeline/.apd-verify-keep..guide-marker"; printf '## Plan: old\n' > "$G153_P1/.apd/pipeline/.apd-verify-keep.implementation-plan.md"
+G153_P1B=$(_ls153 "$G153_P1"); G153_P1O=$(_v153 "$G153_P1")
+_c153 "P1: a newer task's marker in the pipeline: the OLD task's set-aside plan does not land beside it (nothing moves)" \
+    '[ "$(_ls153 "$G153_P1")" = "$G153_P1B" ] && [ ! -e "$G153_P1/.apd/pipeline/implementation-plan.md" ]'
+_c153 "P2: a lingering set-aside PLAN is named too" 'printf "%s" "$G153_P1O" | grep -q "not put back: .apd-verify-keep..guide-marker .apd-verify-keep.implementation-plan.md"'
+G153_P2=$(_mk153 p2); printf '2026-10-05T10:00:00Z|x|Invoices export\n' > "$G153_P2/.apd/pipeline/spec.done"
+printf 'Old-task|2026-10-01T10:00:00Z\n' > "$G153_P2/.apd/pipeline/.apd-verify-keep..guide-marker"; G153_P2B=$(_ls153 "$G153_P2"); _v153 "$G153_P2" >/dev/null
+_c153 "P1: a real spec.done without a card: nothing is restored" '[ "$(_ls153 "$G153_P2")" = "$G153_P2B" ]'
+G153_P3=$(_mk153 p3); mkdir "$G153_P3/.apd/pipeline/.lock"
+printf 'Old-task|2026-10-01T10:00:00Z\n' > "$G153_P3/.apd/pipeline/.apd-verify-keep..guide-marker"; G153_P3B=$(_ls153 "$G153_P3"); _v153 "$G153_P3" >/dev/null
+_c153 "P1: a held lock: nothing is restored" '[ "$(_ls153 "$G153_P3")" = "$G153_P3B" ]'
+G153_P4=$(_mk153 p4); printf 'Old-task|2026-10-01T10:00:00Z\n' > "$G153_P4/.apd/pipeline/.apd-verify-keep..guide-marker"
+G153_P4B=$(_ls153 "$G153_P4"); _v153 "$G153_P4" --no-e2e >/dev/null
+_c153 "P2: --no-e2e on an IDLE pipeline with a set-aside file moves nothing (a full run would put it back here)" '[ "$(_ls153 "$G153_P4")" = "$G153_P4B" ]'
+G153_P5=$(_mk153 p5); mkdir "$G153_P5/.apd/pipeline/.guide-marker"; printf 'Old-task|2026-10-01T10:00:00Z\n' > "$G153_P5/.apd/pipeline/.apd-verify-keep..guide-marker"; _v153 "$G153_P5" >/dev/null
+_c153 "P2: a real NAME that is a directory: the set-aside file is not moved into it" \
+    '[ -f "$G153_P5/.apd/pipeline/.apd-verify-keep..guide-marker" ] && [ -z "$(ls -A "$G153_P5/.apd/pipeline/.guide-marker")" ]'
+G153_P6=$(_mk153 p6); printf '## APD-VERIFY-TEST\n- R1: x\n' > "$G153_P6/.apd/pipeline/spec-card.md"
+printf 'New-task|2026-10-05T10:00:00Z\n' > "$G153_P6/.apd/pipeline/.guide-marker"; printf '## Plan: new\n' > "$G153_P6/.apd/pipeline/implementation-plan.md"
+printf 'Old-task|2026-10-01T10:00:00Z\n' > "$G153_P6/.apd/pipeline/.apd-verify-keep..guide-marker"; G153_P6B=$(_ls153 "$G153_P6"); _v153 "$G153_P6" >/dev/null
+_c153 "a task's files are not split: with one set-aside name taken, its plan is not moved aside either (tree unchanged)" \
+    '[ "$(_ls153 "$G153_P6")" = "$G153_P6B" ] && [ "$(cat "$G153_P6/.apd/pipeline/implementation-plan.md")" = "## Plan: new" ]'
+# the way out, with apd commands only: reset, verify (puts back), reset, verify (runs)
+( cd "$G153_V" && APD_PROJECT_DIR="$G153_V" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1 ); _v153 "$G153_V" >/dev/null
+( cd "$G153_V" && APD_PROJECT_DIR="$G153_V" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" reset >/dev/null 2>&1 ); G153_VO2=$(_v153 "$G153_V")
+_c153 "the way out of a lingering set-aside file needs no manual file operation (reset, verify, reset, verify → the end-to-end test runs, the directory is empty)" \
+    'printf "%s" "$G153_VO2" | grep -q "pipeline-advance: spec" && [ -z "$(_ls153 "$G153_V")" ]'
+# audit pass 5: the announcement is for a repair of an EARLIER run only, each name once
+_c153 "R2: the ordinary carry (a killed run's card beside a real marker, nothing set aside before) announces no repair" \
+    '! printf "%s" "$G153_CO" | grep -q "put back what an interrupted"'
+_c153 "R2: an idle project announces no repair either" '! printf "%s" "$G153_IO" | grep -q "put back what an interrupted"'
+G153_R3=$(_mk153 r3); printf '## APD-VERIFY-TEST\n- R1: x\n' > "$G153_R3/.apd/pipeline/spec-card.md"
+printf 'Real-task|2026-10-05T10:00:00Z\n' > "$G153_R3/.apd/pipeline/.apd-verify-keep..guide-marker"; G153_R3O=$(_v153 "$G153_R3")
+_c153 "R3: a set-aside marker beside a killed run's card (killed before its reset): put back, announced with the name ONCE" \
+    '[ "$(_ls153 "$G153_R3")" = ".guide-marker " ] && [ "$(printf "%s" "$G153_R3O" | grep "put back what an interrupted" | grep -o "\.guide-marker" | wc -l | tr -d " ")" = 1 ]'
+rm -rf "$G153_T"
+
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"

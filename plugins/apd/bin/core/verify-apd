@@ -74,11 +74,90 @@ if [ "$NO_E2E" != true ] && [ -n "${APD_AGENTS_DIR:-}" ] && [ -d "$APD_AGENTS_DI
         [ -f "$_stale_stub" ] && rm -f "$_stale_stub"
     done
 fi
+# v7.3.2: what a task owns BEFORE its spec is signed — the guide and brainstorm
+# skills' markers and a drafted plan. Prints the names that belong to a real
+# task (a marker whose task is not APD-VERIFY-*, a plan whose first line is not
+# the synthetic heading). Read by the cleanup below and by the busy check.
+_apd_verify_real_prespec() {
+    local _n _f _first
+    for _n in .guide-marker .brainstorm-marker implementation-plan.md; do
+        _f="$PIPELINE_DIR/$_n"
+        # An empty file names no task and holds no text: a killed synthetic
+        # run leaves one (opened, not yet written), and nothing is lost with it.
+        [ -f "$_f" ] && [ -s "$_f" ] || continue
+        _first=$(head -1 "$_f" 2>/dev/null)
+        case "$_n" in
+            implementation-plan.md) case "$_first" in "## Plan: APD-VERIFY-"*) continue ;; esac ;;
+            *) case "${_first%%|*}" in APD-VERIFY-*) continue ;; esac ;;
+        esac
+        printf '%s\n' "$_n"
+    done
+}
+# The spec card's task: its first heading (a real card that merely quotes the
+# reserved name lower down is a real card).
+_apd_verify_spec_is_synthetic() {
+    grep -m1 -E '^##? ' "$PIPELINE_DIR/spec-card.md" 2>/dev/null | grep -qE '^##? *\[?APD-VERIFY-'
+}
+# v7.3.2: the reset below removes markers and plan with everything else. A
+# real task's pre-spec files that sit beside a killed run's spec card are
+# renamed aside INSIDE the pipeline directory (the reset removes by name and
+# leaves them), then renamed back; the busy check then sees them. A run killed
+# between the two renames leaves `.apd-verify-keep.<name>` there, and the next
+# run — this block, first thing — puts it back.
+# Set-aside files go back together, and only into a pipeline that shows no
+# sign of any task: no real spec card, no real spec.done, no lock held, no real
+# marker or plan written since (audit-732 pass 4 — a stale plan landed beside
+# another task's marker). Otherwise they stay where they are, named in the
+# output; nothing here deletes or overwrites one. Stated: the renames are one
+# `mv` per file — a run killed BETWEEN two of them leaves a task's files split
+# (some set aside, some in place); that is not repaired, only named, and the
+# tree is left as it is.
+APD_VERIFY_RESTORED=""
+_apd_verify_unkeep() {
+    local _k _from _to
+    if [ -f "$PIPELINE_DIR/spec-card.md" ] && ! _apd_verify_spec_is_synthetic; then return 0; fi
+    if [ -f "$PIPELINE_DIR/spec.done" ] && ! grep -q '|APD-VERIFY-' "$PIPELINE_DIR/spec.done" 2>/dev/null; then return 0; fi
+    [ -d "$PIPELINE_DIR/.lock" ] && return 0
+    [ -n "$(_apd_verify_real_prespec)" ] && return 0
+    for _k in .guide-marker .brainstorm-marker implementation-plan.md; do
+        _from="$PIPELINE_DIR/.apd-verify-keep.$_k"; _to="$PIPELINE_DIR/$_k"
+        [ -L "$_from" ] || [ -f "$_from" ] || continue
+        [ -d "$_to" ] && [ ! -L "$_to" ] && continue
+        mv -f "$_from" "$_to" 2>/dev/null && APD_VERIFY_RESTORED="$APD_VERIFY_RESTORED $_k"
+    done
+}
+_apd_verify_keep_left() {
+    local _k _o=""
+    for _k in .guide-marker .brainstorm-marker implementation-plan.md; do
+        if [ -e "$PIPELINE_DIR/.apd-verify-keep.$_k" ] || [ -L "$PIPELINE_DIR/.apd-verify-keep.$_k" ]; then _o="$_o .apd-verify-keep.$_k"; fi
+    done
+    printf '%s' "${_o# }"
+}
+if [ "$NO_E2E" != true ] && [ -n "${PIPELINE_DIR:-}" ] && [ -d "$PIPELINE_DIR" ]; then
+    _apd_verify_unkeep
+fi
+# Announced further down: only what THIS point put back is an earlier run's
+# interrupted carry. The carry below sets aside and restores within one run.
+APD_VERIFY_REPAIRED="$APD_VERIFY_RESTORED"
 # Also purge synthetic pipeline state if the prior run left APD-VERIFY-* artifacts
 if [ "$NO_E2E" != true ] && [ -n "${PIPELINE_DIR:-}" ] && [ -f "$PIPELINE_DIR/spec-card.md" ]; then
-    if grep -qE '^##? *\[?APD-VERIFY-' "$PIPELINE_DIR/spec-card.md" 2>/dev/null; then
-        bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
+    if _apd_verify_spec_is_synthetic; then
+        _keep_ok=true
+        # an earlier set-aside file still there is never overwritten, and a
+        # task's files are not split: with one name taken, nothing moves
+        [ -n "$(_apd_verify_keep_left)" ] && _keep_ok=false
+        if [ "$_keep_ok" = true ]; then
+            for _k in $(_apd_verify_real_prespec); do
+                mv "$PIPELINE_DIR/$_k" "$PIPELINE_DIR/.apd-verify-keep.$_k" 2>/dev/null || _keep_ok=false
+            done
+        fi
+        # a file that could not be set aside would be lost: leave the leftovers
+        # for this run (the busy check skips Section 8) rather than reset over it
+        [ "$_keep_ok" = true ] && bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
+        _apd_verify_unkeep
     fi
+elif [ "$NO_E2E" = true ] && [ -n "${PIPELINE_DIR:-}" ] && [ -f "$PIPELINE_DIR/spec-card.md" ] && _apd_verify_spec_is_synthetic; then
+    APD_VERIFY_LEFTOVERS=1
 fi
 
 # ============================================================
@@ -682,6 +761,7 @@ section "8. Pipeline end-to-end test"
 #   - spec-card.md exists and its task is NOT an APD-VERIFY-* synthetic
 #   - or any *.done marker exists that doesn't belong to APD-VERIFY-*
 #   - or .lock exists (another pipeline operation is in flight)
+#   - or a guide/brainstorm marker or a plan of a real task exists (v7.3.2)
 # This means verify-apd Section 8 only runs in genuinely idle projects.
 _apd_verify_pipeline_busy() {
     local spec="$PIPELINE_DIR/spec-card.md"
@@ -710,6 +790,19 @@ _apd_verify_pipeline_busy() {
     if [ -d "$PIPELINE_DIR/.lock" ]; then
         return 0
     fi
+    # v7.3.2: a task that has not reached its spec yet is a task too. The guide
+    # and brainstorm skills leave a marker naming it, and a plan may be drafted
+    # before the spec is signed; Section 8 overwrote the marker with its own and
+    # its closing reset removed all three, so the session that owned them met a
+    # guide-marker BLOCK at `spec`. A marker or plan of a synthetic run is not a
+    # task (a killed earlier run leaves them).
+    [ -n "$(_apd_verify_real_prespec)" ] && return 0
+    # Nothing else is read on purpose. The reset's other files (.agents, the
+    # counters, cap overrides, dispatch files) belong to a SIGNED task — covered
+    # by the spec card above — or to nobody: `track-agent` writes `.agents` for
+    # any subagent outside a task and the next `spec` wipes it. Reading them as
+    # "busy" switched the end-to-end test off after one Explore dispatch
+    # (audit-732 pass 2, N1).
     if ls "$PIPELINE_DIR"/*.done >/dev/null 2>&1; then
         # If there's a spec.done with a non-VERIFY task, treat as busy
         if [ -f "$PIPELINE_DIR/spec.done" ] && ! grep -q '|APD-VERIFY-' "$PIPELINE_DIR/spec.done" 2>/dev/null; then
@@ -719,12 +812,20 @@ _apd_verify_pipeline_busy() {
     return 1
 }
 
+_keep_left=""
+[ -n "${PIPELINE_DIR:-}" ] && [ -d "$PIPELINE_DIR" ] && _keep_left=$(_apd_verify_keep_left)
+if [ -n "$_keep_left" ]; then
+    warn "set aside by an interrupted \`apd verify\` and not put back: $_keep_left (in .apd/pipeline/) — a task's guide/brainstorm marker or plan from before its spec"
+    warn "they are never deleted or overwritten; \`apd verify\` puts them back once the pipeline is idle (no other task's spec, marker, plan or lock) — \`apd pipeline reset\` gets it there"
+fi
+[ -n "$APD_VERIFY_REPAIRED" ] && warn "put back what an interrupted \`apd verify\` had set aside:$APD_VERIFY_REPAIRED — the files of a task from before its spec"
 if [ "$NO_E2E" = true ]; then
     pass "end-to-end test skipped (--no-e2e) — the project's pipeline directory was not touched"
+    [ "${APD_VERIFY_LEFTOVERS:-0}" = 1 ] && warn "the pipeline directory holds what an interrupted end-to-end test left (a spec card for APD-VERIFY-*) — \`apd verify\` cleans it up"
     SUM_PIPELINE="skipped (--no-e2e)"
     PIPELINE_TEST_SKIPPED=1
 elif _apd_verify_pipeline_busy; then
-    warn "active pipeline detected (spec-card.md or .done markers from a real task) — skipping end-to-end test to avoid contaminating state"
+    warn "active pipeline detected (a spec, plan, guide/brainstorm marker or .done marker of a real task) — skipping end-to-end test to avoid contaminating state"
     warn "run \`apd pipeline reset\` and re-run \`apd verify\` if you want to exercise the end-to-end test"
     SUM_PIPELINE="skipped (active pipeline)"
     # Skip the entire Section 8 by jumping to the summary
