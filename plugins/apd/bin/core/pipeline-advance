@@ -86,6 +86,8 @@ source "$(dirname "$0")/../lib/style.sh"
 # v7.1 — dispatch budget (raise-cap dispatch, status line, wall-clock nudge)
 source "$(dirname "$0")/../lib/agent-scope.sh"
 source "$(dirname "$0")/../lib/dispatch-budget.sh"
+# v7.4 — run telemetry (an append-only event log; decides nothing, never fails a step)
+source "$(dirname "$0")/../lib/telemetry.sh"
 # _audit_info <reason> <detail> — one INFO line in guard-audit.log (SYNTHETIC under verify-apd)
 _audit_info() {
     local _t
@@ -724,6 +726,12 @@ _scan_reviewer_ran() {
     return 0
 }
 
+# v7.4 — record the adversarial/supervision state as it stands BEFORE this step
+# can delete it (rollback, reset and the spec re-advance all do). Once per state.
+case "$STEP" in
+    spec|builder|reviewer|verifier|reset|rollback) _ev_pass_observe "$STEP" ;;
+esac
+
 case "$STEP" in
     spec)
         if [ -z "$ARG" ]; then
@@ -869,6 +877,10 @@ case "$STEP" in
            && grep -q '|start|' "$PIPELINE_DIR/.agents" 2>/dev/null; then
             _audit_info "dispatch-budget-reset" "task=$ARG same task re-advanced with dispatches on record: $(_dispatch_summary)"
         fi
+        # v7.4 — a run still on disk at a spec advance was never reset and gets
+        # no metrics row; remember it here, its end is recorded at the bottom of
+        # this step (telemetry only, after every state change of the step).
+        _ev_capture
         # Archive agent log before clearing (permanent audit trail)
         if [ -f "$PIPELINE_DIR/.agents" ]; then
             cat "$PIPELINE_DIR/.agents" >> "$MEMORY_DIR/agent-history.log"
@@ -924,6 +936,8 @@ case "$STEP" in
         echo "    ${D}Model profile: ${_CUR_PROFILE} — judge the fit for THIS task before dispatching:${R}" >&2
         echo "    ${D}  eco (trivial / copy / local) · cruise (standard) · burn (launch-critical / rule-1 path).${R}" >&2
         echo "    ${D}  Switch if it doesn't match: bash $APD_SHORTCUT_DISPLAY profile <name> + /reload-plugins (advisory — never blocks).${R}" >&2
+        _ev_run_end superseded   # v7.4: the run this spec replaced, if one was still on disk
+        _ev_step advance spec
         ;;
 
     builder)
@@ -1187,6 +1201,7 @@ case "$STEP" in
         bash "$SCRIPT_DIR/gh-sync" builder 2>/dev/null || true
         echo "" >&2
         echo "    ${D}Next:${R} Review the diff, then advance the reviewer gate" >&2
+        _ev_step advance builder
         ;;
 
     reviewer)
@@ -1377,6 +1392,7 @@ case "$STEP" in
         else
             echo "    ${D}Next:${R} advance the verifier gate" >&2
         fi
+        _ev_step advance reviewer
         ;;
 
     verifier)
@@ -1837,8 +1853,10 @@ function _check() {
         if [ -n "$VERIFY_ALL" ]; then
             echo "" >&2
             echo "  Running build + tests..." >&2
+            _EV_VERIFY_T0=$(date +%s)
             VERIFY_OUT=$(bash "$VERIFY_ALL" 2>&1)
             VERIFY_EXIT=$?
+            _ev_write "$(_ev_run)" "$(_ev_task)" verify "dur=$(( $(date +%s) - _EV_VERIFY_T0 )) exit=$VERIFY_EXIT"
             if [ $VERIFY_EXIT -ne 0 ]; then
                 echo "BLOCKED: Build or tests failed." >&2
                 echo "" >&2
@@ -1860,6 +1878,7 @@ function _check() {
         echo "    ${D}After commit, before any new task: advance the reset step${R}" >&2
         # GitHub sync (best-effort)
         bash "$SCRIPT_DIR/gh-sync" verifier 2>/dev/null || true
+        _ev_step advance verifier
         ;;
 
     reset)
@@ -1867,6 +1886,9 @@ function _check() {
         # next `pipeline-advance` call can warn about. The EXIT trap does not
         # remove this marker — only successful completion does.
         touch "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
+        # v7.4 — remember the run; its end is recorded after the reset is complete
+        _ev_capture
+        _EV_END_STATUS=partial; [ -f "$PIPELINE_DIR/verifier.done" ] && _EV_END_STATUS=completed
         # Archive adversarial rationale before reset wipes it (state still intact here)
         archive_rationale
         # Auto-append to session-log before clearing flags
@@ -2175,6 +2197,7 @@ EOF
         # Reset completed cleanly — drop the in-progress marker.
         rm -f "$PIPELINE_DIR/.reset-in-progress" 2>/dev/null
         echo "Pipeline reset. Ready for new task."
+        _ev_run_end "$_EV_END_STATUS"
         ;;
 
     raise-cap)
@@ -2250,6 +2273,11 @@ EOF
         ROLLED_BACK=false
         for step in verifier reviewer builder spec; do
             if [ -f "$PIPELINE_DIR/$step.done" ]; then
+                # v7.4 — the rationale a reviewer/verifier rollback is about to
+                # delete is kept first (once, in its own file); the rollback
+                # event itself is written after the step's own deletions.
+                _ev_capture
+                case "$step" in verifier|reviewer) _ev_archive_rollback ;; esac
                 rm -f "$PIPELINE_DIR/$step.done"
                 # If verifier rolled back, also remove cache timestamp and trace summary.
                 # Supervision state falls too — it judged a FINAL diff that is no
@@ -2263,6 +2291,10 @@ EOF
                 # implementation-plan.md is NOT deleted on rollback — it's part of the frozen spec
                 apd_header "Rollback: $step"
                 show_pipeline "$step"
+                case "$step" in
+                    verifier|reviewer) _ev_step rollback "$step" "wiped=1" ;;
+                    *)                 _ev_step rollback "$step" ;;
+                esac
                 ROLLED_BACK=true
                 break
             fi
@@ -2321,6 +2353,7 @@ EOF
         done
         print_pipeline_state
         _guard_cancel_report status
+        _ev_probe
         ;;
 
     show)

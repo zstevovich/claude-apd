@@ -18885,6 +18885,376 @@ _c153 "R3: a set-aside marker beside a killed run's card (killed before its rese
 rm -rf "$G153_T"
 
 
+section "154. Run telemetry (v7.4): pipeline-events.log records phase history, the review state before a rollback deletes it, verify time and the run's end — and decides nothing"
+
+# v7.4, observability only. Until now a run left ONE metrics row, written at
+# reset from whatever survived: a rollback deleted the adversarial/supervision
+# summaries and rationale unarchived (a run with thirty dispatches closed as
+# 0:0:0), a re-advanced step overwrote its own timestamp, nothing recorded the
+# working tree at any point, verify-all was not timed, and a failed write to any
+# of the logs was silent. `bin/lib/telemetry.sh` appends events to
+# <memory>/pipeline-events.log. Every row below either reads an event that did
+# not exist, or proves the pipeline behaves as it did (same exit codes, same
+# pipeline directory, the 20-column metrics row untouched).
+
+G154_T="$(mktemp -d -t apd-g154.XXXXXX)"; G154_T=$(cd "$G154_T" && pwd -P)
+G154_PA="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+G154_LIB="$APD_PLUGIN_ROOT/bin/lib/telemetry.sh"
+_c154() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+_pa154() { local d="$1"; shift; ( cd "$d" && APD_PROJECT_DIR="$d" bash "$G154_PA" "$@" 2>&1 ); }
+_rc154() { local d="$1"; shift; ( cd "$d" && APD_PROJECT_DIR="$d" bash "$G154_PA" "$@" >/dev/null 2>&1 ); echo $?; }
+_ev154() { printf '%s' "$1/.claude/memory/pipeline-events.log"; }
+_n154() { grep -c -- "$2" "$(_ev154 "$1")" 2>/dev/null || true; }
+_rat154() { printf '## Finding 1 — a\n**Severity:** important\n**Status:** accepted\n**Rationale:** fixed in the builder pass, see the diff of the tests\n\n## Finding 2 — b\n**Severity:** minor\n**Status:** reviewer-self-dismissed\n**Rationale:** reviewer concluded no real issue here pre-existing behavior\n' > "$1/.apd/pipeline/.adversarial-rationale.md"; }
+_ml154() { if [ -f "$1" ]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
+_ls154() { ls -A "$1/.apd/pipeline" 2>/dev/null | LC_ALL=C sort | tr '\n' ' '; }
+
+# ---------------------------------------------------------------- 1. the events of one run
+G154_A="$G154_T/a"; _v67_make_state "$G154_A" "ADVERSARIAL:2:1:1"; _rat154 "$G154_A"
+G154_RUN=$(head -1 "$G154_A/.apd/pipeline/spec.done" | cut -d'|' -f1)
+_c154 "spec, builder and reviewer advances are each one event, in order, under the run's id (the spec.done epoch) and task" \
+    '[ "$(grep "|advance|" "$(_ev154 "$G154_A")" | sed "s/.*step=\([a-z]*\).*/\1/" | tr "\n" " ")" = "spec builder reviewer " ] && [ "$(grep -c "|v1|$G154_RUN|advance|.*|v67-task\$" "$(_ev154 "$G154_A")")" = 3 ]'
+_c154 "every event line has exactly six fields and the schema tag v1" \
+    '[ -z "$(awk -F"|" "NF != 6 || \$2 != \"v1\"" "$(_ev154 "$G154_A")")" ]'
+_c154 "the dispatch counts ride on the event (builder/reviewer/adversarial from the ledger): reviewer advance = 1/1/0" \
+    'grep -q "|advance|rt=cc step=reviewer disp=1/1/0" "$(_ev154 "$G154_A")"'
+_c154 "no review state is recorded before a step has looked at one (the summary was written after the reviewer advance)" '[ "$(_n154 "$G154_A" "|review-state|")" = 0 ]'
+G154_V1=$(_pa154 "$G154_A" verifier); G154_V1RC=$?
+_c154 "the verifier advance still signs (exit 0, COMMIT ALLOWED) with telemetry on" '[ "$G154_V1RC" = 0 ] && printf "%s" "$G154_V1" | grep -q "COMMIT ALLOWED"'
+_c154 "the review state is on record with the summary and the rationale counts: adv=2:1:1 advf=2 do=0 dr=1" \
+    'grep -q "|review-state|rt=cc at=verifier fp=[0-9-]* disp=1/1/1 adv=2:1:1 advf=2 do=0 dr=1 |v67-task\$" "$(_ev154 "$G154_A")"'
+_c154 "what was not measured is absent, not zero: no supervision ran, the line carries no sup= and no supf=" \
+    '! grep "|review-state|" "$(_ev154 "$G154_A")" | grep -q "sup"'
+_c154 "no verify-all script in the project: no verify event (unknown, not dur=0)" '[ "$(_n154 "$G154_A" "|verify|")" = 0 ]'
+_c154 "the verifier advance is an event too" '[ "$(_n154 "$G154_A" "|advance|rt=cc step=verifier ")" = 1 ]'
+_c154 "outside a git checkout the tree fields are absent (no head=, wt=, files=)" '! grep -q "head=\|wt=\|files=\|untracked=" "$(_ev154 "$G154_A")"'
+
+# ---------------------------------------------------------------- 2. a rollback no longer loses the pass
+cp -Rp "$G154_A/.apd/pipeline" "$G154_T/a-pre-rollback"
+G154_RB=$(_pa154 "$G154_A" rollback); G154_RBRC=$?
+_c154 "rollback of the verifier step: exit 0, the summary and rationale are deleted exactly as before" \
+    '[ "$G154_RBRC" = 0 ] && [ ! -f "$G154_A/.apd/pipeline/verifier.done" ] && [ ! -f "$G154_A/.apd/pipeline/.adversarial-summary" ] && [ ! -f "$G154_A/.apd/pipeline/.adversarial-rationale.md" ]'
+_c154 "… the rollback is an event that says it wiped the review state" '[ "$(_n154 "$G154_A" "|rollback|rt=cc step=verifier wiped=1 ")" = 1 ]'
+G154_RBF="$G154_A/.claude/memory/adversarial-rationale-rollbacks.md"
+_c154 "… and the summary and rationale it deleted are kept, once, with their fingerprint, in adversarial-rationale-rollbacks.md" \
+    '[ "$(grep -c "^## Rolled back " "$G154_RBF")" = 1 ] && grep -q "^ADVERSARIAL:2:1:1" "$G154_RBF" && grep -q "^## Finding 2 — b" "$G154_RBF" && [ "$(grep -c "^<!-- pass-fp: $G154_RUN/" "$G154_RBF")" = 1 ]'
+_c154 "… while adversarial-rationale-archive.md is not touched by a rollback (HEAD wrote nothing there at this point either)" '[ ! -e "$G154_A/.claude/memory/adversarial-rationale-archive.md" ]'
+# an interrupted rollback, run again: the pipeline directory as it was before, the memory directory as it is after
+rm -rf "$G154_A/.apd/pipeline"; cp -Rp "$G154_T/a-pre-rollback" "$G154_A/.apd/pipeline"
+G154_RSB=$(_n154 "$G154_A" "|review-state|"); _pa154 "$G154_A" rollback >/dev/null
+_c154 "a rollback interrupted before its deletions and run again keeps the same rationale ONCE (still one entry)" \
+    '[ "$(grep -c "^## Rolled back " "$G154_RBF")" = 1 ]'
+_c154 "… and records no second review state for the files it had already seen" '[ "$(_n154 "$G154_A" "|review-state|")" = "$G154_RSB" ]'
+# second pass after the rollback: a clean 0:0:0, which is all the metrics row will ever say
+printf '%s|start|adversarial-reviewer|aabbccddeeff4004\n%s|stop|adversarial-reviewer|aabbccddeeff4004\n' "$(_v67_ts 50)" "$(_v67_ts 60)" >> "$G154_A/.apd/pipeline/.agents"
+echo "ADVERSARIAL:0:0:0" > "$G154_A/.apd/pipeline/.adversarial-summary"
+G154_V2RC=$(_rc154 "$G154_A" verifier)
+_c154 "the second pass (0:0:0 after the fixes) signs and is its own observation, with the adversarial dispatch count now 2" \
+    '[ "$G154_V2RC" = 0 ] && grep -q "|review-state|rt=cc at=verifier fp=[0-9-]* disp=1/1/2 adv=0:0:0 |" "$(_ev154 "$G154_A")"'
+_c154 "a later step that sees the SAME files records nothing new (the rollback after the second pass: still two observations)" \
+    '_pa154 "$G154_A" rollback >/dev/null; G154_X=$(_n154 "$G154_A" "|review-state|"); [ "$G154_X" = 2 ]'
+# the same text written again is a new state (the mtime is part of the fingerprint)
+echo "ADVERSARIAL:0:0:0" > "$G154_A/.apd/pipeline/.adversarial-summary"; touch -t 203001010101 "$G154_A/.apd/pipeline/.adversarial-summary"
+_pa154 "$G154_A" verifier >/dev/null
+_c154 "the same summary text WRITTEN AGAIN after a wipe is a new observation (a third line), not folded into the old one" '[ "$(_n154 "$G154_A" "|review-state|")" = 3 ]'
+
+# a summary the parser cannot read is recorded as such, never as numbers
+G154_U="$G154_T/u"; _v67_make_state "$G154_U" "ADVERSARIAL:two:1:1"; _pa154 "$G154_U" verifier >/dev/null
+_c154 "a summary that is not T:A:D is recorded as adv=unparsed (not as its text, not as 0:0:0)" \
+    '[ "$(_n154 "$G154_U" "|review-state|.* adv=unparsed |")" = 1 ] && [ "$(_n154 "$G154_U" "adv=[0-9t]")" = 0 ]'
+
+# ---------------------------------------------------------------- 3. the run's end, and the metrics row it does not touch
+cp -Rp "$G154_A/.apd/pipeline" "$G154_T/a-pre-reset"
+: > "$G154_A/.claude/memory/session-log.md"
+G154_RS=$(_pa154 "$G154_A" reset); G154_RSRC=$?
+G154_ROW=$(tail -1 "$G154_A/.claude/memory/pipeline-metrics.log")
+_c154 "reset: exit 0, the metrics row still has exactly 20 columns" '[ "$G154_RSRC" = 0 ] && [ "$(printf "%s" "$G154_ROW" | awk -F"|" "{print NF}")" = 20 ]'
+_c154 "the metrics row says ADV 0|0|0 for this run — the events hold the 2:1:1 pass it never saw" \
+    '[ "$(printf "%s" "$G154_ROW" | cut -d"|" -f8-10)" = "0|0|0" ] && grep -q "adv=2:1:1" "$(_ev154 "$G154_A")"'
+_c154 "the events join the metrics row on (run, task): column 3 is the run id of every event of the run" \
+    '[ "$(printf "%s" "$G154_ROW" | cut -d"|" -f3)" = "$G154_RUN" ] && [ "$(printf "%s" "$G154_ROW" | cut -d"|" -f2)" = "v67-task" ]'
+_c154 "run-end: one line, status=completed, with the dispatch counts" '[ "$(_n154 "$G154_A" "|v1|$G154_RUN|run-end|rt=cc status=completed disp=1/1/2")" = 1 ]'
+_c154 "run-end is once per (run, task): another task's run-end under the SAME epoch (two specs signed in one second) does not swallow this one" \
+    'G154_S="$G154_T/s"; _v67_make_state "$G154_S" "ADVERSARIAL:0:0:0"; G154_SR=$(head -1 "$G154_S/.apd/pipeline/spec.done" | cut -d"|" -f1); echo "2026-10-10 10:00:00|v1|$G154_SR|run-end|rt=cc status=partial|other-task" >> "$(_ev154 "$G154_S")"; _pa154 "$G154_S" reset >/dev/null; [ "$(_n154 "$G154_S" "|v1|$G154_SR|run-end|.*|v67-task\$")" = 1 ]'
+_c154 "a second reset on the empty pipeline writes no event" 'G154_L=$(wc -l < "$(_ev154 "$G154_A")"); _pa154 "$G154_A" reset >/dev/null; [ "$(wc -l < "$(_ev154 "$G154_A")")" = "$G154_L" ]'
+rm -rf "$G154_A/.apd/pipeline"; cp -Rp "$G154_T/a-pre-reset" "$G154_A/.apd/pipeline"; _pa154 "$G154_A" reset >/dev/null
+_c154 "a reset interrupted before its deletions and run again: still ONE run-end, no new review state" \
+    '[ "$(_n154 "$G154_A" "|v1|$G154_RUN|run-end|")" = 1 ] && [ "$(_n154 "$G154_A" "|review-state|")" = 3 ]'
+# F7: a rollback interrupted before its deletions, then a reset — the archive reset writes holds the rationale once
+G154_Q="$G154_T/q"; _v67_make_state "$G154_Q" "ADVERSARIAL:2:1:1"; _rat154 "$G154_Q"; _pa154 "$G154_Q" verifier >/dev/null; : > "$G154_Q/.claude/memory/session-log.md"
+cp -Rp "$G154_Q/.apd/pipeline" "$G154_T/q-pre"; _pa154 "$G154_Q" rollback >/dev/null; rm -rf "$G154_Q/.apd/pipeline"; cp -Rp "$G154_T/q-pre" "$G154_Q/.apd/pipeline"; _pa154 "$G154_Q" reset >/dev/null
+_c154 "a rollback interrupted before its deletions followed by a reset: adversarial-rationale-archive.md holds that rationale ONCE, as without telemetry" \
+    '[ "$(grep -c "^## Archived " "$G154_Q/.claude/memory/adversarial-rationale-archive.md")" = 1 ] && [ "$(grep -c "^## Finding 2 — b" "$G154_Q/.claude/memory/adversarial-rationale-archive.md")" = 1 ] && ! grep -q "pass-fp" "$G154_Q/.claude/memory/adversarial-rationale-archive.md"'
+# N4: the dedup compares whole fields — a task that is a PREFIX of a recorded one, or equals a word of the line format, is its own run
+G154_N4="$G154_T/n4"; _v67_make_state "$G154_N4" "ADVERSARIAL:1:1:0"; G154_N4R=$(head -1 "$G154_N4/.apd/pipeline/spec.done" | cut -d'|' -f1)
+G154_N4F=$( cd "$G154_N4" && PIPELINE_DIR="$G154_N4/.apd/pipeline" MEMORY_DIR="$G154_N4/.claude/memory" bash -c 'source "$0/bin/lib/portable.sh"; source "$0/bin/lib/telemetry.sh"; _ev_pass_fp' "$APD_PLUGIN_ROOT" )
+{ echo "2026-10-10 10:00:00|v1|$G154_N4R|run-end|rt=cc status=partial|v67-task-2"
+  echo "2026-10-10 10:00:00|v1|$G154_N4R|review-state|rt=cc at=verifier fp=$G154_N4F adv=1:1:0 |v67-task-2"; } >> "$(_ev154 "$G154_N4")"
+_pa154 "$G154_N4" reset >/dev/null
+_c154 "task 'v67-task' is not 'v67-task-2': with the longer task's run-end and review-state on record under the same epoch, this run still gets its own (a substring match swallowed both)" \
+    '[ -n "$G154_N4F" ] && [ "$(_n154 "$G154_N4" "|v1|$G154_N4R|run-end|.*|v67-task\$")" = 1 ] && [ "$(_n154 "$G154_N4" "|v1|$G154_N4R|review-state|.* fp=$G154_N4F .*|v67-task\$")" = 1 ]'
+_c154 "… and a task named like a word of the line format ('v1', 'run-end') is matched as a task, not as the line: _ev_seen says not-seen for it" \
+    '! ( PIPELINE_DIR="$G154_N4/.apd/pipeline" MEMORY_DIR="$G154_N4/.claude/memory" bash -c "source \"$APD_PLUGIN_ROOT/bin/lib/portable.sh\"; source \"$APD_PLUGIN_ROOT/bin/lib/telemetry.sh\"; _ev_seen $G154_N4R run-end v1 || _ev_seen $G154_N4R run-end run-end || _ev_seen $G154_N4R run-end \"\"" ) && ( PIPELINE_DIR="$G154_N4/.apd/pipeline" MEMORY_DIR="$G154_N4/.claude/memory" bash -c "source \"$APD_PLUGIN_ROOT/bin/lib/portable.sh\"; source \"$APD_PLUGIN_ROOT/bin/lib/telemetry.sh\"; _ev_seen $G154_N4R run-end v67-task" )'
+# R1 + R2: the comparison is text (42 is not 42.0), and a CR at the end of a line of the log is not part of the task
+G154_SE="$G154_T/seen"; mkdir -p "$G154_SE/mem" "$G154_SE/pipe"
+printf '%s\n' "2026-10-10 10:00:00|v1|1700000000|run-end|rt=cc status=partial|42" > "$G154_SE/mem/pipeline-events.log"
+printf '%s\r\n' "2026-10-10 10:00:00|v1|1700000001|run-end|rt=cc status=partial|crlf-task" >> "$G154_SE/mem/pipeline-events.log"
+printf '%s\n' "2026-10-10 10:00:00|v1|1700000002|review-state|rt=cc at=verifier fp=123456-50 adv=0:0:0 |fp-task" >> "$G154_SE/mem/pipeline-events.log"
+_seen154() { PIPELINE_DIR="$G154_SE/pipe" MEMORY_DIR="$G154_SE/mem" bash -c 'source "$0/bin/lib/portable.sh"; source "$0/bin/lib/telemetry.sh"; _ev_seen "$1" "$2" "$3" "${4:-}"' "$APD_PLUGIN_ROOT" "$@"; echo $?; }
+_c154 "_ev_seen matches the review-state fingerprint as a whole field: fp=123456-50 is seen, its prefixes 123456-5 and 23456-50 are not" \
+    '[ "$(_seen154 1700000002 review-state fp-task 123456-50)" = 0 ] && [ "$(_seen154 1700000002 review-state fp-task 123456-5)$(_seen154 1700000002 review-state fp-task 23456-50)" = 11 ]'
+_c154 "_ev_seen compares text: with task 42 on record, 42 is seen and 42.0, 042, 4.2e1 and +42 are not; run 1700000000.0 is not run 1700000000" \
+    '[ "$(_seen154 1700000000 run-end 42)" = 0 ] && [ "$(_seen154 1700000000 run-end 42.0)$(_seen154 1700000000 run-end 042)$(_seen154 1700000000 run-end 4.2e1)$(_seen154 1700000000 run-end +42)$(_seen154 1700000000.0 run-end 42)" = 11111 ]'
+_c154 "_ev_seen finds a run-end in a line that ends in CRLF (the dedup stopped working on a log saved with CRLF)" '[ "$(_seen154 1700000001 run-end crlf-task)" = 0 ] && [ "$(_seen154 1700000001 run-end crlf-tas)" = 1 ]'
+# F6: a spec.done with an empty first line — the run is written as `unknown`, and found again as `unknown`
+G154_W="$G154_T/w"; _v67_make_state "$G154_W" "ADVERSARIAL:2:1:1"; _rat154 "$G154_W"; : > "$G154_W/.apd/pipeline/spec.done"
+_pa154 "$G154_W" verifier >/dev/null; _pa154 "$G154_W" verifier >/dev/null; _pa154 "$G154_W" verifier >/dev/null
+_c154 "an empty spec.done (no run id): three steps over the same files record the review state once, under run 'unknown'" \
+    '[ "$(_n154 "$G154_W" "|v1|unknown|review-state|")" = 1 ]'
+
+# blocks by reason come from guard-audit.log, from the spec's timestamp on
+G154_B="$G154_T/b"; _v67_make_state "$G154_B" "ADVERSARIAL:0:0:0"
+G154_BS=$(head -1 "$G154_B/.apd/pipeline/spec.done" | cut -d'|' -f2)
+{ echo "2001-01-01 00:00:00|BLOCK|orchestrator|old-block|before the spec"
+  echo "$(_v67_ts 2)|BLOCK|orchestrator|bash-scope|x"; echo "$(_v67_ts 3)|BLOCK|abc(api)|bash-scope|y"
+  echo "$(_v67_ts 4)|BLOCK|orchestrator|rationale-missing|z"; echo "$(_v67_ts 5)|SYNTHETIC|orchestrator|synthetic-one|s"
+  echo "$(_v67_ts 6)|INFO|orchestrator|cap-raise|i"; } > "$G154_B/.claude/memory/guard-audit.log"
+_pa154 "$G154_B" reset >/dev/null
+_c154 "run-end counts BLOCK lines since the spec by reason (3; INFO, SYNTHETIC and older lines are not blocks of this run), status=partial without a verifier" \
+    'grep -q "|run-end|rt=cc status=partial disp=1/1/1 blocks=3 by=bash-scope:2,rationale-missing:1|v67-task\$" "$(_ev154 "$G154_B")"'
+G154_C="$G154_T/c"; _v67_make_state "$G154_C" "ADVERSARIAL:0:0:0"; rm -f "$G154_C/.claude/memory/guard-audit.log"; _pa154 "$G154_C" reset >/dev/null
+_c154 "no guard-audit.log: run-end carries no blocks= field at all (unknown is not blocks=0)" \
+    'grep -q "|run-end|" "$(_ev154 "$G154_C")" && ! grep "|run-end|" "$(_ev154 "$G154_C")" | grep -q "blocks="'
+# a run that never reached an adversarial summary: nothing claims 0:0:0 in the events
+G154_D="$G154_T/d"; _v67_make_state "$G154_D" "ADVERSARIAL:0:0:0"; rm -f "$G154_D/.apd/pipeline/.adversarial-summary"; _pa154 "$G154_D" reset >/dev/null
+_c154 "a run reset before any review state: the metrics row writes ADV 0|0|0, the events write no adv= field" \
+    '[ "$(tail -1 "$G154_D/.claude/memory/pipeline-metrics.log" | cut -d"|" -f8-10)" = "0|0|0" ] && grep -q "|run-end|" "$(_ev154 "$G154_D")" && ! grep -q "adv=" "$(_ev154 "$G154_D")"'
+# a spec over a run that was never reset
+G154_E="$G154_T/e"; _v67_make_state "$G154_E" "ADVERSARIAL:0:0:0"; G154_ERUN=$(head -1 "$G154_E/.apd/pipeline/spec.done" | cut -d'|' -f1)
+printf '# next\nplan_consistency_gate: off\n**Acceptance criteria:**\n- R1: x\n' > "$G154_E/.apd/pipeline/spec-card.md"; _guide_marker "$G154_E" "next-task"
+G154_EM=$(_ml154 "$G154_E/.claude/memory/pipeline-metrics.log"); sleep 1; G154_ERC=$(_rc154 "$G154_E" spec "next-task")
+_c154 "a spec advanced over a run that was never reset: exit 0, the old run ends as status=superseded under ITS id (it gets no metrics row, as before)" \
+    '[ "$G154_ERC" = 0 ] && [ "$(_n154 "$G154_E" "|v1|$G154_ERUN|run-end|rt=cc status=superseded ")" = 1 ] && [ "$(_ml154 "$G154_E/.claude/memory/pipeline-metrics.log")" = "$G154_EM" ]'
+_c154 "… and the new run starts under a different id" '[ "$(grep "|advance|rt=cc step=spec" "$(_ev154 "$G154_E")" | tail -1 | cut -d"|" -f3)" != "$G154_ERUN" ]'
+
+# ---------------------------------------------------------------- 4. the working tree: raw facts, in git only
+G154_G="$G154_T/g"; mkdir -p "$G154_G"; ( cd "$G154_G" && git init -q . && echo base > f.txt && git add f.txt && git -c user.email=t@t -c user.name=t commit -q -m base )
+_v67_make_state "$G154_G" "ADVERSARIAL:0:0:0"
+G154_W1=$(grep "|advance|rt=cc step=spec" "$(_ev154 "$G154_G")" | sed 's/.* wt=\([0-9a-f]*\).*/\1/')
+G154_W2=$(grep "|advance|rt=cc step=reviewer" "$(_ev154 "$G154_G")" | sed 's/.* wt=\([0-9a-f]*\).*/\1/')
+_c154 "in a git checkout an advance carries head=, wt=, files=, ins=, del= and untracked=" \
+    'grep "|advance|rt=cc step=spec" "$(_ev154 "$G154_G")" | grep -q "head=[0-9a-f]\{12\} wt=[0-9a-f]\{12\} files=[0-9]* ins=[0-9]* del=[0-9]* untracked=[0-9]*|"'
+_c154 "the tree fingerprint does not move while only APD's own pipeline and memory files change (spec → reviewer: same wt)" '[ -n "$G154_W1" ] && [ "$G154_W1" = "$G154_W2" ]'
+echo change >> "$G154_G/f.txt"; _pa154 "$G154_G" rollback >/dev/null
+G154_W3=$(grep "|rollback|" "$(_ev154 "$G154_G")" | tail -1 | sed 's/.* wt=\([0-9a-f]*\).*/\1/')
+_c154 "an edit to a tracked file moves the fingerprint and the counts (files=1 ins=1)" '[ -n "$G154_W3" ] && [ "$G154_W3" != "$G154_W1" ] && grep "|rollback|" "$(_ev154 "$G154_G")" | tail -1 | grep -q "files=1 ins=1 del=0"'
+# F3: a tracked file whose stat data is stale makes `git diff` REWRITE the index; a rollback (which runs no git of its own) must not
+G154_I="$G154_T/i"; mkdir -p "$G154_I"; ( cd "$G154_I" && git init -q . && echo base > f.txt && echo two > g.txt && git add . && git -c user.email=t@t -c user.name=t commit -q -m base )
+_v67_make_state "$G154_I" "ADVERSARIAL:0:0:0"; ( cd "$G154_I" && git status >/dev/null 2>&1 ); touch -t 203001010101 "$G154_I/f.txt"; echo edit >> "$G154_I/g.txt"
+G154_IC=$(cksum < "$G154_I/.git/index"); _pa154 "$G154_I" rollback >/dev/null
+_c154 "a rollback with telemetry leaves .git/index byte for byte (a stat-stale tracked file made git diff rewrite it), and still reads the real edit (files=1 ins=1)" \
+    '[ "$(cksum < "$G154_I/.git/index")" = "$G154_IC" ] && tail -1 "$(_ev154 "$G154_I")" | grep -q "|rollback|.* files=1 ins=1 del=0 "'
+# F4: telemetry runs no program the project's git config names
+printf '#!/bin/bash\necho ran >> "%s/ext.log"\n' "$G154_T" > "$G154_T/extdiff.sh"; chmod +x "$G154_T/extdiff.sh"
+( cd "$G154_I" && git config diff.external "$G154_T/extdiff.sh" && git config filter.cl.clean "sh -c 'echo ran >> $G154_T/clean.log; cat'" && echo "new.bin filter=cl" > .git/info/attributes && echo untracked > new.bin )
+: > "$G154_T/ext.log"; : > "$G154_T/clean.log"; ( cd "$G154_I" && GIT_EXTERNAL_DIFF="$G154_T/extdiff.sh" APD_PROJECT_DIR="$G154_I" bash "$G154_PA" rollback >/dev/null 2>&1 )
+_c154 "with an external diff driver (diff.external and GIT_EXTERNAL_DIFF) and a clean filter configured, a rollback's telemetry runs neither (external diff 0 times, the filter 0 times for an untracked file) and still writes its tree fields" \
+    '[ ! -s "$G154_T/ext.log" ] && [ ! -s "$G154_T/clean.log" ] && tail -1 "$(_ev154 "$G154_I")" | grep -q "|rollback|.* wt=[0-9a-f]\{12\} files=1 "'
+# F8: the counts are numbers git printed as numbers — a git that words its summary line in another language changes nothing
+mkdir -p "$G154_T/shimde"; printf '#!/bin/bash\ncase " $* " in *" --shortstat "*) echo " 1 Datei geändert, 1 Zeile hinzugefügt(+)"; exit 0 ;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$G154_T/shimde/git"; chmod +x "$G154_T/shimde/git"
+( cd "$G154_G" && PATH="$G154_T/shimde:$PATH" APD_PROJECT_DIR="$G154_G" bash "$G154_PA" rollback >/dev/null 2>&1 )
+_c154 "under a git whose --shortstat sentence is not English the event still reads files=1 ins=1 del=0 (it wrote files=0 for a changed tree)" \
+    'tail -1 "$(_ev154 "$G154_G")" | grep -q "|rollback|rt=cc step=builder .* files=1 ins=1 del=0 untracked="'
+# F9: a project that is a SUBDIRECTORY of its repository — the untracked files are part of the fingerprint there too
+G154_SUBR="$G154_T/subrepo"; mkdir -p "$G154_SUBR"; ( cd "$G154_SUBR" && git init -q . && echo base > top.txt && git add top.txt && git -c user.email=t@t -c user.name=t commit -q -m base )
+G154_SUB="$G154_SUBR/sub/proj"; mkdir -p "$G154_SUB"; echo one > "$G154_SUB/note.txt"; _v67_make_state "$G154_SUB" "ADVERSARIAL:0:0:0"
+G154_SW1=$(grep "|advance|rt=cc step=reviewer" "$(_ev154 "$G154_SUB")" | sed 's/.* wt=\([0-9a-f]*\).*/\1/'); echo two > "$G154_SUB/note.txt"; _pa154 "$G154_SUB" rollback >/dev/null
+G154_SW2=$(tail -1 "$(_ev154 "$G154_SUB")" | sed 's/.* wt=\([0-9a-f]*\).*/\1/')
+_c154 "in a project that is a subdirectory of its repo, changing an untracked file moves the fingerprint (it stayed the hash of nothing)" \
+    '[ -n "$G154_SW1" ] && [ -n "$G154_SW2" ] && [ "$G154_SW1" != "$G154_SW2" ] && [ "$G154_SW1" != "e69de29bb2d1" ]'
+# N3: an untracked file whose name starts with a dash is a file — the rest of the untracked files stay in the fingerprint
+G154_DR="$G154_T/dashrepo"; mkdir -p "$G154_DR"; ( cd "$G154_DR" && git init -q . && echo base > f.txt && git add f.txt && git -c user.email=t@t -c user.name=t commit -q -m base && echo x > ./-rf && echo one > plain.txt )
+_v67_make_state "$G154_DR" "ADVERSARIAL:0:0:0"; G154_DR1=$(grep "|advance|rt=cc step=reviewer" "$(_ev154 "$G154_DR")" | sed 's/.* wt=\([0-9a-f]*\).*/\1/')
+echo two > "$G154_DR/plain.txt"; _pa154 "$G154_DR" rollback >/dev/null; G154_DR2=$(tail -1 "$(_ev154 "$G154_DR")" | sed 's/.* wt=\([0-9a-f]*\).*/\1/')
+_c154 "beside an untracked file named '-rf', an edit to another untracked file still moves the fingerprint (cksum took the name for options and failed for all of them)" \
+    '[ -n "$G154_DR1" ] && [ -n "$G154_DR2" ] && [ "$G154_DR1" != "$G154_DR2" ] && [ -f "$G154_DR/-rf" ]'
+# N7: a staged rename is one file, as `git diff --numstat HEAD` counts it
+( cd "$G154_DR" && git mv f.txt renamed.txt ); _pa154 "$G154_DR" rollback >/dev/null
+_c154 "a staged rename reads files=1 ins=0 del=0, what git diff --numstat HEAD reports (the plumbing without -M read two files)" \
+    'tail -1 "$(_ev154 "$G154_DR")" | grep -q "|rollback|.* files=1 ins=0 del=0 " && [ "$(cd "$G154_DR" && git diff --numstat HEAD | wc -l | tr -d " ")" = 1 ]'
+# a sleep that takes no fractions (busybox): the wait falls back to whole seconds and still returns the real fields
+mkdir -p "$G154_T/shimsl"; printf '#!/bin/bash\ncase "$1" in *.*) echo "sleep: invalid number" >&2; exit 1 ;; esac\nexec /bin/sleep "$@"\n' > "$G154_T/shimsl/sleep"; chmod +x "$G154_T/shimsl/sleep"
+printf '#!/bin/bash\ncase " $* " in *" --no-optional-locks "*" diff-index -p "*) /bin/sleep 1 ;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$G154_T/shimsl/git"; chmod +x "$G154_T/shimsl/git"
+( cd "$G154_DR" && PATH="$G154_T/shimsl:$PATH" APD_PROJECT_DIR="$G154_DR" bash "$G154_PA" rollback >/dev/null 2>&1 ); G154_SLRC=$?
+_c154 "with a sleep that refuses fractions and a git that takes a second, the step still exits 0 and its event carries the tree fields, not tree=timeout (thirty failed sleeps are not three seconds)" \
+    '[ "$G154_SLRC" = 0 ] && tail -1 "$(_ev154 "$G154_DR")" | grep -q "|rollback|.* wt=[0-9a-f]\{12\} files=" && ! tail -1 "$(_ev154 "$G154_DR")" | grep -q "tree=timeout"'
+# a git that never answers: the step ends, the fields say so
+# (the hang sits in the diff and in hash-object — commands the function runs inside a group
+#  and a pipeline; a shim that hung in the first rev-parse passed while the step took 13 s, audit-740 F1/F2)
+mkdir -p "$G154_T/shim"; printf '#!/bin/bash\ncase " $* " in *" --no-optional-locks "*" diff"*|*" --no-optional-locks "*" hash-object "*) exec sleep 15 ;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$G154_T/shim/git"; chmod +x "$G154_T/shim/git"
+G154_S0=$(date +%s); ( cd "$G154_G" && PATH="$G154_T/shim:$PATH" APD_PROJECT_DIR="$G154_G" bash "$G154_PA" rollback >/dev/null 2>&1 ); G154_SRC=$?; G154_S1=$(date +%s)
+_c154 "a git that hangs costs the step its tree fields, not its result: rollback exits 0 inside the budget and the event says tree=timeout" \
+    '[ "$G154_SRC" = 0 ] && [ $((G154_S1 - G154_S0)) -lt 10 ] && tail -1 "$(_ev154 "$G154_G")" | grep -q "|rollback|rt=cc step=[a-z]* .*tree=timeout|"'
+# B1: no temp file for the result (TMPDIR unusable) and a git that hangs — the step still ends; the one unbounded path is gone
+G154_B0=$(date +%s); ( cd "$G154_I" && TMPDIR="$G154_T/no-such-tmp/x" PATH="$G154_T/shim:$PATH" APD_PROJECT_DIR="$G154_I" bash "$G154_PA" rollback >/dev/null 2>&1 ); G154_B1RC=$?; G154_B1=$(date +%s)
+_c154 "with TMPDIR unusable and git hanging in the diff, rollback exits 0 well inside the hang (15 s) and the event says tree=unmeasured (that path used to call git with no budget)" \
+    '[ "$G154_B1RC" = 0 ] && [ $((G154_B1 - G154_B0)) -lt 10 ] && tail -1 "$(_ev154 "$G154_I")" | grep -q "|rollback|rt=cc step=spec .*tree=unmeasured|" && [ ! -f "$G154_I/.apd/pipeline/spec.done" ]'
+# killed in the middle of the telemetry work: the step's own state changes are all done
+mkdir -p "$G154_T/shim2"; printf '#!/bin/bash\ncase " $* " in *" --no-optional-locks "*) exec sleep 25 ;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$G154_T/shim2/git"; chmod +x "$G154_T/shim2/git"
+_kill154() { ( cd "$1" && PATH="$G154_T/shim2:$PATH" APD_TELEMETRY_TREE_SEC=20 APD_PROJECT_DIR="$1" exec bash "$G154_PA" "$2" ) >/dev/null 2>&1 & local kp=$!; sleep 2; kill -9 "$kp" 2>/dev/null; wait "$kp" 2>/dev/null; rmdir "$1/.apd/pipeline/.lock" 2>/dev/null; return 0; }
+G154_K="$G154_T/k"; mkdir -p "$G154_K"; ( cd "$G154_K" && git init -q . && echo base > f.txt && git add f.txt && git -c user.email=t@t -c user.name=t commit -q -m base )
+_v67_make_state "$G154_K" "ADVERSARIAL:1:1:0"; : > "$G154_K/.claude/memory/session-log.md"
+_kill154 "$G154_K" rollback
+_c154 "rollback killed while telemetry waits on git: the step itself is complete (reviewer.done, the pending marker and the summary are gone) — only the event is missing" \
+    '[ ! -f "$G154_K/.apd/pipeline/reviewer.done" ] && [ ! -f "$G154_K/.apd/pipeline/.adversarial-summary" ] && [ ! -f "$G154_K/.apd/pipeline/.adversarial-pending" ] && [ -f "$G154_K/.apd/pipeline/builder.done" ] && [ "$(_n154 "$G154_K" "|rollback|")" = 0 ]'
+_kill154 "$G154_K" reset
+_c154 "reset killed while telemetry waits on git: the reset is complete (no .done file, no in-progress breadcrumb, one metrics row)" \
+    '[ -z "$(ls "$G154_K/.apd/pipeline"/*.done 2>/dev/null)" ] && [ ! -f "$G154_K/.apd/pipeline/.reset-in-progress" ] && [ "$(wc -l < "$G154_K/.claude/memory/pipeline-metrics.log" | tr -d " ")" = 1 ]'
+
+# ---------------------------------------------------------------- 5. verify-all is timed
+G154_V="$G154_T/v"; _v67_make_state "$G154_V" "ADVERSARIAL:0:0:0"; mkdir -p "$G154_V/.claude/scripts"
+printf '#!/bin/bash\nsleep 1\nexit 0\n' > "$G154_V/.claude/scripts/verify-all.sh"; chmod +x "$G154_V/.claude/scripts/verify-all.sh"
+G154_VRC=$(_rc154 "$G154_V" verifier)
+_c154 "verify-all passing: exit 0, one verify event with its duration (≥ 1 s) and exit=0" \
+    '[ "$G154_VRC" = 0 ] && [ "$(_n154 "$G154_V" "|verify|rt=cc dur=[1-9][0-9]* exit=0|")" = 1 ]'
+G154_F="$G154_T/f"; _v67_make_state "$G154_F" "ADVERSARIAL:0:0:0"; mkdir -p "$G154_F/.claude/scripts"
+printf '#!/bin/bash\necho broke\nexit 3\n' > "$G154_F/.claude/scripts/verify-all.sh"; chmod +x "$G154_F/.claude/scripts/verify-all.sh"
+G154_FO=$(_pa154 "$G154_F" verifier); G154_FRC=$?
+_c154 "verify-all failing: the step is refused exactly as before (exit 1, 'Build or tests failed', no verifier.done) and the event records exit=3" \
+    '[ "$G154_FRC" = 1 ] && printf "%s" "$G154_FO" | grep -q "BLOCKED: Build or tests failed" && [ ! -f "$G154_F/.apd/pipeline/verifier.done" ] && [ "$(_n154 "$G154_F" "|verify|rt=cc dur=[0-9]* exit=3|")" = 1 ] && [ "$(_n154 "$G154_F" "step=verifier")" = 0 ]'
+
+# ---------------------------------------------------------------- 6. Codex path, synthetic runs
+G154_X="$G154_T/x"; ( export APD_RUNTIME=codex; _v67_make_state "$G154_X" "ADVERSARIAL:0:0:0" )
+_c154 "under APD_RUNTIME=codex (what the MCP wrapper sets) the same events are written, tagged rt=codex" \
+    '[ "$(_n154 "$G154_X" "|advance|rt=codex step=")" = 3 ] && [ "$(_n154 "$G154_X" "rt=cc")" = 0 ]'
+# the real Codex entry: the MCP tool, in a project with no .claude/ at all
+G154_M="$G154_T/m"; mkdir -p "$G154_M/.apd/pipeline" "$G154_M/.apd/memory"; echo "PROJECT_NAME=m" > "$G154_M/.apd/config"
+printf '# mcp\nplan_consistency_gate: off\n**Acceptance criteria:**\n- R1: x\n' > "$G154_M/.apd/pipeline/spec-card.md"; _guide_marker "$G154_M" "mcp-task"
+G154_MO="$(cd "$G154_M" && python3 - <<PY
+import sys, types
+mcp_mod = types.ModuleType("mcp"); server_mod = types.ModuleType("mcp.server"); fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+class DummyFastMCP:
+    def __init__(self, *_a, **_k): pass
+    def tool(self, *_a, **_k):
+        def decorator(fn): return fn
+        return decorator
+    def run(self): return None
+fastmcp_mod.FastMCP = DummyFastMCP; server_mod.fastmcp = fastmcp_mod; mcp_mod.server = server_mod
+sys.modules["mcp"] = mcp_mod; sys.modules["mcp.server"] = server_mod; sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+sys.path.insert(0, "$APD_PLUGIN_ROOT/mcp")
+import apd_mcp_server as m
+a = m.apd_advance_pipeline("spec", "mcp-task"); b = m.apd_advance_pipeline("rollback")
+print(a.get("ok"), a.get("exit_code"), b.get("ok"), b.get("exit_code"))
+PY
+)"
+_c154 "through the Codex MCP tool (apd_advance_pipeline) in a project without .claude/: both calls succeed and the events land in .apd/memory tagged rt=codex" \
+    '[ "$G154_MO" = "True 0 True 0" ] && [ "$(grep -c "|advance|rt=codex step=spec|mcp-task\$" "$G154_M/.apd/memory/pipeline-events.log")" = 1 ] && [ "$(grep -c "|rollback|rt=codex step=spec|mcp-task\$" "$G154_M/.apd/memory/pipeline-events.log")" = 1 ] && [ ! -e "$G154_M/.claude" ]'
+G154_Y="$G154_T/y"; mkdir -p "$G154_Y/.apd/pipeline" "$G154_Y/.claude/memory"; echo "PROJECT_NAME=y" > "$G154_Y/.apd/config"
+printf '# APD-VERIFY-TEST\nplan_consistency_gate: off\n**Acceptance criteria:**\n- R1: x\n' > "$G154_Y/.apd/pipeline/spec-card.md"; _guide_marker "$G154_Y" "APD-VERIFY-TEST"
+G154_YRC=$(_rc154 "$G154_Y" spec "APD-VERIFY-TEST"); _pa154 "$G154_Y" reset >/dev/null
+_c154 "a synthetic APD-VERIFY-* run (verify-apd's own) advances and writes no event" '[ "$G154_YRC" = 0 ] && [ ! -s "$(_ev154 "$G154_Y")" ]'
+printf '# real\nplan_consistency_gate: off\n**Acceptance criteria:**\n- R1: x\n' > "$G154_Y/.apd/pipeline/spec-card.md"; _guide_marker "$G154_Y" "real-task"
+( cd "$G154_Y" && APD_AUDIT_SYNTHETIC=1 APD_PROJECT_DIR="$G154_Y" bash "$G154_PA" spec "real-task" >/dev/null 2>&1 )
+_c154 "APD_AUDIT_SYNTHETIC=1 writes no event either" '[ -f "$G154_Y/.apd/pipeline/spec.done" ] && [ ! -s "$(_ev154 "$G154_Y")" ]'
+
+# ---------------------------------------------------------------- 7. a telemetry failure never touches the step, and is never silent
+_fail154() {  # <dir> — drive a whole run with the events log unwritable; print "rc…|warn-count|pipeline listing"
+    local d="$1" o rc acc="" w=0
+    o=$(_pa154 "$d" verifier); rc=$?; acc="$acc$rc"; w=$((w + $(printf '%s\n' "$o" | grep -c "^WARN: telemetry")))
+    o=$(_pa154 "$d" rollback); rc=$?; acc="$acc$rc"; w=$((w + $(printf '%s\n' "$o" | grep -c "^WARN: telemetry")))
+    o=$(_pa154 "$d" verifier); rc=$?; acc="$acc$rc"; w=$((w + $(printf '%s\n' "$o" | grep -c "^WARN: telemetry")))
+    o=$(_pa154 "$d" reset); rc=$?; acc="$acc$rc"; w=$((w + $(printf '%s\n' "$o" | grep -c "^WARN: telemetry")))
+    printf '%s|%s|%s' "$acc" "$w" "$(_ls154 "$d")"
+}
+G154_OK="$G154_T/ok"; _v67_make_state "$G154_OK" "ADVERSARIAL:0:0:0"; : > "$G154_OK/.claude/memory/session-log.md"; G154_OKR=$(_fail154 "$G154_OK")
+_c154 "baseline, log writable: verifier 0, rollback 0, verifier 0 (same files — the summary was wiped, so refused), reset 0 … and no WARN" \
+    '[ "${G154_OKR%%|*}" = "0010" ] && [ "$(printf "%s" "$G154_OKR" | cut -d"|" -f2)" = 0 ]'
+G154_DF="$G154_T/df"; mkdir -p "$G154_DF/.claude/memory/pipeline-events.log"; _v67_make_state "$G154_DF" "ADVERSARIAL:0:0:0"; : > "$G154_DF/.claude/memory/session-log.md"
+G154_DFS=$(_pa154 "$G154_DF" status); G154_DFD=$( cd "$G154_DF" && APD_PROJECT_DIR="$G154_DF" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-doctor" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' ); G154_DFR=$(_fail154 "$G154_DF")
+_c154 "a DIRECTORY where the log should be: every step returns the same exit code and leaves the same pipeline directory as the baseline" \
+    '[ "${G154_DFR%%|*}" = "0010" ] && [ "${G154_DFR##*|}" = "${G154_OKR##*|}" ]'
+_c154 "… and every step that had an event to write says so on stderr, ONCE per step (3 WARN lines: the refused verifier had nothing to write; the first verifier had two events)" '[ "$(printf "%s" "$G154_DFR" | cut -d"|" -f2)" = 3 ]'
+_c154 "… the metrics row was still written (the other logs do not depend on this one)" '[ "$(wc -l < "$G154_DF/.claude/memory/pipeline-metrics.log" | tr -d " ")" = 1 ]'
+_c154 "… and the condition is visible while it lasts: pipeline status prints it, the doctor warns under 'Run Telemetry'" \
+    'printf "%s" "$G154_DFS" | grep -q "^telemetry: pipeline-events.log cannot be written (.*is not a regular file)" && printf "%s" "$G154_DFD" | grep -q "Run Telemetry" && printf "%s" "$G154_DFD" | grep -q "! telemetry: pipeline-events.log cannot be written"'
+G154_RO="$G154_T/ro"; _v67_make_state "$G154_RO" "ADVERSARIAL:0:0:0"; : > "$G154_RO/.claude/memory/session-log.md"; chmod 444 "$(_ev154 "$G154_RO")"; G154_ROL=$(wc -l < "$(_ev154 "$G154_RO")")
+G154_ROR=$(_fail154 "$G154_RO"); chmod 644 "$(_ev154 "$G154_RO")"
+if [ "$(id -u)" = 0 ]; then
+    pass "a read-only log: skipped as root (root writes through the mode bits)"; PASSES=$((PASSES + 1))
+else
+    _c154 "a read-only log: same exit codes and pipeline directory, 3 WARN lines, and the file did not grow" \
+        '[ "${G154_ROR%%|*}" = "0010" ] && [ "${G154_ROR##*|}" = "${G154_OKR##*|}" ] && [ "$(printf "%s" "$G154_ROR" | cut -d"|" -f2)" = 3 ] && [ "$(wc -l < "$(_ev154 "$G154_RO")")" = "$G154_ROL" ]'
+fi
+# F10: a FIFO in the log's place is never opened (an open for append on a FIFO with no reader never returns)
+G154_FF="$G154_T/ff"; mkdir -p "$G154_FF/.claude/memory"; mkfifo "$G154_FF/.claude/memory/pipeline-events.log"
+mkdir -p "$G154_FF/.apd/pipeline"; echo "PROJECT_NAME=ff" > "$G154_FF/.apd/config"; printf '# ff\nplan_consistency_gate: off\n**Acceptance criteria:**\n- R1: x\n' > "$G154_FF/.apd/pipeline/spec-card.md"; _guide_marker "$G154_FF" "ff-task"
+( cd "$G154_FF" && APD_PROJECT_DIR="$G154_FF" exec bash "$G154_PA" spec "ff-task" ) > "$G154_T/ff.out" 2>&1 & G154_FFP=$!
+G154_FFI=0; while kill -0 "$G154_FFP" 2>/dev/null && [ "$G154_FFI" -lt 80 ]; do sleep 0.1 2>/dev/null || sleep 1; G154_FFI=$((G154_FFI + 1)); done
+if kill -0 "$G154_FFP" 2>/dev/null; then kill -9 "$G154_FFP" 2>/dev/null; G154_FFH=hung; else G154_FFH=done; fi; wait "$G154_FFP" 2>/dev/null; G154_FFRC=$?
+_c154 "a FIFO where the log should be: the spec advance finishes (exit 0, spec.done signed, no lock left) and says once that the log was not written" \
+    '[ "$G154_FFH" = done ] && [ "$G154_FFRC" = 0 ] && [ -f "$G154_FF/.apd/pipeline/spec.done" ] && [ ! -d "$G154_FF/.apd/pipeline/.lock" ] && [ "$(grep -c "^WARN: telemetry" "$G154_T/ff.out")" = 1 ]'
+# F11: the step's WARN and the status line come from one predicate — a dangling symlink and a link to a device are both reported by both
+G154_DL="$G154_T/dl"; _v67_make_state "$G154_DL" "ADVERSARIAL:0:0:0"; rm -f "$(_ev154 "$G154_DL")"; ln -s "$G154_T/nowhere/x.log" "$(_ev154 "$G154_DL")"
+G154_DLO=$(_pa154 "$G154_DL" rollback); G154_DLS=$(_pa154 "$G154_DL" status)
+_c154 "a dangling symlink as the log: the step warns AND pipeline status reports it (status said nothing), and the link's target was not created" \
+    'printf "%s" "$G154_DLO" | grep -q "^WARN: telemetry" && printf "%s" "$G154_DLS" | grep -q "^telemetry: .*dangling symlink" && [ ! -e "$G154_T/nowhere" ]'
+rm -f "$(_ev154 "$G154_DL")"; ln -s /dev/null "$(_ev154 "$G154_DL")"; G154_DNO=$(_pa154 "$G154_DL" rollback); G154_DNS=$(_pa154 "$G154_DL" status)
+_c154 "a symlink to /dev/null as the log: the step warns (events went nowhere in silence) and status reports it" \
+    'printf "%s" "$G154_DNO" | grep -q "^WARN: telemetry" && printf "%s" "$G154_DNS" | grep -q "^telemetry: .*not a regular file"'
+# the rollbacks file under the same rules: N1 a FIFO in its place is never opened, N6 the WARN names the right file and status reports it
+_rb154() { local d="$G154_T/$1"; _v67_make_state "$d" "ADVERSARIAL:2:1:1"; _rat154 "$d"; _pa154 "$d" verifier >/dev/null; printf '%s' "$d"; }
+G154_RF=$(_rb154 rbfifo); mkfifo "$G154_RF/.claude/memory/adversarial-rationale-rollbacks.md"
+( cd "$G154_RF" && APD_PROJECT_DIR="$G154_RF" exec bash "$G154_PA" rollback ) > "$G154_T/rbfifo.out" 2>&1 & G154_RFP=$!
+G154_RFI=0; while kill -0 "$G154_RFP" 2>/dev/null && [ "$G154_RFI" -lt 80 ]; do sleep 0.1 2>/dev/null || sleep 1; G154_RFI=$((G154_RFI + 1)); done
+if kill -0 "$G154_RFP" 2>/dev/null; then kill -9 "$G154_RFP" 2>/dev/null; pkill -9 -f "pass-fp: .*$G154_RF" 2>/dev/null; G154_RFH=hung; else G154_RFH=done; fi; wait "$G154_RFP" 2>/dev/null; G154_RFRC=$?
+_c154 "a FIFO where the rollbacks file should be: the rollback finishes (exit 0, verifier.done gone, no lock left) and the WARN names adversarial-rationale-rollbacks.md" \
+    '[ "$G154_RFH" = done ] && [ "$G154_RFRC" = 0 ] && [ ! -f "$G154_RF/.apd/pipeline/verifier.done" ] && [ ! -d "$G154_RF/.apd/pipeline/.lock" ] && [ "$(grep -c "^WARN: telemetry — adversarial-rationale-rollbacks.md was not written (.*not a regular file)" "$G154_T/rbfifo.out")" = 1 ] && ! grep -q "pipeline-events.log was not written" "$G154_T/rbfifo.out"'
+G154_RD=$(_rb154 rbdir); mkdir "$G154_RD/.claude/memory/adversarial-rationale-rollbacks.md"; G154_RDS=$(_pa154 "$G154_RD" status); G154_RDO=$(_pa154 "$G154_RD" rollback); G154_RDRC=$?
+_c154 "a directory where the rollbacks file should be: rollback exits 0 and deletes what it always deleted, warns once naming that file, and pipeline status had reported it — while the event log is written as usual" \
+    '[ "$G154_RDRC" = 0 ] && [ ! -f "$G154_RD/.apd/pipeline/.adversarial-rationale.md" ] && [ "$(printf "%s\n" "$G154_RDO" | grep -c "^WARN: telemetry — adversarial-rationale-rollbacks.md was not written")" = 1 ] && printf "%s" "$G154_RDS" | grep -q "^telemetry: adversarial-rationale-rollbacks.md cannot be written" && ! printf "%s" "$G154_RDS" | grep -q "pipeline-events.log cannot" && [ "$(_n154 "$G154_RD" "|rollback|rt=cc step=verifier wiped=1")" = 1 ]'
+# both telemetry files unwritable in one step: one WARN each, each naming its own file
+G154_R2=$(_rb154 rbboth); mkdir "$G154_R2/.claude/memory/adversarial-rationale-rollbacks.md"; rm -f "$(_ev154 "$G154_R2")"; mkdir "$(_ev154 "$G154_R2")"; G154_R2O=$(_pa154 "$G154_R2" rollback); G154_R2RC=$?
+_c154 "rollback with BOTH telemetry files unwritable: exit 0, exactly two WARN lines, one naming pipeline-events.log and one adversarial-rationale-rollbacks.md" \
+    '[ "$G154_R2RC" = 0 ] && [ "$(printf "%s\n" "$G154_R2O" | grep -c "^WARN: telemetry")" = 2 ] && [ "$(printf "%s\n" "$G154_R2O" | grep -c "^WARN: telemetry — pipeline-events.log was not written")" = 1 ] && [ "$(printf "%s\n" "$G154_R2O" | grep -c "^WARN: telemetry — adversarial-rationale-rollbacks.md was not written")" = 1 ]'
+# R3: a rationale that cannot be read is not recorded as kept
+G154_UR=$(_rb154 rbunread); chmod 000 "$G154_UR/.apd/pipeline/.adversarial-rationale.md"; G154_URO=$(_pa154 "$G154_UR" rollback); G154_URRC=$?
+if [ "$(id -u)" = 0 ]; then
+    pass "an unreadable rationale: skipped as root (root reads through the mode bits)"; PASSES=$((PASSES + 1))
+else
+    _c154 "an unreadable rationale: rollback exits 0 and deletes it as always, no entry and no kept-mark is written for it, and the step says the rationale was not kept" \
+        '[ "$G154_URRC" = 0 ] && [ ! -e "$G154_UR/.apd/pipeline/.adversarial-rationale.md" ] && ! grep -q "pass-fp" "$G154_UR/.claude/memory/adversarial-rationale-rollbacks.md" 2>/dev/null && printf "%s\n" "$G154_URO" | grep -q "^WARN: telemetry — adversarial-rationale-rollbacks.md was not written (a summary or rationale file could not be read)"'
+fi
+# N2: the rationale is copied, not read into a variable — a NUL byte in it produces no bash warning on the step's stderr, and survives
+G154_NU=$(_rb154 rbnul); printf 'nul:\000:here\n\n\n' >> "$G154_NU/.apd/pipeline/.adversarial-rationale.md"; G154_NUO=$(_pa154 "$G154_NU" rollback)
+_c154 "a NUL byte in the rationale: the rollback prints nothing about it (bash ≥ 4.4 wrote 'ignored null byte' to the step's stderr) and the kept entry still holds the byte" \
+    '! printf "%s" "$G154_NUO" | grep -qi "null byte" && [ "$(tr -cd "\000" < "$G154_NU/.claude/memory/adversarial-rationale-rollbacks.md" | wc -c | tr -d " ")" = 1 ] && grep -q "^<!-- pass-fp: " "$G154_NU/.claude/memory/adversarial-rationale-rollbacks.md"'
+_c154 "a healthy project: pipeline status prints no telemetry line and the doctor has no 'Run Telemetry' section" \
+    '! _pa154 "$G154_OK" status | grep -q "^telemetry:" && ! ( cd "$G154_OK" && APD_PROJECT_DIR="$G154_OK" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-doctor" 2>&1 | grep -q "Run Telemetry" )'
+
+# ---------------------------------------------------------------- 8. it decides nothing
+_c154 "telemetry.sh has no exit and returns nothing but 0 or 1 (1 only from the two predicates that are never a step's result)" \
+    '! grep -nE "^[^#]*\bexit\b" "$G154_LIB" | grep -q . && [ "$(grep -cE "return [2-9]" "$G154_LIB")" = 0 ] && [ "$(grep -c "return 1" "$G154_LIB")" = 1 ]'
+_c154 "nothing in the framework READS the events log back: its name appears in telemetry.sh only (no gate, guard, report or hook opens it)" \
+    '[ "$(grep -rl "pipeline-events" "$APD_PLUGIN_ROOT/bin" "$REPO_ROOT/hooks" "$APD_PLUGIN_ROOT/mcp" 2>/dev/null | grep -v "test-codex-adapter" | sed "s#.*/##" | LC_ALL=C sort | tr "\n" " ")" = "telemetry.sh " ]'
+_c154 "no hook runs it: telemetry.sh is sourced by pipeline-advance and pipeline-doctor and by nothing else" \
+    '[ "$(grep -rl "lib/telemetry.sh" "$APD_PLUGIN_ROOT/bin" | grep -v "test-codex-adapter" | sed "s#.*/##" | LC_ALL=C sort | tr "\n" " ")" = "pipeline-advance pipeline-doctor " ]'
+_c154 "pipeline-advance uses an event function's result nowhere: no _ev_ call sits in an if/while/&&/|| condition" \
+    '! grep -nE "(\b(if|while|elif|until)\b|&&|\|\||[!] )[^#]*\b_ev_(write|step|run_end|pass_observe|capture|archive_rollback|probe)\b" "$G154_PA" | grep -q .'
+# the metrics readers see what they saw: old 12-, 15-, 18- and 20-column rows, with and without an events log beside them
+G154_H="$G154_T/h"; mkdir -p "$G154_H/.apd/pipeline" "$G154_H/.claude/memory"; echo "PROJECT_NAME=h" > "$G154_H/.apd/config"
+{ echo "1700000400|t12|1700000000|1700000100|1700000200|1700000300|completed|3|2|1|4|0"
+  echo "1700001400|t15|1700001000|1700001100|1700001200|1700001300|completed|3|2|1|4|0|1|0|0"
+  echo "1700002400|t18|1700002000|1700002100|1700002200|1700002300|completed|3|2|1|4|0|1|0|0|2|1|1"
+  echo "1700003400|t20|1700003000|1700003100|1700003200|1700003300|completed|3|2|1|4|0|1|0|0|2|1|1|cc|claude-opus-5-5"; } > "$G154_H/.claude/memory/pipeline-metrics.log"
+_h154() { ( cd "$G154_H" && APD_PROJECT_DIR="$G154_H" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-report" --history 2>&1; APD_PROJECT_DIR="$G154_H" bash "$G154_PA" metrics 2>&1 ); }
+G154_H1=$(_h154); echo "2026-10-10 10:00:00|v1|1700003000|run-end|rt=cc status=completed|t20" > "$G154_H/.claude/memory/pipeline-events.log"; G154_H2=$(_h154)
+_c154 "report --history and pipeline metrics over 12/15/18/20-column rows print the same bytes with an events log present as without one" \
+    '[ -n "$G154_H1" ] && [ "$G154_H1" = "$G154_H2" ] && printf "%s" "$G154_H1" | grep -q "t12" && printf "%s" "$G154_H1" | grep -q "t20"'
+_c154 "SPEC describes the log, its five events and the join key" \
+    'grep -q "pipeline-events.log" "$REPO_ROOT/docs/SPEC.md" && grep -q "advance | rollback | review-state | verify | run-end" "$REPO_ROOT/docs/SPEC.md" && grep -q "column 3 of the metrics row" "$REPO_ROOT/docs/SPEC.md"'
+rm -rf "$G154_T"
+
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"

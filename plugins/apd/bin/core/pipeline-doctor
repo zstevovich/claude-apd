@@ -390,6 +390,19 @@ done
 [ "$LEGACY_FOUND" = false ] && pass "No legacy directories"
 
 # ============================================================
+# 13. RUN TELEMETRY (v7.4)
+# ============================================================
+# The run event log is written best-effort and never fails a step, so the only
+# place a broken log shows outside the step's own stderr is here and in
+# `apd pipeline status`. Silent when the log can be written.
+source "$(dirname "$0")/../lib/telemetry.sh"
+_EV_DOCTOR=$(_ev_probe)
+if [ -n "$_EV_DOCTOR" ]; then
+    section "Run Telemetry"
+    warn "$_EV_DOCTOR"
+fi
+
+# ============================================================
 # SUMMARY
 # ============================================================
 section "Summary"
