@@ -876,6 +876,7 @@ PYCHARTER
         fi
         rm -rf "$SS_TMP"
         _ss_exclude_transients
+        _ss_exclude_telemetry   # v7.4.1: the run telemetry files stay out of git (audit-740 S1)
         if [ "$SS_AGENTS_CHANGED" -gt 0 ]; then
             # Agent definitions are read when a session starts: the running one
             # keeps the text it loaded.

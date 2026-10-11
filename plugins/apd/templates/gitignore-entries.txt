@@ -2,4 +2,10 @@
 .apd/pipeline/
 .claude/memory/guard-audit.log
 .claude/memory/pipeline-metrics.log
+.claude/memory/pipeline-events.log
+.claude/memory/adversarial-rationale-rollbacks.md
+.claude/memory/.apd-ev.*
+.apd/memory/pipeline-events.log
+.apd/memory/adversarial-rationale-rollbacks.md
+.apd/memory/.apd-ev.*
 .claude/settings.local.json

@@ -481,6 +481,24 @@ _ss_exclude_transients() {
     return 0
 }
 
+# _ss_exclude_telemetry — v7.4.1. The run telemetry files live in the memory
+# directory, which many projects commit whole. `adversarial-rationale-rollbacks.md`
+# holds a pass's triage and is written between two adversarial passes of one
+# run: tracked, it reaches the next pass through `git diff`, the one channel
+# guard-spec-blind has to leave open (audit-740 S1). The event log and a
+# leftover `.apd-ev.*` temp file of a killed step go with it. Local excludes,
+# as for the backups: the project's .gitignore is not APD's to edit on an
+# update. A file that is ALREADY tracked is not helped by an exclude line —
+# telemetry refuses to append to it and says how to untrack it.
+_ss_exclude_telemetry() {
+    local m="${MEMORY_DIR:-}"
+    [ -n "$m" ] && [ -d "$m" ] || return 0
+    _ss_git_exclude "$m" "pipeline-events.log" "pipeline-events.log" ""
+    _ss_git_exclude "$m" "adversarial-rationale-rollbacks.md" "adversarial-rationale-rollbacks.md" ""
+    _ss_git_exclude "$m" ".apd-ev." ".apd-ev.x" "*"
+    return 0
+}
+
 # ---------------------------------------------------------------------------
 # THE REGISTRY — every tracked copy, one row each. Read by init (to sync) and
 # by audit-drift (to report), so the two agree on what is tracked.

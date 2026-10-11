@@ -18898,6 +18898,9 @@ section "154. Run telemetry (v7.4): pipeline-events.log records phase history, t
 # pipeline directory, the 20-column metrics row untouched).
 
 G154_T="$(mktemp -d -t apd-g154.XXXXXX)"; G154_T=$(cd "$G154_T" && pwd -P)
+# v7.4.1: a pass's review state is recorded only with this switch (see part 0). The rows of the
+# mechanism run with it ON; part 0 proves the default.
+export APD_REVIEW_STATE_TELEMETRY=on
 G154_PA="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
 G154_LIB="$APD_PLUGIN_ROOT/bin/lib/telemetry.sh"
 _c154() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
@@ -18908,6 +18911,27 @@ _n154() { grep -c -- "$2" "$(_ev154 "$1")" 2>/dev/null || true; }
 _rat154() { printf '## Finding 1 — a\n**Severity:** important\n**Status:** accepted\n**Rationale:** fixed in the builder pass, see the diff of the tests\n\n## Finding 2 — b\n**Severity:** minor\n**Status:** reviewer-self-dismissed\n**Rationale:** reviewer concluded no real issue here pre-existing behavior\n' > "$1/.apd/pipeline/.adversarial-rationale.md"; }
 _ml154() { if [ -f "$1" ]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
 _ls154() { ls -A "$1/.apd/pipeline" 2>/dev/null | LC_ALL=C sort | tr '\n' ' '; }
+
+# ---------------------------------------------------------------- 0. the default: no review state is kept mid-run
+G154_OFF="$G154_T/off"; mkdir -p "$G154_OFF"; ( cd "$G154_OFF" && git init -q . && echo base > f.txt && git add f.txt && git -c user.email=t@t -c user.name=t commit -q -m base )
+( unset APD_REVIEW_STATE_TELEMETRY
+  _v67_make_state "$G154_OFF" "ADVERSARIAL:2:1:1"
+  printf '## Finding 1 — OFF-TRIAGE-MARKER\n**Severity:** important\n**Status:** accepted\n**Rationale:** fixed in the builder pass, see the diff of the tests\n\n## Finding 2 — b\n**Severity:** minor\n**Status:** reviewer-self-dismissed\n**Rationale:** reviewer concluded no real issue here pre-existing behavior\n' > "$G154_OFF/.apd/pipeline/.adversarial-rationale.md"
+  ( cd "$G154_OFF" && APD_PROJECT_DIR="$G154_OFF" bash "$G154_PA" verifier > "$G154_T/off.v" 2>&1; echo $? > "$G154_T/off.vrc"
+    APD_PROJECT_DIR="$G154_OFF" bash "$G154_PA" rollback > "$G154_T/off.r" 2>&1; echo $? > "$G154_T/off.rrc"
+    { git grep --no-index -n "OFF-TRIAGE-MARKER\|adv=2:1:1" 2>/dev/null; git grep --untracked -n "OFF-TRIAGE-MARKER\|adv=2:1:1" 2>/dev/null; git add -f . >/dev/null 2>&1; git diff --cached | grep "OFF-TRIAGE-MARKER\|adv=2:1:1"; } > "$G154_T/off.leak" 2>&1 ) )
+_c154 "default (APD_REVIEW_STATE_TELEMETRY unset): verifier and rollback exit 0, no review-state event, no rollbacks file, and not one telemetry WARN" \
+    '[ "$(cat "$G154_T/off.vrc")$(cat "$G154_T/off.rrc")" = 00 ] && [ "$(_n154 "$G154_OFF" "|review-state|")" = 0 ] && [ ! -e "$G154_OFF/.claude/memory/adversarial-rationale-rollbacks.md" ] && ! grep -q "WARN: telemetry" "$G154_T/off.v" "$G154_T/off.r"'
+_c154 "… the events that carry no review state are all there (spec, builder, reviewer, verifier advances and the rollback)" \
+    '[ "$(_n154 "$G154_OFF" "|advance|")" = 4 ] && [ "$(_n154 "$G154_OFF" "|rollback|rt=cc step=verifier wiped=1")" = 1 ]'
+_c154 "… and after the rollback pass 1's triage is nowhere in the working tree: git grep --no-index, git grep --untracked and git add -f . + git diff --cached find neither its text nor its counts (as on v7.3.2)" \
+    '[ ! -s "$G154_T/off.leak" ]'
+G154_OFD="$G154_T/offdir"; mkdir -p "$G154_OFD/.apd/pipeline" "$G154_OFD/.claude/memory/adversarial-rationale-rollbacks.md"; echo "PROJECT_NAME=o" > "$G154_OFD/.apd/config"
+G154_OFDS=$( unset APD_REVIEW_STATE_TELEMETRY; cd "$G154_OFD" && APD_PROJECT_DIR="$G154_OFD" bash "$G154_PA" status 2>&1 ); G154_OFDN=$(_pa154 "$G154_OFD" status)
+_c154 "default: a directory in the place of the rollbacks file is not reported by pipeline status (nothing writes that file) — with the switch on it is" \
+    '! printf "%s" "$G154_OFDS" | grep -q "^telemetry:" && printf "%s" "$G154_OFDN" | grep -q "^telemetry: adversarial-rationale-rollbacks.md cannot be written"'
+_c154 "the switch is exact: only the value 'on' turns it on (1, true, ON, yes do not)" \
+    '[ "$(for v in 1 true ON yes "on " ""; do APD_REVIEW_STATE_TELEMETRY="$v" bash -c "source \"$G154_LIB\"; _ev_review_state_on && printf y || printf n"; done; APD_REVIEW_STATE_TELEMETRY=on bash -c "source \"$G154_LIB\"; _ev_review_state_on && printf y || printf n")" = nnnnnny ]'
 
 # ---------------------------------------------------------------- 1. the events of one run
 G154_A="$G154_T/a"; _v67_make_state "$G154_A" "ADVERSARIAL:2:1:1"; _rat154 "$G154_A"
@@ -19100,7 +19124,9 @@ G154_B0=$(date +%s); ( cd "$G154_I" && TMPDIR="$G154_T/no-such-tmp/x" PATH="$G15
 _c154 "with TMPDIR unusable and git hanging in the diff, rollback exits 0 well inside the hang (15 s) and the event says tree=unmeasured (that path used to call git with no budget)" \
     '[ "$G154_B1RC" = 0 ] && [ $((G154_B1 - G154_B0)) -lt 10 ] && tail -1 "$(_ev154 "$G154_I")" | grep -q "|rollback|rt=cc step=spec .*tree=unmeasured|" && [ ! -f "$G154_I/.apd/pipeline/spec.done" ]'
 # killed in the middle of the telemetry work: the step's own state changes are all done
-mkdir -p "$G154_T/shim2"; printf '#!/bin/bash\ncase " $* " in *" --no-optional-locks "*) exec sleep 25 ;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$G154_T/shim2/git"; chmod +x "$G154_T/shim2/git"
+# (the hang is in the tree commands, which run AFTER the step's own work; the one question telemetry asks git BEFORE a step —
+#  does git ignore the log, for a new review state — answers at once here and has its own row below)
+mkdir -p "$G154_T/shim2"; printf '#!/bin/bash\ncase " $* " in *" check-ignore "*) ;; *" --no-optional-locks "*) exec sleep 25 ;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$G154_T/shim2/git"; chmod +x "$G154_T/shim2/git"
 _kill154() { ( cd "$1" && PATH="$G154_T/shim2:$PATH" APD_TELEMETRY_TREE_SEC=20 APD_PROJECT_DIR="$1" exec bash "$G154_PA" "$2" ) >/dev/null 2>&1 & local kp=$!; sleep 2; kill -9 "$kp" 2>/dev/null; wait "$kp" 2>/dev/null; rmdir "$1/.apd/pipeline/.lock" 2>/dev/null; return 0; }
 G154_K="$G154_T/k"; mkdir -p "$G154_K"; ( cd "$G154_K" && git init -q . && echo base > f.txt && git add f.txt && git -c user.email=t@t -c user.name=t commit -q -m base )
 _v67_make_state "$G154_K" "ADVERSARIAL:1:1:0"; : > "$G154_K/.claude/memory/session-log.md"
@@ -19110,6 +19136,16 @@ _c154 "rollback killed while telemetry waits on git: the step itself is complete
 _kill154 "$G154_K" reset
 _c154 "reset killed while telemetry waits on git: the reset is complete (no .done file, no in-progress breadcrumb, one metrics row)" \
     '[ -z "$(ls "$G154_K/.apd/pipeline"/*.done 2>/dev/null)" ] && [ ! -f "$G154_K/.apd/pipeline/.reset-in-progress" ] && [ "$(wc -l < "$G154_K/.claude/memory/pipeline-metrics.log" | tr -d " ")" = 1 ]'
+
+# killed while telemetry asks git its one question BEFORE the step (a new review state, git hanging in check-ignore): nothing of the step has happened
+G154_KQ="$G154_T/kq"; mkdir -p "$G154_KQ"; ( cd "$G154_KQ" && git init -q . ); _v67_make_state "$G154_KQ" "ADVERSARIAL:1:1:0"; G154_KQB=$(_ls154 "$G154_KQ")
+mkdir -p "$G154_T/shim3"; printf '#!/bin/bash\ncase " $* " in *" check-ignore "*) exec sleep 25 ;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$G154_T/shim3/git"; chmod +x "$G154_T/shim3/git"
+( cd "$G154_KQ" && PATH="$G154_T/shim3:$PATH" APD_TELEMETRY_TREE_SEC=20 APD_PROJECT_DIR="$G154_KQ" exec bash "$G154_PA" rollback ) >/dev/null 2>&1 & G154_KQP=$!; sleep 2; kill -9 "$G154_KQP" 2>/dev/null; wait "$G154_KQP" 2>/dev/null; rmdir "$G154_KQ/.apd/pipeline/.lock" 2>/dev/null
+_c154 "rollback killed while telemetry waits for git's answer BEFORE the step: the pipeline directory is exactly what it was before the rollback (the state of a step that never started)" \
+    '[ "$(_ls154 "$G154_KQ")" = "$G154_KQB" ] && [ -f "$G154_KQ/.apd/pipeline/reviewer.done" ] && [ -f "$G154_KQ/.apd/pipeline/.adversarial-summary" ]'
+G154_KQ0=$(date +%s); ( cd "$G154_KQ" && PATH="$G154_T/shim3:$PATH" APD_PROJECT_DIR="$G154_KQ" bash "$G154_PA" rollback >/dev/null 2>&1 ); G154_KQRC=$?; G154_KQ1=$(date +%s)
+_c154 "… and without the kill that question costs at most its budget: the rollback then runs to the end (exit 0, reviewer.done gone) in under 10 s against a 25 s hang" \
+    '[ "$G154_KQRC" = 0 ] && [ $((G154_KQ1 - G154_KQ0)) -lt 10 ] && [ ! -f "$G154_KQ/.apd/pipeline/reviewer.done" ]'
 
 # ---------------------------------------------------------------- 5. verify-all is timed
 G154_V="$G154_T/v"; _v67_make_state "$G154_V" "ADVERSARIAL:0:0:0"; mkdir -p "$G154_V/.claude/scripts"
@@ -19197,10 +19233,14 @@ _c154 "a FIFO where the log should be: the spec advance finishes (exit 0, spec.d
 G154_DL="$G154_T/dl"; _v67_make_state "$G154_DL" "ADVERSARIAL:0:0:0"; rm -f "$(_ev154 "$G154_DL")"; ln -s "$G154_T/nowhere/x.log" "$(_ev154 "$G154_DL")"
 G154_DLO=$(_pa154 "$G154_DL" rollback); G154_DLS=$(_pa154 "$G154_DL" status)
 _c154 "a dangling symlink as the log: the step warns AND pipeline status reports it (status said nothing), and the link's target was not created" \
-    'printf "%s" "$G154_DLO" | grep -q "^WARN: telemetry" && printf "%s" "$G154_DLS" | grep -q "^telemetry: .*dangling symlink" && [ ! -e "$G154_T/nowhere" ]'
+    'printf "%s" "$G154_DLO" | grep -q "^WARN: telemetry" && printf "%s" "$G154_DLS" | grep -q "^telemetry: .*is a symlink" && [ ! -e "$G154_T/nowhere" ]'
 rm -f "$(_ev154 "$G154_DL")"; ln -s /dev/null "$(_ev154 "$G154_DL")"; G154_DNO=$(_pa154 "$G154_DL" rollback); G154_DNS=$(_pa154 "$G154_DL" status)
 _c154 "a symlink to /dev/null as the log: the step warns (events went nowhere in silence) and status reports it" \
-    'printf "%s" "$G154_DNO" | grep -q "^WARN: telemetry" && printf "%s" "$G154_DNS" | grep -q "^telemetry: .*not a regular file"'
+    'printf "%s" "$G154_DNO" | grep -q "^WARN: telemetry" && printf "%s" "$G154_DNS" | grep -q "^telemetry: .*is a symlink"'
+# a symlink to a regular file OUTSIDE the project: nothing is appended through it (v7.4.0 wrote the event there)
+: > "$G154_T/outside.log"; rm -f "$(_ev154 "$G154_DL")"; ln -s "$G154_T/outside.log" "$(_ev154 "$G154_DL")"; G154_DOO=$(_pa154 "$G154_DL" rollback)
+_c154 "a symlink to a writable file outside the project as the log: the step warns and the outside file stays empty" \
+    'printf "%s" "$G154_DOO" | grep -q "^WARN: telemetry — pipeline-events.log was not written (.*is a symlink)" && [ ! -s "$G154_T/outside.log" ]'
 # the rollbacks file under the same rules: N1 a FIFO in its place is never opened, N6 the WARN names the right file and status reports it
 _rb154() { local d="$G154_T/$1"; _v67_make_state "$d" "ADVERSARIAL:2:1:1"; _rat154 "$d"; _pa154 "$d" verifier >/dev/null; printf '%s' "$d"; }
 G154_RF=$(_rb154 rbfifo); mkfifo "$G154_RF/.claude/memory/adversarial-rationale-rollbacks.md"
@@ -19224,6 +19264,64 @@ else
     _c154 "an unreadable rationale: rollback exits 0 and deletes it as always, no entry and no kept-mark is written for it, and the step says the rationale was not kept" \
         '[ "$G154_URRC" = 0 ] && [ ! -e "$G154_UR/.apd/pipeline/.adversarial-rationale.md" ] && ! grep -q "pass-fp" "$G154_UR/.claude/memory/adversarial-rationale-rollbacks.md" 2>/dev/null && printf "%s\n" "$G154_URO" | grep -q "^WARN: telemetry — adversarial-rationale-rollbacks.md was not written (a summary or rationale file could not be read)"'
 fi
+# the rollback entry is prepared inside the memory directory: a pass's triage never sits in TMPDIR, where guard-spec-blind does not reach
+G154_TD=$(_rb154 rbtmp); mkdir -p "$G154_T/tmpspy"; mkdir -p "$G154_T/shimmk"
+printf '#!/bin/bash\necho "$*" >> "%s/mktemp.log"\nexec "%s" "$@"\n' "$G154_T" "$(command -v mktemp)" > "$G154_T/shimmk/mktemp"; chmod +x "$G154_T/shimmk/mktemp"
+( cd "$G154_TD" && TMPDIR="$G154_T/tmpspy" PATH="$G154_T/shimmk:$PATH" APD_PROJECT_DIR="$G154_TD" bash "$G154_PA" rollback >/dev/null 2>&1 )
+_c154 "the temp file that holds the rolled-back rationale is created in the memory directory, not in TMPDIR, and is gone afterwards" \
+    'grep -q "$G154_TD/.claude/memory/.apd-ev\." "$G154_T/mktemp.log" && [ "$(grep -c "^## Finding 2" "$G154_TD/.claude/memory/adversarial-rationale-rollbacks.md")" = 1 ] && [ -z "$(ls -A "$G154_TD/.claude/memory" | grep "^\.apd-ev")" ] && ! grep -rqs "Finding 2" "$G154_T/tmpspy"'
+G154_TN=$(_rb154 rbnotmp); ( cd "$G154_TN" && TMPDIR="$G154_T/no-such-tmp/x" APD_PROJECT_DIR="$G154_TN" bash "$G154_PA" rollback >/dev/null 2>&1 )
+_c154 "with TMPDIR unusable the rollback still keeps the rationale (it kept none and warned)" '[ "$(grep -c "^## Finding 2" "$G154_TN/.claude/memory/adversarial-rationale-rollbacks.md" 2>/dev/null)" = 1 ]'
+_c154 "APD_TELEMETRY_TREE_SEC with a leading zero or no digits is ignored without a word on stderr (08 was an arithmetic error printed by every step)" \
+    '[ "$(for v in 08 09 00 020 007 -5 +5 3.5 abc; do APD_TELEMETRY_TREE_SEC=$v bash -c "source \"$G154_LIB\"; printf %s \$_EV_TREE_SEC" 2>&1; done)" = 333333333 ]'
+# S1 (audit-740 passes 5 and 6): a pass's review state must not reach the next adversarial pass through git.
+# The fixture commits its memory directory whole, as real projects do.
+G154_S1="$G154_T/s1"; mkdir -p "$G154_S1/.claude/memory"; ( cd "$G154_S1" && git init -q . && echo base > f.txt && : > .claude/memory/MEMORY.md && git add -A . && git -c user.email=t@t -c user.name=t commit -q -m base )
+_v67_make_state "$G154_S1" "ADVERSARIAL:2:1:1"; _rat154 "$G154_S1"; _pa154 "$G154_S1" verifier >/dev/null; G154_S1A=$(_pa154 "$G154_S1" rollback); G154_S1ARC=$?
+_c154 "NOT ignored by git (no exclude line yet): the rollback keeps no entry and records no review-state counts, exits 0, deletes what it always deleted, and says why for each file" \
+    '[ "$G154_S1ARC" = 0 ] && [ ! -f "$G154_S1/.apd/pipeline/verifier.done" ] && [ ! -e "$G154_S1/.claude/memory/adversarial-rationale-rollbacks.md" ] && [ "$(_n154 "$G154_S1" "|review-state|")" = 0 ] && [ "$(_n154 "$G154_S1" "|rollback|rt=cc step=verifier wiped=1")" = 1 ] && printf "%s\n" "$G154_S1A" | grep -q "^WARN: telemetry — adversarial-rationale-rollbacks.md was not written (git does not ignore it"'
+_c154 "… so staging everything afterwards (git add -A, as an orchestrator or a reviewer can) puts no triage text and no adv= count into git diff --cached" \
+    '( cd "$G154_S1" && git add -A . >/dev/null 2>&1; git diff --cached ) > "$G154_T/s1.cached" 2>&1; ! grep -q "Finding 2\|adv=2:1:1" "$G154_T/s1.cached"; G154_S1X=$?; ( cd "$G154_S1" && git reset -q >/dev/null 2>&1 ); [ "$G154_S1X" = 0 ]'
+# with the exclude lines init writes: kept, and invisible to every git command the reviewer is allowed
+( cd "$G154_S1" && PROJECT_DIR="$G154_S1" MEMORY_DIR="$G154_S1/.claude/memory" bash -c 'source "$0/bin/lib/shipped-sync.sh"; _ss_exclude_telemetry' "$APD_PLUGIN_ROOT" )
+printf '%s|start|adversarial-reviewer|aabbccddeeff6006\n%s|stop|adversarial-reviewer|aabbccddeeff6006\n' "$(_v67_ts 90)" "$(_v67_ts 100)" >> "$G154_S1/.apd/pipeline/.agents"
+echo "ADVERSARIAL:1:1:0" > "$G154_S1/.apd/pipeline/.adversarial-summary"
+printf '## Finding 1 — SECRET-TRIAGE-MARKER\n**Severity:** important\n**Status:** accepted\n**Rationale:** fixed in the second builder pass, see the diff of the tests\n' > "$G154_S1/.apd/pipeline/.adversarial-rationale.md"
+_pa154 "$G154_S1" verifier >/dev/null; _pa154 "$G154_S1" rollback >/dev/null
+( cd "$G154_S1" && git add -A . >/dev/null 2>&1; { git status --porcelain -uall; git diff; git diff HEAD; git diff --cached; git grep -n "SECRET-TRIAGE-MARKER\|adv=1:1:0" 2>/dev/null; } ) > "$G154_T/s1.git" 2>&1; ( cd "$G154_S1" && git reset -q >/dev/null 2>&1 )
+_c154 "ignored by git: the entry and the review-state counts ARE kept, and after git add -A neither status, diff, diff HEAD, diff --cached nor git grep shows the file, the marker or the counts" \
+    '[ "$(grep -c "SECRET-TRIAGE-MARKER" "$G154_S1/.claude/memory/adversarial-rationale-rollbacks.md")" = 1 ] && [ "$(_n154 "$G154_S1" "|review-state|.* adv=1:1:0 ")" = 1 ] && ! grep -q "SECRET-TRIAGE-MARKER\|adv=1:1:0\|adversarial-rationale-rollbacks\|pipeline-events" "$G154_T/s1.git"'
+# a file git already TRACKS is not "ignored", exclude line or not
+G154_S3="$G154_T/s3"; mkdir -p "$G154_S3/.claude/memory"; ( cd "$G154_S3" && git init -q . && echo "old entry" > .claude/memory/adversarial-rationale-rollbacks.md && : > .claude/memory/pipeline-events.log && git add -A . && git -c user.email=t@t -c user.name=t commit -q -m "memory and all" )
+( cd "$G154_S3" && PROJECT_DIR="$G154_S3" MEMORY_DIR="$G154_S3/.claude/memory" bash -c 'source "$0/bin/lib/shipped-sync.sh"; _ss_exclude_telemetry' "$APD_PLUGIN_ROOT" )
+_v67_make_state "$G154_S3" "ADVERSARIAL:2:1:1"; _rat154 "$G154_S3"; _pa154 "$G154_S3" verifier >/dev/null; G154_S3O=$(_pa154 "$G154_S3" rollback); G154_S3RC=$?
+_c154 "a rollbacks file and an event log git already TRACKS (committed earlier), exclude lines present: no entry is appended and no review-state is written, git diff HEAD shows neither, and the step names git rm --cached" \
+    '[ "$G154_S3RC" = 0 ] && [ "$(cat "$G154_S3/.claude/memory/adversarial-rationale-rollbacks.md")" = "old entry" ] && [ "$(_n154 "$G154_S3" "|review-state|")" = 0 ] && ! ( cd "$G154_S3" && git diff HEAD ) | grep -q "Finding 2\|adv=2:1:1" && printf "%s\n" "$G154_S3O" | grep -q "git rm --cached"'
+_c154 "… while the events that carry no review state are still written to that tracked log (advance and rollback lines are there)" \
+    '[ "$(_n154 "$G154_S3" "|advance|")" -ge 3 ] && [ "$(_n154 "$G154_S3" "|rollback|rt=cc step=verifier wiped=1")" = 1 ]'
+# L3: the question is asked from the project directory — a ceiling directory above the memory dir does not hide the repository
+G154_S4=$(_rb154 s4ceil); ( cd "$G154_S4" && git init -q . ); G154_S4O=$( cd "$G154_S4" && GIT_CEILING_DIRECTORIES="$G154_S4/.claude" APD_PROJECT_DIR="$G154_S4" bash "$G154_PA" rollback 2>&1 )
+_c154 "with GIT_CEILING_DIRECTORIES above the memory directory the file is still seen as not ignored (asked from inside the memory dir, git found no repository and the entry was written)" \
+    '[ ! -e "$G154_S4/.claude/memory/adversarial-rationale-rollbacks.md" ] && printf "%s\n" "$G154_S4O" | grep -q "^WARN: telemetry — adversarial-rationale-rollbacks.md was not written (git does not ignore it"'
+# B1 (pass 7): a memory directory that is a SYMLINK into the same repository — git refuses the path ("beyond a symbolic link"), which is not "no git"
+G154_SY="$G154_T/symmem"; mkdir -p "$G154_SY/docs/memory" "$G154_SY/.claude"; ( cd "$G154_SY" && git init -q . && : > docs/memory/MEMORY.md && ln -s ../docs/memory .claude/memory && git add -A . && git -c user.email=t@t -c user.name=t commit -q -m base )
+_v67_make_state "$G154_SY" "ADVERSARIAL:2:1:1"; _rat154 "$G154_SY"; _pa154 "$G154_SY" verifier >/dev/null; G154_SYO=$(_pa154 "$G154_SY" rollback)
+_c154 "with the memory directory a symlink into the repo and no exclude line: no entry and no review-state are written (git's refusal of the path was read as 'no git' and both were)" \
+    '[ ! -e "$G154_SY/docs/memory/adversarial-rationale-rollbacks.md" ] && [ "$(grep -c "|review-state|" "$G154_SY/docs/memory/pipeline-events.log" 2>/dev/null || true)" = 0 ] && printf "%s\n" "$G154_SYO" | grep -q "^WARN: telemetry — adversarial-rationale-rollbacks.md was not written (git does not ignore it"'
+# git that does not answer the question: no append either (fail closed), and inside the budget
+mkdir -p "$G154_T/shimls"; printf '#!/bin/bash\ncase " $* " in *" check-ignore "*) exec sleep 15 ;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$G154_T/shimls/git"; chmod +x "$G154_T/shimls/git"
+G154_S2=$(_rb154 s1slow); ( cd "$G154_S2" && git init -q . ); G154_S20=$(date +%s); G154_S2O=$( cd "$G154_S2" && PATH="$G154_T/shimls:$PATH" APD_PROJECT_DIR="$G154_S2" bash "$G154_PA" rollback 2>&1 ); G154_S2RC=$?; G154_S21=$(date +%s)
+_c154 "when git does not answer whether it ignores the file, the rollback ends inside the budget (exit 0), appends nothing and says so" \
+    '[ "$G154_S2RC" = 0 ] && [ $((G154_S21 - G154_S20)) -lt 10 ] && [ ! -e "$G154_S2/.claude/memory/adversarial-rationale-rollbacks.md" ] && printf "%s\n" "$G154_S2O" | grep -q "^WARN: telemetry — adversarial-rationale-rollbacks.md was not written (git did not say"'
+# init keeps the three names out of git in an existing project, through .git/info/exclude, and only when git does not ignore them already
+G154_X1="$G154_T/x1"; mkdir -p "$G154_X1/.claude/memory" "$G154_X1/.apd"; ( cd "$G154_X1" && git init -q . ); : > "$G154_X1/.claude/memory/pipeline-events.log"; : > "$G154_X1/.claude/memory/adversarial-rationale-rollbacks.md"; : > "$G154_X1/.claude/memory/.apd-ev.abc123"; : > "$G154_X1/.claude/memory/MEMORY.md"
+( cd "$G154_X1" && PROJECT_DIR="$G154_X1" MEMORY_DIR="$G154_X1/.claude/memory" bash -c 'source "$0/bin/lib/shipped-sync.sh"; _ss_exclude_telemetry; _ss_exclude_telemetry' "$APD_PLUGIN_ROOT" )
+_c154 "_ss_exclude_telemetry: the event log, the rollbacks file and a leftover .apd-ev.* are out of git status, MEMORY.md is still there, and a second run adds no line" \
+    '[ "$(cd "$G154_X1" && git status --porcelain -uall | sed "s/^?? //" | LC_ALL=C sort | tr "\n" " ")" = ".claude/memory/MEMORY.md " ] && [ "$(grep -c "memory/" "$G154_X1/.git/info/exclude")" = 3 ]'
+_c154 "… and apd-init calls it, and the template for a new project carries the same names for both memory locations" \
+    'grep -q "^        _ss_exclude_telemetry" "$APD_PLUGIN_ROOT/bin/core/apd-init" && [ "$(grep -c "memory/pipeline-events.log\|memory/adversarial-rationale-rollbacks.md\|memory/\.apd-ev\.\*" "$APD_PLUGIN_ROOT/templates/gitignore-entries.txt")" = 6 ]'
+_c154 "APD_TELEMETRY_TREE_SEC above 20 is ignored: the budget stays 3 s (the variable cannot hold a step past its callers 30 s)" \
+    '[ "$(APD_TELEMETRY_TREE_SEC=600 bash -c "source \"$G154_LIB\"; echo \$_EV_TREE_SEC")" = 3 ] && [ "$(APD_TELEMETRY_TREE_SEC=20 bash -c "source \"$G154_LIB\"; echo \$_EV_TREE_SEC")" = 20 ] && [ "$(APD_TELEMETRY_TREE_SEC=21 bash -c "source \"$G154_LIB\"; echo \$_EV_TREE_SEC")" = 3 ]'
 # N2: the rationale is copied, not read into a variable — a NUL byte in it produces no bash warning on the step's stderr, and survives
 G154_NU=$(_rb154 rbnul); printf 'nul:\000:here\n\n\n' >> "$G154_NU/.apd/pipeline/.adversarial-rationale.md"; G154_NUO=$(_pa154 "$G154_NU" rollback)
 _c154 "a NUL byte in the rationale: the rollback prints nothing about it (bash ≥ 4.4 wrote 'ignored null byte' to the step's stderr) and the kept entry still holds the byte" \
@@ -19232,10 +19330,10 @@ _c154 "a healthy project: pipeline status prints no telemetry line and the docto
     '! _pa154 "$G154_OK" status | grep -q "^telemetry:" && ! ( cd "$G154_OK" && APD_PROJECT_DIR="$G154_OK" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-doctor" 2>&1 | grep -q "Run Telemetry" )'
 
 # ---------------------------------------------------------------- 8. it decides nothing
-_c154 "telemetry.sh has no exit and returns nothing but 0 or 1 (1 only from the two predicates that are never a step's result)" \
-    '! grep -nE "^[^#]*\bexit\b" "$G154_LIB" | grep -q . && [ "$(grep -cE "return [2-9]" "$G154_LIB")" = 0 ] && [ "$(grep -c "return 1" "$G154_LIB")" = 1 ]'
-_c154 "nothing in the framework READS the events log back: its name appears in telemetry.sh only (no gate, guard, report or hook opens it)" \
-    '[ "$(grep -rl "pipeline-events" "$APD_PLUGIN_ROOT/bin" "$REPO_ROOT/hooks" "$APD_PLUGIN_ROOT/mcp" 2>/dev/null | grep -v "test-codex-adapter" | sed "s#.*/##" | LC_ALL=C sort | tr "\n" " ")" = "telemetry.sh " ]'
+_c154 "telemetry.sh has no exit and returns nothing but 0 or 1 (1 only from its predicates — _ev_seen and _ev_review_state_allowed — which are never a step's result)" \
+    '! grep -nE "^[^#]*\bexit\b" "$G154_LIB" | grep -q . && [ "$(grep -cE "return [2-9]" "$G154_LIB")" = 0 ] && [ "$(grep -c "return 1" "$G154_LIB")" = 3 ] && [ "$(sed -n "/^_ev_seen()/,/^}/p; /^_ev_review_state_allowed()/,/^}/p" "$G154_LIB" | grep -c "return 1")" = 3 ]'
+_c154 "nothing in the framework READS the events log back: its name appears in telemetry.sh, and in shipped-sync.sh only as a name to keep out of git (no gate, guard, report or hook opens it)" \
+    '[ "$(grep -rl "pipeline-events" "$APD_PLUGIN_ROOT/bin" "$REPO_ROOT/hooks" "$APD_PLUGIN_ROOT/mcp" 2>/dev/null | grep -v "test-codex-adapter" | sed "s#.*/##" | LC_ALL=C sort | tr "\n" " ")" = "shipped-sync.sh telemetry.sh " ] && [ "$(grep -c "pipeline-events" "$APD_PLUGIN_ROOT/bin/lib/shipped-sync.sh")" = 1 ] && grep -q "_ss_git_exclude \"\$m\" \"pipeline-events.log\"" "$APD_PLUGIN_ROOT/bin/lib/shipped-sync.sh"'
 _c154 "no hook runs it: telemetry.sh is sourced by pipeline-advance and pipeline-doctor and by nothing else" \
     '[ "$(grep -rl "lib/telemetry.sh" "$APD_PLUGIN_ROOT/bin" | grep -v "test-codex-adapter" | sed "s#.*/##" | LC_ALL=C sort | tr "\n" " ")" = "pipeline-advance pipeline-doctor " ]'
 _c154 "pipeline-advance uses an event function's result nowhere: no _ev_ call sits in an if/while/&&/|| condition" \
@@ -19252,6 +19350,7 @@ _c154 "report --history and pipeline metrics over 12/15/18/20-column rows print 
     '[ -n "$G154_H1" ] && [ "$G154_H1" = "$G154_H2" ] && printf "%s" "$G154_H1" | grep -q "t12" && printf "%s" "$G154_H1" | grep -q "t20"'
 _c154 "SPEC describes the log, its five events and the join key" \
     'grep -q "pipeline-events.log" "$REPO_ROOT/docs/SPEC.md" && grep -q "advance | rollback | review-state | verify | run-end" "$REPO_ROOT/docs/SPEC.md" && grep -q "column 3 of the metrics row" "$REPO_ROOT/docs/SPEC.md"'
+unset APD_REVIEW_STATE_TELEMETRY
 rm -rf "$G154_T"
 
 

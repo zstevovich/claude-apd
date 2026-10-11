@@ -14,6 +14,9 @@
 #   run    the epoch of `spec.done` — the same value as column 3 of the metrics
 #          row, so the two files join on (run, task). No new state.
 #   event  advance | rollback | review-state | verify | run-end
+#          (review-state, and the rollback entry in
+#          adversarial-rationale-rollbacks.md, only with
+#          APD_REVIEW_STATE_TELEMETRY=on — see `_ev_review_state_on`)
 #
 # `review-state` is an OBSERVATION, not a pass: one line each time the
 # adversarial/supervision files on disk differ from what was last recorded
@@ -59,8 +62,10 @@ _ev_unwritable() {
         echo "memory directory missing: ${MEMORY_DIR:-<unset>}"
     elif [ ! -x "$MEMORY_DIR" ]; then
         echo "$MEMORY_DIR cannot be entered"
-    elif [ -L "$f" ] && [ ! -e "$f" ]; then
-        echo "$f is a dangling symlink"
+    elif [ -L "$f" ]; then
+        # dangling or not: an append through a symlink lands wherever it points,
+        # outside the project included (audit-740 pass 5)
+        echo "$f is a symlink"
     elif [ -e "$f" ] && [ ! -f "$f" ]; then
         echo "$f is not a regular file"
     elif [ -e "$f" ] && [ ! -w "$f" ]; then
@@ -75,6 +80,9 @@ _ev_unwritable() {
 _ev_probe() {
     local f why
     for f in "$(_ev_file)" "$(_ev_rb_file)"; do
+        # the rollbacks file is written only with the review-state switch on;
+        # off, nothing depends on it and its state is not reported
+        if [ "$f" = "$(_ev_rb_file)" ] && ! _ev_review_state_on; then continue; fi
         why=$(_ev_unwritable "$f")
         [ -n "$why" ] && echo "telemetry: ${f##*/} cannot be written ($why) — the pipeline is unaffected, run telemetry is not recorded"
     done
@@ -162,8 +170,9 @@ _ev_tree_fields() {
 # has callers with a clock (the Codex MCP wrapper allows pipeline-advance 30 s):
 # past the budget the fields are replaced by `tree=timeout` and the step ends
 # (`tree=unmeasured` when the temp file for the result cannot be created).
-# (APD_TELEMETRY_TREE_SEC changes the budget; the suite uses it to hold the
-# window open for a kill.)
+# (APD_TELEMETRY_TREE_SEC changes the budget, up to 20 s — the suite uses it to
+# hold the window open for a kill; a larger value is ignored, so the variable
+# cannot push a step past the 30 s its callers allow.)
 # The result goes through a temp file, not a pipe, and the subshell redirects
 # itself with `exec` BEFORE it starts anything: a redirection written on the
 # subshell instead leaves bash's saved copies of the caller's stdout in every
@@ -171,8 +180,13 @@ _ev_tree_fields() {
 # git to exit — the budget measured 13 s against a git that hung in `diff`
 # (audit-740 F1). A git that outlives the budget is left to finish on its own;
 # it holds nothing of the step's.
+# _ev_tick → waits a tenth of a second and prints 1, or — with a sleep that takes
+# no fractions (busybox) — a whole second and prints 10. The unit of both waits.
+_ev_tick() { if sleep 0.1 2>/dev/null; then echo 1; else sleep 1; echo 10; fi; }
 _EV_TREE_SEC=3
-case "${APD_TELEMETRY_TREE_SEC:-}" in ''|*[!0-9]*|0) ;; *) _EV_TREE_SEC=$APD_TELEMETRY_TREE_SEC ;; esac
+case "${APD_TELEMETRY_TREE_SEC:-}" in
+    [1-9]|[1-9][0-9]) [ "$APD_TELEMETRY_TREE_SEC" -le 20 ] && _EV_TREE_SEC=$APD_TELEMETRY_TREE_SEC ;;   # `08` is not a number to bash arithmetic
+esac
 _ev_tree_bounded() {
     local tmp pid i=0 max=$(( _EV_TREE_SEC * 10 ))
     # No temp file (TMPDIR missing, read-only, full): the fields are not measured.
@@ -189,7 +203,7 @@ _ev_tree_bounded() {
             printf 'tree=timeout'
             return 0
         fi
-        if sleep 0.1 2>/dev/null; then i=$((i + 1)); else sleep 1; i=$((i + 10)); fi   # a sleep without fractions (busybox)
+        i=$((i + $(_ev_tick)))
     done
     wait "$pid" 2>/dev/null
     cat "$tmp" 2>/dev/null
@@ -278,12 +292,16 @@ _ev_seen() {
 # _ev_pass_observe <at> — record the review state as it stands, once. Called at
 # the top of every state-changing step, i.e. before any of them can delete it.
 _ev_pass_observe() {
+    _ev_review_state_on || return 0
     [ -f "$PIPELINE_DIR/spec.done" ] || return 0
     local run task fp fields line n
     fp=$(_ev_pass_fp)
     [ -n "$fp" ] || return 0
     run=$(_ev_run); task=$(_ev_task)
     _ev_seen "$run" review-state "$task" "$fp" && return 0
+    # The counts of a pass are review state too (`adv=2:1:1` tells the next pass
+    # what the last one found): recorded only in a log git ignores.
+    _ev_review_state_allowed "$(_ev_file)" || return 0
     fields="at=$1 fp=$fp"
     n=$(_ev_disp_field); [ -n "$n" ] && fields="$fields $n"
     if [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
@@ -314,12 +332,96 @@ _ev_pass_observe() {
     return 0
 }
 
+# _ev_git_ignored <file> → what git would do with a file that carries a pass's
+# review state: `ignored` (an exclude or .gitignore rule covers it and it is not
+# in the index), `exposed` (not ignored — or tracked: git reports no rule for a
+# tracked file), `nogit` (no git, or the project is not a checkout git can
+# read) or `unknown` (git did not answer inside the budget).
+#
+# Why the question is "ignored" and not "untracked" (audit-740 pass 6, L2/L3):
+# an untracked file that is NOT ignored is one `git add -A` away from the
+# diff — the orchestrator staging mid-run, or anyone — and `git rm --cached`
+# leaves exactly that state. Only an ignored file stays out of `git diff`,
+# `git diff --cached`, `git status` and `git add -A`. Asked from the project
+# directory (a ceiling directory hid the repository from a question asked
+# inside the memory directory), in a background subshell under the tree budget;
+# the answer is the exit status, so no temp file is involved.
+_ev_git_ignored() {
+    command -v git >/dev/null 2>&1 || { printf 'nogit'; return 0; }
+    local rc
+    rc=$(_ev_git_rc check-ignore -q -- "$1")
+    case "$rc" in
+        0) printf 'ignored' ;;
+        1) printf 'exposed' ;;
+        t) printf 'unknown' ;;
+        *)  # git refused the question (128). "Not a repository" is one reason; "the
+            # path is beyond a symbolic link" is another — a memory directory that
+            # is a symlink into the same repository — and there git still shows
+            # the file to everyone else (audit-740 pass 7, B1). So: a checkout
+            # git can read from the project directory = exposed.
+            case "$(_ev_git_rc rev-parse --is-inside-work-tree)" in
+                0) printf 'exposed' ;;
+                t) printf 'unknown' ;;
+                *) printf 'nogit' ;;
+            esac ;;
+    esac
+    return 0
+}
+
+# _ev_git_rc <git arguments…> → the exit status of `git -C <project> …`, or `t`
+# when it did not finish inside the budget. Background subshell, no output, no
+# temp file.
+_ev_git_rc() {
+    local pid i=0 max=$(( _EV_TREE_SEC * 10 ))
+    ( exec >/dev/null 2>&1; git --no-optional-locks -C "$PROJECT_DIR" "$@" ) &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ "$i" -ge "$max" ]; then
+            kill "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null
+            printf 't'
+            return 0
+        fi
+        i=$((i + $(_ev_tick)))
+    done
+    wait "$pid" 2>/dev/null
+    printf '%s' "$?"
+    return 0
+}
+
+# _ev_review_state_on — v7.4.1: OFF unless APD_REVIEW_STATE_TELEMETRY=on.
+#
+# A pass's review state (the `review-state` event with its counts, the rollback
+# entry with the triage text) is written in the MIDDLE of a run, and a rollback
+# is exactly the step that used to DELETE that state before the next adversarial
+# pass. Any file in the working tree — ignored or not, memory directory or not —
+# is readable through `git grep --no-index` / `--untracked` and `git add -f .`,
+# which guard-spec-blind lets the adversarial reviewer run (as it did before
+# v7.4, where the same commands read the spec card). So keeping that state on
+# disk across a rollback hands pass 2 what v7.3.2 had removed (audit-740 pass 7,
+# B2). Until the guard refuses those commands, the two writes stay off by
+# default; the phase, verify and run-end events carry no review state and are
+# always written. With the switch on, the ignore rule below still applies.
+_ev_review_state_on() { [ "${APD_REVIEW_STATE_TELEMETRY:-}" = "on" ]; }
+
+# _ev_review_state_allowed <file> — may this invocation write a pass's review
+# state into <file>? Yes when git ignores it or there is no checkout; otherwise
+# one WARN naming the way out, and no.
+_ev_review_state_allowed() {
+    case "$(_ev_git_ignored "$1")" in
+        exposed) _ev_warn "$1" "git does not ignore it, and a later adversarial pass reads what git shows — run apd init, or add /${1#$PROJECT_DIR/} to .git/info/exclude (a file already tracked: git rm --cached it first)"; return 1 ;;
+        unknown) _ev_warn "$1" "git did not say whether it ignores the file"; return 1 ;;
+    esac
+    return 0
+}
+
 # _ev_archive_rollback — a rollback of the reviewer or verifier step deletes the
 # rationale files, and until v7.4 nothing kept them (only reset and the spec
 # re-advance archive, into adversarial-rationale-archive.md). The text goes to
 # its OWN file, adversarial-rationale-rollbacks.md: the existing archive stays
 # byte for byte what it was, so a rollback followed by a reset can never put
-# one rationale into it twice (audit-740 F7). One entry per review state — the
+# one rationale into it twice (audit-740 F7). It is kept out of git (see
+# `_ss_exclude_telemetry`) and appended to only while git ignores it (S1). One entry per review state — the
 # `pass-fp` line, written last, is the record. The entry is prepared in a temp
 # file and appended with one `cat`; that is not an atomic write (N5): a kill in
 # the middle of it leaves a partial entry WITHOUT its mark, and the next
@@ -327,6 +429,7 @@ _ev_pass_observe() {
 # are copied, never read into a variable — a command substitution drops NUL
 # bytes and trailing blank lines and, under bash ≥ 4.4, says so on stderr (N2).
 _ev_archive_rollback() {
+    _ev_review_state_on || return 0
     [ "${APD_AUDIT_SYNTHETIC:-}" = "1" ] && return 0
     [ -s "$PIPELINE_DIR/.adversarial-rationale.md" ] || [ -s "$PIPELINE_DIR/.supervision-rationale.md" ] || return 0
     local task run a mark tmp n
@@ -334,9 +437,19 @@ _ev_archive_rollback() {
     case "$task" in APD-VERIFY-*) return 0 ;; esac
     a=$(_ev_rb_file)
     [ -z "$(_ev_unwritable "$a")" ] || { _ev_warn "$a"; return 0; }
+    # S1 (audit-740 passes 5 and 6): this file is written in the MIDDLE of a run,
+    # between two adversarial passes. guard-spec-blind keeps the reviewer out of
+    # the memory directory but must let it read what git shows, so the entry is
+    # appended only to a file git IGNORES (init writes the exclude lines; this is
+    # the rule that holds when they are not there). No answer from git = no append.
+    _ev_review_state_allowed "$a" || return 0
     mark="<!-- pass-fp: ${run:-unknown}/$(_ev_pass_fp) -->"
     grep -qF -- "$mark" "$a" 2>/dev/null && return 0
-    tmp=$(mktemp "${TMPDIR:-/tmp}/apd-ev.XXXXXX" 2>/dev/null) || { _ev_warn "$a" "no temp file to prepare the entry in"; return 0; }
+    # The entry is prepared INSIDE the memory directory, never in TMPDIR: it holds
+    # a pass's triage, which guard-spec-blind keeps from the adversarial reviewer
+    # by blinding the pipeline and memory directories. A copy in /tmp — and a
+    # killed step leaves its temp file behind — would sit outside both.
+    tmp=$(mktemp "$MEMORY_DIR/.apd-ev.XXXXXX" 2>/dev/null) || { _ev_warn "$a" "no temp file to prepare the entry in"; return 0; }
     # An entry is appended — and so marked as kept — only when every source file
     # was read: an unreadable rationale used to leave a marked entry without the
     # text, in silence, and the mark then kept it from ever being added (R3).
