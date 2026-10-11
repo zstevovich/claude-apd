@@ -19354,6 +19354,644 @@ unset APD_REVIEW_STATE_TELEMETRY
 rm -rf "$G154_T"
 
 
+section "155. guard-spec-blind reads a path the way the shell will: globs, braces and escapes; git past the index; git add; recursive readers with no path (v7.4.2)"
+
+# The adversarial reviewer's blindness was a set of comparisons on the TEXT of a
+# command. Measured on v7.4.1 (and identical on v7.3.2), each of these returned
+# exit 0 and printed the spec card or a pass's triage:
+#   cat .apd/pipe*/spec-card.md            a glob the shell expands to the blinded path
+#   cat .apd/{pipeline,x}/spec-card.md     a brace group
+#   cat .ap\d/pipeline/spec-card.md        an escape
+#   git grep --no-index -n R1              git reading the working tree, ignored files included
+#   git add -f . && git diff --cached      staging an ignored file into the diff
+#   grep -rn R1                            a recursive reader with no path = the current directory
+# v7.4.0's run telemetry keeps a pass's review state across a rollback, which is
+# safe only if these are closed (v7.4.1 switched it off until they were). Every
+# case below is one row: D = must be refused (exit 2), A = the reviewer's own
+# work, must stay allowed (exit 0).
+
+G155_T="$(mktemp -d -t apd-g155.XXXXXX)"; G155_T=$(cd "$G155_T" && pwd -P)
+G155_G="$APD_PLUGIN_ROOT/bin/core/guard-spec-blind"
+G155_D="$G155_T/p"; mkdir -p "$G155_D/.apd/pipeline" "$G155_D/.claude/memory" "$G155_D/src/pkg" "$G155_D/tests" "$G155_D/docs"
+echo "PROJECT_NAME=g155" > "$G155_D/.apd/config"
+printf '# Spec\nR1: SPEC-SECRET\n' > "$G155_D/.apd/pipeline/spec-card.md"; printf 'src/a.go\n' > "$G155_D/.apd/pipeline/.reviewed-files"
+printf 'F1 TRIAGE-SECRET\n' > "$G155_D/.apd/pipeline/.adversarial-rationale.md"; printf '# status\n' > "$G155_D/.claude/memory/status.md"
+printf 'package main\n' > "$G155_D/src/a.go"; printf 'x\n' > "$G155_D/tests/t.py"
+( cd "$G155_D" && git init -q . && printf '.apd/pipeline/\n' > .gitignore && git add -A . >/dev/null 2>&1 && git -c user.email=t@t -c user.name=t commit -q -m base )
+_g155() { ( cd "$G155_D" && APD_PROJECT_DIR="$G155_D" bash "$G155_G" --agent-type "${2-adversarial-reviewer}" --command "$1" >/dev/null 2>&1 ); echo $?; }
+_c155() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+
+while IFS= read -r G155_L; do
+    case "$G155_L" in ''|'#'*) continue ;; esac
+    G155_E="${G155_L%%|*}"; G155_C="${G155_L#*|}"; G155_C="${G155_C//\\n/$'\n'}"; G155_C="${G155_C//@ROOT@/$G155_D}"
+    G155_R=$(_g155 "$G155_C")
+    if [ "$G155_E" = D ]; then G155_W=2; G155_V="refused"; else G155_W=0; G155_V="allowed"; fi
+    if [ "$G155_R" = "$G155_W" ]; then pass "spec-blind: $G155_V — ${G155_L#*|}"; PASSES=$((PASSES + 1))
+    else fail "spec-blind: should be $G155_V (exit $G155_W, got $G155_R) — ${G155_L#*|}"; FAILS=$((FAILS + 1)); fi
+done <<'G155_CASES'
+# ---- the reviewer's legitimate work: must stay allowed
+A|cat src/a.go
+A|cat .apd/pipeline/.reviewed-files
+A|while read f; do cat "$f"; done < .apd/pipeline/.reviewed-files
+A|git diff HEAD
+A|git diff
+A|git diff HEAD -- src/a.go
+A|git diff --stat
+A|git log --oneline -5
+A|git show HEAD
+A|git status
+A|git status --short
+A|git status --untracked-files=all
+A|git ls-files src
+A|git blame src/a.go
+A|git grep -n main -- src
+A|git grep -n main
+A|grep -n main src/a.go
+A|grep -rn main src
+A|grep -rn main src tests
+A|grep -rn --include '*.go' main src
+A|grep -rn -e main src
+A|grep -c . src/a.go
+A|rg main src
+A|rg -n main src
+A|rg -n -g '*.go' main src
+A|rg --files src
+A|find src -name '*.go'
+A|find src tests -type f
+A|find -L src -name x
+A|ls -la
+A|ls -la src
+A|ls -R src
+A|tree src
+A|du -sh src
+A|fd go src
+A|wc -l src/a.go
+A|head -20 src/a.go
+A|cat src/*.go
+A|cat src/pkg/*.go tests/*.py
+A|ls src/*
+A|ls *.md
+A|cat tests/**/*.py
+A|for f in src/*.go; do wc -l "$f"; done
+A|cat "$f"
+A|cat $1
+A|go test ./...
+A|go vet ./...
+A|npm test
+A|pytest tests
+A|python3 -c "print(1)"
+A|echo done
+A|cd src && ls
+A|cd src && grep -rn main pkg
+A|git diff HEAD | grep -n TODO
+A|git log -p -1 -- src/a.go
+A|diff src/a.go tests/t.py
+A|sed -n 1,20p src/a.go
+A|awk '{print $1}' src/a.go
+A|cat src/a.go | grep -c main
+A|find src -name '*.go' | xargs grep -n main
+A|git stash list
+A|git show --stat HEAD
+A|ls -la .github
+A|cat README.md
+A|cat .gitignore
+A|git diff HEAD --name-only
+A|git diff main...HEAD
+# ---- globs, braces, escapes naming blinded paths: must be denied
+D|cat .apd/pipe*/spec-card.md
+D|cat .apd/pipelin?/spec-card.md
+D|cat .apd/pipelin[e]/spec-card.md
+D|cat .apd/p*/s*
+D|cat .apd/*/spec-card.md
+D|cat .a*/pipeline/spec-card.md
+D|cat .a*/*/spec-card.md
+D|cat .*/pipeline/spec-card.md
+D|cat .[a-z]*/pipeline/spec-card.md
+D|cat .???/pipeline/spec-card.md
+D|cat ./.apd/pipe*/spec-card.md
+D|cat .apd/{pipeline,x}/spec-card.md
+D|cat .apd/pipe{line,x}/spec-card.md
+D|cat .ap\d/pipeline/spec-card.md
+D|cat .apd/pipe\line/spec-card.md
+D|cat .apd/pipe${x}line/spec-card.md
+D|cat .apd/pipe$'l'ine/spec-card.md
+D|cat .apd/pipe"l"ine/spec-card.md
+D|cat .claude/mem*/status.md
+D|cat .claude/memor?/status.md
+D|cat .c*/memory/status.md
+D|cat .claude/{memory,x}/status.md
+D|cat .cl\aude/memory/status.md
+D|head -5 .apd/pipe*/.adversarial-rationale.md
+D|grep -n SECRET .apd/pipe*/*
+D|ls .apd/pipe*
+D|cd .apd/pipe* && cat spec-card.md
+D|cd .a* && cat pipeline/spec-card.md
+D|cd src && cat ../.apd/pipe*/spec-card.md
+D|cat $PWD/.apd/pipe*/spec-card.md
+D|cat /tmp/x/.apd/pipe*/spec-card.md
+D|grep -r SECRET .a*
+D|grep -r SECRET .[!.]*
+D|grep -r SECRET .*
+D|tar cf /tmp/x.tar .a*
+D|cp -r .a* /tmp/x
+D|cat .apd/pipeline/.reviewed-file?
+D|cat .apd/pipeline/*
+# ---- git reading the working tree past the index: must be denied
+D|git grep --no-index -n SECRET
+D|git grep --no-index SECRET .
+D|git grep --no-ind SECRET
+D|git grep --no-in SECRET
+D|git grep --untracked -n SECRET
+D|git grep --untr SECRET
+D|git grep --unt SECRET
+D|git grep --no-exclude-standard --untracked SECRET
+D|git grep --no-exc SECRET
+D|git diff --no-index /dev/null .
+D|git diff --no-index . /tmp/empty
+D|git --no-pager grep --no-index SECRET
+D|git -C . grep --no-index SECRET
+D|env git grep --no-index SECRET
+D|command git grep --no-index SECRET
+D|git grep -n SECRET --no-index
+D|git grep '--no-index' SECRET
+D|git grep --no-\index SECRET
+D|cd src && git grep --no-index SECRET
+D|git add -f .
+D|git add -f . && git diff --cached
+D|git add -A
+D|git add .
+D|git add --force .
+D|git add -f src
+D|git stage -f .
+D|git -C . add -f .
+D|git --no-pager add -f .
+D|git -c core.x=1 add -f .
+D|env git add -f .
+D|sudo git add -f .
+D|GIT_TRACE=0 git add -f .
+D|true; git add -f .
+D|echo x && git add -f . && git diff --cached
+D|git add\n-f .
+# ---- recursive readers with no path operand: must be denied
+D|grep -rn SECRET
+D|grep -r SECRET
+D|grep -R SECRET
+D|grep -rn -e SECRET
+D|grep --recursive SECRET
+D|grep -rnI SECRET
+D|grep -nr --include '*.md' SECRET
+D|egrep -r SECRET
+D|rg SECRET
+D|rg -n SECRET
+D|rg --no-ignore SECRET
+D|rg -uu SECRET
+D|rg --files
+D|rg -e SECRET
+D|ag SECRET
+D|ack SECRET
+D|find -name spec-card.md
+D|find
+D|find -type f -exec cat {} +
+D|find -L -name x
+D|ls -R
+D|ls -laR
+D|tree
+D|tree -a
+D|du -a
+D|fd spec
+D|fd
+D|env grep -rn SECRET
+D|true; grep -rn SECRET
+D|cd src; grep -rn SECRET
+D|git diff HEAD | head; grep -rn SECRET
+D|echo x | grep -r SECRET
+# ---- already denied on v7.4.1: must stay denied
+D|cat .apd/pipeline/spec-card.md
+D|cat .claude/memory/status.md
+D|grep -rn SECRET .
+D|find . -name spec-card.md
+D|rg SECRET .
+D|ls -R .
+D|cat .apd/./pipeline/spec-card.md
+D|cat .apd//pipeline/spec-card.md
+D|git show HEAD:.apd/pipeline/spec-card.md
+D|grep -r SECRET .apd
+D|cd .apd && cat pipeline/spec-card.md
+D|apd pipeline show spec
+D|python3 -c "print(open('.apd/pipeline/spec-card.md').read())"
+D|tar cf /tmp/x.tar .
+D|cat <<EOF | sh\nfind . -name x\nEOF
+D|wc -l $(find . -name '*.md')
+D|env find . -name x
+D|grep -r SECRET ..
+# ---- audit pass 9: text only the shell knows, where it can be the blinded directory
+D|d=.apd; cat $d/pipeline/spec-card.md
+D|d=.apd; cat "$d"/pipeline/spec-card.md
+D|d=.apd; cat ${d}/pipeline/spec-card.md
+D|d=.apd; cat "${d}/pipeline/spec-card.md"
+D|d=.claude; cat $d/memory/status.md
+D|cat ${undefined:-.apd}/pipeline/spec-card.md
+D|cat `echo .apd`/pipeline/spec-card.md
+D|d=.; cat ${d}apd/pipeline/spec-card.md
+D|cat {.apd,x}/pipeline/spec-card.md
+D|cat {.,x}apd/pipeline/spec-card.md
+D|cat {.claude,x}/memory/status.md
+D|cat .apd/pipe{l,{l,m}}ine/spec-card.md
+D|cat .apd/{pipe{l,m}ine,x}/spec-card.md
+D|cat .apd/p{i{p{e,f},q},r}line/spec-card.md
+D|shopt -s dotglob; cat */pipeline/spec-card.md
+D|bash -O dotglob -c 'cat */*/*'
+D|GLOBIGNORE=x; cat */pipeline/spec-card.md
+D|bash -O extglob -c 'cat .apd/+(pipeline)/spec-card.md'
+D|zsh -c 'setopt globdots; cat */pipeline/spec-card.md'
+D|exec 3<.a*/p*/s*; cat <&3
+D|echo "$(<.a*/p*/s*)"
+D|cat <.apd/pipe*/spec-card.md
+# ---- git: subcommand or alias the text does not show; other ways into the index; ignored names
+D|a=add; git $a -f .
+D|git $(echo add) -f .
+D|git `echo add` -f .
+D|git ${a:-add} -f .
+D|git -c alias.z=add z -f .
+D|git config alias.z 'add -f'
+D|git config --global alias.z add
+D|git ls-files -o -i --exclude-standard | git update-index --add --stdin
+D|git update-index --add $(git ls-files -o -i --exclude-standard)
+D|git update-index --add src/a.go
+D|git ls-files -o | xargs cat
+D|git ls-files --others | while read f; do cat "$f"; done
+D|cat $(git ls-files -o -i --exclude-standard)
+D|git ls-files -i --exclude-standard -o
+D|git ls-files --ignored --exclude-standard --others
+# ---- recursive readers: other spellings of "recursive", of the reader, of the root
+D|grep --directories recurse SECRET
+D|grep -d recurse SECRET
+D|GREP_OPTIONS=-r grep SECRET
+D|zgrep -r SECRET
+D|bzgrep -r SECRET
+D|rgrep SECRET
+D|grep -rn SECRET $PWD
+D|grep -rn SECRET "$PWD"
+D|grep -rn SECRET ${PWD}
+D|grep -rn SECRET "$(pwd)"
+D|grep -rn SECRET `pwd`
+D|grep -rn SECRET $(git rev-parse --show-toplevel)
+D|grep -rn SECRET @ROOT@
+D|grep -rn SECRET @ROOT@/
+D|rg -uu SECRET @ROOT@
+D|rg SECRET $PWD
+D|find @ROOT@ -name '*.md' -exec cat {} +
+D|find $PWD -name '*.md'
+D|find "$(pwd)" -name '*.md'
+D|ls -R @ROOT@
+D|tar cf - $PWD
+D|grep -rn SECRET @ROOT@/.apd
+D|grep -rn SECRET $PWD/.apd
+D|cat @ROOT@/.apd/pipe*/spec-card.md
+D|grep -rn SECRET /
+# ---- a program that walks the tree itself
+D|python3 -c "import os\nfor d,_,fs in os.walk('.'):\n  [print(open(os.path.join(d,f)).read()) for f in fs]"
+D|python3 -c "from pathlib import Path; [print(p.read_text()) for p in Path('.').rglob('*.md')]"
+D|python3 -c "import glob; print(glob.glob('**/*.md', recursive=True))"
+D|node -e "require('fs').readdirSync('.',{recursive:true}).forEach(f=>console.log(f))"
+D|ruby -e 'Dir.glob("**/*.md", File::FNM_DOTMATCH).each{|f| puts File.read(f)}'
+D|python3 <<EOF\nimport os\nfor d,_,fs in os.walk('.'):\n    print(d, fs)\nEOF
+# ---- the same families used the way a reviewer does: must stay allowed
+A|cat "$f"
+A|for f in $(git diff --name-only HEAD); do cat "$f"; done
+A|grep -n main "$f"
+A|cat $SRC/a.go
+A|git diff $(git merge-base main HEAD)
+A|git log $range
+A|git diff "$base"...HEAD
+A|grep -rn main @ROOT@/src
+A|grep -rn main $PWD/src
+A|rg main "$(pwd)/src"
+A|find @ROOT@/src -name '*.go'
+A|ls -R $PWD/src
+A|cat @ROOT@/src/a.go
+A|git ls-files
+A|git ls-files src
+A|git ls-files --others --exclude-standard
+A|git ls-files -o --exclude-standard
+A|git ls-files -m
+A|git config --get user.name
+A|git config user.email
+A|git -c core.pager=cat log -3
+A|git -c color.ui=never diff HEAD
+A|git update-index --refresh
+A|python3 -c "import glob; print(glob.glob('src/*.py'))"
+A|python3 -c "import os; print(os.listdir('src'))"
+A|python3 -c "from pathlib import Path; print(Path('src/a.go').read_text())"
+A|node -e "console.log(require('fs').readFileSync('src/a.go','utf8'))"
+A|grep -d skip main src/a.go
+A|zgrep main src/a.go
+A|echo "${PWD##*/}"
+A|echo $HOME
+A|cat src/{a,b}.go
+A|cat src/pkg/{x,y}.go
+A|ls src/{pkg,cmd}
+A|mkdir -p /tmp/x && cp src/a.go /tmp/x/
+A|shopt -s nullglob; for f in src/*.go; do echo "$f"; done
+A|test -f "$f" && cat "$f"
+A|wc -l $(git diff --name-only HEAD)
+A|git show HEAD:src/a.go
+A|git show "$sha":src/a.go
+A|git diff HEAD -- "$f"
+D|git add -f . "unterminated
+D|grep -rn SECRET 'unterminated
+D|rg SECRET "unterminated
+D|find -name x "unterminated
+D|/usr/bin/git stage . "unterminated
+D|cat .ap\d/pipeline/spec-card.md "unterminated
+D|cat .apd/pipe\line/spec-card.md 'unterminated
+D|cat --show-all=.apd/pipe*/spec-card.md
+D|rg -g '*.md' SECRET
+D|rg -t md SECRET
+D|ag -G md SECRET
+D|grep -d recurse SECRET .
+D|grep --directories recurse SECRET .
+A|rg -g '*.go' main src
+A|rg -t go main src
+A|grep -d skip main src/a.go tests/t.py
+# ---- audit pass 10: the reviewer's ordinary globs, patterns and programs — must stay allowed
+A|ls src/*.{go,py}
+A|wc -l src/*.{c,h}
+A|ls *.{json,md}
+A|cat src/pkg/*.{go,mod}
+A|wc -l src/**/*.{ts,tsx}
+A|eslint "src/**/*.{js,jsx}"
+A|prettier --check "src/**/*.{ts,tsx}"
+A|rg main -g '*.{ts,tsx}' src
+A|rg -n main --glob '*.{go,mod}' src
+A|grep -rn --include='*.{ts,tsx}' main src
+A|git diff HEAD -- '*.{go,mod}'
+A|git ls-files '*.{ts,tsx}'
+A|git grep -n main -- '*.{c,h}'
+A|ls {src,tests}/*
+A|cat src/{a,b}.*
+A|ls src/{a,b}*
+A|for f in src/*.{go,py}; do echo "$f"; done
+A|ls src/*.$ext
+A|cat src/*.${ext}
+A|ls $dir/*
+A|cat src/${name}.*
+A|echo "$a/*"
+A|grep -rn '.*' src/a.go
+A|grep -c '.*' src/a.go
+A|grep -rnE 'https?://.*' src
+A|grep -rn 'pipeline/.*' src
+A|grep -rn '.*/pipeline' src
+A|grep -rnE '\.\*' src
+A|grep -rn '^/.*' src
+A|grep -rn "import .* from '\./" src
+A|rg "import .* from '\./" src
+A|rg -n '.*/pipeline/.*' src
+A|git grep -n 'import .* from' -- src
+A|git grep -nE 'https?://.*' -- src
+A|git log --grep='.*' -3
+A|awk '/\/.*\// {print}' src/a.go
+A|awk '$0 ~ /\.\*/' src/a.go
+A|find src -name '.*'
+A|find src -name '*.go' -path '*/pkg/*'
+A|echo .*
+A|grep -n extglob src/a.go
+A|cat tests/dotglob_test.sh
+A|git log --grep=extglob
+A|rg -n 'extglob|dotglob' src
+A|grep -rn main "$(git rev-parse --show-toplevel)/src"
+A|ls "$(git rev-parse --show-toplevel)/tests"
+A|python3 -c "s='a.b'; print(s.find('.'))"
+A|python3 -c "import json; print(json.dumps({'find': '.'}))"
+A|sed -n 's/.*/x/p' src/a.go
+A|jq '.a | .b' docs/x.json
+A|perl -ne 'print if /\.\*/' src/a.go
+# ---- and the settings as settings — must be refused
+D|shopt -s dotglob
+D|shopt -s extglob; cat .apd/+(pipeline)/spec-card.md
+D|setopt globdots
+D|bash -O dotglob -c 'cat */*/*'
+D|export GLOBIGNORE=x
+D|GREP_OPTIONS=-r grep SECRET
+D|ls -d .*
+D|grep -rn SECRET $(git rev-parse --show-toplevel)
+D|find "$(git rev-parse --show-toplevel)" -name '*.md'
+A|jq '.a*/pipeline' docs/x.json
+D|echo .a*/p*
+A|basename .a*
+A|grep -rn --include '.*' main src
+A|grep -rn -e '.*/pipeline' src
+D|shopt -s dotglob; cat */*/* "unterminated
+D|cat .apd/pipe*/spec-card.md "unterminated
+D|cat .a*/p*/s* 'unterminated
+D|cat <.claude/mem*/status.md
+D|cat .c*/mem*/status.md "unterminated
+D|awk -v p='.a*/pipeline' '{print p}' src/a.go
+A|git log --grep='.*/pipeline' -3
+D|git diff HEAD -- '.a*/pipeline'
+# ---- pass 10 parts 2/3: the root under other names, a walk from the current directory, cheap spellings
+D|grep -rn SECRET "$CLAUDE_PROJECT_DIR"
+D|find "$CLAUDE_PROJECT_DIR" -name '*.md' -exec cat {} +
+D|rg -uu SECRET ${CLAUDE_PROJECT_DIR}
+D|grep -rn SECRET $APD_PROJECT_DIR
+D|grep -rn SECRET "$OLDPWD"
+D|grep -rn SECRET "$(pwd -P)"
+D|grep -rn SECRET "${PWD:-.}"
+D|grep -rn SECRET "${PWD%/}"
+D|grep -rn SECRET ~+
+D|python3 -c "import os\nfor d,_,fs in os.walk(os.getcwd()): print(d, fs)"
+D|python3 -c "import pathlib; [print(p.read_text()) for p in pathlib.Path.cwd().rglob('*.md')]"
+D|python3 -c "import pathlib; [print(p) for p in pathlib.Path().rglob('*.md')]"
+D|node -e "require('fs').readdirSync(process.cwd(),{recursive:true}).forEach(f=>console.log(f))"
+D|git ls-files -oi --exclude-standard
+D|git ls-files -io --exclude-standard | xargs cat
+D|git ls-files -o --ign --exclude-standard
+D|git ls-files --othe
+D|grep --dir=recurse SECRET
+D|grep --directories rec SECRET
+D|grep --directories=rec SECRET
+A|grep -rn main "$CLAUDE_PROJECT_DIR/src"
+A|cat "$CLAUDE_PROJECT_DIR/src/a.go"
+A|ls "$(pwd -P)/src"
+A|git ls-files -o --exclude-standard -- src
+A|git ls-files --others --exclude-stan
+A|grep --devices=read main src/a.go
+A|python3 -c "import os; print(os.getcwd())"
+A|python3 -c "import pathlib; print(pathlib.Path.cwd().name)"
+A|node -e "console.log(process.cwd())"
+# ---- audit pass 11: what the move to pass 2 had reopened
+D|sed -n p .a*/p*/s*
+D|sed -n '1,5p' .apd/pipe*/spec-card.md
+D|sed -n p .cl*/mem*/sta*
+D|sed -e p .a*/p*/s*
+D|sed -n --expression=p .a*/p*/s*
+D|perl -pe1 .a*/p*/s*
+D|perl -e 'print <>' .a*/p*/s*
+D|perl -ne print .a*/p*/s*
+D|awk -f prog.awk .a*/p*/s*
+D|awk '1' .a*/p*/s*
+D|jq -n 'input' .a*/p*/s*
+D|jq . .a*/p*/s*
+D|python3 -c "import sys; print(open(sys.argv[1]).read())" .a*/p*/s*
+D|cat $(echo .a*/p*/s*)
+D|echo .a*/p*/s* | xargs cat
+D|printf '%s\n' .cl*/mem*/* | xargs cat
+D|cat "$(echo .a*/p*/s*)"
+D|head -5 $(echo .a*/p*/s*)
+D|echo "x $(sed -n p .a*/p*/s*) y"
+D|cat <(echo x) .a*/p*/s*
+D|for f in .a*/p*/*; do cat "$f"; done
+D|for f in .cl*/mem*/*; do cat "$f"; done
+D|cat {.apd,.claude}/*/*
+D|for d in .apd .claude; do cat $d/*/*; done
+D|while read l; do echo "$l"; done < .a*/p*/s*
+D|echo $(< .a*/p*/s*)
+D|git stripspace < .a*/p*/s*
+D|git diff /dev/null .a*/p*/s*
+D|git diff /dev/null .cl*/mem*/sta*
+D|git interpret-trailers .a*/p*/s*
+D|git merge-file -p .a*/p*/s* /dev/null /dev/null
+D|git commit -F .a*/p*/s* --dry-run
+D|git blame --contents .a*/p*/s* src/a.go
+D|grep -rn --include='*.md' SECRET src/..
+D|find src/.. -name spec-card.md -exec cat {} +
+D|ls -R src/pkg/../..
+D|git check-ignore * .* | xargs -I{} sh -c 'cat {}/* 2>/dev/null'
+# ---- the same tools on the reviewer's own files — must stay allowed
+A|sed -n p src/*.go
+A|sed -n '1,5p' src/a.go
+A|sed -e 's/.*/x/' src/a.go
+A|perl -ne 'print if /main/' src/*.go
+A|perl -pe1 src/a.go
+A|awk '1' src/*.go
+A|awk -F: '{print $1}' src/a.go tests/t.py
+A|jq . docs/*.json
+A|jq -r '.a[] | .b' docs/x.json
+A|python3 -c "import sys; print(sys.argv[1])" src/a.go
+A|echo src/*.go
+A|echo .*
+A|printf '%s\n' src/*
+A|cat $(echo src/*.go)
+A|for f in src/*.go tests/*.py; do wc -l "$f"; done
+A|for f in src/*.{go,py}; do echo "$f"; done
+A|for d in src tests; do ls $d/*; done
+A|while read l; do echo "$l"; done < src/a.go
+A|sort < src/a.go
+A|diff <(sort src/a.go) <(sort tests/t.py)
+A|diff <(ls src/*.go) <(ls tests/*.py)
+A|git diff /dev/null src/a.go
+A|git diff HEAD -- 'src/*.go'
+A|git log -p -- 'src/*'
+A|git log --author='.*' -3
+A|git log -S'.a*/pipeline' -3
+A|git grep -n -e 'import .* from' -- src
+A|git commit --dry-run
+A|cat src/pkg/../a.go
+A|grep -rn main src/pkg/..
+A|ls src/../tests
+D|cat .apd/pipelin{a..z}/spec-card.md
+A|sed -n 's,.a*/pipeline,x,p' src/a.go
+A|grep -rn --include='.*' main src
+A|perl -ne 'print if m,.*/pipeline,' src/a.go
+A|node -p "'.a*/pipeline'"
+A|jq --arg p '.a*/pipeline' '.x' docs/x.json
+A|git grep -n '.a*/pipeline' -- src
+D|for f in {.apd,x}/pipeline/spec-card.md; do cat "$f"; done
+D|for f in .apd/pipe{l,{l,m}}ine/spec-card.md; do cat "$f"; done
+D|grep --dir recurse SECRET
+D|ls -a | grep apd | xargs -I{} cat {}/pipeline/spec-card.md
+D|jq --rawfile x .a*/p*/s* -n '$x'
+D|jq -n --slurpfile x .a*/p*/s* '$x'
+D|awk -f .a*/p*/s* src/a.go
+D|sed -f .a*/p*/s* src/a.go
+D|awk -v f=.a*/p*/s* 'BEGIN{while((getline l < f)>0) print l}'
+A|ls src/.[a-z]*
+A|ls *e/memory
+A|jq --arg p '.a*/pipeline' '.x' docs/x.json
+A|find src -name '*.go' | xargs -I{} wc -l {}
+A|xargs -I{} cat {} < /tmp/list
+D|ls -d src/..
+A|awk '$1 ~ ".a*/pipeline"' src/a.go
+G155_CASES
+
+# what the refused commands would have printed, on this fixture — the rows above are about a real leak, not a spelling
+_c155 "the leak is real on this fixture: run unguarded, the glob, git grep --no-index and grep -r with no path each print the spec card's line" \
+    '( cd "$G155_D" && { cat .apd/pipe*/spec-card.md; git grep --no-index -n SPEC-SECRET; grep -rn SPEC-SECRET; } 2>/dev/null | grep -c "SPEC-SECRET" ) | grep -qx "[3-9]"'
+_c155 "… and git add -f . puts the spec card into git diff --cached (then the index is restored)" \
+    '( cd "$G155_D" && git add -f . >/dev/null 2>&1; git diff --cached | grep -c "SPEC-SECRET"; git reset -q >/dev/null 2>&1 ) | grep -qx "[1-9]"'
+# `~` is resolved like any absolute path: the project root, or an ancestor of it, is the root
+_c155 "a recursive reader over ~ is refused when the project lives under the home directory (HOME = the fixture's parent), and allowed when it does not" \
+    '[ "$( cd "$G155_D" && HOME="$G155_T" APD_PROJECT_DIR="$G155_D" bash "$G155_G" --agent-type adversarial-reviewer --command "grep -rn SECRET ~" >/dev/null 2>&1; echo $? )$( cd "$G155_D" && HOME="$G155_T/elsewhere" APD_PROJECT_DIR="$G155_D" bash "$G155_G" --agent-type adversarial-reviewer --command "grep -rn SECRET ~/x" >/dev/null 2>&1; echo $? )" = 20 ]'
+# the rules are this role's: the orchestrator, a builder and the contextual reviewer are not blinded
+_c155 "the same commands from the orchestrator (no agent type), a builder and the code-reviewer are not refused by this guard" \
+    '[ "$(_g155 "grep -rn SECRET" "")$(_g155 "git add -A" "")$(_g155 "git grep --no-index x" backend-builder)$(_g155 "cat .apd/pipe*/spec-card.md" backend-builder)$(_g155 "rg SECRET" code-reviewer)$(_g155 "git add -f ." code-reviewer)" = 000000 ]'
+_c155 "a renamed adversarial role (security-adversarial) is held to them too" '[ "$(_g155 "git grep --no-index x" security-adversarial)$(_g155 "grep -rn x" security-adversarial)" = 22 ]'
+# the refusal says what to do instead, and is logged
+G155_MSG=$( cd "$G155_D" && APD_PROJECT_DIR="$G155_D" bash "$G155_G" --agent-type adversarial-reviewer --command "grep -rn SECRET" 2>&1 )
+_c155 "a refused no-path reader is told to name the path, and the block is in guard-audit.log as spec-blind" \
+    'printf "%s" "$G155_MSG" | grep -q "name the path" && grep -q "|spec-blind|cmd:grep:nopath" "$G155_D/.claude/memory/guard-audit.log"'
+# review-state telemetry (off by default, v7.4.1) switched ON: what a rollback then keeps, against what the guard lets the reviewer run
+G155_P="$G155_T/run"; mkdir -p "$G155_P/.claude/memory"; ( cd "$G155_P" && git init -q . && echo base > f.txt && : > .claude/memory/MEMORY.md && git add -A . && git -c user.email=t@t -c user.name=t commit -q -m base )
+( cd "$G155_P" && PROJECT_DIR="$G155_P" MEMORY_DIR="$G155_P/.claude/memory" bash -c 'source "$0/bin/lib/shipped-sync.sh"; _ss_exclude_telemetry' "$APD_PLUGIN_ROOT" )
+( export APD_REVIEW_STATE_TELEMETRY=on; _v67_make_state "$G155_P" "ADVERSARIAL:2:1:1"
+  printf '## Finding 1 — PASS1-TRIAGE-MARKER\n**Severity:** important\n**Status:** accepted\n**Rationale:** fixed in the builder pass, see the diff of the tests\n\n## Finding 2 — b\n**Severity:** minor\n**Status:** reviewer-self-dismissed\n**Rationale:** reviewer concluded no real issue here pre-existing behavior\n' > "$G155_P/.apd/pipeline/.adversarial-rationale.md"
+  cd "$G155_P" && APD_PROJECT_DIR="$G155_P" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" verifier >/dev/null 2>&1; APD_PROJECT_DIR="$G155_P" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" rollback >/dev/null 2>&1 )
+_c155 "with APD_REVIEW_STATE_TELEMETRY=on a rollback keeps pass 1's triage and counts, in files git ignores" \
+    '[ "$(grep -c "PASS1-TRIAGE-MARKER" "$G155_P/.claude/memory/adversarial-rationale-rollbacks.md" 2>/dev/null)" = 1 ] && [ "$(grep -c "|review-state|.* adv=2:1:1 " "$G155_P/.claude/memory/pipeline-events.log")" = 1 ] && ( cd "$G155_P" && git check-ignore -q .claude/memory/adversarial-rationale-rollbacks.md && git check-ignore -q .claude/memory/pipeline-events.log )'
+_p155() { ( cd "$G155_P" && APD_PROJECT_DIR="$G155_P" bash "$G155_G" --agent-type adversarial-reviewer --command "$1" >/dev/null 2>&1 ); echo $?; }
+G155_OPEN=""; G155_SEEN=""
+while IFS= read -r G155_L; do
+    [ -n "$G155_L" ] || continue
+    if [ "$(_p155 "$G155_L")" = 0 ]; then
+        G155_OPEN="$G155_OPEN[$G155_L]"
+        ( cd "$G155_P" && eval "$G155_L" 2>/dev/null ) | grep -q "PASS1-TRIAGE-MARKER\|adv=2:1:1" && G155_SEEN="$G155_SEEN[$G155_L]"
+    fi
+done <<'G155_READS'
+git diff
+git diff HEAD
+git diff --cached
+git status --porcelain -uall
+git status --ignored
+git log -p -3
+git show HEAD
+git grep -n "PASS1-TRIAGE-MARKER\|adv=2:1:1"
+git grep --no-index -n "PASS1-TRIAGE-MARKER\|adv=2:1:1"
+git grep --untracked -n "PASS1-TRIAGE-MARKER\|adv=2:1:1"
+git grep --untracked --no-exclude-standard -n "PASS1-TRIAGE-MARKER\|adv=2:1:1"
+git add -f . && git diff --cached
+git add -A && git diff --cached
+git stash show -p
+git ls-files -o | xargs cat
+git ls-files -o -i --exclude-standard
+grep -rn "PASS1-TRIAGE-MARKER\|adv=2:1:1" $PWD
+grep -rn "PASS1-TRIAGE-MARKER\|adv=2:1:1" "$(pwd)"
+grep -rn "PASS1-TRIAGE-MARKER\|adv=2:1:1" $(git rev-parse --show-toplevel)
+d=.claude; cat $d/memory/adversarial-rationale-rollbacks.md
+cat {.claude,x}/memory/adversarial-rationale-rollbacks.md
+shopt -s dotglob; cat */*/*
+a=add; git $a -f . && git diff --cached
+git -c alias.z=add z -f . && git diff --cached
+python3 -c "import os; [print(open(os.path.join(d,f)).read()) for d,_,fs in os.walk('.') for f in fs]"
+grep -rn "PASS1-TRIAGE-MARKER\|adv=2:1:1"
+grep -rn "PASS1-TRIAGE-MARKER\|adv=2:1:1" .
+grep -rn "PASS1-TRIAGE-MARKER\|adv=2:1:1" .c*
+rg "PASS1-TRIAGE-MARKER|adv=2:1:1"
+rg -uu "PASS1-TRIAGE-MARKER|adv=2:1:1"
+find -name "*.md" -exec grep -l PASS1 {} +
+cat .claude/mem*/adversarial-rationale-rollbacks.md
+cat .claude/memory/adversarial-rationale-rollbacks.md
+cat .cl*/m*/*
+cat .claude/{memory,x}/pipeline-events.log
+head -50 .claude/mem\ory/pipeline-events.log
+ls -R
+G155_READS
+_c155 "after that rollback, of 37 ways to look — every git reading the reviewer may run, and every refused form — none that the guard ALLOWS shows pass 1's triage or its counts" \
+    '[ -z "$G155_SEEN" ] && printf "%s" "$G155_OPEN" | grep -q "\[git diff HEAD\]" && printf "%s" "$G155_OPEN" | grep -q "\[git status --ignored\]"'
+_c155 "… and the guard refuses each of the forms that would: git grep --no-index/--untracked, git add, the no-path grep/rg/find/ls -R, the glob, brace and escape spellings" \
+    '! printf "%s" "$G155_OPEN" | grep -q "no-index\|--untracked\|git add\|\[grep -rn \|\[rg \|\[find \|mem\*\|cl\*\|{memory\|mem.ory\|ls -R\|ls-files -o\|dotglob\|alias\|os.walk\|d=.claude\|{.claude"'
+rm -rf "$G155_T"
+
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"
