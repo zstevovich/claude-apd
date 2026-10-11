@@ -1,5 +1,23 @@
 # Changelog
 
+## v7.4.3 — 2026-10-11
+
+Patch: a pass's review COUNTS are recorded by default again; its triage TEXT stays behind the switch.
+
+**Why.** v7.4.1 switched off both writes that carry a pass's review state, because any file in the working tree could be read through commands `guard-spec-blind` let the adversarial reviewer run. v7.4.2 closed those commands. The event log is now protected the way the spec card is — by that guard — and the per-pass numbers are the data the telemetry was built for (does a second or third pass find anything).
+
+**What changes.** `APD_REVIEW_STATE_TELEMETRY` has three readings. Unset, in a Claude Code-only project: the `review-state` event is written (numbers only: `adv=`, `advf=`, `do=`, `dr=`, `sup=`, `supf=`, `disp=`); no rollback entry. `APD_REVIEW_STATE_TELEMETRY=on`: the event and the rollback entry with the triage text, as in v7.4.1 and v7.4.2. `APD_REVIEW_STATE_TELEMETRY=off`: neither, as the default of v7.4.1 and v7.4.2.
+
+**The ignore rule still holds.** The counts are written only to a `pipeline-events.log` that git ignores (`apd init` writes the exclude lines), or where there is no checkout. Where git would show the file, the default skips the event without a WARN and `apd pipeline status` / `apd doctor` print one line: `telemetry: review counts are not recorded (git does not ignore pipeline-events.log) — run apd init`. A project that committed the log under v7.4.0 needs `git rm --cached` first.
+
+**Codex.** Under the Codex runtime, and in any project that has Codex installed (a `.codex/` entry in its root), the default is unchanged from v7.4.2 (no review state written): `guard-spec-blind` is a Claude Code hook and nothing keeps a Codex reviewer out of the memory directory, and one run can mix the two runtimes. The counts are written there only with `=on`. Found by the audit of this patch. Stated (audit-743, reasoned from the code, not executed on a real install): a Codex plugin registered globally can drive steps in a Claude Code project that never ran `apd cdx init` (no `.codex/`); counts written there by an earlier Claude Code step are within a Codex reviewer's reach.
+
+**Also stated.** Where git does not answer inside the budget the counts are skipped and nothing reports it. `apd pipeline status` asks git one more question (about 0.1 s); a step that records a review state, about 0.2 s.
+
+**Not changed.** No gate, guard or exit code. The triage text is kept mid-run only when asked for, and what v7.4.2 states about that still stands: a text guard does not stop a command built to evade it, and the same is true of the counts and of the spec card.
+
+Suite 3197 → 3216 (bash 5 and /bin/bash 3.2), test-system 36/0.
+
 ## v7.4.2 — 2026-10-11
 
 Patch: `guard-spec-blind` reads a command the way the shell will run it. The adversarial reviewer's blindness was a set of comparisons on the TEXT of a command, and the shell rewrites that text first. Measured on v7.4.1 and identical on v7.3.2, each of these returned exit 0 and printed the spec card: `cat .apd/pipe*/spec-card.md`, `cat .apd/{pipeline,x}/spec-card.md`, `cat .ap\d/pipeline/spec-card.md`, `git grep --no-index -n R1`, `git add -f . && git diff --cached`, `grep -rn R1` (no path = the current directory), `grep -rn R1 /absolute/path/of/the/project`. §155 517 checks (508 commands, one row each: 289 to refuse, 219 a reviewer must keep), 98 mutations each flipping at least one row, both bashes with identical verdicts; independent audit `audit-740` passes 9–12, the last two SAFE against v7.4.1 (0 of 4654 commands that the old guard refused and the new one allows).

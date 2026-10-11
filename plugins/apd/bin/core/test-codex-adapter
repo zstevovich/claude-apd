@@ -19330,8 +19330,8 @@ _c154 "a healthy project: pipeline status prints no telemetry line and the docto
     '! _pa154 "$G154_OK" status | grep -q "^telemetry:" && ! ( cd "$G154_OK" && APD_PROJECT_DIR="$G154_OK" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-doctor" 2>&1 | grep -q "Run Telemetry" )'
 
 # ---------------------------------------------------------------- 8. it decides nothing
-_c154 "telemetry.sh has no exit and returns nothing but 0 or 1 (1 only from its predicates — _ev_seen and _ev_review_state_allowed — which are never a step's result)" \
-    '! grep -nE "^[^#]*\bexit\b" "$G154_LIB" | grep -q . && [ "$(grep -cE "return [2-9]" "$G154_LIB")" = 0 ] && [ "$(grep -c "return 1" "$G154_LIB")" = 3 ] && [ "$(sed -n "/^_ev_seen()/,/^}/p; /^_ev_review_state_allowed()/,/^}/p" "$G154_LIB" | grep -c "return 1")" = 3 ]'
+_c154 "telemetry.sh has no exit and returns nothing but 0 or 1 (1 only from its predicates — _ev_seen, _ev_review_counts_on and _ev_review_state_allowed — which are never a step's result)" \
+    '! grep -nE "^[^#]*\bexit\b" "$G154_LIB" | grep -q . && [ "$(grep -cE "return [2-9]" "$G154_LIB")" = 0 ] && [ "$(grep -c "return 1" "$G154_LIB")" = 4 ] && [ "$(sed -n "/^_ev_seen()/,/^}/p; /^_ev_review_counts_on()/,/^}/p; /^_ev_review_state_allowed()/,/^}/p" "$G154_LIB" | grep -c "return 1")" = 4 ]'
 _c154 "nothing in the framework READS the events log back: its name appears in telemetry.sh, and in shipped-sync.sh only as a name to keep out of git (no gate, guard, report or hook opens it)" \
     '[ "$(grep -rl "pipeline-events" "$APD_PLUGIN_ROOT/bin" "$REPO_ROOT/hooks" "$APD_PLUGIN_ROOT/mcp" 2>/dev/null | grep -v "test-codex-adapter" | sed "s#.*/##" | LC_ALL=C sort | tr "\n" " ")" = "shipped-sync.sh telemetry.sh " ] && [ "$(grep -c "pipeline-events" "$APD_PLUGIN_ROOT/bin/lib/shipped-sync.sh")" = 1 ] && grep -q "_ss_git_exclude \"\$m\" \"pipeline-events.log\"" "$APD_PLUGIN_ROOT/bin/lib/shipped-sync.sh"'
 _c154 "no hook runs it: telemetry.sh is sourced by pipeline-advance and pipeline-doctor and by nothing else" \
@@ -19990,6 +19990,120 @@ _c155 "after that rollback, of 37 ways to look — every git reading the reviewe
 _c155 "… and the guard refuses each of the forms that would: git grep --no-index/--untracked, git add, the no-path grep/rg/find/ls -R, the glob, brace and escape spellings" \
     '! printf "%s" "$G155_OPEN" | grep -q "no-index\|--untracked\|git add\|\[grep -rn \|\[rg \|\[find \|mem\*\|cl\*\|{memory\|mem.ory\|ls -R\|ls-files -o\|dotglob\|alias\|os.walk\|d=.claude\|{.claude"'
 rm -rf "$G155_T"
+
+
+section "156. A pass's counts are recorded by default; its triage text stays behind the switch (v7.4.3)"
+
+# v7.4.1 put BOTH review-state writes behind APD_REVIEW_STATE_TELEMETRY=on. v7.4.2
+# closed the reads of the memory directory in guard-spec-blind, so the event log
+# is protected the way the spec card is. From v7.4.3 the `review-state` event
+# (numbers only) is written unless the variable is `off`; the rollback entry
+# (the triage text) is written only when it is `on`. Unset below unless a row
+# sets it.
+
+G156_T="$(mktemp -d -t apd-g156.XXXXXX)"; G156_T=$(cd "$G156_T" && pwd -P)
+G156_PA="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+G156_LIB="$APD_PLUGIN_ROOT/bin/lib/telemetry.sh"
+_c156() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+_n156() { grep -c -- "$2" "$1/.claude/memory/pipeline-events.log" 2>/dev/null || true; }
+# _mk156 <name> <git: y|n> <telemetry excluded: y|n> — a project of its own
+_mk156() {
+    local d="$G156_T/$1"; mkdir -p "$d/.claude/memory"
+    if [ "$2" = y ]; then
+        ( cd "$d" && git init -q . && echo base > f.txt && : > .claude/memory/MEMORY.md && git add -A . && git -c user.email=t@t -c user.name=t commit -q -m base )
+        [ "$3" = y ] && ( cd "$d" && PROJECT_DIR="$d" MEMORY_DIR="$d/.claude/memory" bash -c 'source "$0/bin/lib/shipped-sync.sh"; _ss_exclude_telemetry' "$APD_PLUGIN_ROOT" )
+    fi
+    printf '%s' "$d"
+}
+# _run156 <dir> — one adversarial pass with a triage, the verifier advance, then the rollback that deletes it
+_run156() {
+    local d="$1"
+    _v67_make_state "$d" "ADVERSARIAL:2:1:1"
+    printf '## Finding 1 — G156-TRIAGE-MARKER\n**Severity:** important\n**Status:** accepted\n**Rationale:** fixed in the builder pass, see the diff of the tests\n\n## Finding 2 — b\n**Severity:** minor\n**Status:** reviewer-self-dismissed\n**Rationale:** reviewer concluded no real issue here pre-existing behavior\n' > "$d/.apd/pipeline/.adversarial-rationale.md"
+    ( cd "$d" && APD_PROJECT_DIR="$d" bash "$G156_PA" verifier > "$d.v" 2>&1; echo $? > "$d.vrc"
+      APD_PROJECT_DIR="$d" bash "$G156_PA" rollback > "$d.r" 2>&1; echo $? > "$d.rrc"
+      APD_PROJECT_DIR="$d" bash "$G156_PA" status > "$d.s" 2>&1 )
+}
+
+# ---- the default, in a project whose telemetry files git ignores (what apd init leaves)
+G156_A=$(_mk156 a y y); ( unset APD_REVIEW_STATE_TELEMETRY; _run156 "$G156_A" )
+_c156 "default: the verifier advance and the rollback exit 0 and ONE review-state event holds pass 1's counts (adv=2:1:1, 2 findings, 1 reviewer dismissal)" \
+    '[ "$(cat "$G156_A.vrc")$(cat "$G156_A.rrc")" = 00 ] && [ "$(_n156 "$G156_A" "|review-state|")" = 1 ] && [ "$(_n156 "$G156_A" "|review-state|.* adv=2:1:1 advf=2 do=0 dr=1 ")" = 1 ]'
+_c156 "… the phase events are what they were (4 advances, the rollback), and no step printed a telemetry WARN" \
+    '[ "$(_n156 "$G156_A" "|advance|")" = 4 ] && [ "$(_n156 "$G156_A" "|rollback|rt=cc step=verifier wiped=1")" = 1 ] && ! grep -q "WARN: telemetry" "$G156_A.v" "$G156_A.r"'
+_c156 "… the triage TEXT is kept nowhere: no rollbacks file, and the marker is in no file of the project after the rollback" \
+    '[ ! -e "$G156_A/.claude/memory/adversarial-rationale-rollbacks.md" ] && ! grep -rq "G156-TRIAGE-MARKER" "$G156_A"'
+_c156 "… the log stays out of what git shows: ignored, absent from git status and from git diff HEAD" \
+    '( cd "$G156_A" && git check-ignore -q .claude/memory/pipeline-events.log && ! git status --porcelain | grep -q "pipeline-events" && ! git diff HEAD | grep -q "adv=" )'
+_c156 "… and pipeline status has no telemetry line" '! grep -q "^telemetry:" "$G156_A.s"'
+
+# ---- no checkout: nothing can show the file, so the counts are written
+G156_B=$(_mk156 b n n); ( unset APD_REVIEW_STATE_TELEMETRY; _run156 "$G156_B" )
+_c156 "default in a project that is not a git checkout: the counts are recorded, and pipeline status has no telemetry line" '[ "$(cat "$G156_B.vrc")$(cat "$G156_B.rrc")" = 00 ] && [ "$(_n156 "$G156_B" "|review-state|.* adv=2:1:1 ")" = 1 ] && ! grep -q "^telemetry:" "$G156_B.s"'
+
+# ---- git would show the log (init never ran here): skipped, silently on the step, said by status
+G156_C=$(_mk156 c y n); ( unset APD_REVIEW_STATE_TELEMETRY; _run156 "$G156_C" )
+_c156 "default where git does NOT ignore the log: no review-state event, the steps exit 0 without a WARN, the phase events are all there" \
+    '[ "$(cat "$G156_C.vrc")$(cat "$G156_C.rrc")" = 00 ] && [ "$(_n156 "$G156_C" "|review-state|")" = 0 ] && ! grep -q "WARN: telemetry" "$G156_C.v" "$G156_C.r" && [ "$(_n156 "$G156_C" "|advance|")" = 4 ]'
+_c156 "… and pipeline status says so in one line that names the way out" \
+    '[ "$(grep -c "^telemetry: review counts are not recorded (git does not ignore pipeline-events.log) — run apd init" "$G156_C.s")" = 1 ]'
+G156_CS=$( cd "$G156_C" && APD_REVIEW_STATE_TELEMETRY=off APD_PROJECT_DIR="$G156_C" bash "$G156_PA" status 2>&1 )
+_c156 "… a line that is not printed once the counts are switched off" '! printf "%s" "$G156_CS" | grep -q "^telemetry:"'
+
+# ---- git does not answer inside the budget: not known to be ignored, so not written
+G156_H=$(_mk156 h y y); mkdir -p "$G156_T/slowgit"; G156_REALGIT=$(command -v git)
+printf '#!/bin/bash\ncase " $* " in *" check-ignore "*) sleep 20 ;; esac\nexec "%s" "$@"\n' "$G156_REALGIT" > "$G156_T/slowgit/git"; chmod +x "$G156_T/slowgit/git"
+( unset APD_REVIEW_STATE_TELEMETRY; _v67_make_state "$G156_H" "ADVERSARIAL:2:1:1"
+  cd "$G156_H" && PATH="$G156_T/slowgit:$PATH" APD_TELEMETRY_TREE_SEC=1 APD_PROJECT_DIR="$G156_H" bash "$G156_PA" rollback > "$G156_H.r" 2>&1; echo $? > "$G156_H.rrc" )
+_c156 "default where git does not say inside the budget whether it ignores the log: the rollback exits 0, records its own event, and no review-state event" \
+    '[ "$(cat "$G156_H.rrc")" = 0 ] && [ "$(_n156 "$G156_H" "|rollback|")" = 1 ] && [ "$(_n156 "$G156_H" "|review-state|")" = 0 ] && ! grep -q "WARN: telemetry" "$G156_H.r"'
+
+# ---- off
+G156_D=$(_mk156 d y y); ( export APD_REVIEW_STATE_TELEMETRY=off; _run156 "$G156_D" )
+_c156 "APD_REVIEW_STATE_TELEMETRY=off: no review-state event and no rollbacks file; the phase events are all there" \
+    '[ "$(cat "$G156_D.vrc")$(cat "$G156_D.rrc")" = 00 ] && [ "$(_n156 "$G156_D" "|review-state|")" = 0 ] && [ ! -e "$G156_D/.claude/memory/adversarial-rationale-rollbacks.md" ] && [ "$(_n156 "$G156_D" "|advance|")" = 4 ] && [ "$(_n156 "$G156_D" "|rollback|")" = 1 ]'
+
+# ---- on: the text too, as in v7.4.1/v7.4.2
+G156_E=$(_mk156 e y y); ( export APD_REVIEW_STATE_TELEMETRY=on; _run156 "$G156_E" )
+_c156 "APD_REVIEW_STATE_TELEMETRY=on: the counts AND the triage text (one rollbacks entry)" \
+    '[ "$(_n156 "$G156_E" "|review-state|.* adv=2:1:1 ")" = 1 ] && [ "$(grep -c "G156-TRIAGE-MARKER" "$G156_E/.claude/memory/adversarial-rationale-rollbacks.md" 2>/dev/null)" = 1 ]'
+G156_F=$(_mk156 f y n); ( export APD_REVIEW_STATE_TELEMETRY=on; _run156 "$G156_F" )
+_c156 "APD_REVIEW_STATE_TELEMETRY=on where git does not ignore the files: nothing written and the step WARNs (asked for explicitly, so not silent)" \
+    '[ "$(_n156 "$G156_F" "|review-state|")" = 0 ] && [ ! -e "$G156_F/.claude/memory/adversarial-rationale-rollbacks.md" ] && grep -q "WARN: telemetry — pipeline-events.log was not written" "$G156_F.v" && ! grep -q "review counts are not recorded" "$G156_F.s"'
+
+# ---- the two predicates
+_c156 "the counts are off for exactly the value 'off'; the text is on for exactly the value 'on'" \
+    '[ "$(for v in "" on 1 true OFF "off " off; do APD_REVIEW_STATE_TELEMETRY="$v" bash -c "source \"$G156_LIB\"; _ev_review_counts_on && printf y || printf n; _ev_review_state_on && printf Y || printf N"; done)" = yNyYyNyNyNyNnN ]'
+
+# ---- Codex runtime
+G156_X=$(_mk156 x y y)
+( unset APD_REVIEW_STATE_TELEMETRY; _v67_make_state "$G156_X" "ADVERSARIAL:3:2:1"
+  cd "$G156_X" && APD_RUNTIME=codex APD_PROJECT_DIR="$G156_X" bash "$G156_PA" rollback > "$G156_X.r" 2>&1; echo $? > "$G156_X.rrc" )
+_c156 "default under the Codex runtime (no blindness guard there): the rollback exits 0, records its own event as rt=codex and NO review-state event, and status has no telemetry line" \
+    '[ "$(cat "$G156_X.rrc")" = 0 ] && [ "$(_n156 "$G156_X" "|rollback|rt=codex ")" = 1 ] && [ "$(_n156 "$G156_X" "|review-state|")" = 0 ] && ! ( cd "$G156_X" && APD_RUNTIME=codex APD_PROJECT_DIR="$G156_X" bash "$G156_PA" status 2>&1 ) | grep -q "^telemetry:"'
+G156_Y=$(_mk156 y y y)
+( export APD_REVIEW_STATE_TELEMETRY=on; _v67_make_state "$G156_Y" "ADVERSARIAL:3:2:1"
+  cd "$G156_Y" && APD_RUNTIME=codex APD_PROJECT_DIR="$G156_Y" bash "$G156_PA" rollback > "$G156_Y.r" 2>&1; echo $? > "$G156_Y.rrc" )
+_c156 "APD_REVIEW_STATE_TELEMETRY=on under the Codex runtime: the counts are recorded as rt=codex (asked for explicitly)" \
+    '[ "$(cat "$G156_Y.rrc")" = 0 ] && [ "$(_n156 "$G156_Y" "|review-state|rt=codex at=rollback .* adv=3:2:1 ")" = 1 ]'
+G156_Z=$(_mk156 z y y); mkdir -p "$G156_Z/.codex"; ( unset APD_REVIEW_STATE_TELEMETRY; _run156 "$G156_Z" )
+G156_W=$(_mk156 w y y); mkdir -p "$G156_W/.codex"; ( export APD_REVIEW_STATE_TELEMETRY=on; _run156 "$G156_W" )
+_c156 "default in a project that has Codex installed (.codex/), steps run by Claude Code: no review-state event and no status line — a run can mix runtimes; with =on the counts are recorded" \
+    '[ "$(cat "$G156_Z.vrc")$(cat "$G156_Z.rrc")" = 00 ] && [ "$(_n156 "$G156_Z" "|review-state|")" = 0 ] && [ "$(_n156 "$G156_Z" "|advance|")" = 4 ] && ! grep -q "^telemetry:" "$G156_Z.s" && [ "$(_n156 "$G156_W" "|review-state|.* adv=2:1:1 ")" = 1 ]'
+
+# ---- a log that cannot be written: a BLOCKED step prints no telemetry WARN in the default (it wrote no event before v7.4.3)
+G156_R=$(_mk156 r y y)
+( unset APD_REVIEW_STATE_TELEMETRY; _v67_make_state "$G156_R" "ADVERSARIAL:2:1:1"
+  rm -f "$G156_R/.claude/memory/pipeline-events.log" "$G156_R/.apd/pipeline/.adversarial-rationale.md"; mkdir "$G156_R/.claude/memory/pipeline-events.log"
+  cd "$G156_R" && APD_PROJECT_DIR="$G156_R" bash "$G156_PA" verifier > "$G156_R.b" 2>&1; echo $? > "$G156_R.brc"
+  APD_PROJECT_DIR="$G156_R" bash "$G156_PA" rollback > "$G156_R.r" 2>&1; echo $? > "$G156_R.rrc" )
+_c156 "default with a directory in the place of the log: a refused step (the verifier advance with no rationale file) prints no telemetry WARN; the rollback, which writes its own event, prints exactly one" \
+    '[ "$(cat "$G156_R.brc")" != 0 ] && ! grep -q "WARN: telemetry" "$G156_R.b" && [ "$(cat "$G156_R.rrc")" = 0 ] && [ "$(grep -c "WARN: telemetry" "$G156_R.r")" = 1 ]'
+
+# ---- the documents say what the code does
+_c156 "SPEC and CHANGELOG name the three values (unset: counts; on: counts and text; off: neither)" \
+    'grep -q "APD_REVIEW_STATE_TELEMETRY=off" "$REPO_ROOT/docs/SPEC.md" && grep -q "APD_REVIEW_STATE_TELEMETRY=on" "$REPO_ROOT/docs/SPEC.md" && grep -q "^## \[7.4.3\]\|^## v7.4.3\|^## 7.4.3" "$REPO_ROOT/CHANGELOG.md" && grep -q "APD_REVIEW_STATE_TELEMETRY=off" "$REPO_ROOT/CHANGELOG.md"'
+rm -rf "$G156_T"
 
 
 section "Summary"

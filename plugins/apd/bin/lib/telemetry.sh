@@ -14,9 +14,11 @@
 #   run    the epoch of `spec.done` — the same value as column 3 of the metrics
 #          row, so the two files join on (run, task). No new state.
 #   event  advance | rollback | review-state | verify | run-end
-#          (review-state, and the rollback entry in
-#          adversarial-rationale-rollbacks.md, only with
-#          APD_REVIEW_STATE_TELEMETRY=on — see `_ev_review_state_on`)
+#          (review-state carries a pass's COUNTS and is written unless
+#          APD_REVIEW_STATE_TELEMETRY=off; the rollback entry in
+#          adversarial-rationale-rollbacks.md carries the triage TEXT and is
+#          written only with APD_REVIEW_STATE_TELEMETRY=on — see
+#          `_ev_review_counts_on` and `_ev_review_state_on`)
 #
 # `review-state` is an OBSERVATION, not a pass: one line each time the
 # adversarial/supervision files on disk differ from what was last recorded
@@ -86,6 +88,12 @@ _ev_probe() {
         why=$(_ev_unwritable "$f")
         [ -n "$why" ] && echo "telemetry: ${f##*/} cannot be written ($why) — the pipeline is unaffected, run telemetry is not recorded"
     done
+    # v7.4.3: by default the counts are skipped in SILENCE when git does not
+    # ignore the log (see `_ev_pass_observe`); this is where that is said.
+    if _ev_review_counts_on && ! _ev_review_state_on && [ "$(_ev_git_ignored "$(_ev_file)")" = exposed ]; then
+        f=$(_ev_file)
+        echo "telemetry: review counts are not recorded (git does not ignore ${f##*/}) — run apd init; a file already tracked: git rm --cached it first"
+    fi
     return 0
 }
 
@@ -292,7 +300,7 @@ _ev_seen() {
 # _ev_pass_observe <at> — record the review state as it stands, once. Called at
 # the top of every state-changing step, i.e. before any of them can delete it.
 _ev_pass_observe() {
-    _ev_review_state_on || return 0
+    _ev_review_counts_on || return 0
     [ -f "$PIPELINE_DIR/spec.done" ] || return 0
     local run task fp fields line n
     fp=$(_ev_pass_fp)
@@ -300,8 +308,17 @@ _ev_pass_observe() {
     run=$(_ev_run); task=$(_ev_task)
     _ev_seen "$run" review-state "$task" "$fp" && return 0
     # The counts of a pass are review state too (`adv=2:1:1` tells the next pass
-    # what the last one found): recorded only in a log git ignores.
-    _ev_review_state_allowed "$(_ev_file)" || return 0
+    # what the last one found): recorded only in a log git ignores. Asked for
+    # explicitly (`=on`), a log git shows is a WARN; by default it is a silent
+    # skip that `apd pipeline status` and the doctor report (`_ev_probe`).
+    if _ev_review_state_on; then
+        _ev_review_state_allowed "$(_ev_file)" || return 0
+    else
+        # a log that cannot be written is reported by the events every step
+        # writes anyway; a BLOCKED step wrote none before v7.4.3 and stays quiet
+        [ -z "$(_ev_unwritable)" ] || return 0
+        case "$(_ev_git_ignored "$(_ev_file)")" in exposed|unknown) return 0 ;; esac
+    fi
     fields="at=$1 fp=$fp"
     n=$(_ev_disp_field); [ -n "$n" ] && fields="$fields $n"
     if [ -f "$PIPELINE_DIR/.adversarial-summary" ]; then
@@ -389,7 +406,29 @@ _ev_git_rc() {
     return 0
 }
 
+# _ev_review_counts_on — v7.4.3: ON unless APD_REVIEW_STATE_TELEMETRY=off.
+#
+# The `review-state` event holds numbers only (`adv=2:1:1`, findings, dismissals,
+# dispatches). v7.4.1 switched it off together with the triage text because any
+# file in the working tree was readable through commands guard-spec-blind let
+# the adversarial reviewer run; v7.4.2 made the guard refuse them, so the log
+# is now protected the way the spec card is — by that guard, not beyond it. A
+# number gives the next pass nothing to copy; the text does, and stays behind
+# `_ev_review_state_on`.
+#
+# Not under the Codex runtime (audit-743 F1): guard-spec-blind is a Claude Code
+# hook and nothing blinds a Codex reviewer to the memory directory, so there the
+# counts are written only when asked for (`=on`), as before v7.4.3. The same in
+# a project that has Codex installed (`.codex/`), whatever runtime runs the
+# step: one run can mix the two, and counts written by a Claude Code step are
+# then read by a Codex reviewer (audit-743 pass 2).
+_ev_review_counts_on() {
+    case "${APD_REVIEW_STATE_TELEMETRY:-}" in on) return 0 ;; off) return 1 ;; esac
+    [ "${APD_RUNTIME:-}" != "codex" ] && [ ! -e "${PROJECT_DIR:-.}/.codex" ]
+}
+
 # _ev_review_state_on — v7.4.1: OFF unless APD_REVIEW_STATE_TELEMETRY=on.
+# Since v7.4.3 it governs the triage TEXT only (the rollback entry).
 #
 # A pass's review state (the `review-state` event with its counts, the rollback
 # entry with the triage text) is written in the MIDDLE of a run, and a rollback
