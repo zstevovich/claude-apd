@@ -1,5 +1,19 @@
 # Changelog
 
+## v7.5.2 — 2026-11-12
+
+Patch: `apd pipeline review-delta` left its temporary directory behind when the reader stopped reading early. Only a project with `APD_REVIEW_RESUME` set runs this code.
+
+**The defect.** The delta was printed as it was computed and the temporary directory (`apd-rr.*`) was removed at the end. A reader that closes the pipe before the end — `review-delta | grep -q …`, `| head -1` — kills the process on its next write, and the removal never ran. The suite's own rows left one behind on most runs.
+
+**The fix.** The whole delta is written to a file, the directory is removed, and only then is the output printed. The directory is now created from a full template under `TMPDIR` (`mktemp -t` on macOS does not use `TMPDIR`).
+
+**Proof.** §157 +2 rows: read to the end (delta whole, directory gone) and a reader that closes the pipe after the first line. With the old print-then-remove order the second row is red and nothing else changes (3300/1); a hand run left the directory 11 times out of 11, the fix 0. As a non-root user in an ubuntu:24.04 container both rows are green and the set of failing rows is the one v7.5.1 has there. Not audited (one function).
+
+**Stated.** The output arrives at the end, not as it is computed. A `review-delta` that is itself killed while computing still leaves its directory.
+
+Suite 3299 → 3301 (bash 5 and /bin/bash 3.2).
+
 ## v7.5.1 — 2026-11-12
 
 Patch, same day as v7.5.0: on Linux `apd pipeline review-delta` did not name a file it could not read. Found by the first CI run of v7.5.0 (both Linux jobs red on one §157 row, macOS green).

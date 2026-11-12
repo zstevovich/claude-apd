@@ -276,7 +276,13 @@ _rr_delta() {
   _rr_id_ok "$id" || { echo "review-delta: not an agent id: $id" >&2; return 1; }
   snap="$(_rr_dir)/$id"
   [ -f "$snap/stamp" ] || { echo "review-delta: no snapshot for agent $id" >&2; return 1; }
-  tmp=$(mktemp -d -t apd-rr.XXXXXX 2>/dev/null) || { echo "review-delta: no temporary directory" >&2; return 1; }
+  # A full template under TMPDIR: `mktemp -t` on macOS ignores TMPDIR.
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/apd-rr.XXXXXX" 2>/dev/null) || { echo "review-delta: no temporary directory" >&2; return 1; }
+  # The whole delta is written to a file first and the scratch directory is
+  # removed BEFORE a byte reaches the caller: a reader that closes the pipe
+  # early (`review-delta | grep -q …`) kills this process on its next write,
+  # and nothing after that point would run.
+  {
   echo "# review delta for agent $id — changes since its stop at $(cat "$snap/stamp")"
   base=$(cat "$snap/head" 2>/dev/null)
   if [ -n "$base" ] && ! git -C "$PROJECT_DIR" cat-file -e "$base^{commit}" 2>/dev/null; then
@@ -327,7 +333,11 @@ _rr_delta() {
   while IFS= read -r f; do
     echo "# NOT COMPARED (a newline in the file name — review it in full): $f"; any=1
   done < "$tmp/odd"
-  rm -rf "$tmp" 2>/dev/null
   [ "$any" = 1 ] || echo "# no changes since the review"
+  } > "$tmp/out"
+  exec 7< "$tmp/out"
+  rm -rf "$tmp" 2>/dev/null
+  cat <&7
+  exec 7<&-
   return 0
 }

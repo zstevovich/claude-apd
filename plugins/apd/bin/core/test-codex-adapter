@@ -20381,6 +20381,15 @@ _c157 "workflow.md, the pipeline guide and SPEC name the switch and its two valu
     'grep -q "APD_REVIEW_RESUME" "$APD_PLUGIN_ROOT/rules/workflow.md" && grep -q "APD_REVIEW_RESUME=shadow" "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md" && grep -q "APD_REVIEW_RESUME=on" "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md" && grep -q "APD_REVIEW_RESUME" "$REPO_ROOT/docs/SPEC.md"'
 _c157 "the guide names the command the code implements and the cap the code enforces" \
     'grep -q "pipeline review-delta" "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md" && grep -q "^    review-delta)" "$G157_PA" && grep -q "RR_MAX_RESUMES_PER_AGENT=2" "$G157_LIB" && grep -qi "twice" "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md"'
+
+# ---- review-delta leaves nothing in the temporary directory, whoever stops reading
+G157_LK=$(_mk157 leak); _disp157 "$G157_LK" on >/dev/null; _fix157 "$G157_LK"; mkdir -p "$G157_T/tmpd"
+_lk157() { ( cd "$G157_LK" && TMPDIR="$G157_T/tmpd" APD_PROJECT_DIR="$G157_LK" bash "$G157_PA" review-delta 2>/dev/null ); }
+G157_LK_OUT=$(_lk157)
+_c157 "review-delta read to the end: the delta is whole and its scratch directory is gone" \
+    'printf "%s\n" "$G157_LK_OUT" | grep -q "^+line three FIXED AFTER REVIEW" && printf "%s\n" "$G157_LK_OUT" | grep -q "^# REMOVED since the review: src/gone.php" && [ -z "$(ls -A "$G157_T/tmpd")" ]'
+_lk157 | ( read -r _g157_first; exit 0 )
+_c157 "a reader that closes the pipe after the first line: no scratch directory is left either" '[ -z "$(ls -A "$G157_T/tmpd")" ]'
 rm -rf "$G157_T"
 
 
