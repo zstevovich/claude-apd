@@ -302,7 +302,12 @@ _rr_delta() {
       a=/dev/null
     fi
     [ "$a" = /dev/null ] && [ "$b" = /dev/null ] && continue
-    diff -q "$a" "$b" >/dev/null 2>&1; rc=$?
+    # GNU diff -q answers "differ" from the sizes alone and never opens the
+    # files, so an unreadable one must be asked about first.
+    rc=0
+    { [ "$a" != /dev/null ] && [ ! -r "$a" ]; } && rc=2
+    { [ "$b" != /dev/null ] && [ ! -r "$b" ]; } && rc=2
+    [ "$rc" = 2 ] || { diff -q "$a" "$b" >/dev/null 2>&1; rc=$?; }
     if [ "$rc" -ge 2 ]; then
       echo "# NOT COMPARED (could not be read — review it in full): $f"; any=1; continue
     fi

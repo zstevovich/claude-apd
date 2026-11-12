@@ -1,5 +1,17 @@
 # Changelog
 
+## v7.5.1 — 2026-11-12
+
+Patch, same day as v7.5.0: on Linux `apd pipeline review-delta` did not name a file it could not read. Found by the first CI run of v7.5.0 (both Linux jobs red on one §157 row, macOS green).
+
+**The defect.** The delta asked `diff -q` whether the reviewed copy and the current file differ and read an exit code of 2 as "could not be read". GNU `diff -q` answers "differ" from the sizes alone and never opens the files, so an unreadable file of a different size came back as changed, the unified diff that followed printed nothing, and the file was left out of the output — not shown as unchanged, but not named `# NOT COMPARED` either. BSD diff opens the file, which is why macOS was green.
+
+**The fix.** Both sides are tested for readability before `diff` is asked. Only `review-delta` is touched, so only a project with `APD_REVIEW_RESUME` set.
+
+**Proof.** The §157 row `a file that cannot be read now is named NOT COMPARED, never left out`, executed as a non-root user in an ubuntu:24.04 container: red on v7.5.0, green with the fix, no other row changing. Not audited again (one branch, seven lines).
+
+Suite 3299 (unchanged; bash 5 and /bin/bash 3.2).
+
 ## v7.5.0 — 2026-11-12
 
 Minor: review resume — after a fix, the code reviewer that already read the task can be continued for the changes alone, instead of a fresh reviewer starting from zero. Opt-in and off by default: with `APD_REVIEW_RESUME` unset nothing in this release runs. §157 83 checks, 78 mutations each flipping at least one row, both bashes; three passes of independent audit, the last SAFE.
