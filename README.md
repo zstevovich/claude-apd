@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>v7.4.3</b> &middot; MIT &middot; macOS + Linux
+  <b>v7.5.0</b> &middot; MIT &middot; macOS + Linux
 </p>
 
 <p align="center">
@@ -88,7 +88,7 @@ codex plugin marketplace upgrade codex-apd                    # pulls latest mai
 To pin the upgrade to a specific tag or branch (e.g. for pre-release testing):
 ```bash
 codex plugin marketplace remove codex-apd
-codex plugin marketplace add zstevovich/claude-apd@v7.4.3     # or @<branch> for a feature branch
+codex plugin marketplace add zstevovich/claude-apd@v7.5.0     # or @<branch> for a feature branch
 ```
 
 **Codex — direct-drop install:**
@@ -235,7 +235,7 @@ It is not a security boundary. Whoever runs the session owns the machine: `.apd/
 | Spec advance without the pipeline-guide marker | `pipeline-advance` (guide gate, no skip flag) |
 | Builder dispatch without implementation plan | `pipeline-advance` (hard block) |
 | Pipeline step forgery | Compiled Go binary creates HMAC-signed .done files — orchestrator cannot forge signatures |
-| SendMessage during pipeline | guard-send-message blocks — must use Agent() for tracked dispatch |
+| SendMessage during pipeline | guard-send-message blocks — must use Agent() for tracked dispatch (opt-in exception: a delta re-review by the same code reviewer, `APD_REVIEW_RESUME`) |
 
 ## Spec traceability
 

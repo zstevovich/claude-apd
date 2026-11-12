@@ -1,5 +1,25 @@
 # Changelog
 
+## v7.5.0 — 2026-11-12
+
+Minor: review resume — after a fix, the code reviewer that already read the task can be continued for the changes alone, instead of a fresh reviewer starting from zero. Opt-in and off by default: with `APD_REVIEW_RESUME` unset nothing in this release runs. §157 83 checks, 78 mutations each flipping at least one row, both bashes; three passes of independent audit, the last SAFE.
+
+**Why.** Measured on ten real runs of one project (2–7 h each, serial, 95% agent time): reviews are about 41% of a run and fix cycles 33%, and every re-review after a fix starts from nothing — 22–29 minutes and 430–490k tokens of context to re-read a task the previous reviewer had just read.
+
+**The switch.** `APD_REVIEW_RESUME=shadow|on`. Unset, any other value, or the Codex runtime → off. `on`: a continued reviewer's stop counts for the reviewer step like any other. `shadow`: the resume is allowed and recorded, but the gate does not count that stop — a fresh reviewer is still required, so the two can be compared on real runs before anything depends on the resume. The gate reads the mode from the record the guard wrote, not from the environment of the step.
+
+**How it works.** At the next ALLOWED dispatch after a code reviewer stops, `guard-agent-reload` copies the task's files as that reviewer saw them (`.apd/pipeline/.review-snapshot/<id>/`: `files/`, `list`, `skipped`, `stamp`, `head`). After the fix, `apd pipeline review-delta [agent-id]` prints what changed since (read-only, takes no lock), and `guard-send-message` lets through exactly one thing it has always blocked: the orchestrator's SendMessage, by id, to a stopped code reviewer that has a snapshot of that stop. Each resume is a line in `.review-resumes`, an INFO `review-resume` in guard-audit, and one slot of the reviewer dispatch budget; two resumes per reviewer at most. Everything else gets the old block plus `Review resume refused: <reason>`.
+
+**When there is no snapshot (and so no resume — a fresh reviewer as before).** A non-review agent has an event in the ledger since the reviewer started or resumed, or is still running; the project is not a git work tree with a commit; another copy is in progress. A file is listed as `skipped`, never copied, when it is a symlink, larger than 1 MB, modified in or after the second of the stop, or reached after the 10 s limit — and the delta names every such file `# NOT COMPARED`, never "no changes". The delta's base is the copy, else the HEAD recorded at snapshot time; if that commit is gone it says so.
+
+**What the audit changed.** Pass 1: switch off SAFE (594 cases per bash), switch on NOT SAFE — a snapshot taken after the fix read as what the reviewer saw; a project in a subdirectory of its repository; names git quotes; an unreadable file or a changed mode left out of the delta; a commit made mid-task hiding its change; copying before the budget verdict; the shadow gate read from the environment. Pass 2: those closed; open — a builder running DURING the review, a file written in the same second as the stop, a vanished base commit, the time limit not covering the listing (56 s measured), two hooks copying at once, a repository with no commit or a bare one. Pass 3: SAFE on all three questions (findings closed, the fix round opened no silent delta, switch off identical to v7.4.3 on 162 pairs per bash but for the `review-delta` usage line).
+
+**Stated.** Claude Code only. A change made by hand outside the ledger that leaves no newer mtime (a deletion, `mv` of an older file, `touch -r`) is not seen. Git-ignored files are not in the delta. Several resume calls in ONE message can pass the cap or the budget (each is judged before the others are recorded). "Reviewer" is a class by agent name. A lock left without a process id, or naming a live unrelated process, stays until the pipeline reset — no resume for that reviewer. A hook killed mid-copy followed at once by a dispatch can leave a snapshot with a cut list; the delta then over-reports. A second snapshot of the same reviewer depends on the `resume` line in the ledger. On a tree with 4000 pre-spec dirty files the hook takes its 10 s and the delta 67 s, all `NOT COMPARED`. Not executed: Linux/GNU userland before CI; a live Claude Code session (the 30 s hook cancel, the `resume` ledger line).
+
+**Not changed.** With the switch unset: no gate, guard, exit code or file differs from v7.4.3.
+
+Suite 3216 → 3299 (bash 5 and /bin/bash 3.2), test-system 36/0.
+
 ## v7.4.3 — 2026-10-11
 
 Patch: a pass's review COUNTS are recorded by default again; its triage TEXT stays behind the switch.

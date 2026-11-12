@@ -63,10 +63,18 @@ if [ "${APD_SKIP_RELOAD_GATE:-}" != "1" ]; then
 fi
 
 # --- 2. dispatch budget (v7.1) --------------------------------------------------
-[ "${APD_SKIP_DISPATCH_BUDGET:-}" = "1" ] && exit 0
 [ -f "$PIPELINE_DIR/spec.done" ] || exit 0          # no active task → no budget
 source "$(dirname "$0")/../lib/agent-scope.sh"
 source "$(dirname "$0")/../lib/dispatch-budget.sh"
+# Review resume (opt-in): before this dispatch goes ahead, keep a copy of what
+# each stopped code reviewer looked at — the base of its delta re-review. Does
+# nothing unless APD_REVIEW_RESUME=shadow|on; never blocks or fails a dispatch.
+# It runs on the way OUT of an allowed dispatch, after the budget has been
+# judged: a copy of a large tree takes seconds, and a hook that runs out of its
+# time is cancelled with the dispatch let through.
+source "$(dirname "$0")/../lib/review-resume.sh"
+_rr_snap() { ( _rr_snapshot_pending ) >/dev/null 2>&1 || true; }
+[ "${APD_SKIP_DISPATCH_BUDGET:-}" = "1" ] && { _rr_snap; exit 0; }
 
 _audit_info() {  # <reason> <detail>
   local t
@@ -85,6 +93,7 @@ if [ -z "$SUB_TYPE" ]; then
   # Older payload shape (no subagent_type) — the budget cannot be measured.
   # Say so in the audit trail rather than silently passing.
   _audit_info_once "dispatch-budget-unmeasured" "(no subagent_type in the PreToolUse payload)"
+  _rr_snap
   exit 0
 fi
 
@@ -95,7 +104,7 @@ if [ -f "$PIPELINE_DIR/spec.done" ] && [ ! -s "$PIPELINE_DIR/.dispatch-classes" 
 fi
 case "$CLS" in
   builder|reviewer|adversarial) ;;
-  *) exit 0 ;;   # supervisor has its own churn cap at the verifier; non-APD agents are not counted
+  *) _rr_snap; exit 0 ;;   # supervisor has its own churn cap at the verifier; non-APD agents are not counted
 esac
 BUDGET=$(_dispatch_budget "$CLS")
 COUNT=$(_dispatch_count "$CLS")
@@ -124,6 +133,8 @@ if [ "$BUDGET" != "unlimited" ] && [ $((COUNT + 1)) -gt "$BUDGET" ] 2>/dev/null;
   log_block "dispatch-budget-exceeded" "class=$CLS agent=$SUB_TYPE count=$((COUNT + 1)) budget=$BUDGET task=$TASK"
   exit 2
 fi
+
+_rr_snap
 
 # --- 3. wall-clock nudge (INFO, never blocks) -----------------------------------
 if _NUDGE=$(_wall_nudge_text); then

@@ -15,6 +15,28 @@ source "$(dirname "$0")/../lib/style.sh"
 
 # Only block when pipeline is active (spec.done exists)
 if [ -f "$PIPELINE_DIR/spec.done" ]; then
+    # Review resume (opt-in, APD_REVIEW_RESUME=shadow|on): ONE continuation is let
+    # through — the orchestrator continuing a code reviewer of this task that has
+    # stopped and whose reviewed state was snapshotted, for a delta re-review
+    # (bin/lib/review-resume.sh). Every other SendMessage is refused as before.
+    source "$(dirname "$0")/../lib/agent-scope.sh"
+    source "$(dirname "$0")/../lib/dispatch-budget.sh"
+    source "$(dirname "$0")/../lib/review-resume.sh"
+    RR_WHY=""
+    if [ "$(_rr_mode)" != "off" ]; then
+        RR_INPUT=""; [ -t 0 ] || RR_INPUT=$(cat 2>/dev/null)
+        # No jq, or a payload that is not JSON: no recipient is read, and the
+        # check below refuses an empty one.
+        RR_TO=$(printf '%s' "$RR_INPUT" | jq -r '.tool_input.to // empty' 2>/dev/null) || RR_TO=""
+        RR_FROM=$(printf '%s' "$RR_INPUT" | jq -r '.agent_id // .agent_type // empty' 2>/dev/null) || RR_FROM=""
+        if [ -n "$RR_FROM" ]; then
+            RR_WHY="only the orchestrator may continue a reviewer"
+        elif RR_WHY=$(_rr_resume_check "$RR_TO"); then
+            _rr_resume_record "$RR_TO"
+            [ -d "${MEMORY_DIR:-}" ] && echo "$(date +"%Y-%m-%d %H:%M:%S")|$(_audit_type INFO)|orchestrator|review-resume|id=$RR_TO type=$(_rr_agent_type "$RR_TO") n=$(_rr_resume_count "$RR_TO") mode=$(_rr_mode)" >> "$MEMORY_DIR/guard-audit.log"
+            exit 0
+        fi
+    fi
     echo "BLOCKED: Do not use SendMessage during an active pipeline." >&2
     echo "" >&2
     echo "  SendMessage continues an existing agent — the ledger records a resume, not a dispatch." >&2
@@ -22,7 +44,11 @@ if [ -f "$PIPELINE_DIR/spec.done" ]; then
     echo "" >&2
     echo "  Instead, dispatch a NEW agent:" >&2
     echo "    Agent({ subagent_type: \"agent-name\", prompt: \"...\" })" >&2
-    log_block "send-message-during-pipeline"
+    if [ -n "$RR_WHY" ]; then
+        echo "" >&2
+        echo "  Review resume refused: $RR_WHY." >&2
+    fi
+    log_block "send-message-during-pipeline" "${RR_WHY:+resume-refused: $RR_WHY}"
     exit 2
 fi
 

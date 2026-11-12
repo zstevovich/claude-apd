@@ -257,6 +257,46 @@ Sequence, AFTER all adversarial findings are triaged and fixed:
 There is NO spec-card opt-out for this gate — by design. The ways out are
 `apd pipeline reset` or switching profile BEFORE the spec advance.
 
+## Re-review after a fix — continue the same reviewer (opt-in)
+
+Off unless the project sets `APD_REVIEW_RESUME`. A fresh code reviewer after
+every fix re-reads the whole diff; the one that already reviewed it needs only
+what changed since. With the switch set:
+
+1. The reviewer stops with findings. Dispatch the fix builder as usual — at
+   that dispatch APD keeps a copy of what the reviewer looked at. It does so
+   only while that copy can still be trusted: if a builder ran at any time
+   while the reviewer was working, or since it stopped, there is no copy and
+   the resume is refused — dispatch a fresh reviewer. Do not change code yourself between
+   the review and that dispatch; a file modified in between is not compared.
+2. When the fix is in, write the change to a file in the scratchpad:
+   `bash .claude/bin/apd pipeline review-delta > <scratchpad>/review-delta.patch`
+   (the newest reviewer snapshot; `review-delta <agent-id>` for a specific one).
+3. Continue THAT reviewer with `SendMessage`, addressed by its agent **id**
+   (not its name): give it the path of the patch, say which of its findings the
+   fix was for, and ask for a verdict on the delta — fixed / not fixed per
+   finding, plus anything the fix itself broke.
+
+`guard-send-message` lets exactly this through and nothing else: the
+orchestrator, a code reviewer of this task, stopped, with a snapshot of that
+stop. The adversarial reviewer, the supervisor and builders are always
+dispatched fresh. A resume takes one slot of the reviewer dispatch budget, and
+one reviewer can be continued twice — after that, dispatch a fresh one.
+
+Dispatch a FRESH reviewer instead (the full pass) when the delta shows a file
+outside what was reviewed (`# NEW since the review`, or a file first touched by
+the fix) that is more than a test or a few lines, when the delta says
+`# NOT COMPARED`, or when the reviewer belongs to an earlier session.
+
+- `APD_REVIEW_RESUME=shadow` — the resume is allowed and measured, but the
+  reviewer gate does not count a continued reviewer (the mode is recorded
+  with the resume; changing the variable afterwards does not change that): after the delta verdict
+  dispatch a fresh code reviewer as before, and note in the session log what
+  the fresh pass found that the continued one did not. This is how a project
+  finds out whether the short pass can be trusted there.
+- `APD_REVIEW_RESUME=on` — the continued reviewer's stop is the evidence for
+  the reviewer advance.
+
 ## Reading pipeline state
 
 Use the sanctioned read path — `cat`/`ls` on `.apd/pipeline/` is guard-blocked:
@@ -317,7 +357,7 @@ These are not phase gates. They stop the individual call and the run continues.
 | `nested-shell-refusal` | You (the orchestrator) ran a shell inside a shell — `bash -c "…"`, `eval "…"`, a heredoc fed to bash — and the inner command was refused on its own (it reached `.apd/pipeline/`, the plugin cache, or fed a shell a variable body). Run the command at top level to see the exact reason, or drop it (v7.1.4) |
 | `spec-blind` | The adversarial reviewer reached for the spec / plan / a rationale / the memory dir. Working as intended — see the blind-dispatch section above. Fires for that role only |
 | `portability-<cmd>` | A GNU-ism on macOS, or a BSD-ism on Linux. `apd env` prints the platform and the portable form of each blocked command |
-| `send-message-during-pipeline` | `SendMessage` continues an agent WITHOUT firing SubagentStart/Stop, so the work never reaches `.agents` and the next gate rejects it as "no agent dispatched". Dispatch with `Agent()` instead |
+| `send-message-during-pipeline` | `SendMessage` continues an agent WITHOUT firing SubagentStart/Stop, so the work never reaches `.agents` and the next gate rejects it as "no agent dispatched". Dispatch with `Agent()` instead. One exception, only with `APD_REVIEW_RESUME=shadow` or `APD_REVIEW_RESUME=on`: continuing a stopped code reviewer by id for a delta re-review (see "Re-review after a fix"); the refusal then names the condition that failed |
 | `parallel-same-agent` | Two dispatches of the same agent type inside the window — serialize them; concurrent same-role writes are how scope collisions happen |
 | `pipeline-state-write` on a read | You used bash `cat`/`ls` on pipeline state — use `apd pipeline show` |
 | `commit-no-prefix` / `push-no-prefix` | The APD commit prefix is missing. Recurring in practice — check the message shape before every commit. The marker may prefix the whole command or the `git commit`/`git push` statement itself (`git add a b && APD_ORCHESTRATOR_COMMIT=1 git commit …`, v7.2.3) |

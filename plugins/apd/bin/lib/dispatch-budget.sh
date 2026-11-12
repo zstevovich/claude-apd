@@ -201,6 +201,12 @@ _dispatch_count() {
     if [ -z "$found" ]; then found=$(_dispatch_class "$typ"); seen_t+=("$typ"); seen_c+=("$found"); fi
     [ "$found" = "$c" ] && n=$((n + 1))
   done < "$PIPELINE_DIR/.agents"
+  # A review resume (bin/lib/review-resume.sh) takes a reviewer slot: one line
+  # per continuation the SendMessage guard allowed. The file exists only when
+  # APD_REVIEW_RESUME was on for this task.
+  if [ "$c" = "reviewer" ] && [ -f "$PIPELINE_DIR/.review-resumes" ]; then
+    n=$((n + $(awk 'NF { k++ } END { print k + 0 }' "$PIPELINE_DIR/.review-resumes" 2>/dev/null)))
+  fi
   printf '%s' "$n"
 }
 

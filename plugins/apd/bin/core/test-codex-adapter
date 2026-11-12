@@ -20106,6 +20106,284 @@ _c156 "SPEC and CHANGELOG name the three values (unset: counts; on: counts and t
 rm -rf "$G156_T"
 
 
+section "157. Review resume (opt-in): a code reviewer continued for a delta re-review — snapshot, delta, the one SendMessage the guard lets through, the budget slot, the shadow gate"
+
+# 2026-11-11, measured on ten real runs: a pipeline is 95% agent time, and every
+# re-review after a fix is a FRESH reviewer re-reading the whole diff (22–29 min,
+# 430–490k tokens of context rebuilt), two or three times a run. A reviewer
+# continued with SendMessage keeps what it read and needs only what changed.
+# APD_REVIEW_RESUME=shadow|on: the pre-spawn guard copies what each stopped
+# reviewer looked at, `apd pipeline review-delta` prints what changed since, and
+# guard-send-message lets through exactly one thing — the orchestrator
+# continuing a stopped code reviewer of this task that has such a copy. Unset:
+# nothing below happens (the first rows). Probe on CC 2.1.322 (same day): the
+# PreToolUse payload of SendMessage carries the agent id in `tool_input.to`.
+
+G157_T="$(mktemp -d -t apd-g157.XXXXXX)"; G157_T=$(cd "$G157_T" && pwd -P)
+G157_PA="$APD_PLUGIN_ROOT/bin/core/pipeline-advance"
+G157_SM="$APD_PLUGIN_ROOT/bin/core/guard-send-message"
+G157_AR="$APD_PLUGIN_ROOT/bin/core/guard-agent-reload"
+G157_LIB="$APD_PLUGIN_ROOT/bin/lib/review-resume.sh"
+G157_REV=aabbccddeeff2002; G157_ADV=aabbccddeeff3003; G157_SUP=aabbccddeeff4004; G157_BLD=aabbccddeeff1001
+_c157() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+_led157() { printf '%s|%s|%s|%s\n' "$(_v67_ts "$2")" "$3" "$4" "$5" >> "$1/.apd/pipeline/.agents"; }
+# _mk157 <name> [git: y|n] — spec and builder advanced, src/a.php changed by the task, one code reviewer stopped
+_mk157() {
+    local d="$G157_T/$1" a
+    mkdir -p "$d/.apd/pipeline" "$d/.apd/memory" "$d/.claude/agents" "$d/src" "$d/tests"
+    echo "PROJECT_NAME=g157" > "$d/.apd/config"
+    printf 'line one\nline two\nline three\n' > "$d/src/a.php"; echo "untouched" > "$d/src/keep.php"; echo "old" > "$d/src/gone.php"
+    for a in backend-builder code-reviewer adversarial-reviewer supervisor; do printf -- '---\nname: %s\nmodel: opus\n---\ntest\n' "$a" > "$d/.claude/agents/$a.md"; done
+    if [ "${2:-y}" = y ]; then ( cd "$d" && git init -q . && git add -A . && git -c user.email=t@t -c user.name=t commit -q -m base ); fi
+    if [ "${2:-y}" = sub ]; then ( cd "$G157_T/${1%%/*}" && git init -q . && git add -A . && git -c user.email=t@t -c user.name=t commit -q -m base ); fi
+    printf '# g157\nplan_consistency_gate: off\n**Acceptance criteria:**\n- R1: x\n' > "$d/.apd/pipeline/spec-card.md"
+    printf '# Plan\n### Agents\n- backend-builder: x\n' > "$d/.apd/pipeline/implementation-plan.md"
+    echo "// @trace R1" > "$d/tests/test_g157.py"
+    _guide_marker "$d" "g157-task"
+    APD_PROJECT_DIR="$d" bash "$G157_PA" spec "g157-task" >/dev/null 2>&1
+    printf 'line one\nline two CHANGED BY THE TASK\nline three\n' > "$d/src/a.php"
+    _led157 "$d" 1 start backend-builder "$G157_BLD"; _led157 "$d" 11 stop backend-builder "$G157_BLD"
+    APD_PROJECT_DIR="$d" bash "$G157_PA" builder >/dev/null 2>&1
+    _led157 "$d" 13 start code-reviewer "$G157_REV"; _led157 "$d" 23 stop code-reviewer "$G157_REV"
+    printf '%s' "$d"
+}
+# _disp157 <dir> <mode> — the pre-spawn guard, as before the dispatch of a fix builder
+_disp157() { ( cd "$1" && APD_PROJECT_DIR="$1" APD_REVIEW_RESUME="$2" bash "$G157_AR" --subagent-type backend-builder >/dev/null 2>&1 ); echo $?; }
+# _fix157 <dir> — what a fix builder does after the review: one line changed, one file added, one removed,
+#                  and one file touched for the first time (the task had not changed it before the review)
+_fix157() { printf 'line one\nline two CHANGED BY THE TASK\nline three FIXED AFTER REVIEW\n' > "$1/src/a.php"; echo "brand new" > "$1/src/new.php"; rm -f "$1/src/gone.php"; echo "edited after review" >> "$1/src/keep.php"
+            _led157 "$1" 30 start backend-builder aabbccddeeff1002; _led157 "$1" 40 stop backend-builder aabbccddeeff1002; }
+# _sm157 <dir> <mode> <to> [payload-extra-json] — the SendMessage guard with the payload CC sends; prints the exit code
+_sm157() { ( cd "$1" && printf '{"hook_event_name":"PreToolUse","tool_name":"SendMessage"%s,"tool_input":{"to":"%s","message":"delta","recipient_kind":"agent"}}' "${4:-}" "$3" \
+             | APD_PROJECT_DIR="$1" APD_REVIEW_RESUME="$2" bash "$G157_SM" > "$1.sm" 2>&1 ); echo $?; }
+_res157() { awk 'NF { n++ } END { print n + 0 }' "$1/.apd/pipeline/.review-resumes" 2>/dev/null || echo 0; }
+_aud157() { cat "$1/.apd/memory/guard-audit.log" "$1/.claude/memory/guard-audit.log" 2>/dev/null; }
+
+# ---- unset: nothing changes
+G157_A=$(_mk157 a); G157_A_RC=$(_disp157 "$G157_A" ""); _fix157 "$G157_A"
+_c157 "switch unset: the pre-spawn guard exits 0 and keeps no snapshot" '[ "$G157_A_RC" = 0 ] && [ ! -e "$G157_A/.apd/pipeline/.review-snapshot" ]'
+_c157 "switch unset: SendMessage to the stopped reviewer is refused (exit 2), nothing recorded, the block is logged as before" \
+    '[ "$(_sm157 "$G157_A" "" "$G157_REV")" = 2 ] && [ ! -e "$G157_A/.apd/pipeline/.review-resumes" ] && _aud157 "$G157_A" | grep -q "|BLOCK|.*|send-message-during-pipeline|" && ! _aud157 "$G157_A" | grep -q "review-resume"'
+_c157 "switch unset: the refusal text does not mention review resume" '! grep -qi "review resume" "$G157_A.sm"'
+_c157 "a value that is not shadow|on is off (APD_REVIEW_RESUME=yes): no snapshot, refused" \
+    '[ "$(_disp157 "$G157_A" yes)" = 0 ] && [ ! -e "$G157_A/.apd/pipeline/.review-snapshot" ] && [ "$(_sm157 "$G157_A" yes "$G157_REV")" = 2 ]'
+
+# ---- on: the snapshot
+G157_B=$(_mk157 b); G157_B_RC=$(_disp157 "$G157_B" on)
+G157_B_S="$G157_B/.apd/pipeline/.review-snapshot/$G157_REV"
+_c157 "on: the next dispatch after the reviewer's stop exits 0 and leaves a snapshot stamped with that stop" \
+    '[ "$G157_B_RC" = 0 ] && [ "$(cat "$G157_B_S/stamp")" = "$(awk -F"|" -v id="$G157_REV" "\$4==id && \$2==\"stop\" {print \$1}" "$G157_B/.apd/pipeline/.agents" | tail -1)" ]'
+_c157 "… it holds the task's changed files as the reviewer saw them, and not a file the task did not touch" \
+    'grep -qxF "src/a.php" "$G157_B_S/list" && grep -q "CHANGED BY THE TASK" "$G157_B_S/files/src/a.php" && ! grep -q "FIXED" "$G157_B_S/files/src/a.php" && ! grep -q "keep.php" "$G157_B_S/list" && [ ! -e "$G157_B_S/files/src/keep.php" ]'
+_c157 "… a file that was already dirty when the spec was signed and has not changed since is not in it" '! grep -q "^tests/" "$G157_B_S/list"'
+_c157 "… framework files are not in it (the spec card, the ledger)" '! grep -q "^\.apd/\|^\.claude/" "$G157_B_S/list"'
+_c157 "… only the code reviewer is snapshotted — no directory for the builder" '[ ! -e "$G157_B/.apd/pipeline/.review-snapshot/$G157_BLD" ] && [ "$(ls "$G157_B/.apd/pipeline/.review-snapshot" | wc -l | tr -d " ")" = 1 ]'
+_c157 "… a second dispatch with nothing new leaves the same snapshot (no temporary directory left behind)" \
+    '[ "$(_disp157 "$G157_B" on)" = 0 ] && [ "$(ls -A "$G157_B/.apd/pipeline/.review-snapshot" | wc -l | tr -d " ")" = 1 ]'
+_c157 "the exclusion pattern is the one pipeline-advance uses for .reviewed-files" \
+    '[ -n "$(grep -F ".apd/pipeline/*|.apd/memory/*|.apd/lessons.md|" "$G157_LIB")" ] && [ "$(grep -F ".apd/pipeline/*|.apd/memory/*|.apd/lessons.md|" "$G157_LIB" | sed "s/^ *//")" = "$(grep -F ".apd/pipeline/*|.apd/memory/*|.apd/lessons.md|" "$G157_PA" | sed "s/^ *//")" ]'
+
+# ---- on: the delta
+_fix157 "$G157_B"
+G157_B_D=$( cd "$G157_B" && APD_PROJECT_DIR="$G157_B" bash "$G157_PA" review-delta 2>&1 ); G157_B_DRC=$?
+_c157 "review-delta (no id: the newest snapshot) exits 0 and shows the line the fix changed, as a unified diff of that file" \
+    '[ "$G157_B_DRC" = 0 ] && printf "%s\n" "$G157_B_D" | grep -q "^+line three FIXED AFTER REVIEW" && printf "%s\n" "$G157_B_D" | grep -q "^-line three$" && printf "%s\n" "$G157_B_D" | grep -q "^--- a/src/a.php"'
+_c157 "… a file added by the fix is shown in full and named NEW; a file it removed is named REMOVED" \
+    'printf "%s\n" "$G157_B_D" | grep -q "^# NEW since the review: src/new.php" && printf "%s\n" "$G157_B_D" | grep -q "^+brand new" && printf "%s\n" "$G157_B_D" | grep -q "^# REMOVED since the review: src/gone.php"'
+_c157 "… a file the fix touched for the first time is compared with HEAD (what the reviewer saw of it): its new line only, not the whole file" \
+    'printf "%s\n" "$G157_B_D" | grep -q "^+edited after review" && ! printf "%s\n" "$G157_B_D" | grep -q "^+untouched" && ! printf "%s\n" "$G157_B_D" | grep -q "NEW since the review: src/keep.php"'
+_c157 "… what the reviewer already saw is not in it (the task's first change is context, not an added line)" '! printf "%s\n" "$G157_B_D" | grep -q "^+line two CHANGED BY THE TASK"'
+_c157 "review-delta <id> gives the same; an id with no snapshot exits 1; a path as the id exits 1 and reads nothing" \
+    '[ "$(cd "$G157_B" && APD_PROJECT_DIR="$G157_B" bash "$G157_PA" review-delta "$G157_REV" 2>&1)" = "$G157_B_D" ] && ! ( cd "$G157_B" && APD_PROJECT_DIR="$G157_B" bash "$G157_PA" review-delta aabbccddeeff9999 >/dev/null 2>&1 ) && ! ( cd "$G157_B" && APD_PROJECT_DIR="$G157_B" bash "$G157_PA" review-delta "../.review-snapshot/$G157_REV" >/dev/null 2>&1 )'
+mkdir "$G157_B/.apd/pipeline/.lock"
+_c157 "review-delta only reads: it answers while another step holds the pipeline lock, and leaves no file in the snapshot" \
+    '( cd "$G157_B" && APD_PROJECT_DIR="$G157_B" bash "$G157_PA" review-delta >/dev/null 2>&1 ) && [ "$(ls -A "$G157_B_S" | sort | tr "\n" " ")" = "files head list skipped stamp " ] && [ -d "$G157_B/.apd/pipeline/.lock" ]'
+rmdir "$G157_B/.apd/pipeline/.lock"
+
+# ---- on: the one SendMessage that passes
+G157_B_SM=$(_sm157 "$G157_B" on "$G157_REV")
+_c157 "on: SendMessage from the orchestrator to the stopped, snapshotted code reviewer passes (exit 0)" '[ "$G157_B_SM" = 0 ]'
+_c157 "… one line in .review-resumes naming the id, one INFO review-resume line in the audit log, and no BLOCK" \
+    '[ "$(_res157 "$G157_B")" = 1 ] && grep -q "|$G157_REV|code-reviewer|on$" "$G157_B/.apd/pipeline/.review-resumes" && [ "$(_aud157 "$G157_B" | grep -c "|INFO|orchestrator|review-resume|id=$G157_REV type=code-reviewer n=1 mode=on")" = 1 ] && ! _aud157 "$G157_B" | grep -q "send-message-during-pipeline"'
+_c157 "… the resume takes a reviewer slot: the count is 2 (one dispatch, one resume) and pipeline status says reviewer 2/6" \
+    '[ "$(cd "$G157_B" && APD_PROJECT_DIR="$G157_B" bash "$G157_PA" status 2>&1 | grep -c "reviewer 2/6")" -ge 1 ]'
+
+# ---- every refusal on its own (exit 2, nothing recorded)
+_ref157() { local n; n=$(_res157 "$1"); [ "$(_sm157 "$1" "$2" "$3" "${4:-}")" = 2 ] && [ "$(_res157 "$1")" = "$n" ] && grep -q "Review resume refused" "$1.sm"; }
+G157_C=$(_mk157 c); _disp157 "$G157_C" on >/dev/null; _fix157 "$G157_C"
+_led157 "$G157_C" 50 start adversarial-reviewer "$G157_ADV"; _led157 "$G157_C" 60 stop adversarial-reviewer "$G157_ADV"
+_led157 "$G157_C" 62 start supervisor "$G157_SUP"; _led157 "$G157_C" 72 stop supervisor "$G157_SUP"
+_c157 "refused: the adversarial reviewer (stopped, of this task) — always dispatched fresh" '_ref157 "$G157_C" on "$G157_ADV" && grep -q "not a code reviewer" "$G157_C.sm"'
+_c157 "refused: the supervisor" '_ref157 "$G157_C" on "$G157_SUP" && grep -q "not a code reviewer" "$G157_C.sm"'
+_c157 "refused: a builder" '_ref157 "$G157_C" on "$G157_BLD" && grep -q "not a code reviewer" "$G157_C.sm"'
+_c157 "refused: an id that was never dispatched in this task" '_ref157 "$G157_C" on aabbccddeeff9999 && grep -q "was not dispatched in this task" "$G157_C.sm"'
+_c157 "refused: a recipient given by NAME (code-reviewer), not by id" '_ref157 "$G157_C" on code-reviewer'
+_c157 "refused: a recipient that is not an identifier (../x, empty)" '_ref157 "$G157_C" on "../x" && _ref157 "$G157_C" on ""'
+_c157 "refused: the call comes from inside a subagent (agent_type in the payload), not from the orchestrator" \
+    '_ref157 "$G157_C" on "$G157_REV" ",\"agent_type\":\"backend-builder\"" && _ref157 "$G157_C" on "$G157_REV" ",\"agent_id\":\"aabbccddeeff1002\"" && grep -q "only the orchestrator" "$G157_C.sm"'
+_c157 "refused: a payload that is not JSON" \
+    '[ "$(cd "$G157_C" && printf "not json" | APD_PROJECT_DIR="$G157_C" APD_REVIEW_RESUME=on bash "$G157_SM" >/dev/null 2>&1; echo $?)" = 2 ] && [ "$(_res157 "$G157_C")" = 0 ]'
+_c157 "refused: the Codex runtime, whatever the switch says" \
+    '[ "$(cd "$G157_C" && printf "{\"tool_input\":{\"to\":\"%s\"}}" "$G157_REV" | APD_RUNTIME=codex APD_PROJECT_DIR="$G157_C" APD_REVIEW_RESUME=on bash "$G157_SM" >/dev/null 2>&1; echo $?)" = 2 ] && [ "$(_res157 "$G157_C")" = 0 ]'
+# an id that is a path: the ledger is written from what CC sends, so it is not trusted as a path component
+G157_C_TS=$(awk -F'|' -v id="$G157_REV" '$4 == id && $2 == "stop" { print $1 }' "$G157_C/.apd/pipeline/.agents" | tail -1)
+printf '%s|start|code-reviewer|%s\n%s|stop|code-reviewer|%s\n' "$(_v67_ts 12)" "../.review-snapshot/$G157_REV" "$G157_C_TS" "../.review-snapshot/$G157_REV" >> "$G157_C/.apd/pipeline/.agents"
+printf '%s|start|code-reviewer|%s\n%s|stop|code-reviewer|%s\n' "$(_v67_ts 12)" "../g157-evil" "$(_v67_ts 22)" "../g157-evil" >> "$G157_C/.apd/pipeline/.agents"
+_c157 "refused: a ledger id that is a path to another reviewer's snapshot — and a dispatch creates nothing outside the snapshot directory for such an id" \
+    '_ref157 "$G157_C" on "../.review-snapshot/$G157_REV" && [ "$(_disp157 "$G157_C" on)" = 0 ] && [ ! -e "$G157_C/.apd/pipeline/g157-evil" ]'
+_c157 "… and the same call without those obstacles passes (the refusals above are not a broken fixture)" '[ "$(_sm157 "$G157_C" on "$G157_REV")" = 0 ] && [ "$(_res157 "$G157_C")" = 1 ]'
+
+G157_D=$(_mk157 d)
+_c157 "refused: no snapshot — nothing was dispatched since the reviewer stopped, so there is no fix to re-review" '_ref157 "$G157_D" on "$G157_REV" && grep -q "no snapshot" "$G157_D.sm"'
+_disp157 "$G157_D" on >/dev/null; G157_D_ST=$(cat "$G157_D/.apd/pipeline/.review-snapshot/$G157_REV/stamp"); _led157 "$G157_D" 80 resume code-reviewer "$G157_REV"
+_c157 "refused: the reviewer is running again (its last event is a resume) — and a dispatch while it runs leaves its snapshot as it was" '_ref157 "$G157_D" on "$G157_REV" && grep -q "still running" "$G157_D.sm" && [ "$(_disp157 "$G157_D" on)" = 0 ] && [ -n "$G157_D_ST" ] && [ "$(cat "$G157_D/.apd/pipeline/.review-snapshot/$G157_REV/stamp")" = "$G157_D_ST" ]'
+_led157 "$G157_D" 90 stop code-reviewer "$G157_REV"
+_c157 "refused: the snapshot is of an EARLIER stop — the reviewer ran again and nothing was dispatched since" '_ref157 "$G157_D" on "$G157_REV" && grep -q "no snapshot" "$G157_D.sm"'
+_c157 "… the next dispatch refreshes the snapshot to the newer stop, and the resume then passes" '[ "$(_disp157 "$G157_D" on)" = 0 ] && [ "$(_sm157 "$G157_D" on "$G157_REV")" = 0 ]'
+G157_E=$(_mk157 e); _led157 "$G157_E" 25 start code-reviewer aabbccddeeff2003
+_c157 "refused: a reviewer that has started and not stopped — and no snapshot is taken of an agent that is still running" '[ "$(_disp157 "$G157_E" on)" = 0 ] && _ref157 "$G157_E" on aabbccddeeff2003 && grep -q "still running" "$G157_E.sm" && [ ! -e "$G157_E/.apd/pipeline/.review-snapshot/aabbccddeeff2003" ]'
+_c157 "with nothing changed since the review the delta says so, in one line" '[ "$(cd "$G157_E" && APD_PROJECT_DIR="$G157_E" bash "$G157_PA" review-delta "$G157_REV" 2>&1 | grep -c "^# no changes since the review$")" = 1 ]'
+
+G157_F=$(_mk157 f); _disp157 "$G157_F" on >/dev/null; _fix157 "$G157_F"
+_c157 "the same reviewer may be continued twice …" '[ "$(_sm157 "$G157_F" on "$G157_REV")" = 0 ] && [ "$(_sm157 "$G157_F" on "$G157_REV")" = 0 ] && [ "$(_res157 "$G157_F")" = 2 ]'
+_c157 "… and the third time is refused: dispatch a fresh reviewer" '_ref157 "$G157_F" on "$G157_REV" && grep -q "already continued 2 times" "$G157_F.sm"'
+G157_G=$(_mk157 g); _disp157 "$G157_G" on >/dev/null; _fix157 "$G157_G"
+for G157_I in 3 4 5 6 7; do _led157 "$G157_G" $((100 + G157_I * 20)) start code-reviewer "aabbccddeeff20$G157_I$G157_I"; _led157 "$G157_G" $((110 + G157_I * 20)) stop code-reviewer "aabbccddeeff20$G157_I$G157_I"; done
+_c157 "refused: the reviewer dispatch budget is spent (6/6) — a resume takes a slot like a dispatch" '_disp157 "$G157_G" on >/dev/null; _ref157 "$G157_G" on "$G157_REV" && grep -q "budget is spent (6/6)" "$G157_G.sm"'
+_c157 "with several reviewers snapshotted, review-delta without an id is the one that stopped last" '( cd "$G157_G" && APD_PROJECT_DIR="$G157_G" bash "$G157_PA" review-delta 2>&1 | head -1 | grep -q "^# review delta for agent aabbccddeeff2077 " )'
+G157_H=$(_mk157 h n); G157_H_RC=$(_disp157 "$G157_H" on)
+_c157 "not a git checkout: the dispatch is not disturbed (exit 0), no snapshot is kept (the task's files cannot be told), the resume is refused" \
+    '[ "$G157_H_RC" = 0 ] && [ ! -e "$G157_H/.apd/pipeline/.review-snapshot/$G157_REV" ] && _ref157 "$G157_H" on "$G157_REV"'
+
+# ---- files the snapshot does not copy are named, never shown as unchanged
+G157_J=$(_mk157 j); ( cd "$G157_J" && dd if=/dev/zero of=src/big.bin bs=1024 count=1100 2>/dev/null && ln -s a.php src/link.php ); _disp157 "$G157_J" on >/dev/null
+_c157 "a file over the size limit and a symlink are listed as not copied, and the delta says NOT COMPARED for each" \
+    'grep -qxF "src/big.bin" "$G157_J/.apd/pipeline/.review-snapshot/$G157_REV/skipped" && grep -qxF "src/link.php" "$G157_J/.apd/pipeline/.review-snapshot/$G157_REV/skipped" && [ ! -e "$G157_J/.apd/pipeline/.review-snapshot/$G157_REV/files/src/link.php" ] && [ ! -e "$G157_J/.apd/pipeline/.review-snapshot/$G157_REV/files/src/big.bin" ] && [ "$(cd "$G157_J" && APD_PROJECT_DIR="$G157_J" bash "$G157_PA" review-delta 2>&1 | grep -c "^# NOT COMPARED.*src/\(big.bin\|link.php\)$")" = 2 ]'
+( cd "$G157_J" && rm src/a.php && ln -s keep.php src/a.php )
+_c157 "a reviewed file that the fix replaced with a symlink is named NOT COMPARED, not diffed through the link" \
+    '[ "$(cd "$G157_J" && APD_PROJECT_DIR="$G157_J" bash "$G157_PA" review-delta 2>&1 | grep -c "^# NOT COMPARED (not a regular file.*: src/a.php$")" = 1 ] && ! ( cd "$G157_J" && APD_PROJECT_DIR="$G157_J" bash "$G157_PA" review-delta 2>&1 | grep -q "^--- a/src/a.php" )'
+
+# ---- audit 2026-11-11: a copy taken later than the stop must still be what the reviewer saw
+_snapdir157() { printf '%s' "$1/.apd/pipeline/.review-snapshot/${2:-$G157_REV}"; }
+_delta157() { ( cd "$1" && APD_PROJECT_DIR="$1" bash "$G157_PA" review-delta "${2:-}" 2>&1 ); }
+_future157() { touch -t "$(date -v+${1}S +%Y%m%d%H%M.%S 2>/dev/null || date -d "+${1} seconds" +%Y%m%d%H%M.%S)" "$2"; }
+G157_M=$(_mk157 m); _fix157 "$G157_M"; G157_M_RC=$(_disp157 "$G157_M" on)
+_c157 "no dispatch between the review and the fix: the first dispatch AFTER the fix takes no snapshot (a builder has events after the reviewer's stop), and the resume is refused" \
+    '[ "$G157_M_RC" = 0 ] && [ ! -e "$(_snapdir157 "$G157_M")" ] && _ref157 "$G157_M" on "$G157_REV" && grep -q "no snapshot" "$G157_M.sm"'
+# the running builder's start is ABOVE the reviewer's stop in the ledger: only the "is running" rule can see it
+G157_N=$(_mk157 n); awk -v l="$(_v67_ts 12)|start|backend-builder|aabbccddeeff1003" -v id="$G157_REV" -F'|' '$4 == id && $2 == "start" { print l } { print }' "$G157_N/.apd/pipeline/.agents" > "$G157_N.led" && cat "$G157_N.led" > "$G157_N/.apd/pipeline/.agents"
+_c157 "a builder that is still running when the dispatch comes: no snapshot" '[ "$(_disp157 "$G157_N" on)" = 0 ] && [ ! -e "$(_snapdir157 "$G157_N")" ]'
+G157_O=$(_mk157 o); _led157 "$G157_O" 30 start adversarial-reviewer "$G157_ADV"; _led157 "$G157_O" 40 stop adversarial-reviewer "$G157_ADV"; _led157 "$G157_O" 42 start supervisor "$G157_SUP"
+_c157 "review roles after the stop (adversarial stopped, supervisor running) do not write code: the snapshot is taken — of the code reviewer only, not of the adversarial reviewer" \
+    '[ "$(_disp157 "$G157_O" on)" = 0 ] && grep -q "CHANGED BY THE TASK" "$(_snapdir157 "$G157_O")/files/src/a.php" && [ ! -e "$(_snapdir157 "$G157_O" "$G157_ADV")" ]'
+G157_P=$(_mk157 p); echo "written by hand after the review" > "$G157_P/src/late.php"; _future157 100 "$G157_P/src/late.php"; _future157 100 "$G157_P/src/a.php"; _disp157 "$G157_P" on >/dev/null
+_c157 "a file modified after the reviewer's stop (no agent involved) is not copied — it is listed as skipped, and the delta says NOT COMPARED, not 'no changes'" \
+    'grep -qxF "src/a.php" "$(_snapdir157 "$G157_P")/skipped" && grep -qxF "src/late.php" "$(_snapdir157 "$G157_P")/skipped" && [ ! -e "$(_snapdir157 "$G157_P")/files/src/a.php" ] && [ "$(_delta157 "$G157_P" | grep -c "^# NOT COMPARED.*: src/\(a\|late\)\.php$")" = 2 ] && ! _delta157 "$G157_P" | grep -q "no changes since the review"'
+G157_Q=$(_mk157 q); mkdir -p "$G157_Q/.apd/pipeline/.review-snapshot/.tmp.$G157_REV/files"; echo 99999999 > "$G157_Q/.apd/pipeline/.review-snapshot/.tmp.$G157_REV/pid"; _disp157 "$G157_Q" on >/dev/null
+_c157 "what a killed copy left behind (.tmp.<id> naming a process that is gone) is replaced by the next one; the snapshot records the HEAD it was taken at and carries no lock file" \
+    '[ ! -e "$G157_Q/.apd/pipeline/.review-snapshot/.tmp.$G157_REV" ] && [ "$(cat "$(_snapdir157 "$G157_Q")/head")" = "$(git -C "$G157_Q" rev-parse HEAD)" ] && [ ! -e "$(_snapdir157 "$G157_Q")/pid" ]'
+G157_QA=$(_mk157 qa); mkdir -p "$G157_QA/.apd/pipeline/.review-snapshot/.tmp.$G157_REV"; echo $$ > "$G157_QA/.apd/pipeline/.review-snapshot/.tmp.$G157_REV/pid"
+_c157 "a copy in progress (.tmp.<id> naming a live process) is left alone: this dispatch takes none and does not touch it" \
+    '[ "$(_disp157 "$G157_QA" on)" = 0 ] && [ ! -e "$(_snapdir157 "$G157_QA")" ] && [ "$(cat "$G157_QA/.apd/pipeline/.review-snapshot/.tmp.$G157_REV/pid")" = "$$" ]'
+G157_QB=$(_mk157 qb); mkdir -p "$G157_QB/.apd/pipeline/.review-snapshot/.tmp.$G157_REV"
+_c157 "… and so is one that has not written its process id yet" '[ "$(_disp157 "$G157_QB" on)" = 0 ] && [ ! -e "$(_snapdir157 "$G157_QB")" ] && [ -d "$G157_QB/.apd/pipeline/.review-snapshot/.tmp.$G157_REV" ]'
+# a builder that started AND stopped while the reviewer ran: the reviewer may have read a file before it changed
+G157_AB=$(_mk157 ab); awk -v a="$(_v67_ts 15)|start|backend-builder|aabbccddeeff1004" -v b="$(_v67_ts 20)|stop|backend-builder|aabbccddeeff1004" -v id="$G157_REV" -F'|' '$4 == id && $2 == "stop" { print a; print b } { print }' "$G157_AB/.apd/pipeline/.agents" > "$G157_AB.led" && cat "$G157_AB.led" > "$G157_AB/.apd/pipeline/.agents"
+_c157 "a builder that started and stopped WHILE the reviewer was running: no snapshot, the resume is refused" '[ "$(_disp157 "$G157_AB" on)" = 0 ] && [ ! -e "$(_snapdir157 "$G157_AB")" ] && _ref157 "$G157_AB" on "$G157_REV"'
+G157_AC=$(_mk157 ac); G157_AC_D=$(awk -F'|' -v id="$G157_REV" '$4 == id && $2 == "stop" { print $1 }' "$G157_AC/.apd/pipeline/.agents" | tr -cd '0-9')
+touch -t "${G157_AC_D:0:12}.${G157_AC_D:12:2}" "$G157_AC/src/a.php"; _disp157 "$G157_AC" on >/dev/null
+_c157 "a file modified in the same second as the reviewer's stop is not copied either" 'grep -qxF "src/a.php" "$(_snapdir157 "$G157_AC")/skipped" && [ ! -e "$(_snapdir157 "$G157_AC")/files/src/a.php" ]'
+G157_AD=$(_mk157 ad n); ( cd "$G157_AD" && git init -q . && git add -A . )
+_c157 "a repository with no commit yet (files only staged): no snapshot — an empty list would read as 'nothing changed'" '[ "$(_disp157 "$G157_AD" on)" = 0 ] && [ ! -e "$G157_AD/.apd/pipeline/.review-snapshot" ] && _ref157 "$G157_AD" on "$G157_REV"'
+git clone -q --bare "$G157_B" "$G157_T/bare.git" 2>/dev/null; G157_AE=$(_mk157 bare.git/p n)
+_c157 "a project directory inside a bare repository (one that has commits): no snapshot" '[ "$(_disp157 "$G157_AE" on)" = 0 ] && [ ! -e "$G157_AE/.apd/pipeline/.review-snapshot" ]'
+G157_AG=$(_mk157 ag); _led157 "$G157_AG" 30 start code-reviewer ".."; _led157 "$G157_AG" 40 stop code-reviewer ".."
+_c157 "a ledger id that is '..' (a stopped code reviewer by its type): nothing is copied or removed for it — the pipeline directory is intact" \
+    '[ "$(_disp157 "$G157_AG" on)" = 0 ] && [ -f "$G157_AG/.apd/pipeline/spec.done" ] && [ -f "$(_snapdir157 "$G157_AG")/stamp" ] && [ ! -e "$G157_AG/.apd/pipeline/.review-snapshot/.tmp..." ] && [ ! -e "$G157_AG/.apd/pipeline/.tmp..." ] && [ "$(ls -A "$G157_AG/.apd/pipeline/.review-snapshot" | wc -l | tr -d " ")" = 1 ]'
+G157_AF=$(_mk157 af); _disp157 "$G157_AF" on >/dev/null; echo "0000000000000000000000000000000000000bad" > "$(_snapdir157 "$G157_AF")/head"
+_c157 "the commit the snapshot recorded no longer exists: the delta says so (NOT COMPARED), it does not fall back in silence" \
+    '_delta157 "$G157_AF" | grep -q "^# NOT COMPARED (the commit the review was based on no longer exists" && ! _delta157 "$G157_AF" | grep -q "no changes since the review"'
+G157_AA=$(_mk157 aa); awk -F'|' -v id="$G157_REV" 'BEGIN { OFS = "|" } $4 == id && $2 == "stop" { $1 = "not a date" } { print }' "$G157_AA/.apd/pipeline/.agents" > "$G157_AA.led" && cat "$G157_AA.led" > "$G157_AA/.apd/pipeline/.agents"
+_c157 "a stop whose time cannot be read: no snapshot (nothing to compare modification times with)" '[ "$(_disp157 "$G157_AA" on)" = 0 ] && [ ! -e "$(_snapdir157 "$G157_AA")" ]'
+
+# ---- the time limit and the order in the pre-spawn guard
+G157_R=$(_mk157 r)
+( cd "$G157_R" && export APD_PROJECT_DIR="$G157_R" APD_REVIEW_RESUME=on && source "$APD_PLUGIN_ROOT/bin/lib/resolve-project.sh" && source "$APD_PLUGIN_ROOT/bin/lib/agent-scope.sh" && source "$APD_PLUGIN_ROOT/bin/lib/dispatch-budget.sh" && source "$G157_LIB" && RR_SNAPSHOT_MAX_SEC=0 && _rr_snapshot_pending ) >/dev/null 2>&1
+_c157 "out of time (limit 0): the snapshot exists, names every file as skipped and copies none — the delta says NOT COMPARED; a file dirty before the spec is listed too (no time left to tell it is unchanged)" \
+    'grep -qxF "tests/test_g157.py" "$(_snapdir157 "$G157_R")/skipped" && grep -qxF "src/a.php" "$(_snapdir157 "$G157_R")/list" && grep -qxF "src/a.php" "$(_snapdir157 "$G157_R")/skipped" && [ -z "$(ls -A "$(_snapdir157 "$G157_R")/files")" ] && _delta157 "$G157_R" | grep -q "^# NOT COMPARED.*: src/a.php$"'
+G157_S=$(_mk157 s); for G157_I in 3 4 5 6 7; do _led157 "$G157_S" $((100 + G157_I * 20)) start code-reviewer "aabbccddeeff20$G157_I$G157_I"; _led157 "$G157_S" $((110 + G157_I * 20)) stop code-reviewer "aabbccddeeff20$G157_I$G157_I"; done
+G157_S_RC=$( cd "$G157_S" && APD_PROJECT_DIR="$G157_S" APD_REVIEW_RESUME=on bash "$G157_AR" --subagent-type code-reviewer >/dev/null 2>&1; echo $? )
+_c157 "the budget is judged BEFORE any copying: a refused dispatch (reviewer 7 of 6, exit 2) leaves no snapshot" '[ "$G157_S_RC" = 2 ] && [ ! -e "$G157_S/.apd/pipeline/.review-snapshot" ]'
+_c157 "… and an allowed one right after takes them" '[ "$(_disp157 "$G157_S" on)" = 0 ] && [ -f "$(_snapdir157 "$G157_S")/stamp" ]'
+_c157 "APD_SKIP_DISPATCH_BUDGET=1 and a payload with no agent type still take the snapshot" \
+    'G157_U=$(_mk157 u) && ( cd "$G157_U" && APD_SKIP_DISPATCH_BUDGET=1 APD_PROJECT_DIR="$G157_U" APD_REVIEW_RESUME=on bash "$G157_AR" --subagent-type backend-builder >/dev/null 2>&1 ) && [ -f "$(_snapdir157 "$G157_U")/stamp" ] && G157_V=$(_mk157 v) && ( cd "$G157_V" && APD_PROJECT_DIR="$G157_V" APD_REVIEW_RESUME=on bash "$G157_AR" >/dev/null 2>&1 ) && [ -f "$(_snapdir157 "$G157_V")/stamp" ] && G157_W=$(_mk157 w) && ( cd "$G157_W" && APD_PROJECT_DIR="$G157_W" APD_REVIEW_RESUME=on bash "$G157_AR" --subagent-type Explore >/dev/null 2>&1 ) && [ -f "$(_snapdir157 "$G157_W")/stamp" ]'
+
+# ---- the delta must not miss a file: a project below its repository root, names git quotes, a commit, an unreadable file
+mkdir -p "$G157_T/outer"; G157_X=$(_mk157 outer/p sub); _disp157 "$G157_X" on >/dev/null; _fix157 "$G157_X"; G157_X_D=$(_delta157 "$G157_X")
+_c157 "a project in a subdirectory of its repository: the snapshot lists and holds project-relative paths" \
+    'grep -qxF "src/a.php" "$(_snapdir157 "$G157_X")/list" && ! grep -q "^p/" "$(_snapdir157 "$G157_X")/list" && grep -q "CHANGED BY THE TASK" "$(_snapdir157 "$G157_X")/files/src/a.php"'
+_c157 "… and the delta shows the fix to a tracked file, and compares a file touched for the first time with HEAD" \
+    'printf "%s\n" "$G157_X_D" | grep -q "^+line three FIXED AFTER REVIEW" && printf "%s\n" "$G157_X_D" | grep -q "^+edited after review" && ! printf "%s\n" "$G157_X_D" | grep -q "^+untouched" && printf "%s\n" "$G157_X_D" | grep -q "^# REMOVED since the review: src/gone.php"'
+G157_Y=$(_mk157 y); G157_Y1="src/é.php"; G157_Y2='src/q"x.php'; G157_Y3=$'src/t\tab.php'; G157_Y4=$'src/n\nl.php'
+for G157_I in "$G157_Y1" "$G157_Y2" "$G157_Y3" "$G157_Y4"; do echo "v1" > "$G157_Y/$G157_I"; done
+_disp157 "$G157_Y" on >/dev/null
+_c157 "names git would quote (a non-ASCII letter, a double quote, a tab) are listed as they are and copied" \
+    'grep -qxF "$G157_Y1" "$(_snapdir157 "$G157_Y")/list" && grep -qxF "$G157_Y2" "$(_snapdir157 "$G157_Y")/list" && grep -qxF "$G157_Y3" "$(_snapdir157 "$G157_Y")/list" && [ -f "$(_snapdir157 "$G157_Y")/files/$G157_Y1" ] && [ -f "$(_snapdir157 "$G157_Y")/files/$G157_Y2" ] && [ -f "$(_snapdir157 "$G157_Y")/files/$G157_Y3" ]'
+for G157_I in "$G157_Y1" "$G157_Y2" "$G157_Y3" "$G157_Y4"; do echo "v3-FIX" >> "$G157_Y/$G157_I"; done; echo "new" > "$G157_Y/src/новый.php"
+G157_Y_D=$(_delta157 "$G157_Y")
+_c157 "… a change to each of them is in the delta, and so is a new file with a non-ASCII name" \
+    '[ "$(printf "%s\n" "$G157_Y_D" | grep -c "^+v3-FIX")" = 3 ] && printf "%s\n" "$G157_Y_D" | grep -qF -- "--- a/$G157_Y1" && printf "%s\n" "$G157_Y_D" | grep -qF "# NEW since the review: src/новый.php"'
+_c157 "… a name with a newline in it cannot be compared and is named NOT COMPARED" 'printf "%s\n" "$G157_Y_D" | grep -q "^# NOT COMPARED (a newline in the file name.*: src/n?l.php$"'
+G157_Z=$(_mk157 z); _disp157 "$G157_Z" on >/dev/null; echo "edited after review" >> "$G157_Z/src/keep.php"
+( cd "$G157_Z" && git add src/keep.php && git -c user.email=t@t -c user.name=t commit -q -m mid-task )
+_c157 "a commit made after the review does not hide its change: the base is the HEAD the snapshot recorded" \
+    '_delta157 "$G157_Z" | grep -q "^+edited after review" && ! _delta157 "$G157_Z" | grep -q "no changes since the review"'
+chmod +x "$G157_Z/src/a.php"
+_c157 "a changed executable bit is named (the content is the same)" '_delta157 "$G157_Z" | grep -q "^# MODE CHANGED since the review (executable bit): src/a.php$" && ! _delta157 "$G157_Z" | grep -q "^--- a/src/a.php"'
+echo "more" >> "$G157_Z/src/a.php"; chmod 000 "$G157_Z/src/a.php"
+_c157 "a file that cannot be read now is named NOT COMPARED, never left out" \
+    '[ "$(id -u)" = 0 ] || { _delta157 "$G157_Z" | grep -q "^# NOT COMPARED (could not be read.*: src/a.php$"; }'
+chmod 644 "$G157_Z/src/a.php"
+
+# ---- the reviewer gate: shadow measures, on counts
+_gate157() { ( cd "$1" && APD_REVIEW_RESUME="$2" APD_PROJECT_DIR="$1" bash "$G157_PA" reviewer > "$1.g" 2>&1 ); echo $?; }
+G157_K=$(_mk157 k); _disp157 "$G157_K" shadow >/dev/null; _fix157 "$G157_K"; G157_K_SM=$(_sm157 "$G157_K" shadow "$G157_REV")
+_led157 "$G157_K" 45 resume code-reviewer "$G157_REV"; _led157 "$G157_K" 55 stop code-reviewer "$G157_REV"
+_c157 "shadow: the resume is allowed and recorded (mode=shadow in the audit line and in the record)" '[ "$G157_K_SM" = 0 ] && _aud157 "$G157_K" | grep -q "review-resume|id=$G157_REV .* mode=shadow" && grep -q "|$G157_REV|code-reviewer|shadow$" "$G157_K/.apd/pipeline/.review-resumes"'
+_c157 "shadow: a continued reviewer is not evidence — the reviewer advance is refused and says why" '[ "$(_gate157 "$G157_K" shadow)" != 0 ] && [ ! -f "$G157_K/.apd/pipeline/reviewer.done" ] && grep -q "APD_REVIEW_RESUME=shadow" "$G157_K.g"'
+_c157 "shadow: the gate reads the mode from the record — the same advance typed with APD_REVIEW_RESUME=on, or with it unset, is refused too" '[ "$(_gate157 "$G157_K" on)" != 0 ] && [ "$(_gate157 "$G157_K" "")" != 0 ] && [ ! -f "$G157_K/.apd/pipeline/reviewer.done" ]'
+_led157 "$G157_K" 60 start code-reviewer aabbccddeeff2010; _led157 "$G157_K" 70 stop code-reviewer aabbccddeeff2010
+_c157 "shadow: after a FRESH reviewer the advance passes" '[ "$(_gate157 "$G157_K" shadow)" = 0 ] && [ -f "$G157_K/.apd/pipeline/reviewer.done" ]'
+G157_L=$(_mk157 l); _disp157 "$G157_L" on >/dev/null; _fix157 "$G157_L"; _sm157 "$G157_L" on "$G157_REV" >/dev/null
+_led157 "$G157_L" 45 resume code-reviewer "$G157_REV"
+_c157 "on: while the continued reviewer is running the advance is refused (a running agent is not evidence)" '[ "$(_gate157 "$G157_L" on)" != 0 ] && [ ! -f "$G157_L/.apd/pipeline/reviewer.done" ]'
+_led157 "$G157_L" 55 stop code-reviewer "$G157_REV"
+_c157 "on: once it has stopped, the continued reviewer is the evidence and the advance passes" '[ "$(_gate157 "$G157_L" on)" = 0 ] && [ -f "$G157_L/.apd/pipeline/reviewer.done" ]'
+
+# ---- lifetime of the two files
+_c157 "a rollback keeps the snapshot and the resume record (the fix round is not over)" \
+    '( cd "$G157_L" && APD_PROJECT_DIR="$G157_L" bash "$G157_PA" rollback >/dev/null 2>&1 ) && [ -d "$G157_L/.apd/pipeline/.review-snapshot/$G157_REV" ] && [ "$(_res157 "$G157_L")" = 1 ]'
+_c157 "a reset removes both" \
+    '( cd "$G157_L" && APD_PROJECT_DIR="$G157_L" bash "$G157_PA" reset >/dev/null 2>&1 ); [ ! -e "$G157_L/.apd/pipeline/.review-snapshot" ] && [ ! -e "$G157_L/.apd/pipeline/.review-resumes" ]'
+_guide_marker "$G157_F" "g157-task-2"; printf '# g157 2\nplan_consistency_gate: off\n**Acceptance criteria:**\n- R1: x\n' > "$G157_F/.apd/pipeline/spec-card.md"
+_c157 "the next task's spec advance removes both" \
+    '( cd "$G157_F" && APD_PROJECT_DIR="$G157_F" bash "$G157_PA" spec "g157-task-2" >/dev/null 2>&1 ); [ -f "$G157_F/.apd/pipeline/spec.done" ] && [ ! -e "$G157_F/.apd/pipeline/.review-snapshot" ] && [ ! -e "$G157_F/.apd/pipeline/.review-resumes" ]'
+_c157 "neither file is one the orchestrator may write: not on the pipeline-state allowlist" \
+    '! grep -q "review-resumes\|review-snapshot" "$APD_PLUGIN_ROOT/bin/core/guard-pipeline-state" "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-pipeline-state" 2>/dev/null'
+
+# ---- the step the guide gives the orchestrator is one its bash guard allows
+_bg157() { ( cd "$G157_C" && printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"%s","tool_input":{"command":"%s"}}' "$G157_C" "$1" | APD_PROJECT_DIR="$G157_C" bash "$APD_PLUGIN_ROOT/bin/adapter/cc/guard-bash-scope" >/dev/null 2>&1 ); echo $?; }
+_c157 "the orchestrator may write the delta to the scratchpad (the guide's step 2) — and the same guard refuses it a bash write of the resume record or of a snapshot" \
+    '[ "$(_bg157 "bash .claude/bin/apd pipeline review-delta > /private/tmp/claude-501/-x/sess/scratchpad/review-delta.patch")" = 0 ] && [ "$(_bg157 "echo x >> .apd/pipeline/.review-resumes")" = 2 ] && [ "$(_bg157 "mkdir -p .apd/pipeline/.review-snapshot/aabbccddeeff2002 && echo s > .apd/pipeline/.review-snapshot/aabbccddeeff2002/stamp")" = 2 ]'
+
+# ---- the documents say what the code does
+_c157 "workflow.md, the pipeline guide and SPEC name the switch and its two values" \
+    'grep -q "APD_REVIEW_RESUME" "$APD_PLUGIN_ROOT/rules/workflow.md" && grep -q "APD_REVIEW_RESUME=shadow" "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md" && grep -q "APD_REVIEW_RESUME=on" "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md" && grep -q "APD_REVIEW_RESUME" "$REPO_ROOT/docs/SPEC.md"'
+_c157 "the guide names the command the code implements and the cap the code enforces" \
+    'grep -q "pipeline review-delta" "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md" && grep -q "^    review-delta)" "$G157_PA" && grep -q "RR_MAX_RESUMES_PER_AGENT=2" "$G157_LIB" && grep -qi "twice" "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md"'
+rm -rf "$G157_T"
+
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"
