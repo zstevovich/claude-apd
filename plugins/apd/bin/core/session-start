@@ -253,6 +253,11 @@ if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
             CURRENT_TASK=$(head -1 "$PIPELINE_DIR/spec.done" | cut -d'|' -f3 2>/dev/null)
         fi
         echo "  -> Pipeline in progress: $CURRENT_TASK — next step: $NEXT_STEP"
+        # After a compaction the orchestrator no longer holds the spec or the
+        # plan in context; both are on disk. Named here because this output is
+        # what the PostCompact hook puts back.
+        echo "     Its spec and plan are on disk — if you no longer have them in context, read them before the next step:"
+        echo "     bash $APD_SHORTCUT_DISPLAY pipeline show spec  |  bash $APD_SHORTCUT_DISPLAY pipeline show plan  |  bash $APD_SHORTCUT_DISPLAY pipeline status"
     fi
 fi
 

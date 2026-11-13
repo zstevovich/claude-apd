@@ -11689,8 +11689,8 @@ _rg_proj "$RG/compact"
 _guard_exit "guard-compact ALLOWS compaction with no pipeline steps" 0 \
     "$RG/compact" guard-compact
 touch "$RG/compact/.apd/pipeline/spec.done"
-_guard_exit "guard-compact BLOCKS compaction mid-pipeline" 2 \
-    "$RG/compact" guard-compact
+_guard_exit "guard-compact ALLOWS compaction mid-pipeline (v7.5.3: it records, never blocks)" 0 \
+    "$RG/compact" guard-compact < /dev/null
 touch "$RG/compact/.apd/pipeline/builder.done" \
       "$RG/compact/.apd/pipeline/reviewer.done" \
       "$RG/compact/.apd/pipeline/verifier.done"
@@ -20391,6 +20391,59 @@ _c157 "review-delta read to the end: the delta is whole and its scratch director
 _lk157 | ( read -r _g157_first; exit 0 )
 _c157 "a reader that closes the pipe after the first line: no scratch directory is left either" '[ -z "$(ls -A "$G157_T/tmpd")" ]'
 rm -rf "$G157_T"
+
+
+section "158. Compaction during a pipeline — allowed and recorded, never blocked (v7.5.3)"
+
+# Until v7.5.3 guard-compact refused every compaction mid-pipeline, automatic
+# ones included. Measured on Claude Code 2.1.323: a refused automatic compaction
+# does not happen and is retried on every turn, so the context only grows.
+G158_T="$(mktemp -d "${TMPDIR:-/tmp}/apd-g158.XXXXXX")"; G158_T=$(cd "$G158_T" && pwd -P)
+G158_GC="$APD_PLUGIN_ROOT/bin/core/guard-compact"
+_c158() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+# _mk158 <name> — an APD-active project with a memory directory and no pipeline steps
+_mk158() { local d="$G158_T/$1"; mkdir -p "$d/.apd/pipeline" "$d/.apd/memory" "$d/.claude"; echo "PROJECT_NAME=g158" > "$d/.apd/config"; printf '%s' "$d"; }
+# _gc158 <dir> <payload> — the guard with the payload Claude Code sends; prints the exit code
+_gc158() { ( cd "$1" && printf '%s' "$2" | APD_PROJECT_DIR="$1" bash "$G158_GC" > "$1.out" 2>&1 ); echo $?; }
+_log158() { cat "$1/.apd/memory/guard-audit.log" "$1/.claude/memory/guard-audit.log" 2>/dev/null; }
+_pl158() { printf '{"session_id":"s","hook_event_name":"PreCompact","trigger":"%s","custom_instructions":null}' "$1"; }
+
+G158_A=$(_mk158 a)
+_c158 "no pipeline steps: compaction allowed, nothing recorded" '[ "$(_gc158 "$G158_A" "$(_pl158 auto)")" = 0 ] && [ -z "$(_log158 "$G158_A")" ]'
+printf '2026-01-01 10:00:00|1767261600|g158 task: cron | audit\n' > "$G158_A/.apd/pipeline/spec.done"
+_c158 "mid-pipeline, AUTOMATIC compaction (the context is full): allowed — exit 0, not 2" '[ "$(_gc158 "$G158_A" "$(_pl158 auto)")" = 0 ]'
+_c158 "… and recorded: one INFO line naming the trigger, the next step and the task" \
+    '[ "$(_log158 "$G158_A" | wc -l | tr -d " ")" = 1 ] && _log158 "$G158_A" | grep -q "|INFO|orchestrator|compact-during-pipeline|trigger=auto next=builder task=g158 task: cron"'
+_c158 "… nothing is printed for the model to read as a refusal" '! grep -qi "BLOCKED" "$G158_A.out"'
+_c158 "mid-pipeline, MANUAL compaction (/compact): allowed and recorded as manual" \
+    '[ "$(_gc158 "$G158_A" "$(_pl158 manual)")" = 0 ] && [ "$(_log158 "$G158_A" | grep -c "trigger=manual next=builder")" = 1 ]'
+touch "$G158_A/.apd/pipeline/builder.done"
+_c158 "a payload with no trigger, one that is not JSON, and an empty one: allowed, recorded as unknown, next step read from the flags" \
+    '[ "$(_gc158 "$G158_A" "{\"hook_event_name\":\"PreCompact\"}")" = 0 ] && [ "$(_gc158 "$G158_A" "not json")" = 0 ] && [ "$(_gc158 "$G158_A" "")" = 0 ] && [ "$(_log158 "$G158_A" | grep -c "trigger=unknown next=reviewer")" = 3 ]'
+_c158 "a trigger that is neither manual nor auto is not copied into the log" \
+    '[ "$(_gc158 "$G158_A" "$(_pl158 "x|BLOCK|forged")")" = 0 ] && ! _log158 "$G158_A" | grep -q "forged" && [ "$(_log158 "$G158_A" | grep -c "trigger=unknown")" = 4 ]'
+_c158 "every recorded line has exactly the five fields of the audit log (the task name is read up to its first |)" \
+    '[ "$(_log158 "$G158_A" | awk -F"|" "\$2 != \"INFO\" || \$3 != \"orchestrator\" || \$4 != \"compact-during-pipeline\" || NF != 5" | wc -l | tr -d " ")" = 0 ]'
+touch "$G158_A/.apd/pipeline/reviewer.done" "$G158_A/.apd/pipeline/verifier.done"; G158_N=$(_log158 "$G158_A" | wc -l | tr -d " ")
+_c158 "all four steps done: allowed, and nothing more is recorded" '[ "$(_gc158 "$G158_A" "$(_pl158 auto)")" = 0 ] && [ "$(_log158 "$G158_A" | wc -l | tr -d " ")" = "$G158_N" ]'
+G158_B=$(_mk158 b); rmdir "$G158_B/.apd/memory"; touch "$G158_B/.apd/pipeline/spec.done"
+_c158 "no memory directory to write the line to: still allowed" '[ "$(_gc158 "$G158_B" "$(_pl158 auto)")" = 0 ]'
+_c158 "synthetic runs (verify-apd) tag the line SYNTHETIC, as every other audit line" \
+    'G158_C=$(_mk158 c); touch "$G158_C/.apd/pipeline/spec.done"; ( cd "$G158_C" && _pl158 auto | APD_AUDIT_SYNTHETIC=1 APD_PROJECT_DIR="$G158_C" bash "$G158_GC" >/dev/null 2>&1 ); _log158 "$G158_C" | grep -q "|SYNTHETIC|orchestrator|compact-during-pipeline|"'
+_c158 "the guard has no blocking exit left, and hooks.json still wires it to PreCompact and session-start to PostCompact" \
+    '! grep -qE "^[^#]*exit 2" "$G158_GC" && [ "$(jq -r ".hooks.PreCompact[0].hooks[0].args[0]" "$REPO_ROOT/hooks/hooks.json")" = "\${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/core/guard-compact" ] && jq -r ".hooks.PostCompact[0].hooks[0].args[0]" "$REPO_ROOT/hooks/hooks.json" | grep -q "/session-start$"'
+# what the PostCompact hook puts back
+G158_D=$(_mk158 d); printf '# CLAUDE\n' > "$G158_D/CLAUDE.md"; printf '%s|%s|g158 resumed task\n' "$(date +"%Y-%m-%d %H:%M:%S")" "$(date +%s)" > "$G158_D/.apd/pipeline/spec.done"
+G158_D_SS=$( cd "$G158_D" && APD_PROJECT_DIR="$G158_D" bash "$APD_PLUGIN_ROOT/bin/core/session-start" 2>&1 < /dev/null )
+_c158 "session-start (what PostCompact runs) names the task in progress, its next step, and the commands that read the spec and the plan back" \
+    'printf "%s\n" "$G158_D_SS" | grep -q "Pipeline in progress: g158 resumed task — next step: builder" && printf "%s\n" "$G158_D_SS" | grep -q "pipeline show spec" && printf "%s\n" "$G158_D_SS" | grep -q "pipeline show plan"'
+_c158 "… and the step flags are still there after it (the task was not reset)" '[ -f "$G158_D/.apd/pipeline/spec.done" ]'
+G158_E=$(_mk158 e); printf '# CLAUDE\n' > "$G158_E/CLAUDE.md"
+G158_E_SS=$( cd "$G158_E" && APD_PROJECT_DIR="$G158_E" bash "$APD_PLUGIN_ROOT/bin/core/session-start" 2>&1 < /dev/null )
+_c158 "with no task in progress session-start says nothing about reading a spec back" '! printf "%s\n" "$G158_E_SS" | grep -q "pipeline show spec"'
+_c158 "SPEC, workflow.md and the pipeline guide do not promise that compaction is blocked" \
+    '! grep -qiE "guard-compact.*\\| *Blocks if" "$REPO_ROOT/docs/SPEC.md" && grep -q "compact-during-pipeline" "$REPO_ROOT/docs/SPEC.md"'
+rm -rf "$G158_T"
 
 
 section "Summary"

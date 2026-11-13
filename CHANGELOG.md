@@ -1,5 +1,19 @@
 # Changelog
 
+## v7.5.3 — 2026-11-13
+
+Patch: a compaction in the middle of a pipeline is no longer refused.
+
+**The defect.** `guard-compact` (the PreCompact hook) exited 2 for every compaction while a pipeline was unfinished, without looking at who asked for it. Measured on Claude Code 2.1.323 with a small context window: the hook payload carries `trigger` (`manual` or `auto`); a refused automatic compaction does not happen and is attempted again on every following step (seven refusals in one short probe, no PostCompact), so the context only grows. A long pipeline step was being walked toward the limit by the guard that meant to protect it.
+
+**The fix.** The guard never blocks. In the middle of a pipeline it appends one INFO line to `guard-audit.log` — `compact-during-pipeline|trigger=<manual|auto|unknown> next=<step> task=<task>` — and exits 0. After the compaction `session-start` prints, under "Pipeline in progress", the commands that read the spec and the plan back from disk (`apd pipeline show spec`, `show plan`, `pipeline status`). The pipeline state itself was never in the context: it is on disk and a compaction does not touch it.
+
+**Proof.** §158, 16 rows: both triggers and a missing/garbled one pass, the log line carries the trigger, the next step and the task, nothing is logged for a finished pipeline or with no pipeline, `session-start` names both commands, SPEC says what the guard does. 11 of the 16 are red on v7.5.2. Ten mutations, each flipping at least one row under both bashes; an eleventh flipped nothing and the code it touched was dead and is removed. As a non-root user in an ubuntu:24.04 container the set of failing rows is the one v7.5.2 has there. Not audited (one guard that now only records).
+
+**Stated.** What Claude Code does at the real limit when the hook keeps refusing was not measured — it would take filling a whole window. After a compaction the orchestrator still has to read the spec and the plan itself; the commands are printed, not enforced. `session-start` still resets a pipeline whose oldest step is more than 24 hours old, also after a compaction — unchanged here.
+
+Suite 3301 → 3317 (bash 5 and /bin/bash 3.2).
+
 ## v7.5.2 — 2026-11-12
 
 Patch: `apd pipeline review-delta` left its temporary directory behind when the reader stopped reading early. Only a project with `APD_REVIEW_RESUME` set runs this code.

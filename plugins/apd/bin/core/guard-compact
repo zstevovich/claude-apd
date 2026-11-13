@@ -1,12 +1,20 @@
 #!/bin/bash
-# APD Guard — blocks compaction while pipeline is active
+# APD Guard — records a compaction that happens while a pipeline is active
 #
-# PreCompact hook (CC 2.1.105+): exit 2 = BLOCK compaction
-# When pipeline has active steps, losing context mid-run causes
-# orchestrator to lose spec, plan, and dispatch state.
+# PreCompact hook. Never blocks (v7.5.3). Until then it refused every
+# compaction mid-pipeline, automatic ones included: Claude Code then retries
+# on each turn, is refused each time, and the context grows until the session
+# cannot continue — in the middle of the task the block was meant to protect.
+# The task's state is on disk (spec card, plan, agent ledger, step flags), and
+# the PostCompact hook (session-start) names the task, the next step and the
+# commands that read the spec and the plan back.
+#
+# Mid-pipeline it writes one INFO line to guard-audit.log:
+#   compact-during-pipeline|trigger=<manual|auto|unknown> next=<step> task=<task>
 
 source "$(dirname "$0")/../lib/resolve-project.sh"
 [ "$APD_ACTIVE" = false ] && exit 0
+source "$(dirname "$0")/../lib/style.sh"
 
 # No active pipeline — allow compaction
 if [ ! -d "$PIPELINE_DIR" ] || ! ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
@@ -19,7 +27,7 @@ if [ -f "$PIPELINE_DIR/spec.done" ] && [ -f "$PIPELINE_DIR/builder.done" ] && \
     exit 0
 fi
 
-# Pipeline in progress — block compaction
+# Pipeline in progress — allow, and record it
 TASK="[unknown]"
 NEXT_STEP=""
 if [ -f "$PIPELINE_DIR/spec.done" ]; then
@@ -32,7 +40,12 @@ for s in spec builder reviewer verifier; do
     fi
 done
 
-echo "BLOCKED: Pipeline in progress — compaction would lose context." >&2
-echo "  Task: $TASK (next step: $NEXT_STEP)" >&2
-echo "  Finish the pipeline or run: bash $APD_SHORTCUT_DISPLAY pipeline reset" >&2
-exit 2
+# The payload names who asked: "manual" (/compact) or "auto" (context full).
+INPUT=""; [ -t 0 ] || INPUT=$(cat 2>/dev/null)
+TRIGGER=$(printf '%s' "$INPUT" | jq -r '.trigger // empty' 2>/dev/null) || TRIGGER=""
+case "$TRIGGER" in manual|auto) ;; *) TRIGGER=unknown ;; esac
+
+if [ -d "${MEMORY_DIR:-}" ]; then
+    echo "$(date +"%Y-%m-%d %H:%M:%S")|$(_audit_type INFO)|orchestrator|compact-during-pipeline|trigger=$TRIGGER next=$NEXT_STEP task=$TASK" >> "$MEMORY_DIR/guard-audit.log" 2>/dev/null
+fi
+exit 0
