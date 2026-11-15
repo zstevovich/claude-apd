@@ -13,10 +13,11 @@ bump-version
 cdx-session-start.log
 session-start.log
 
-# Go source — not distributed, only compiled binaries ship
-cmd/
-go.mod
-go.sum
+# validate-agent's Go source at the repo root — not distributed, only its compiled binaries ship.
+# (anchored: the guard module under guard/ IS tracked)
+/cmd/
+/go.mod
+/go.sum
 
 # OS
 .DS_Store
