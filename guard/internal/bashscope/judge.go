@@ -156,6 +156,7 @@ func varTail(p string) string {
 func (j *judge) add(t target) { t.apd = j.stmtAPD; j.targets = append(j.targets, t) }
 
 var devFd = regexp.MustCompile(`^/dev/fd/[0-9][0-9]?$`)
+var fdWord = regexp.MustCompile(`^([0-9]+-?|-)$`)
 
 func (j *judge) addTarget(raw string, nofollow bool) {
 	switch raw {
@@ -430,8 +431,19 @@ func (j *judge) stmt(s *syntax.Stmt, fedBody string) {
 				body += "\n"
 			}
 			hb += body
+		case syntax.RdrInOut:
+			// `<> file` opens for reading AND writing, and creates the file
+			rt = append(rt, j.word(r.Word))
+		case syntax.DplOut:
+			// `>&2`, `>&-` duplicate or close a descriptor; `>& file` writes stdout and stderr to the file
+			if w := j.word(r.Word); !fdWord.MatchString(w) {
+				rt = append(rt, w)
+			}
+		case syntax.RdrIn, syntax.DplIn, syntax.WordHdoc:
+			j.word(r.Word)
 		default:
 			j.word(r.Word)
+			j.addUnknown("a redirection the guard does not know")
 		}
 	}
 	switch c := s.Cmd.(type) {
