@@ -99,6 +99,14 @@ func TestAuditFunctionThroughAVariable(t *testing.T) {
 		{"cd out; g='cd ../src'; $g; touch a", 0},
 		{"g='echo x > out/a'; $g", 0}, // prints `x > out/a`: nothing is written
 		{"g='touch out/a'; $g", 2},
+		// the arguments stay the words they were, and an unresolved one stays unresolved
+		{`cd src; g=touch; $g $1`, 2},
+		{`cd src; g=touch; $g "$UNSET/x"`, 2},
+		{`cd src; g=touch; $g "a b"`, 0},
+		{`cd src; g=touch; $g a ../out/b`, 2},
+		{`g=touch; $g "src/a b"`, 0},
+		{`cd src; g=touch; $g "a ; touch /etc/b"`, 0}, // one odd file name under src, not two commands
+		{`cd src; g=touch; $g "a > /etc/b"`, 0},
 	} {
 		if got := judgeIn(root, c.cmd, "src/"); got != c.want {
 			t.Errorf("%q: rc=%d, want %d", c.cmd, got, c.want)

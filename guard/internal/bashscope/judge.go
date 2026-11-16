@@ -628,22 +628,25 @@ func (j *judge) process(c shell.Command) {
 		}
 	case strings.HasPrefix(cmd, "$"):
 		// a variable in command position: readable only when this command assigned it
-		text := cmd
-		if len(a) > 0 {
-			text += " " + strings.Join(a, " ")
-		}
-		text = j.subst(text)
-		if strings.HasPrefix(strings.TrimLeft(text, " "), "$") {
+		head := j.subst(cmd)
+		if strings.HasPrefix(strings.TrimLeft(head, " "), "$") {
 			j.addOpaque(cmd, "variable in command position")
 		} else {
 			// What the variable names runs in THIS shell: a function it calls is known
 			// here and a cd in it stays in effect. But the shell only SPLITS an expanded
 			// value into words — it does not read `x=1`, `>` or `;` in it as syntax — so
-			// each word is handed on quoted: `g='x=src'; $g` runs a program named
-			// `x=src`, it assigns nothing.
+			// each of its words is handed on in single quotes: `g='x=src'; $g` runs a
+			// program named `x=src`, it assigns nothing.
 			var q []string
-			for _, w := range strings.Fields(text) {
+			for _, w := range strings.Fields(head) {
 				q = append(q, "'"+strings.ReplaceAll(w, "'", `'\''`)+"'")
+			}
+			// The arguments are the words the parser already made: each stays ONE word
+			// (double quotes — a space in it does not split it) and an expansion left
+			// in it stays an expansion, so a target the guard cannot resolve is still
+			// one it cannot resolve.
+			for _, w := range a {
+				q = append(q, `"`+strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(w)+`"`)
 			}
 			j.evalHere(strings.Join(q, " "))
 		}

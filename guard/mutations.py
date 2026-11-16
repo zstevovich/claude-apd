@@ -172,6 +172,8 @@ muts=[
  ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
  ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
  ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
+ ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
+ ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
  ('blind: any name that says adversarial','internal/specblind/judge.go','return strings.Contains(agentType, "adversarial")','return agentType == "adversarial-reviewer"'),
  ('blind: a Grep with no path','internal/specblind/judge.go','in(o.Tool, "Grep", "Glob") {','in(o.Tool, "Glob") {'),
  ('blind: a Glob with no path','internal/specblind/judge.go','in(o.Tool, "Grep", "Glob") {','in(o.Tool, "Grep") {'),
@@ -371,6 +373,7 @@ muts=[
  ('audit: blind a search rooted above the project','internal/specblind/judge.go','\tif strings.HasPrefix(rel, "/") && j.o.Tool != "Read" &&','\tif false && j.o.Tool != "Read" &&'),
  ('audit: blind a Read above the project is not a search','internal/specblind/judge.go','j.o.Tool != "Read" &&','true &&'),
  ('audit: more brace groups than are counted','internal/shell/walk.go','\tif braceGroup.MatchString(s) {','\tif false {'),
+ ('audit: arguments after a command-position variable stay unresolved when they are','internal/bashscope/judge.go','\t\t\t\tq = append(q, `"`+strings.NewReplacer(`\\`, `\\\\`, `"`, `\\"`).Replace(w)+`"`)\n','\t\t\t\tq = append(q, w)\n'),
  ('audit: an expanded value is split into words, not read as syntax','internal/bashscope/judge.go','\t\t\t\tq = append(q, "\'"+strings.ReplaceAll(w, "\'", `\'\\\'\'`)+"\'")\n','\t\t\t\tq = append(q, w)\n'),
 ]
 ok=0
