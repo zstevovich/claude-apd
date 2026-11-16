@@ -37,6 +37,8 @@ func main() {
 				o.Cwd = next()
 			case "--project-dir":
 				o.ProjectDir = next()
+			case "--apd-root":
+				o.ApdRoot = next()
 			case "--deny-all-writes":
 				o.DenyAllWrites = true
 			default:

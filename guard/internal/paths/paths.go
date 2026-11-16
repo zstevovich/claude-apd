@@ -129,9 +129,6 @@ func (e Env) Canon(p, base string, nofollow bool) string {
 		strings.Contains(p, "/./") || strings.Contains(p, "//") {
 		return e.CanonAbs(p, "/", false)
 	}
-	if !nofollow && IsLink(p) {
-		return e.CanonAbs(p, "/", false)
-	}
 	i := strings.LastIndex(p, "/")
 	d, b := p[:i], p[i+1:]
 	if d == "" {

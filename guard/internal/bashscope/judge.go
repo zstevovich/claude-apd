@@ -7,11 +7,11 @@ import (
 	"os"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/zstevovich/claude-apd/guard/internal/paths"
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/zstevovich/claude-apd/guard/internal/shell"
+	"github.com/zstevovich/claude-apd/guard/internal/tools"
 )
 
 type target struct {
@@ -25,6 +25,7 @@ type cfg struct {
 	denyAll                                      bool
 	budget                                       *int
 	env                                          paths.Env
+	apdRoot                                      string // canonical plugins/apd directory; "" = unknown
 }
 
 type cwdState struct {
@@ -35,7 +36,6 @@ type cwdState struct {
 type judge struct {
 	c           *cfg
 	command     string
-	src         string
 	depth       int
 	data        bool
 	protectOnly bool
@@ -54,6 +54,10 @@ type judge struct {
 	rtAllProj   bool
 	nCwd        []cwdState
 	nTxt        []string
+	saved       []snapshot
+	rd          *shell.Reader
+	evals       int
+	envN, envV  []string // assignments that reach only the current command's environment
 	reason      string
 }
 
@@ -166,10 +170,6 @@ func (j *judge) addTarget(raw string, nofollow bool) {
 	if strings.HasPrefix(raw, "&") || devFd.MatchString(raw) {
 		return
 	}
-	if strings.Contains(raw, `\`) {
-		j.add(target{raw: raw, note: "a backslash escape in a path is not decoded"})
-		return
-	}
 	s := j.subst(raw)
 	if unresolved(s) {
 		j.add(target{raw: raw, note: "unresolved variable or substitution"})
@@ -237,6 +237,9 @@ func (j *judge) recurse(text string, data bool) {
 		return
 	}
 	text = strings.ReplaceAll(text, "\x1e", "\n")
+	for k := range j.envN { // what `X=v sh -c …` hands the nested shell
+		text = repl(text, j.envN[k], j.envV[k])
+	}
 	text = j.subst(text)
 	t := strings.TrimLeft(text, " ")
 	if strings.HasPrefix(t, "$(") || strings.HasPrefix(t, "`") {
@@ -279,52 +282,36 @@ func (j *judge) recurse(text string, data bool) {
 	}
 }
 
-// ---------- words ----------
+// ---------- reading the command (internal/shell) ----------
 
-func (j *judge) node(n syntax.Node) string {
-	return j.src[n.Pos().Offset():n.End().Offset()]
+// snapshot is the state a subshell, a substitution or a pipeline element gets a
+// copy of: what it changes does not reach the commands after it.
+type snapshot struct {
+	cwd     string
+	unknown bool
+	vn, vv  []string
+	dirs    []cwdState
+	group   int
 }
 
-func unescape(s string, dq bool) string {
-	if !strings.Contains(s, `\`) {
-		return s
+func (j *judge) Enter(s shell.Scope) {
+	j.saved = append(j.saved, snapshot{j.cwd, j.cwdUnknown, append([]string(nil), j.vn...),
+		append([]string(nil), j.vv...), append([]cwdState(nil), j.dirStack...), j.group})
+	if s == shell.Subshell || s == shell.Substitution {
+		j.group++
 	}
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\\' && i+1 < len(s) {
-			n := s[i+1]
-			if n == '\n' {
-				i++
-				continue
-			}
-			if !dq || n == '"' || n == '\\' || n == '$' || n == '`' {
-				b.WriteByte(n)
-				i++
-				continue
-			}
-		}
-		b.WriteByte(s[i])
-	}
-	return b.String()
 }
 
-func ansiC(s string) string {
-	// $'…' decoded: Go's own escape rules cover \xHH, \NNN, \uHHHH, \n, \t, \\
-	if v, err := strconv.Unquote(`"` + strings.ReplaceAll(strings.ReplaceAll(s, `\'`, `'`), `"`, `\"`) + `"`); err == nil {
-		return v
-	}
-	return s
+func (j *judge) Leave(shell.Scope) {
+	k := len(j.saved) - 1
+	sn := j.saved[k]
+	j.saved = j.saved[:k]
+	j.cwd, j.cwdUnknown, j.vn, j.vv, j.dirStack, j.group = sn.cwd, sn.unknown, sn.vn, sn.vv, sn.dirs, sn.group
 }
 
-func (j *judge) inline(stmts []*syntax.Stmt) {
-	save := cwdState{j.cwd, j.cwdUnknown}
-	j.group++
-	j.stmts(stmts)
-	j.group--
-	j.cwd, j.cwdUnknown = save.cwd, save.unknown
-}
-
-func (j *judge) queueNested(text string) {
+// QuotedSubst: the substitution runs, its output is data for a command judged
+// on its own. One nested reading per working directory, at the end.
+func (j *judge) QuotedSubst(text string) {
 	for i := range j.nCwd {
 		if j.nCwd[i].cwd == j.cwd && j.nCwd[i].unknown == j.cwdUnknown {
 			j.nTxt[i] += "\x1e" + text
@@ -335,256 +322,101 @@ func (j *judge) queueNested(text string) {
 	j.nTxt = append(j.nTxt, text)
 }
 
-func (j *judge) parts(ps []syntax.WordPart, quoted bool) string {
-	var b strings.Builder
-	for _, p := range ps {
-		switch x := p.(type) {
-		case *syntax.Lit:
-			b.WriteString(unescape(x.Value, quoted))
-		case *syntax.SglQuoted:
-			if x.Dollar {
-				b.WriteString(ansiC(x.Value))
-			} else {
-				b.WriteString(x.Value)
-			}
-		case *syntax.DblQuoted:
-			b.WriteString(j.parts(x.Parts, true))
-		case *syntax.CmdSubst:
-			if quoted {
-				t := j.node(x)
-				j.queueNested(t)
-				b.WriteString(t)
-			} else {
-				j.inline(x.Stmts)
-				b.WriteString("$")
-			}
-		case *syntax.ProcSubst:
-			j.inline(x.Stmts)
-			b.WriteString("/dev/fd/63")
-		default:
-			syntax.Walk(p, func(n syntax.Node) bool {
-				if cs, ok := n.(*syntax.CmdSubst); ok {
-					j.inline(cs.Stmts)
-					return false
-				}
-				return true
-			})
-			b.WriteString(j.node(p))
+// For: the loop variable takes the first item that is NOT in scope, if there is
+// one, so a write on it in the body is refused; otherwise the first item.
+func (j *judge) For(name string, items []string) {
+	w, first := "", ""
+	for k, raw := range items {
+		if k == 0 {
+			first = raw
+		}
+		body := j.subst(raw)
+		if unresolved(body) || !j.c.inScope(j.c.canonCached(body, j.cwd, false)) {
+			w = raw
+			break
 		}
 	}
-	return b.String()
+	if w == "" {
+		w = first
+	}
+	j.setvar(name, w)
 }
 
-func (j *judge) word(w *syntax.Word) string {
-	if w == nil {
-		return ""
-	}
-	return j.parts(w.Parts, false)
-}
+func (j *judge) Command(c shell.Command) { j.process(c) }
 
-func (j *judge) assign(a *syntax.Assign) string {
-	if a.Name == nil {
-		return j.word(a.Value)
-	}
-	if a.Naked {
-		return a.Name.Value
-	}
-	if a.Append || a.Index != nil || a.Array != nil {
-		return j.node(a)
-	}
-	return a.Name.Value + "=" + j.word(a.Value)
-}
-
-// ---------- statements ----------
-
-func (j *judge) stmts(l []*syntax.Stmt) {
-	for _, s := range l {
-		j.stmt(s, "")
+// Lost: the reader stopped following the shell's state — nothing relative and
+// nothing built from a variable can be placed after this point.
+func (j *judge) Lost(string) {
+	j.cwdUnknown = true
+	for i := range j.vv {
+		j.vv[i] = unknownValue
 	}
 }
 
-func isStdinReader(s *syntax.Stmt) bool {
-	c, ok := s.Cmd.(*syntax.CallExpr)
-	if !ok || len(c.Args) == 0 {
-		return false
-	}
-	switch c.Args[0].Lit() {
-	case "bash", "sh", "zsh", "dash", "python", "python3", "node", "ruby", "php", "perl":
-		return true
-	}
-	return false
-}
-
-func (j *judge) stmt(s *syntax.Stmt, fedBody string) {
-	if s == nil {
+// evalHere reads text that `eval` runs in THIS shell: a cd, an assignment or a
+// function defined in it is still in effect for the commands after it.
+func (j *judge) evalHere(text string) {
+	if text == "" {
 		return
 	}
-	var rt []string
-	hb := fedBody
-	for _, r := range s.Redirs {
-		switch r.Op {
-		case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.ClbOut:
-			rt = append(rt, j.word(r.Word))
-		case syntax.Hdoc, syntax.DashHdoc:
-			body := j.parts(r.Hdoc.Parts, true)
-			if body != "" && !strings.HasSuffix(body, "\n") {
-				body += "\n"
-			}
-			hb += body
-		case syntax.RdrInOut:
-			// `<> file` opens for reading AND writing, and creates the file
-			rt = append(rt, j.word(r.Word))
-		case syntax.DplOut:
-			// `>&2`, `>&-` duplicate or close a descriptor; `>& file` writes stdout and stderr to the file
-			if w := j.word(r.Word); !fdWord.MatchString(w) {
-				rt = append(rt, w)
-			}
-		case syntax.RdrIn, syntax.DplIn, syntax.WordHdoc:
-			j.word(r.Word)
-		default:
-			j.word(r.Word)
-			j.addUnknown("a redirection the guard does not know")
-		}
+	for k := range j.envN {
+		text = repl(text, j.envN[k], j.envV[k])
 	}
-	switch c := s.Cmd.(type) {
-	case nil:
-		j.process(nil, rt, hb)
-	case *syntax.CallExpr:
-		var st []string
-		for _, a := range c.Assigns {
-			st = append(st, j.assign(a))
+	text = j.subst(text)
+	switch t := strings.TrimLeft(text, " "); {
+	case strings.HasPrefix(t, "$(") || strings.HasPrefix(t, "`"):
+		// the OUTPUT of the substitution is what runs, and that is not visible
+		if j.namesFenced() {
+			j.addOpaque(text, "substitution output runs")
+			return
 		}
-		for _, a := range c.Args {
-			st = append(st, j.word(a))
-		}
-		j.process(st, rt, hb)
-	case *syntax.DeclClause:
-		st := []string{c.Variant.Value}
-		for _, a := range c.Args {
-			st = append(st, j.assign(a))
-		}
-		j.process(st, rt, hb)
-	case *syntax.BinaryCmd:
-		if (c.Op == syntax.Pipe || c.Op == syntax.PipeAll) && isStdinReader(c.Y) {
-			// a heredoc piped into a shell or interpreter is that program's text
-			body := ""
-			for _, r := range c.X.Redirs {
-				if r.Op == syntax.Hdoc || r.Op == syntax.DashHdoc {
-					body += j.parts(r.Hdoc.Parts, true)
-				}
-			}
-			j.stmt(c.X, "")
-			j.stmt(c.Y, body)
-		} else {
-			j.stmt(c.X, "")
-			j.stmt(c.Y, "")
-		}
-		j.process(nil, rt, "")
-	case *syntax.Subshell:
-		j.inline(c.Stmts)
-		j.process(nil, rt, "")
-	case *syntax.Block:
-		j.stmts(c.Stmts)
-		j.process(nil, rt, "")
-	case *syntax.IfClause:
-		for cl := c; cl != nil; cl = cl.Else {
-			j.stmts(cl.Cond)
-			j.stmts(cl.Then)
-		}
-		j.process(nil, rt, "")
-	case *syntax.WhileClause:
-		j.stmts(c.Cond)
-		j.stmts(c.Do)
-		j.process(nil, rt, "")
-	case *syntax.ForClause:
-		if wi, ok := c.Loop.(*syntax.WordIter); ok && wi.InPos.IsValid() {
-			w, last, first := "", "", true
-			for _, it := range wi.Items {
-				raw := j.word(it)
-				if first {
-					last, first = raw, false
-				}
-				body := j.subst(raw)
-				if unresolved(body) {
-					w = raw
-					break
-				}
-				if !j.c.inScope(j.c.canonCached(body, j.cwd, false)) {
-					w = raw
-					break
-				}
-			}
-			if w == "" {
-				w = last
-			}
-			j.setvar(wi.Name.Value, w)
-		}
-		j.stmts(c.Do)
-		j.process(nil, rt, "")
-	case *syntax.CaseClause:
-		j.word(c.Word)
-		for _, it := range c.Items {
-			j.stmts(it.Stmts)
-		}
-		j.process(nil, rt, "")
-	case *syntax.FuncDecl:
-		j.stmt(c.Body, "")
-	case *syntax.TimeClause:
-		j.stmt(c.Stmt, "")
-	case *syntax.CoprocClause:
-		j.stmt(c.Stmt, "")
-	default:
-		// (( … )), [[ … ]], let: no words to judge, but a substitution inside still runs
-		syntax.Walk(s.Cmd, func(n syntax.Node) bool {
-			if cs, ok := n.(*syntax.CmdSubst); ok {
-				j.inline(cs.Stmts)
-				return false
-			}
-			return true
-		})
-		j.process(nil, rt, "")
+	case strings.HasPrefix(t, "$"):
+		j.addOpaque(text, "variable body")
+		return
 	}
+	if j.evals++; j.evals > 8 {
+		j.addUnknown("eval nested deeper than the guard reads")
+		j.Lost("")
+		return
+	}
+	data := j.data
+	j.data = false
+	if err := j.rd.Walk(text, j); err != nil {
+		j.addUnknown("eval text the parser could not read")
+		if j.namesFenced() {
+			j.addOpaque("unreadable eval text", "the parser stopped: "+err.Error())
+		}
+		j.Lost("")
+	}
+	j.data = data
 }
 
-func positionals(a []string, vflags string) []string {
-	re := regexp.MustCompile(vflags)
-	var nf []string
-	flagsDone, skip := false, false
-	for _, x := range a {
-		if skip {
-			skip = false
-			continue
+// unknownValue stands for a variable whose value the guard cannot know (read,
+// mapfile, an array): a path built from it is unresolved, and so refused.
+const unknownValue = "`unknown`"
+
+func (j *judge) assigned(n string) (string, bool) {
+	for i := range j.vn {
+		if j.vn[i] == n {
+			return j.vv[i], true
 		}
-		if !flagsDone {
-			if x == "--" {
-				flagsDone = true
-				continue
-			}
-			if len(x) >= 2 && x[0] == '-' {
-				if re.MatchString(x) {
-					skip = true
-				}
-				continue
-			}
-		}
-		nf = append(nf, x)
 	}
-	return nf
+	return "", false
 }
 
-func apdToolWord(w, next string) bool {
-	for _, t := range []string{"pipeline-advance", "verify-apd", "pipeline-post-commit", "pipeline-gate"} {
-		if strings.HasSuffix(w, "/plugins/apd/bin/core/"+t) {
-			return true
-		}
-		if strings.Contains(w, "APD_PLUGIN_ROOT") && strings.HasSuffix(w, "/bin/core/"+t) {
-			return true
-		}
+func (j *judge) valueOf(a shell.Assign) string {
+	if a.Opaque {
+		return unknownValue
 	}
-	if w == "apd" || w == ".claude/bin/apd" || strings.HasSuffix(w, "/.claude/bin/apd") || strings.HasSuffix(w, "/plugins/apd/bin/apd") {
-		return next == "pipeline"
+	v := j.subst(a.Value)
+	if a.Append {
+		old, ok := j.assigned(a.Name)
+		if !ok {
+			return unknownValue
+		}
+		return old + v
 	}
-	return false
+	return v
 }
 
 func in(s string, l ...string) bool {
@@ -603,11 +435,75 @@ func at(a []string, i int) string {
 }
 
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
-var writers = []string{"cp", "mv", "rm", "rmdir", "mkdir", "touch", "tee", "sed", "perl", "install", "dd", "ln", "truncate", "chmod", "chown", "rsync"}
+var apdCore = []string{"pipeline-advance", "verify-apd", "pipeline-post-commit", "pipeline-gate"}
 
-func (j *judge) process(st, rt []string, hb string) {
+// apdTool: is this word one of APD's own tools — the real ones, by where they
+// live, not anything whose path merely ends like one.
+func (j *judge) apdTool(w, next string) bool {
+	// The plugin root written as the environment's own variable, exactly: what it
+	// expands to is not this command's doing. An assignment made in the command
+	// is substituted below and judged by where it really points.
+	for _, v := range []struct{ name, tail string }{{"APD_PLUGIN_ROOT", "/bin/core/"}, {"CLAUDE_PLUGIN_ROOT", "/plugins/apd/bin/core/"}} {
+		if _, set := j.assigned(v.name); set {
+			continue
+		}
+		for _, t := range apdCore {
+			if w == "$"+v.name+v.tail+t || w == "${"+v.name+"}"+v.tail+t {
+				return true
+			}
+		}
+	}
+	s := j.subst(w)
+	if unresolved(s) {
+		return false
+	}
+	if s == "apd" {
+		return next == "pipeline"
+	}
+	if !strings.Contains(s, "/") {
+		return false
+	}
+	p := j.c.canonCached(s, j.cwd, true)
+	if p == j.c.projCanon+"/.claude/bin/apd" || (j.c.apdRoot != "" && p == j.c.apdRoot+"/bin/apd") {
+		return next == "pipeline"
+	}
+	if j.c.apdRoot != "" {
+		for _, t := range apdCore {
+			if p == j.c.apdRoot+"/bin/core/"+t {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (j *judge) process(c shell.Command) {
+	st := c.Words
 	n := len(st)
-	if n == 0 && len(rt) == 0 {
+	// `X=v` alone, or under export/local/declare, changes the shell. `X=v cmd`
+	// reaches only cmd's environment: this line's own words and redirections
+	// were expanded before it, and the next command does not see it.
+	persistent := n == 0 || c.Decl != ""
+	j.envN, j.envV = nil, nil
+	for _, a := range c.Assigns {
+		v := j.valueOf(a)
+		if persistent {
+			j.setvar(a.Name, v)
+		} else {
+			j.envN, j.envV = append(j.envN, a.Name), append(j.envV, v)
+		}
+	}
+	j.stmtAPD = false
+	writes := func() {
+		for _, x := range c.Writes {
+			j.addTarget(x, false)
+		}
+		if c.UnknownRedir {
+			j.addUnknown("a redirection the guard does not know")
+		}
+	}
+	if n == 0 {
+		writes()
 		return
 	}
 	i := 0
@@ -627,17 +523,15 @@ loop:
 	for i < n {
 		w := st[i]
 		if k := strings.Index(w, "="); k >= 0 {
-			name := w[:k]
-			if !nameRe.MatchString(name) {
+			if !nameRe.MatchString(w[:k]) {
 				break
 			}
-			j.setvar(name, j.subst(w[k+1:]))
+			j.envN, j.envV = append(j.envN, w[:k]), append(j.envV, j.subst(w[k+1:])) // env X=v cmd
 			i++
 			continue
 		}
 		switch w {
-		case "!", "function", "coproc", "time", "export", "local", "declare", "typeset", "readonly", "command", "builtin", "exec", "nohup", "caffeinate",
-			"if", "then", "else", "elif", "fi", "while", "until", "do", "done", "in", "case", "esac", "{", "}":
+		case "command", "builtin", "exec", "nohup", "caffeinate":
 			i++
 		case "sudo", "doas":
 			skipFlags("-u", "-g", "-p", "-h", "-C", "-D", "-r", "-t", "-U")
@@ -651,16 +545,17 @@ loop:
 				} else if strings.HasPrefix(st[i], "-") {
 					i++
 				} else {
-					i++
+					i++ // the duration
 					break
 				}
 			}
 		case "env":
 			skipFlags("-u", "-C", "-S", "--unset", "--chdir")
 		case "xargs":
+			// the command's targets come from stdin: not visible
 			skipFlags("-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a")
-			if in(at(st, i), append(writers, "git")...) {
-				j.addUnknown("xargs " + st[i])
+			if x := at(st, i); tools.Writer(x) || x == "git" {
+				j.addUnknown("xargs " + x)
 			}
 		default:
 			break loop
@@ -671,18 +566,17 @@ loop:
 	if i+1 < n {
 		a = st[i+1:]
 	}
-	j.stmtAPD = false
 
 	switch {
 	case cmd == "$" || strings.HasPrefix(cmd, "$(") || strings.HasPrefix(cmd, "`"):
+		// a substitution in command position: its OUTPUT is the command that runs
 		if (!j.data || j.group > 0) && j.namesFenced() {
 			j.addOpaque(cmd, "substitution in command position")
+			writes()
 			return
 		}
-	case strings.Contains(cmd, `\`):
-		j.addOpaque(cmd, "undecoded escape in the command word")
-		return
 	case strings.HasPrefix(cmd, "$"):
+		// a variable in command position: readable only when this command assigned it
 		text := cmd
 		if len(a) > 0 {
 			text += " " + strings.Join(a, " ")
@@ -690,49 +584,51 @@ loop:
 		text = j.subst(text)
 		if strings.HasPrefix(strings.TrimLeft(text, " "), "$") {
 			j.addOpaque(cmd, "variable in command position")
-			return
+		} else {
+			j.recurse(text, false)
 		}
-		j.recurse(text, false)
+		writes()
 		return
 	}
 
 	if cmd == "bash" || cmd == "sh" {
-		j.stmtAPD = apdToolWord(at(a, 0), at(a, 1))
+		j.stmtAPD = j.apdTool(at(a, 0), at(a, 1))
 	} else {
-		j.stmtAPD = apdToolWord(cmd, at(a, 0))
+		j.stmtAPD = j.apdTool(cmd, at(a, 0))
 	}
 
-	tgt := func(x string) { j.addTarget(x, false) }
+	chdir := func(w string) {
+		w = j.subst(w)
+		if unresolved(w) {
+			j.cwdUnknown = true
+		} else {
+			j.cwd, j.cwdUnknown = j.c.canonCached(w, j.cwd, false), false
+		}
+	}
+	forget := func(names ...string) {
+		for _, x := range names {
+			if nameRe.MatchString(x) {
+				j.setvar(x, unknownValue)
+			}
+		}
+	}
 	switch cmd {
 	case "cd":
-		nf := positionals(a, `^$`)
-		w := at(nf, 0)
-		switch w {
+		switch w := at(tools.Positionals(a, `^$`), 0); w {
 		case "", "~":
 			j.cwd, j.cwdUnknown = j.c.home, false
 		case "-":
 			j.cwdUnknown = true
 		default:
-			w = j.subst(w)
-			if unresolved(w) {
-				j.cwdUnknown = true
-			} else {
-				j.cwd, j.cwdUnknown = j.c.canonCached(w, j.cwd, false), false
-			}
+			chdir(w)
 		}
 	case "pushd":
-		nf := positionals(a, `^$`)
-		w := at(nf, 0)
+		w := at(tools.Positionals(a, `^$`), 0)
 		j.dirStack = append(j.dirStack, cwdState{j.cwd, j.cwdUnknown})
 		if w == "" {
-			j.cwdUnknown = true
+			j.cwdUnknown = true // swaps the top two: not modelled
 		} else {
-			w = j.subst(w)
-			if unresolved(w) {
-				j.cwdUnknown = true
-			} else {
-				j.cwd, j.cwdUnknown = j.c.canonCached(w, j.cwd, false), false
-			}
+			chdir(w)
 		}
 	case "popd":
 		if k := len(j.dirStack); k > 0 {
@@ -741,255 +637,42 @@ loop:
 		} else {
 			j.cwdUnknown = true
 		}
-	case "cp", "install":
-		w := ""
+	case "read":
+		// the value comes from input the guard does not see
+		forget(tools.Positionals(a, `^-[adinNptu]$`)...)
 		for k, x := range a {
-			if x == "-t" || x == "--target-directory" {
-				w = at(a, k+1)
-			} else if strings.HasPrefix(x, "--target-directory=") {
-				w = strings.TrimPrefix(x, "--target-directory=")
+			if x == "-a" {
+				forget(at(a, k+1))
 			}
 		}
-		if w != "" {
-			tgt(w)
-		} else if nf := positionals(a, `^(-t|--target-directory|-m|-o|-g|--mode|--owner|--group)$`); len(nf) > 0 {
-			tgt(nf[len(nf)-1])
+	case "mapfile", "readarray":
+		if nf := tools.Positionals(a, `^-[dnOsutCc]$`); len(nf) > 0 {
+			forget(nf[len(nf)-1])
 		}
-	case "mv":
-		for _, x := range positionals(a, `^(-t|--target-directory)$`) {
-			tgt(x)
+	case "printf":
+		if at(a, 0) == "-v" {
+			forget(at(a, 1))
 		}
-		for k, x := range a {
-			if x == "-t" || x == "--target-directory" {
-				tgt(at(a, k+1))
-			} else if strings.HasPrefix(x, "--target-directory=") {
-				tgt(strings.TrimPrefix(x, "--target-directory="))
-			}
-		}
-	case "mkdir":
-		for _, x := range positionals(a, `^(-m|--mode)$`) {
-			tgt(x)
-		}
-	case "touch":
-		for _, x := range positionals(a, `^(-t|-r|-d|--date|--reference)$`) {
-			tgt(x)
-		}
-	case "rm", "rmdir", "tee", "unlink", "chmod", "chown", "chgrp", "truncate", "ln", "rsync", "shred":
-		var nf []string
-		switch cmd {
-		case "chmod", "chown", "chgrp":
-			nf = positionals(a, `^(--reference)$`)
-			if len(nf) > 0 {
-				nf = nf[1:]
-			}
-		case "truncate":
-			nf = positionals(a, `^(-s|-r|--size|--reference)$`)
-		case "rsync":
-			nf = positionals(a, `^(-e|--rsh|--exclude|--include|--filter|--files-from|--log-file)$`)
-			if len(nf) > 0 {
-				nf = nf[len(nf)-1:]
-			}
-		case "ln":
-			nf = positionals(a, `^(-t|--target-directory|-S|--suffix)$`)
-			if len(nf) >= 2 {
-				nf = nf[len(nf)-1:]
-			} else if len(nf) == 1 {
-				nf = []string{nf[0][strings.LastIndex(nf[0], "/")+1:]}
-			}
-		default:
-			nf = positionals(a, `^$`)
-		}
-		nofollow := in(cmd, "rm", "rmdir", "unlink")
-		for _, x := range nf {
-			j.addTarget(x, nofollow)
-		}
-	case "dd":
-		for _, x := range a {
-			if strings.HasPrefix(x, "of=") {
-				tgt(x[3:])
-			}
-		}
-	case "curl", "wget":
-		hasO := false
-		for k, x := range a {
-			switch {
-			case in(x, "-o", "--output", "-O", "--output-document"):
-				tgt(at(a, k+1))
-			case strings.HasPrefix(x, "--output=") || strings.HasPrefix(x, "--output-document="):
-				tgt(x[strings.Index(x, "=")+1:])
-			case strings.HasPrefix(x, "-o"):
-				if cmd == "curl" {
-					tgt(x[2:])
-				}
-			case strings.HasPrefix(x, "-O"):
-				if cmd == "wget" {
-					tgt(x[2:])
-				}
-			}
-			if strings.HasPrefix(x, "-O") || strings.HasPrefix(x, "--output-document") {
-				hasO = true
-			}
-		}
-		if cmd == "wget" && !hasO {
-			tgt("./")
-		}
-	case "sort":
-		for k, x := range a {
-			switch {
-			case x == "-o" || x == "--output":
-				tgt(at(a, k+1))
-			case strings.HasPrefix(x, "--output="):
-				tgt(x[9:])
-			case strings.HasPrefix(x, "-o") && len(x) > 2:
-				tgt(x[2:])
-			}
-		}
-	case "tar", "unzip":
-		w := ""
-		for k, x := range a {
-			if in(x, "-C", "--directory", "-d") {
-				w = at(a, k+1)
-			} else if strings.HasPrefix(x, "--directory=") {
-				w = x[12:]
-			}
-		}
-		body := cmd == "unzip"
-		if cmd == "tar" {
-			for _, x := range a {
-				if x == "--extract" || (strings.HasPrefix(x, "-") && strings.Contains(x[1:], "x")) {
-					body = true
-				} else if len(x) >= 2 && isLetter(x[0]) && strings.Contains(x[1:], "x") {
-					body = true
-				}
-			}
-		}
-		if body {
-			if w == "" {
-				w = "./"
-			}
-			tgt(w)
-		}
-	case "sed":
-		inplace, hasExpr := false, false
-		for _, x := range a {
-			switch {
-			case strings.HasPrefix(x, "--in-place"):
-				inplace = true
-			case in(x, "-e", "--expression", "-f", "--file"):
-				hasExpr = true
-			case len(x) > 2 && (strings.HasPrefix(x, "-e") || strings.HasPrefix(x, "-f")):
-				hasExpr = true
-			case len(x) >= 2 && x[0] == '-' && isLetter(x[1]):
-				if strings.Contains(x, "i") {
-					inplace = true
-				}
-			}
-		}
-		if inplace {
-			seenPat, expect := false, false
-			for _, x := range a {
-				if expect {
-					expect = false
-					continue
-				}
-				if x == "" {
-					continue
-				}
-				if in(x, "-e", "--expression", "-f", "--file") {
-					expect = true
-					continue
-				}
-				if strings.HasPrefix(x, "-") {
-					continue
-				}
-				if !hasExpr && !seenPat {
-					seenPat = true
-					continue
-				}
-				tgt(x)
-			}
-		}
-	case "perl":
-		inplace := false
-		for _, x := range a {
-			if strings.HasPrefix(x, "-i") || (len(x) >= 2 && x[0] == '-' && isAlnum(x[1]) && strings.Contains(x[2:], "i")) {
-				if x != "-e" && x != "-E" {
-					inplace = true
-				}
-			}
-		}
-		if inplace {
-			expect := false
-			for _, x := range a {
-				if expect {
-					expect = false
-					continue
-				}
-				if in(x, "-e", "-E", "-M", "-m") {
-					expect = true
-					continue
-				}
-				if strings.HasPrefix(x, "-") {
-					continue
-				}
-				tgt(x)
-			}
-		} else {
-			text, expect := "", false
-			for _, x := range a {
-				if expect {
-					text += x + "\n"
-					expect = false
-					continue
-				}
-				if x == "-e" || x == "-E" {
-					expect = true
-				}
-			}
-			text += hb
-			if text != "" && lineMatch(rtRe["perl"], text) {
-				j.rtMark(text + "\n" + strings.Join(a, " "))
-			}
-		}
-	case "git":
-		w := at(a, 0)
-		switch w {
-		case "rm", "mv", "restore", "clean":
-			nf := positionals(a[1:], `^(--source|--pathspec-from-file)$`)
-			for _, x := range nf {
-				tgt(x)
-			}
-			if w == "clean" && len(nf) == 0 {
-				tgt("./")
-			}
-		case "checkout":
-			body := false
-			for _, x := range a[1:] {
-				if body {
-					tgt(x)
-				} else if x == "--" {
-					body = true
-				}
-			}
-		}
+	case "getopts":
+		forget(at(a, 1))
+	case "unset":
+		forget(tools.Positionals(a, `^$`)...)
 	case "eval":
-		j.recurse(strings.Join(a, " "), false)
+		j.evalHere(strings.Join(a, " "))
 	case "bash", "sh", "zsh", "dash", "su":
-		text, w := "", false
-		for _, x := range a {
-			if w {
-				text = x
-				break
-			}
+		// `-c <string>` is shell text; so is a heredoc fed to the shell. A script file is not read.
+		text := ""
+		for k, x := range a {
 			if x == "-c" {
-				w = true
+				text = at(a, k+1)
+				break
 			} else if strings.HasPrefix(x, "-c") {
 				text = x[2:]
 				break
 			}
 		}
 		if text == "" {
-			text = hb
+			text = c.Heredoc
 		}
 		if text != "" {
 			j.recurse(text, false)
@@ -1001,79 +684,60 @@ loop:
 		} else if strings.HasPrefix(cmd, "node") {
 			lang = "node"
 		}
-		text, w := "", false
+		text, take := "", false
 		for _, x := range a {
-			if w {
+			if take {
 				text += x + "\n"
-				w = false
+				take = false
 				continue
 			}
 			switch {
 			case in(x, "-c", "-e", "-r", "--eval", "--print", "-p"):
-				w = true
+				take = true
 			case strings.HasPrefix(x, "--eval=") || strings.HasPrefix(x, "--print="):
 				text += x[strings.Index(x, "=")+1:] + "\n"
 			case len(x) > 2 && (strings.HasPrefix(x, "-c") || strings.HasPrefix(x, "-e") || strings.HasPrefix(x, "-r")):
 				text += x[2:] + "\n"
 			}
 		}
-		if hb != "" {
-			last := ""
-			for _, x := range positionals(a, `^(-c|-e|-r|--eval|-m|-W|-X|-r|-d)$`) {
+		if c.Heredoc != "" {
+			// a program on stdin, unless a script file was named
+			script := ""
+			for _, x := range tools.Positionals(a, `^(-c|-e|-r|--eval|-m|-W|-X|-r|-d)$`) {
 				if x != "-" {
-					last = x
+					script = x
 				}
 			}
-			if last == "" {
-				text += hb
+			if script == "" {
+				text += c.Heredoc
 			}
 		}
 		if text != "" && lineMatch(rtRe[lang], text) {
 			j.rtMark(text + "\n" + strings.Join(a, " "))
 		}
-	case "find":
-		body := false
-		for _, x := range a {
-			if x == "-delete" {
-				body = true
-			} else if in(x, "-exec", "-execdir", "-ok", "-okdir") {
-				last := x
-				for k := len(a) - 1; k >= 0; k-- {
-					if a[k] == x {
-						if k+1 < len(a) {
-							last = a[k+1]
-						}
-						break
-					}
-				}
-				if in(last, append(writers, "sh", "bash")...) {
-					body = true
-				}
+	default:
+		if ts, ok := tools.Writes(cmd, a); ok {
+			for _, t := range ts {
+				j.addTarget(t.Path, t.NoFollow)
 			}
-		}
-		if body {
-			var nf []string
+		} else if cmd == "perl" {
+			text, take := "", false
 			for _, x := range a {
-				if strings.HasPrefix(x, "-") || x == "(" || x == "!" {
-					break
+				if take {
+					text += x + "\n"
+					take = false
+				} else if x == "-e" || x == "-E" {
+					take = true
 				}
-				nf = append(nf, x)
 			}
-			if len(nf) == 0 {
-				nf = []string{"./"}
-			}
-			for _, x := range nf {
-				tgt(x)
+			text += c.Heredoc
+			if text != "" && lineMatch(rtRe["perl"], text) {
+				j.rtMark(text + "\n" + strings.Join(a, " "))
 			}
 		}
 	}
-	for _, x := range rt {
-		tgt(x)
-	}
+	writes()
 }
-
-func isLetter(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
-func isAlnum(c byte) bool  { return isLetter(c) || (c >= '0' && c <= '9') }
 
 // ---------- stage 0: the substring checks that run before the parser ----------
 
@@ -1336,7 +1000,6 @@ func (j *judge) decide() (int, string) {
 }
 
 func (j *judge) run(cwdArg string) (int, string) {
-	j.src = j.command
 	j.rtAllScope, j.rtAllProj = true, true
 	if j.command == "" {
 		return 0, ""
@@ -1351,15 +1014,12 @@ func (j *judge) run(cwdArg string) (int, string) {
 	}
 	wd, _ := os.Getwd()
 	j.cwd = j.c.canonAbs(base, wd, false)
-	p := syntax.NewParser(syntax.Variant(syntax.LangBash))
-	f, err := p.Parse(strings.NewReader(j.command), "")
-	if err != nil {
+	j.rd = shell.NewReader()
+	if err := j.rd.Walk(j.command, j); err != nil {
 		j.addUnknown("command the parser could not read")
 		if j.namesFenced() {
 			j.addOpaque("unreadable command", "the parser stopped: "+err.Error())
 		}
-	} else {
-		j.stmts(f.Stmts)
 	}
 	save := cwdState{j.cwd, j.cwdUnknown}
 	for k := range j.nCwd {
@@ -1384,6 +1044,7 @@ type Options struct {
 	Scope                    []string
 	DenyAllWrites            bool
 	Home, TmpDir, PluginRoot string
+	ApdRoot                  string // the plugin's own plugins/apd directory
 }
 
 // Judge returns 0 (allow) or 2 (block) and, for a block, a one-line reason.
@@ -1398,6 +1059,11 @@ func Judge(o Options) (int, string) {
 	c.projCanon = paths.Real(c.projDir)
 	if c.projCanon == "" {
 		c.projCanon = c.projDir
+	}
+	if o.ApdRoot != "" {
+		if c.apdRoot = paths.Real(o.ApdRoot); c.apdRoot == "" {
+			c.apdRoot = o.ApdRoot
+		}
 	}
 	wd, _ := os.Getwd()
 	for _, r := range c.scopeRaw {
