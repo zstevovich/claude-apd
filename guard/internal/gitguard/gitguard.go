@@ -201,8 +201,13 @@ func (j *judge) Command(c shell.Command) {
 		for _, w := range c.Words {
 			j.gitEnv = j.gitEnv || configEnv(w) || unresolved(w) // a name that is not written out may be one of them
 		}
+		ref := false
+		for _, w := range c.Words {
+			ref = ref || (len(w) > 1 && w[0] == '-' && w[1] != '-' && strings.Contains(w, "n"))
+		}
 		for _, a := range c.Assigns {
-			j.gitEnv = j.gitEnv || configEnv(a.Value) // declare -n X=GIT_CONFIG_PARAMETERS
+			// declare -n X=GIT_CONFIG_PARAMETERS — or a nameref onto a name that is not written out
+			j.gitEnv = j.gitEnv || configEnv(a.Value) || (ref && unresolved(a.Value))
 		}
 	}
 	// the arguments find, xargs and parallel hand a command are not written here

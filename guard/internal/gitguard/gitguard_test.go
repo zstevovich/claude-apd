@@ -258,6 +258,8 @@ func TestConfigByOtherRoutes(t *testing.T) {
 		{`git config alias.x 'commit -m y' --get`, ConfigOverride, false}, // --get after the operands is not an action
 		{`declare -n X=GIT_CONFIG_PARAMETERS; X=y; git status`, ConfigOverride, false},
 		{`export "$N"; git status`, ConfigOverride, false},
+		{`declare -n X=$Y; X=y; git status`, ConfigOverride, false},
+		{`declare X=$Y; git status`, "", false},
 		{`export PATH="$PATH:/x"; git status`, "", false},
 	})
 	check(t, "builder", []row{

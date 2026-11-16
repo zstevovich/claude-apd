@@ -140,6 +140,16 @@ func TestWrites(t *testing.T) {
 		{"cp --target-dir=dest a b", []string{"dest"}, true},
 		{"sort --outp=o in", []string{"o"}, true},
 		{"mkdir --mod=700 a", []string{"a"}, true},
+		// abbreviated and without `=`: whether the next word is its value is not known
+		{"cp --target-dir dest a b", []string{"?", "b"}, true},
+		{"sort --outp o in", []string{"?"}, true},
+		// a flag the tool really has is not an abbreviation of a longer option
+		{"rsync -a --partial src/ dest/", []string{"dest/"}, true},
+		{"rsync -a --backup src/ dest/", []string{"dest/"}, true},
+		{"rsync -a --compress --checksum src/ dest/", []string{"dest/"}, true},
+		{"git init --shared repo", []string{"repo"}, true},
+		{"git --attr-source HEAD diff --output=o", []string{"o"}, true},
+		{"git --some-new-option diff --output=o", []string{"?"}, true},
 
 		{"find src -name *.tmp -delete", []string{"src"}, true},
 		{"find a b -exec rm {} ;", []string{"a", "b"}, true},

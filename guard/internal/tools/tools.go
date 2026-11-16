@@ -26,7 +26,12 @@ func Writes(cmd string, args []string) (targets []Target, ok bool) {
 	if f == nil {
 		return nil, false
 	}
+	unsure = ""
 	paths, ok := f(cmd, args)
+	if unsure != "" {
+		// what the tool writes could not be read off this command line for certain
+		targets, ok = append(targets, Target{Unknown: unsure}), true
+	}
 	if !ok {
 		return nil, false
 	}
@@ -50,6 +55,10 @@ var writers = map[string]bool{"cp": true, "mv": true, "rm": true, "rmdir": true,
 	"chmod": true, "chown": true, "rsync": true}
 
 type entry func(cmd string, a []string) ([]string, bool)
+
+// unsure is set by parse while one entry reads one command line: the reason its
+// reading may be wrong. Writes clears it before the entry and reports it after.
+var unsure string
 
 // unknown prefixes an entry's result that is a reason, not a path.
 const unknown = "\x00unknown:"
@@ -156,12 +165,18 @@ func (o opts) all(names ...string) []string {
 // parse reads short options in bundles: in `-sSo out`, `s` and `S` are flags and
 // `o` — a letter in short — takes the rest of the bundle or the next argument
 // as its value. long names the long options that take a value (`--name v` or
-// `--name=v`). `--` ends the options.
+// `--name=v`); a name ending in `!` is a flag the tool has under exactly that
+// name, listed so it is not mistaken for the abbreviation of a longer option.
+// `--` ends the options.
+//
+// An abbreviated long option with `=` is read as the option it abbreviates.
+// Without `=` the reader cannot tell whether the next word is its value, and
+// says so (see unsure).
 func parse(a []string, short string, long ...string) opts {
 	o := opts{val: map[string][]string{}, flags: map[string]bool{}}
 	valued := map[string]bool{}
 	for _, l := range long {
-		valued[l] = true
+		valued[l] = !strings.HasSuffix(l, "!")
 	}
 	for i := 0; i < len(a); i++ {
 		x := a[i]
@@ -171,10 +186,12 @@ func parse(a []string, short string, long ...string) opts {
 			return o
 		case strings.HasPrefix(x, "--"):
 			name, v, eq := strings.Cut(x[2:], "=")
-			name = fullName(name, long)
+			name, abbr := fullName(name, long)
 			o.flags["--"+name] = true
 			if eq {
 				o.val["--"+name] = append(o.val["--"+name], literalTilde(v))
+			} else if abbr && valued[name] {
+				unsure = "an abbreviated option (" + x + ") whose value may be the next word"
 			} else if valued[name] {
 				i++
 				o.val["--"+name] = append(o.val["--"+name], at(a, i))
@@ -212,21 +229,22 @@ func literalTilde(v string) string {
 // fullName: getopt takes any unambiguous abbreviation of a long option. A name
 // that abbreviates a declared option is read as that option — the first one
 // declared when it could be several, and entries declare the option that
-// writes first: an abbreviation the tool would call ambiguous is not a way past.
-func fullName(name string, declared []string) string {
+// writes first. abbreviated reports that the name was not written in full.
+func fullName(name string, declared []string) (full string, abbreviated bool) {
 	match := ""
 	for _, d := range declared {
+		d = strings.TrimSuffix(d, "!")
 		if d == name {
-			return name
+			return name, false
 		}
 		if match == "" && name != "" && strings.HasPrefix(d, name) {
 			match = d
 		}
 	}
 	if match != "" {
-		return match
+		return match, true
 	}
-	return name
+	return name, false
 }
 
 func operands(short string, long ...string) entry {
@@ -270,7 +288,8 @@ func rsync(_ string, a []string) ([]string, bool) {
 		"min-size", "timeout", "port", "password-file", "write-batch", "only-write-batch", "read-batch", "suffix",
 		"chmod", "chown", "usermap", "groupmap", "out-format", "log-file-format", "bwlimit", "rsync-path", "remote-option",
 		"info", "debug", "max-delete", "modify-window", "contimeout", "address", "sockopts", "iconv", "checksum-choice",
-		"compress-choice", "compress-level", "skip-compress", "stop-after", "stop-at", "protocol", "checksum-seed", "outbuf")
+		"compress-choice", "compress-level", "skip-compress", "stop-after", "stop-at", "protocol", "checksum-seed", "outbuf",
+		"partial!", "backup!", "compress!", "checksum!", "delete!", "include!", "exclude!")
 	out := o.all("--log-file", "--write-batch", "--only-write-batch")
 	dest := ""
 	if len(o.pos) > 0 {
@@ -532,10 +551,16 @@ func git(_ string, a []string) ([]string, bool) {
 		case in(a[0], "-C", "--git-dir", "--work-tree"):
 			moved = true
 			a = a[min(2, len(a)):]
-		case in(a[0], "-c", "--namespace", "--exec-path", "--super-prefix", "--config-env"):
+		case in(a[0], "-c", "--namespace", "--exec-path", "--super-prefix", "--config-env", "--attr-source"):
 			a = a[min(2, len(a)):]
+		case in(a[0], "-p", "-P", "--paginate", "--no-pager", "--bare", "--no-replace-objects", "--literal-pathspecs",
+			"--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs", "--no-optional-locks", "--no-lazy-fetch", "--no-advice"),
+			strings.HasPrefix(a[0], "--namespace="), strings.HasPrefix(a[0], "--exec-path="), strings.HasPrefix(a[0], "--config-env="),
+			strings.HasPrefix(a[0], "--attr-source="), strings.HasPrefix(a[0], "-c"):
+			a = a[1:]
 		default:
-			moved = moved || strings.HasPrefix(a[0], "--git-dir=") || strings.HasPrefix(a[0], "--work-tree=")
+			// --git-dir=…, --work-tree=…, or an option this table does not know: the rest cannot be placed
+			moved = true
 			a = a[1:]
 		}
 	}
@@ -578,7 +603,7 @@ func gitWrites(a []string) ([]string, bool) {
 			return Positionals(a[2:], `^(-b|-B|--reason)$`)[:min(1, len(Positionals(a[2:], `^(-b|-B|--reason)$`)))], true
 		}
 	case "init":
-		o := parse(a[1:], "b", "template", "separate-git-dir", "initial-branch", "object-format", "shared")
+		o := parse(a[1:], "b", "separate-git-dir", "template", "initial-branch", "object-format", "ref-format", "shared!")
 		out := o.all("--separate-git-dir")
 		if len(o.pos) > 0 {
 			return append(out, o.pos[0]), true
@@ -586,7 +611,8 @@ func gitWrites(a []string) ([]string, bool) {
 		return append(out, "./"), true
 	case "clone":
 		o := parse(a[1:], "bocju", "branch", "origin", "depth", "reference", "template", "config", "jobs", "separate-git-dir",
-			"upload-pack", "filter", "shallow-since", "shallow-exclude", "bundle-uri", "reference-if-able", "server-option")
+			"upload-pack", "filter", "shallow-since", "shallow-exclude", "bundle-uri", "reference-if-able", "server-option",
+			"revision", "ref-format")
 		out := o.all("--separate-git-dir")
 		if len(o.pos) >= 2 {
 			return append(out, o.pos[1]), true

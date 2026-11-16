@@ -158,12 +158,18 @@ muts=[
  ('git: config action flag only before the operands','internal/gitguard/gitguard.go','has(lead, "-l")) && operands <= 1','has(args, "-l") || anyLong(args, "--get"))'),
  ('git: a config variable named without a value','internal/gitguard/gitguard.go','\t\t\tj.gitEnv = j.gitEnv || configEnv(w) || unresolved(w) // a name that is not written out may be one of them\n','\t\t\tj.gitEnv = j.gitEnv || unresolved(w)\n'),
  ('git: a variable name that is not written out','internal/gitguard/gitguard.go','\t\t\tj.gitEnv = j.gitEnv || configEnv(w) || unresolved(w) // a name that is not written out may be one of them\n','\t\t\tj.gitEnv = j.gitEnv || configEnv(w)\n'),
- ('git: a nameref onto a config variable','internal/gitguard/gitguard.go','\t\t\tj.gitEnv = j.gitEnv || configEnv(a.Value) // declare -n X=GIT_CONFIG_PARAMETERS\n','\t\t\t_ = a\n'),
- ('abbreviated long option in a tool','internal/tools/tools.go','\t\t\tname = fullName(name, long)\n','\n'),
  ('git run from another directory','internal/tools/tools.go','\tif ok && moved && len(out) > 0 {\n','\tif false {\n'),
- ("git's own options before the subcommand",'internal/tools/tools.go','\t\tcase in(a[0], "-c", "--namespace", "--exec-path", "--super-prefix", "--config-env"):\n\t\t\ta = a[min(2, len(a)):]\n',''),
  ('git clone writes its directory','internal/tools/tools.go','\t\tif len(o.pos) >= 2 {\n\t\t\treturn append(out, o.pos[1]), true\n\t\t}\n','\t\t_ = o.pos\n'),
+ ('abbreviated long option in a tool','internal/tools/tools.go','\t\tif match == "" && name != "" && strings.HasPrefix(d, name) {\n','\t\tif false {\n'),
+ ("the tool's unsure reading is reported",'internal/tools/tools.go','\tif unsure != "" {\n','\tif false {\n'),
+ ('a real flag is not an abbreviation','internal/tools/tools.go','\t\td = strings.TrimSuffix(d, "!")\n\t\tif d == name {\n\t\t\treturn name, false\n\t\t}\n','\t\td = strings.TrimSuffix(d, "!")\n'),
+ ('a listed flag takes no value','internal/tools/tools.go','\t\tvalued[l] = !strings.HasSuffix(l, "!")\n','\t\tvalued[strings.TrimSuffix(l, "!")] = true\n'),
+ ("git's own options before the subcommand",'internal/tools/tools.go','\t\tcase in(a[0], "-c", "--namespace", "--exec-path", "--super-prefix", "--config-env", "--attr-source"):\n\t\t\ta = a[min(2, len(a)):]\n',''),
+ ('an unknown git option leaves the paths unplaced','internal/tools/tools.go','\t\t\tmoved = true\n\t\t\ta = a[1:]\n\t\t}','\t\t\ta = a[1:]\n\t\t}'),
  ('git --separate-git-dir','internal/tools/tools.go','\t\tout := o.all("--separate-git-dir")\n\t\tif len(o.pos) >= 2 {','\t\tvar out []string\n\t\tif len(o.pos) >= 2 {'),
+ ('git: a nameref onto a config variable','internal/gitguard/gitguard.go','j.gitEnv = j.gitEnv || configEnv(a.Value) || (ref && unresolved(a.Value))','j.gitEnv = j.gitEnv || (ref && unresolved(a.Value))'),
+ ('git: a nameref onto an unwritten name','internal/gitguard/gitguard.go','j.gitEnv = j.gitEnv || configEnv(a.Value) || (ref && unresolved(a.Value))','j.gitEnv = j.gitEnv || configEnv(a.Value)'),
+ ('an abbreviation without = is not read on trust','internal/tools/tools.go','\t\t\t} else if abbr && valued[name] {\n','\t\t\t} else if abbr && false {\n'),
 ]
 ok=0
 for name,f,old,new in muts:
