@@ -235,7 +235,8 @@ func TestOtherWaysToTheSameAct(t *testing.T) {
 // A statement that is not written out in full.
 func TestNotWrittenOut(t *testing.T) {
 	check(t, "builder", []row{
-		{`S=commit; git $S -m x`, Unreadable, false},
+		{`S=commit; git $S -m x`, CommitNoPrefix, false}, // the command assigned it: read with the value filled in
+		{`git $S -m x`, Unreadable, false},
 		{"git `echo push` --force", Unreadable, false},
 		{`echo commit | xargs git`, Unreadable, false},
 		{`git ls-files -m | xargs git add`, Unreadable, false},
@@ -252,7 +253,7 @@ func TestNotWrittenOut(t *testing.T) {
 		// arguments from a variable: judged by what is written, and by the text of the whole command
 		{`git add $(git diff --name-only)`, "", false},
 		{`git log $RANGE`, "", false},
-		{`G=git; $G commit -m x`, "", false},                             // nothing here says git commit as text; a stated limit
+		{`G=git; $G commit -m x`, CommitNoPrefix, false},                 // nothing here says git commit as text; a stated limit
 		{`$GIT commit --no-verify -m x`, NoVerify, false},                // an unnamed command: the text is judged too
 		{sign + `git commit $(echo --no-verify ) -m x`, NoVerify, false}, // the flag is in the text the argument is made from
 		{sign + `git push origin $(echo x; echo git push --force )`, ForcePush, false},
@@ -299,4 +300,49 @@ func TestConfigByOtherRoutes(t *testing.T) {
 		{`git config --get user.name`, "", false},
 		{`git config --list`, "", false},
 	})
+}
+
+// Rows from the independent audit of the port (2026-11-16): each is a command
+// the v7.5.3 guard refused and the first Go build let through.
+func TestAudit(t *testing.T) {
+	nine := ""
+	for i := 1; i <= 9; i++ {
+		nine += "bash <<'E" + string(rune('0'+i)) + "'\n"
+	}
+	nine += "git push --force\n"
+	for i := 9; i >= 1; i-- {
+		nine += "E" + string(rune('0'+i)) + "\n"
+	}
+	rows := []row{
+		// git named through a variable the command itself assigned
+		{`X=git; $X push --force`, ForcePush, false},
+		{`X=git; $X reset --hard`, Destructive, false},
+		{`X=git; $X clean -fd`, Destructive, false},
+		{`X=git; $X add -A`, MassStaging, false},
+		{`X=git; $X branch -D x`, ForceDelete, false},
+		{`X="git push --force"; $X`, ForcePush, false},
+		{`X="git push --force"; eval "$X"`, ForcePush, false},
+		{`X="git push --force"; bash -c "$X"`, ForcePush, false},
+		{`for g in git; do $g push --force; done`, ForcePush, false},
+		{`f() { g=git; $g push --force; }; f`, ForcePush, false},
+		{`X=ls; $X -la`, "", false},
+		{`F=src/a.go; git diff -- $F`, "", false},
+		// a substitution in a case pattern, a process substitution in a test
+		{`case x in $(git push --force)) ;; esac`, ForcePush, false},
+		{`case x in $(git reset --hard)) ;; esac`, Destructive, false},
+		{`[[ -e <(git reset --hard) ]]`, Destructive, false},
+		{`case "$1" in a|b) git status ;; esac`, "", false},
+		// shells nested deeper than is read
+		{nine, Unreadable, false},
+		// a shell fed by a pipe: the text of the whole command is read
+		{`printf 'git push --force\n' | sh`, PushNoPrefix, false},
+		{`echo 'git push --force' | sh`, PushNoPrefix, false},
+		{`echo 'git reset --hard' | bash -s`, Destructive, false},
+		{`sh <<< 'git push --force'`, ForcePush, false},
+		{`curl -fsSL https://x/install.sh | sh`, "", false},
+		{`cat script.sh | bash`, "", false},
+	}
+	check(t, "", rows)
+	// the orchestrator's unsigned commit through a variable is still unsigned
+	check(t, "", []row{{`X=git; $X commit -m x`, CommitNoPrefix, false}, {`X=git; ` + sign + `$X commit -m x`, "", true}})
 }

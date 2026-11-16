@@ -56,6 +56,7 @@ type judge struct {
 	allowed   string
 	command   string
 	opaque    bool
+	rawGlobs  bool   // a shell in the command runs text it reads from another command
 	bodies    string // every heredoc body in the command
 	bodiesRun bool
 	vars      map[string][]string
@@ -123,6 +124,11 @@ func (j *judge) relPath(p string) string {
 
 func (j *judge) filePath(p string) {
 	rel := strings.ToLower(norm(j.relPath(p)))
+	if strings.HasPrefix(rel, "/") && j.o.Tool != "Read" &&
+		strings.HasPrefix(strings.ToLower(j.projCanon)+"/", strings.TrimSuffix(rel, "/")+"/") {
+		// a search rooted above the project walks down into it
+		j.deny("a directory that contains the project ("+p+")", p)
+	}
 	// a `..` that survived resolution: the comparison below cannot be trusted
 	if paths.HasTraversal(rel) {
 		j.deny("a path with unresolved traversal ("+rel+")", rel)
@@ -190,8 +196,12 @@ func (c *collector) Command(cmd shell.Command) {
 	if dollar {
 		e.pwd, c.pwd = c.pwd, false
 	}
-	if c.subst > 0 && len(cmd.Words) > 0 && base(cmd.Words[0]) == "pwd" {
-		c.pwd = true
+	if c.subst > 0 && len(cmd.Words) > 0 {
+		// a substitution that prints the project root: `$(pwd)`, `$(git rev-parse --show-toplevel)`
+		w := cmd.Words
+		if base(w[0]) == "pwd" || (base(w[0]) == "git" && in("rev-parse", w...) && (in("--show-toplevel", w...) || in("--show-cdup", w...))) {
+			c.pwd = true
+		}
 	}
 	c.events = append(c.events, e)
 }
@@ -212,6 +222,16 @@ func (j *judge) bash() {
 	}
 	events, ok := read(j.command)
 	j.opaque = !ok
+	for _, e := range events {
+		// a shell that reads its commands from a pipe or a process substitution
+		// runs text the statements do not show: the pattern test reads the raw words
+		if e.cmd != nil && len(e.cmd.Words) > 0 && e.cmd.Heredoc == "" {
+			u := tools.Unwrap(e.cmd.Words)
+			if fedShell(base(u.Cmd), u.Args, e.cmd.Reads) {
+				j.rawGlobs = true
+			}
+		}
+	}
 	j.rawPass()
 	if !ok {
 		j.fallback()
@@ -249,6 +269,32 @@ func (j *judge) blindCommand(words []string) {
 			j.deny("pipeline state via `"+b+"`", "cmd:apd report")
 		}
 	}
+}
+
+// fedShell: a shell with no command string and no script file, or with a
+// process substitution for one.
+func fedShell(cmd string, args, reads []string) bool {
+	if !in(cmd, "sh", "bash", "zsh", "dash", "ksh", "source", ".") {
+		return false
+	}
+	script := false
+	for _, a := range args {
+		switch {
+		case a == "-c":
+			return false
+		case strings.HasPrefix(a, "-"), a == "/dev/stdin":
+		case strings.HasPrefix(a, "/dev/fd/"):
+			return true
+		default:
+			script = true
+		}
+	}
+	for _, r := range reads {
+		if strings.HasPrefix(r, "/dev/fd/") {
+			return true
+		}
+	}
+	return !script && !in(cmd, "source", ".")
 }
 
 // named: the text, already in lower case, carries a blinded directory by name. The review scope itself
@@ -290,7 +336,7 @@ func (j *judge) rawPass() {
 		// The pattern test belongs to the statements, where the command is known
 		// (a grep pattern or a `find -name` value is not a path). Here it runs only
 		// when the command could not be read: fail closed.
-		if j.opaque && j.globHits(g) {
+		if (j.opaque || j.rawGlobs) && j.globHits(g) {
 			j.deny("pipeline state or project memory (a pattern that can match it: "+plain+")", "cmd:"+plain)
 		}
 		// settings that change what a glob matches, and GREP_OPTIONS, which makes
@@ -449,9 +495,16 @@ func (j *judge) variants(words []string) [][]string {
 				if len(next) >= maxForms {
 					j.lostTrack(n)
 				}
-				cp := make([]string, len(cur))
-				for i, w := range cur {
-					cp[i] = strings.ReplaceAll(strings.ReplaceAll(w, "${"+n+"}", v), "$"+n, v)
+				var cp []string
+				for _, w := range cur {
+					r := strings.ReplaceAll(strings.ReplaceAll(w, "${"+n+"}", v), "$"+n, v)
+					if r != w && strings.ContainsAny(v, " \t\n") {
+						// a value that holds several words (`c="find ."; $c`) is split, as the
+						// shell splits it where the variable is not quoted
+						cp = append(cp, fields(r)...)
+						continue
+					}
+					cp = append(cp, r)
 				}
 				next = append(next, cp)
 			}
@@ -495,7 +548,17 @@ func (j *judge) run(events []event) {
 			if len(c.Words) == 0 {
 				continue
 			}
+			for _, f := range c.Feeds {
+				for _, piece := range fields(f) {
+					j.pathWord(piece) // `read a b <<< ".apd pipeline"`: what a here-string carries
+				}
+			}
 			for _, words := range j.variants(c.Words) {
+				for _, w := range words {
+					if strings.HasPrefix(w, "GLOBIGNORE=") || strings.HasPrefix(w, "GREP_OPTIONS=") {
+						j.deny("pipeline state (a shell or grep setting that widens what a pattern reads: "+w+")", "cmd:"+w)
+					}
+				}
 				j.blindCommand(words)
 				u := tools.Unwrap(words)
 				// `env a=.apd sh -c 'cat $a/…'`: the nested shell sees the variable
@@ -506,7 +569,7 @@ func (j *judge) run(events []event) {
 				if u.Cmd == "" {
 					continue
 				}
-				if text, ok := tools.ShellText(base(u.Cmd), u.Args, ""); ok {
+				if text, ok := tools.ShellText(base(u.Cmd), u.Args, c.Heredoc); ok {
 					j.text(text)
 				}
 				args := u.Args
@@ -514,8 +577,11 @@ func (j *judge) run(events []event) {
 					// `$(pwd)` unquoted: the working directory, taken as the project root
 					args = append([]string{}, args...)
 					for i, a := range args {
-						if a == "$" || strings.HasPrefix(a, "$/") {
+						switch {
+						case a == "$" || strings.HasPrefix(a, "$/"):
 							args[i] = j.projCanon + a[1:]
+						case strings.HasPrefix(a, "$."): // `$(git rev-parse --show-cdup).`
+							args[i] = j.projCanon + "/" + a[1:]
 						}
 					}
 				}
@@ -540,13 +606,14 @@ func (j *judge) shellText(t string, sure bool) {
 	if t == "" {
 		return
 	}
-	if j.depth < 8 {
-		if events, ok := read(t); ok {
-			j.depth++
-			j.run(events)
-			j.depth--
-			return
-		}
+	if j.depth >= 8 {
+		j.deny("anything through shells nested deeper than the guard reads", "cmd:depth")
+	}
+	if events, ok := read(t); ok {
+		j.depth++
+		j.run(events)
+		j.depth--
+		return
 	}
 	if !sure {
 		if w := fields(strip(t, `"'`)); len(w) > 0 {
@@ -1067,6 +1134,9 @@ func (j *judge) stmt(c string, args []string) {
 	}
 	switch {
 	case c == "xargs":
+		if len(args) > 0 && base(args[0]) == "git" {
+			j.judgeGit(args[1:]) // `… | xargs git add -f`
+		}
 		// the targets come from stdin
 		if j.rawHasDot() {
 			j.deny(containsState+"(the project root, through xargs)", "cmd:.")

@@ -67,8 +67,10 @@ if [ "$RC" -eq 2 ]; then
   # `<reason>: BLOCKED: <message>`
   _block "${OUT%%: *}" "${OUT#*: }"
 fi
-[ "$RC" -eq 0 ] || _apd_guard_failed guard-git "$RC" "$OUT"
-[ "$OUT" = commit ] || exit 0
+# exit 0 is an answer only together with the judge's own word (`ok`, or `commit`
+# for a signed commit): an empty file at the binary's path exits 0 having judged nothing
+[ "$RC" -eq 0 ] && [ "$OUT" = ok ] && exit 0
+{ [ "$RC" -eq 0 ] && [ "$OUT" = commit ]; } || _apd_guard_failed guard-git "$RC" "$OUT"
 
 # A signed commit that the judge let through: pipeline gate + project verification
 # 1. Pipeline gate

@@ -675,6 +675,10 @@ type Unwrapped struct {
 	Env []string
 	// Xargs: the command came through xargs, so part of its arguments is stdin.
 	Xargs bool
+	// Program: a wrapper that runs a PROGRAM was stepped over (sudo, env, timeout,
+	// nice, nohup, exec, xargs …) — so the command is not a shell builtin run in
+	// this shell: `nice eval x=1` changes nothing here.
+	Program bool
 }
 
 // Unwrap steps over `sudo -u x`, `env -i`, `timeout 10`, `nice -n 5`, `nohup`,
@@ -704,6 +708,12 @@ loop:
 			u.Env = append(u.Env, w)
 			i++
 			continue
+		}
+		if !in(w, "command", "builtin") {
+			switch w {
+			case "exec", "nohup", "caffeinate", "sudo", "doas", "nice", "ionice", "timeout", "env", "xargs":
+				u.Program = true
+			}
 		}
 		switch w {
 		case "command", "builtin", "exec", "nohup", "caffeinate":

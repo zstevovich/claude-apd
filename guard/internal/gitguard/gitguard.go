@@ -86,6 +86,56 @@ type judge struct {
 	opaque bool
 	// a commit or push statement read here carried the marker as its own prefix
 	signedSeen bool
+	// vars: the values the command itself gave its variables (`X=git; $X push`)
+	vars map[string][]string
+}
+
+func (j *judge) setvar(name, value string) {
+	if name == "" || unresolved(value) || in(value, j.vars[name]...) {
+		return
+	}
+	if j.vars == nil {
+		j.vars = map[string][]string{}
+	}
+	if len(j.vars[name]) >= 32 {
+		j.block(Unreadable) // more values than are followed: one of them may name git
+		return
+	}
+	j.vars[name] = append(j.vars[name], value)
+}
+
+var varRef = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?`)
+
+// filled returns the statement's text with the variables the command assigned
+// filled in, one value per variable, every combination — to be read again as
+// shell text, so a value that holds several words is split as the shell would.
+func (j *judge) filled(words []string) []string {
+	var names []string
+	for _, w := range words {
+		for _, m := range varRef.FindAllStringSubmatch(w, -1) {
+			if len(j.vars[m[1]]) > 0 && !in(m[1], names...) {
+				names = append(names, m[1])
+			}
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	forms := []string{strings.Join(words, " ")}
+	for _, n := range names {
+		var next []string
+		for _, cur := range forms {
+			for _, v := range j.vars[n] {
+				if len(next) >= 256 {
+					j.block(Unreadable)
+					return nil
+				}
+				next = append(next, strings.ReplaceAll(strings.ReplaceAll(cur, "${"+n+"}", v), "$"+n, v))
+			}
+		}
+		forms = next
+	}
+	return forms
 }
 
 var spaces = regexp.MustCompile(` +`)
@@ -118,20 +168,25 @@ func Judge(o Options) Verdict {
 	return Verdict{Commit: j.commit}
 }
 
-func (j *judge) Enter(shell.Scope)           {}
-func (j *judge) Leave(shell.Scope)           {}
-func (j *judge) For(name string, _ []string) { j.gitEnv = j.gitEnv || configEnv(name) }
-func (j *judge) Call([]shell.Assign)         {}
-func (j *judge) Return()                     {}
-func (j *judge) Lost(string)                 { j.opaque = true }
-func (j *judge) QuotedSubst(text string)     { j.nested(text) }
-func (j *judge) block(code string)           { j.verdict = refuse(code) }
-func isGit(w string) bool                    { return w == "git" || strings.HasSuffix(w, "/git") }
-func has(args []string, want string) bool    { return indexOf(args, want) >= 0 }
-func lower(s string) string                  { return strings.ToLower(s) }
-func (j *judge) signed(marked bool) bool     { return j.prefixed || marked }
-func isMarker(name, value string) bool       { return name == Marker && value == "1" }
-func hooksPath(s, prefix string) bool        { return strings.HasPrefix(lower(s), prefix) }
+func (j *judge) Enter(shell.Scope) {}
+func (j *judge) Leave(shell.Scope) {}
+func (j *judge) For(name string, items []string) {
+	j.gitEnv = j.gitEnv || configEnv(name)
+	for _, it := range items {
+		j.setvar(name, it)
+	}
+}
+func (j *judge) Call([]shell.Assign)      {}
+func (j *judge) Return()                  {}
+func (j *judge) Lost(string)              { j.opaque = true }
+func (j *judge) QuotedSubst(text string)  { j.nested(text) }
+func (j *judge) block(code string)        { j.verdict = refuse(code) }
+func isGit(w string) bool                 { return w == "git" || strings.HasSuffix(w, "/git") }
+func has(args []string, want string) bool { return indexOf(args, want) >= 0 }
+func lower(s string) string               { return strings.ToLower(s) }
+func (j *judge) signed(marked bool) bool  { return j.prefixed || marked }
+func isMarker(name, value string) bool    { return name == Marker && value == "1" }
+func hooksPath(s, prefix string) bool     { return strings.HasPrefix(lower(s), prefix) }
 func at(a []string, i int) string {
 	if i >= 0 && i < len(a) {
 		return a[i]
@@ -149,7 +204,11 @@ func indexOf(a []string, want string) int {
 
 // nested reads text another shell will run, with the same rules.
 func (j *judge) nested(text string) {
-	if j.depth >= 8 || j.verdict != nil {
+	if j.verdict != nil {
+		return
+	}
+	if j.depth >= 8 {
+		j.block(Unreadable) // shells nested deeper than the guard reads
 		return
 	}
 	j.depth++
@@ -186,10 +245,28 @@ func (j *judge) Command(c shell.Command) {
 			j.gitEnv = true
 		}
 	}
+	for _, a := range c.Assigns {
+		if !a.Opaque {
+			j.setvar(a.Name, a.Value)
+		}
+	}
 	if len(c.Words) == 0 {
 		return
 	}
+	// `X=git; $X push --force`, `X="git push --force"; $X`: the statement is read
+	// again with the values filled in
+	for _, text := range j.filled(c.Words) {
+		if marked {
+			text = Marker + "=1 " + text // the statement's own signature goes with it
+		}
+		j.nested(text)
+	}
 	u := tools.Unwrap(c.Words)
+	if stdinShell(u.Cmd, u.Args) && c.Heredoc == "" {
+		// a shell reading its commands from a pipe or a file descriptor: what it
+		// runs is another command's output — the text scan reads the whole command
+		j.opaque = true
+	}
 	for _, e := range u.Env {
 		k := strings.Index(e, "=")
 		marked = marked || isMarker(e[:k], e[k+1:])
@@ -289,6 +366,27 @@ var valueFlags = map[string][]string{
 }
 
 func unresolved(w string) bool { return strings.ContainsAny(w, "$`") }
+
+// stdinShell: a shell started with no command string and no script — or with a
+// process substitution for one — runs what it reads.
+func stdinShell(cmd string, args []string) bool {
+	if k := strings.LastIndex(cmd, "/"); k >= 0 {
+		cmd = cmd[k+1:]
+	}
+	if !in(cmd, "sh", "bash", "zsh", "dash", "ksh", "source", ".") {
+		return false
+	}
+	for _, a := range args {
+		switch {
+		case a == "-c" || (strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "c")):
+			return false
+		case strings.HasPrefix(a, "-"), a == "/dev/stdin", strings.HasPrefix(a, "/dev/fd/"):
+		default:
+			return false // a script file
+		}
+	}
+	return !in(cmd, "source", ".") || len(args) > 0
+}
 
 // fedReadOnly: subcommands that only read whatever arguments xargs, find or
 // parallel append — `git ls-files | xargs git diff --stat`. `grep` is not among

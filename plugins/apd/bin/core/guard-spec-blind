@@ -63,7 +63,8 @@ _apd_guard_require guard-spec-blind
 OUT=$("$APD_GUARD_BIN" spec-blind --project-dir "$PROJECT_DIR" --pipeline-dir "$PIPELINE_DIR" \
   --memory-dir "$APD_MEMORY_DIR" --agent-type "$AGENT_TYPE" --tool "$TOOL" \
   --file-path "$FILE_PATH" --command "$COMMAND" 2>&1); RC=$?
-[ "$RC" -eq 0 ] && exit 0
+# exit 0 is an answer only together with the judge's own word
+[ "$RC" -eq 0 ] && [ "$OUT" = ok ] && exit 0
 [ "$RC" -eq 2 ] || _apd_guard_failed guard-spec-blind "$RC" "$OUT"
 
 # `<audit detail><TAB><what the role may not read>`

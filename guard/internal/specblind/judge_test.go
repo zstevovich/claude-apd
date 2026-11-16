@@ -3,6 +3,7 @@ package specblind
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -412,6 +413,103 @@ func TestVariableBudget(t *testing.T) {
 		o.Command = c
 		if got := Judge(o); got.Blocked() != want {
 			t.Errorf("%.60q…: got %+v, want blocked=%v", c, got, want)
+		}
+	}
+}
+
+// Rows from the independent audit of the port (2026-11-16): each is a command
+// the v7.5.3 guard refused and the first Go build let through.
+func TestAudit(t *testing.T) {
+	o := fixture(t)
+	o.Tool = "Bash"
+	nine := "cat .a*/p*/s*"
+	for i := 0; i < 9; i++ {
+		nine = "eval " + "'" + strings.ReplaceAll(nine, "'", `'\''`) + "'"
+	}
+	deny := []string{
+		// the shared reader
+		"case x in $(find .)) ;; esac",
+		"case x in $(cat .a*/p*/s*)) ;; esac",
+		"[[ -e <(ls -R) ]]",
+		"coproc dd if=.a*/p*/spec-card.md",
+		// a heredoc-fed shell inside a heredoc-fed shell
+		"bash <<'E1'\nbash <<'E2'\nls -R\nE2\nE1",
+		"bash <<'E1'\nbash <<'E2'\ncat .a*/p*/s*\nE2\nE1",
+		"bash <<'E1'\nbash <<'E2'\nfind . -type f\nE2\nE1",
+		// a command line held in a variable
+		`c="find ."; $c`,
+		"c='ls -R'; $c",
+		"c='grep -rn foo'; $c",
+		`c="tar cf - ."; $c`,
+		`c="rg foo"; $c`,
+		`c="git add -f ."; $c`,
+		`c="cat .a*/p*/s*"; $c`,
+		`for c in "find ."; do $c; done`,
+		// the substitution that prints the root, with something after it
+		"find $(git rev-parse --show-toplevel)/ -type f",
+		"ls -R $(git rev-parse --show-toplevel)/",
+		"grep -rn foo $(git rev-parse --show-toplevel)/",
+		"find $(git rev-parse --show-cdup). -type f",
+		// git add behind xargs
+		"ls -A | xargs git add -f",
+		"xargs git add -f < list",
+		"echo x | xargs git stage",
+		// GLOBIGNORE through a variable name
+		"g=GLOBIGNORE; declare $g=x; cat */*/*",
+		`g=GLOBIGNORE; export "$g=x"; cat */*/*`,
+		"g=GLOB; export ${g}IGNORE=x; cat */*/*",
+		// a pattern echoed into a shell
+		"bash <(echo 'cat .a*/p*/s*')",
+		"bash < <(echo 'cat .a*/p*/s*')",
+		"source <(echo 'cat .a*/p*/s*')",
+		`bash < <(echo "cat .apd/p*/spec-card.md")`,
+		"echo 'cat .a*/p*/s*' | sh",
+		// a here-string
+		`read a b <<< ".apd pipeline"; cat $a/$b/spec-card.md`,
+		`read -r a b <<< ".claude memory"; cat $a/$b/*`,
+		"bash <<< 'find . -type f'",
+		// deeper than is read: refused whatever it is
+		nine,
+		strings.Replace(nine, "cat .a*/p*/s*", "ls src", 1),
+	}
+	allow := []string{
+		"cat $(git rev-parse --show-toplevel)/README.md",
+		"cat $(git rev-parse --show-toplevel)/src/app/main.go",
+		`case "$1" in a|b) cat src/app/main.go ;; esac`,
+		"git diff --name-only | xargs git diff --stat",
+		"grep foo <<< \"$x\"",
+		"cat src/app/main.go | bash -n /dev/stdin",
+		"c='cat src/app/main.go'; $c",
+		"bash <<'E1'\nbash <<'E2'\nls src\nE2\nE1",
+		"echo 'ls src' | sh",
+	}
+	for _, c := range deny {
+		o.Command = c
+		if v := Judge(o); !v.Blocked() {
+			t.Errorf("ALLOWED, want refused: %q", c)
+		}
+	}
+	for _, c := range allow {
+		o.Command = c
+		if v := Judge(o); v.Blocked() {
+			t.Errorf("REFUSED (%s | %s), want allowed: %q", v.Detail, v.What, c)
+		}
+	}
+	// a search rooted above the project walks down into it
+	for _, c := range []struct {
+		tool, path string
+		want       bool
+	}{
+		{"Grep", filepath.Dir(o.ProjectDir), true},
+		{"Glob", filepath.Dir(o.ProjectDir), true},
+		{"Glob", "/", true},
+		{"Read", filepath.Dir(o.ProjectDir) + "/other.txt", false},
+		{"Read", filepath.Dir(o.ProjectDir), false},
+		{"Grep", "/etc", false},
+	} {
+		p := Options{AgentType: o.AgentType, ProjectDir: o.ProjectDir, PipelineDir: o.PipelineDir, MemoryDir: o.MemoryDir, Cwd: o.Cwd, Tool: c.tool, FilePath: c.path}
+		if got := Judge(p).Blocked(); got != c.want {
+			t.Errorf("%s %q: blocked=%v, want %v", c.tool, c.path, got, c.want)
 		}
 	}
 }

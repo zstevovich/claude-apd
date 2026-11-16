@@ -4,7 +4,8 @@
 //	apd-guard git --command <cmd> [--agent-type <type>]
 //	apd-guard spec-blind --project-dir <dir> --pipeline-dir <dir> --memory-dir <dir> --agent-type <type> [--tool <name>] [--file-path <path>] [--command <cmd>]
 //
-// Exit 0 allows, exit 2 blocks (the reason goes to stderr). This is the judge
+// Exit 0 with `ok` on stdout allows (`commit` from the git guard: a signed
+// commit, the caller runs the gate); exit 2 blocks (the reason goes to stderr). This is the judge
 // only: it reads, it never writes.
 package main
 
@@ -16,6 +17,11 @@ import (
 	"github.com/zstevovich/claude-apd/guard/internal/gitguard"
 	"github.com/zstevovich/claude-apd/guard/internal/specblind"
 )
+
+// allow is what the judge prints when it lets a call through. The caller
+// requires it: an exit code of 0 with nothing said — an empty file sitting where
+// the binary should be runs as an empty script — is not an answer.
+const allow = "ok"
 
 func main() {
 	// A fault inside a judge is not a verdict. Go ends a panic with exit code 2,
@@ -62,6 +68,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%s: %s\n", v.Code, v.Detail)
 			os.Exit(2)
 		}
+		fmt.Println(allow)
 	case "git":
 		// apd-guard git --command <cmd> [--agent-type <type>]
 		// A signed commit that passed prints `commit` on stdout: the caller runs the gate.
@@ -82,6 +89,8 @@ func main() {
 		}
 		if v.Commit {
 			fmt.Println("commit")
+		} else {
+			fmt.Println(allow)
 		}
 	case "spec-blind":
 		// The reason goes to stderr as `<detail>\t<what>`: the caller writes the
@@ -111,6 +120,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%s\t%s\n", v.Detail, v.What)
 			os.Exit(2)
 		}
+		fmt.Println(allow)
 	default:
 		fmt.Fprintf(os.Stderr, "apd-guard: unknown guard %q\n", os.Args[1])
 		os.Exit(64)

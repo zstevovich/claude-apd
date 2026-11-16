@@ -155,6 +155,7 @@ func IsScratchpad(p string) bool { return !HasTraversal(p) && scratchRe.MatchStr
 
 // IsPluginCache reports a path inside a Claude Code plugin cache.
 func IsPluginCache(p string) bool {
+	p = strings.ToLower(p) // a case-insensitive volume opens `PLUGINS/cache` as the same directory
 	return strings.Contains(p, "/plugins/cache/") || strings.HasSuffix(p, "/plugins/cache")
 }
 

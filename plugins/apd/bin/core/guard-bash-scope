@@ -75,7 +75,9 @@ GA=(bash-scope --project-dir "$PROJECT_DIR" --apd-root "$APD_PLUGIN_ROOT" --comm
 [ -n "$CWD_ARG" ] && GA+=(--cwd "$CWD_ARG")
 [ "$DENY_ALL_WRITES" = true ] && GA+=(--deny-all-writes)
 OUT=$("$APD_GUARD_BIN" "${GA[@]}" ${ALLOWED_PATHS[@]+"${ALLOWED_PATHS[@]}"} 2>&1); RC=$?
-[ "$RC" -eq 0 ] && exit 0
+# exit 0 is an answer only together with the judge's own word: an empty file at
+# the binary's path runs as an empty script and exits 0 having judged nothing
+[ "$RC" -eq 0 ] && [ "$OUT" = ok ] && exit 0
 [ "$RC" -eq 2 ] || _apd_guard_failed guard-bash-scope "$RC" "$OUT"
 
 # `<reason>: <detail>` — the reason is the audit log's name for the block

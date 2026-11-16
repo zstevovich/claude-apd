@@ -6,6 +6,8 @@
 package shell
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
 
 	"mvdan.cc/sh/v3/expand"
@@ -30,6 +32,8 @@ type Command struct {
 	Assigns []Assign
 	Words   []string
 	Writes  []string
+	// Feeds are the words of here-strings (`<<< word`); their text is also in Heredoc.
+	Feeds []string
 	// Reads are the files input redirections open (`< file`, `<> file`).
 	Reads        []string
 	UnknownRedir bool
@@ -268,12 +272,58 @@ func (w *walker) parts(ps []syntax.WordPart, quoted bool) string {
 // not otherwise model (a parameter expansion, arithmetic, a test).
 func (w *walker) inner(n syntax.Node) {
 	syntax.Walk(n, func(x syntax.Node) bool {
-		if cs, ok := x.(*syntax.CmdSubst); ok {
+		switch cs := x.(type) {
+		case *syntax.CmdSubst:
 			w.scoped(Substitution, func() { w.stmts(cs.Stmts) })
 			return false
+		case *syntax.ProcSubst: // `[[ -e <(cmd) ]]`
+			w.scoped(Substitution, func() { w.stmts(cs.Stmts) })
+			return false
+		case *syntax.Lit:
+			// `${x:-<(cmd)}`: the parser keeps the process substitution as text,
+			// the shell runs it
+			w.procText(cs.Value)
 		}
 		return true
 	})
+}
+
+// procText reads the process substitutions written inside a piece of text the
+// parser did not open. Text it cannot read leaves the state unknown.
+func (w *walker) procText(s string) {
+	for {
+		k := strings.Index(s, "<(")
+		if g := strings.Index(s, ">("); g >= 0 && (k < 0 || g < k) {
+			k = g
+		}
+		if k < 0 {
+			return
+		}
+		depth, end := 0, -1
+		for i := k + 1; i < len(s); i++ {
+			if s[i] == '(' {
+				depth++
+			} else if s[i] == ')' {
+				if depth--; depth == 0 {
+					end = i
+					break
+				}
+			}
+		}
+		if end < 0 {
+			w.v.Lost("a process substitution the reader could not close")
+			return
+		}
+		inner := s[k+2 : end]
+		f, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(inner), "")
+		if err != nil {
+			w.v.Lost("a process substitution the reader could not parse")
+		} else {
+			sub := &walker{Reader: w.Reader, src: inner, v: w.v, cond: w.cond}
+			sub.scoped(Substitution, func() { sub.stmts(f.Stmts) })
+		}
+		s = s[end+1:]
+	}
 }
 
 // word renders one word. A leading `~` means the home directory only where the
@@ -315,6 +365,52 @@ func (w *walker) word(x *syntax.Word) string {
 	return "`" + s
 }
 
+// maxBraceWords is how many words one brace expansion may produce and still be
+// followed word by word.
+const maxBraceWords = 4096
+
+var (
+	braceRange = regexp.MustCompile(`\{(-?[0-9]+|[A-Za-z])\.\.(-?[0-9]+|[A-Za-z])(\.\.-?[0-9]+)?\}`)
+	braceGroup = regexp.MustCompile(`\{[^{}]*\}`)
+)
+
+// braceCount is an upper estimate of the words a word's brace expansion makes:
+// the product of every range's span and every group's alternatives.
+func braceCount(s string) int {
+	n := 1
+	mul := func(k int) {
+		if k < 1 {
+			k = 1
+		}
+		if n = n * k; n > maxBraceWords {
+			n = maxBraceWords + 1
+		}
+	}
+	val := func(t string) int {
+		if v, err := strconv.Atoi(t); err == nil {
+			return v
+		}
+		return int(t[0])
+	}
+	for _, m := range braceRange.FindAllStringSubmatch(s, -1) {
+		d := val(m[1]) - val(m[2])
+		if d < 0 {
+			d = -d
+		}
+		mul(d + 1)
+	}
+	s = braceRange.ReplaceAllString(s, "")
+	for i := 0; i < 64; i++ {
+		g := braceGroup.FindString(s)
+		if g == "" {
+			break
+		}
+		mul(strings.Count(g, ",") + 1)
+		s = strings.Replace(s, g, "", 1)
+	}
+	return n
+}
+
 // words renders a word after brace expansion: `a{b,c}` is two words, and each
 // is a word of its own for everything that follows.
 func (w *walker) words(x *syntax.Word) []string {
@@ -323,6 +419,12 @@ func (w *walker) words(x *syntax.Word) []string {
 	}
 	cp := *x // a copy: the tree is read again when a function is called
 	if !syntax.SplitBraces(&cp) {
+		return []string{w.word(x)}
+	}
+	if braceCount(w.text(x)) > maxBraceWords {
+		// `{1..3000000}`: the shell would make millions of words, perhaps in code
+		// that never runs. The word is reported as written and the state is lost.
+		w.v.Lost("a brace expansion larger than the reader follows")
 		return []string{w.word(x)}
 	}
 	var out []string
@@ -411,7 +513,10 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 				}
 			}
 		case syntax.WordHdoc:
-			w.word(r.Word)
+			// `<<< word`: the word is the command's standard input, like a heredoc body
+			t := w.word(r.Word)
+			c.Feeds = append(c.Feeds, t)
+			c.Heredoc += t + "\n"
 		default:
 			w.word(r.Word)
 			c.UnknownRedir = true
@@ -531,6 +636,9 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 	case *syntax.CaseClause:
 		w.word(x.Word)
 		for _, it := range x.Items {
+			for _, p := range it.Patterns {
+				w.word(p) // the shell expands a pattern: a substitution in it runs
+			}
 			w.maybeRun(func() { w.stmts(it.Stmts) })
 		}
 		tail()
@@ -542,7 +650,33 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 	case *syntax.TimeClause:
 		w.stmt(x.Stmt, "")
 	case *syntax.CoprocClause:
-		w.scoped(Background, func() { w.stmt(x.Stmt, "") })
+		w.scoped(Background, func() {
+			if call, ok := x.Stmt.Cmd.(*syntax.CallExpr); ok && len(call.Args) > 0 {
+				// `coproc dd of=/x`: bash runs `dd of=/x` (a name is allowed only before
+				// a compound command). The parser hands back `of=/x` as an assignment and,
+				// when it took the first word for a name, the command without it: put the
+				// words that follow the command word back as its arguments.
+				var c Command
+				if x.Name != nil {
+					c.Words = append(c.Words, w.word(x.Name))
+				}
+				for _, a := range call.Args {
+					c.Words = append(c.Words, w.words(a)...)
+				}
+				late := x.Name != nil
+				for _, a := range call.Assigns {
+					if late || a.Pos().After(call.Args[0].Pos()) {
+						late = true
+						as := w.assign(a)
+						c.Words = append(c.Words, as.Name+"="+as.Value)
+					}
+				}
+				if late {
+					w.v.Command(c)
+				}
+			}
+			w.stmt(x.Stmt, "")
+		})
 	default:
 		// (( … )), [[ … ]], let: no words to report, but a substitution inside still runs
 		w.inner(s.Cmd)

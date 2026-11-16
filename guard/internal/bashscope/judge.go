@@ -135,10 +135,13 @@ func (j *judge) knownVar(n string) bool {
 	return false
 }
 
-var pipeMentionRe = regexp.MustCompile(`\.apd/pipeline(/|[^A-Za-z0-9_./-]|$)`)
+var pipeMentionRe = regexp.MustCompile(`(?i)\.apd/pipeline(/|[^A-Za-z0-9_./-]|$)`)
+
+// fenceCase spells the fenced directories the one way the text rules know them.
+var fenceCase = regexp.MustCompile(`(?i)\.apd/pipeline|plugins/cache`)
 
 func (j *judge) namesFenced() bool {
-	return strings.Contains(j.command, "plugins/cache") || pipeMentionRe.MatchString(j.command)
+	return strings.Contains(strings.ToLower(j.command), "plugins/cache") || pipeMentionRe.MatchString(j.command)
 }
 
 var varNameCut = regexp.MustCompile(`[^A-Za-z0-9_].*$`)
@@ -271,6 +274,10 @@ func (j *judge) recurse(text string, data bool) {
 		text = repl(text, j.envN[k], j.envV[k])
 	}
 	text = j.subst(text)
+	if strings.Contains(text, unknownValue) {
+		j.addOpaque(text, "variable body") // a value the guard gave up on (read, getopts, unset …)
+		return
+	}
 	t := strings.TrimLeft(text, " ")
 	if strings.HasPrefix(t, "$(") || strings.HasPrefix(t, "`") {
 		if !data && j.namesFenced() {
@@ -416,6 +423,10 @@ func (j *judge) evalHere(text string) {
 		text = repl(text, j.envN[k], j.envV[k])
 	}
 	text = j.subst(text)
+	if strings.Contains(text, unknownValue) {
+		j.addOpaque(text, "variable body")
+		return
+	}
 	switch t := strings.TrimLeft(text, " "); {
 	case strings.HasPrefix(t, "$(") || strings.HasPrefix(t, "`"):
 		// the OUTPUT of the substitution is what runs, and that is not visible
@@ -625,7 +636,9 @@ func (j *judge) process(c shell.Command) {
 		if strings.HasPrefix(strings.TrimLeft(text, " "), "$") {
 			j.addOpaque(cmd, "variable in command position")
 		} else {
-			j.recurse(text, false)
+			// what the variable names runs in THIS shell: a function it calls is
+			// known here, and a cd or an assignment in it stays in effect
+			j.evalHere(text)
 		}
 		writes()
 		return
@@ -716,6 +729,12 @@ func (j *judge) process(c shell.Command) {
 			j.alter(a...)
 		}
 	case "eval":
+		if u.Program {
+			// `nice eval …`, `timeout 5 eval …`: a program named eval, not the builtin —
+			// nothing it sets reaches this shell; its text is still judged
+			j.recurse(strings.Join(a, " "), false)
+			break
+		}
 		// runs in THIS shell
 		j.evalHere(strings.Join(a, " "))
 	case "bash", "sh", "zsh", "dash", "su":
@@ -808,7 +827,7 @@ var stage0rt = []rtPair{
 }
 
 func (j *judge) stage0() bool {
-	c := j.command
+	c := fenceCase.ReplaceAllStringFunc(j.command, strings.ToLower)
 	const pp = ".apd/pipeline/"
 	if !strings.Contains(c, pp) {
 		return false
@@ -942,8 +961,13 @@ func (j *judge) decide() Verdict {
 				return block(NestedRefusal, "nested shell refused: "+t.raw)
 			}
 		}
-		pipe := j.c.projCanon + "/.apd/pipeline"
-		under := func(p string) bool { return p == pipe || strings.HasPrefix(p+"/", pipe+"/") }
+		// compared without regard to case: on a case-insensitive volume `.APD/Pipeline`
+		// is the same directory, and the resolved path keeps the case it was written in
+		pipe := strings.ToLower(j.c.projCanon + "/.apd/pipeline")
+		under := func(p string) bool {
+			p = strings.ToLower(p)
+			return p == pipe || strings.HasPrefix(p+"/", pipe+"/")
+		}
 		for _, t := range j.targets {
 			if t.apd || t.abs == "" {
 				continue
@@ -1084,7 +1108,9 @@ func (j *judge) run(cwdArg string) Verdict {
 	}
 	wd, _ := os.Getwd()
 	j.cwd = j.c.canonAbs(base, wd, false)
-	j.rd = shell.NewReader()
+	if j.rd == nil {
+		j.rd = shell.NewReader()
+	}
 	if err := j.rd.Walk(j.command, j); err != nil {
 		j.addUnknown("command the parser could not read")
 		if j.namesFenced() {
