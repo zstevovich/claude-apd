@@ -388,6 +388,13 @@ func TestAudit(t *testing.T) {
 		{`for f in ` + manyFiles + `; do printf '%s %s\n' "$f" "$(git hash-object "$f")"; done`, "", false},
 		{`for g in ` + manyFiles + ` git; do $g push --force; done`, ForcePush, false},
 		{`for a in ` + manyFiles + `; do for g in ` + manyFiles + ` /usr/bin/git; do $g push --force "$a"; done; done`, ForcePush, false},
+		{`for a in ` + manyFiles + `; do for r in ` + manyFiles + ` +refs/heads/x; do ` + sign + `git push origin $r "$a"; done; done`, ForcePush, false},
+		{`for a in ` + manyFiles + `; do for k in ` + manyFiles + ` core.hooksPath=/dev/null; do ` + sign + `git -c $k commit -m "$a"; done; done`, NoVerify, false},
+		{`for a in ` + manyFiles + `; do for k in ` + manyFiles + ` alias.p=push.x; do git -c $k status "$a"; done; done`, ConfigOverride, false},
+		{`for a in ` + manyFiles + `; do for o in ` + manyFiles + ` -uf.; do ` + sign + `git push $o origin "$a"; done; done`, ForcePush, false}, // an option cluster with a dot in it
+		{`git -c "$UNKNOWN" status`, ConfigOverride, false},
+		{`for a in ` + manyFiles + `; do for e in ` + manyFiles + ` ""; do git diff --stat -- "$a" $e; done; done`, "", false}, // an empty value among them
+		{`git -c core.pager=cat log -1`, "", false},
 		{`for a in ` + manyFiles + `; do for o in ` + manyFiles + ` --force-with-lease=x.y; do ` + sign + `git push $o origin "$a"; done; done`, ForcePush, false},
 		{`for f in ` + manyFiles + `; do for g in ` + manyFiles + `; do git diff --stat -- "$f" "$g"; done; done`, "", false}, // 3600 pairs of file names: left as written
 		{`bash -o errexit scripts/build.sh`, "", false},

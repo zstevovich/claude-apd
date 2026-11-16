@@ -148,6 +148,9 @@ func (j *judge) fill(s string) []string {
 	return out
 }
 
+// leads: v begins with one of the characters in set (an empty value does not).
+func leads(v, set string) bool { return v != "" && strings.IndexByte(set, v[0]) >= 0 }
+
 func shq(w string) string { return "'" + strings.ReplaceAll(w, "'", `'\''`) + "'" }
 
 // filled returns the statement's text with the variables the command assigned
@@ -218,9 +221,11 @@ func (j *judge) combos(names []string, plain bool) []map[string]string {
 	for _, n := range names {
 		var vals []string
 		for _, v := range j.vars[n] {
-			// a path or a file name cannot be a subcommand — but it can be git itself
-			// (`/usr/bin/git`), and a word that starts with a dash is an option
-			if !plain || !strings.ContainsAny(v, "/.") || strings.HasPrefix(v, "-") || isGit(v) {
+			// A path or a file name cannot be a subcommand — but it can be git itself
+			// (`/usr/bin/git`); a word that starts with a dash is an option, one that
+			// starts with `+` or `:` is a refspec (`+refs/heads/x` forces), and one
+			// with `=` in it may be configuration (`core.hooksPath=/dev/null`).
+			if !plain || !strings.ContainsAny(v, "/.") || leads(v, "-+:") || strings.Contains(v, "=") || isGit(v) {
 				vals = append(vals, v)
 			}
 		}
@@ -494,6 +499,10 @@ func (j *judge) statement(words []string, marked, xargs bool) {
 		w := words[i]
 		switch {
 		case w == "-c" || w == "--config-env":
+			if unresolved(at(words, i+1)) {
+				j.block(ConfigOverride) // configuration that is not written out: it may be hooksPath or an alias
+				return
+			}
 			hooksOff = hooksOff || hooksPath(at(words, i+1), "core.hookspath=")
 			if strings.HasPrefix(lower(at(words, i+1)), "alias.") {
 				j.block(ConfigOverride) // an alias defined on the command line: what `git x` runs is its value

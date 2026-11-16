@@ -185,6 +185,8 @@ muts=[
  ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
  ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
  ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
+ ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
+ ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
  ('blind: any name that says adversarial','internal/specblind/judge.go','return strings.Contains(agentType, "adversarial")','return agentType == "adversarial-reviewer"'),
  ('blind: a Grep with no path','internal/specblind/judge.go','in(o.Tool, "Grep", "Glob") {','in(o.Tool, "Glob") {'),
  ('blind: a Glob with no path','internal/specblind/judge.go','in(o.Tool, "Grep", "Glob") {','in(o.Tool, "Grep") {'),
@@ -417,12 +419,15 @@ muts=[
  ('p2: blind a shell reading a process substitution','internal/specblind/judge.go',"\t\t\t\t\t\tj.rawGlobs = true // `bash -c 'source","\t\t\t\t\t\tj.rawGlobs = false // `bash -c 'source"),
  ('p2: blind eval of text read from a process substitution','internal/specblind/judge.go','\t\t\t\tif handsOn {\n\t\t\t\t\tj.rawGlobs = true // `read l <','\t\t\t\tif handsOn {\n\t\t\t\t\tj.rawGlobs = false // `read l <'),
  ('replay: blind a shell handed a script file is not a fed shell','internal/specblind/judge.go','\t\t\tcase in(b, "sh", "bash", "zsh", "dash", "ksh"):\n\t\t\t\tfor _, r := range c.Reads {','\t\t\tcase in(b, "sh", "bash", "zsh", "dash", "ksh"):\n\t\t\t\tj.rawGlobs = j.rawGlobs || strings.Contains(j.command, "|")\n\t\t\t\tfor _, r := range c.Reads {'),
- ('review: git by a path survives the reduction to plain values','internal/gitguard/gitguard.go',' || strings.HasPrefix(v, "-") || isGit(v) {',' || strings.HasPrefix(v, "-") {'),
- ('review: an option survives the reduction to plain values','internal/gitguard/gitguard.go',' || strings.HasPrefix(v, "-") || isGit(v) {',' || isGit(v) {'),
+ ('review: git by a path survives the reduction to plain values','internal/gitguard/gitguard.go',' || strings.Contains(v, "=") || isGit(v) {',' || strings.Contains(v, "=") {'),
+ ('review: an option survives the reduction to plain values','internal/gitguard/gitguard.go','leads(v, "-+:")','leads(v, "+:")'),
  ('review: blind a command string that runs what it reads','internal/specblind/judge.go','ok && handsOn && runsInput.MatchString(text) {\n\t\t\t\t\tj.rawGlobs = true','ok && handsOn && runsInput.MatchString(text) {\n\t\t\t\t\tj.rawGlobs = false'),
  ('review: blind a command string that carries its own text is not fed','internal/specblind/judge.go','ok && handsOn && runsInput.MatchString(text) {','ok && handsOn && (runsInput.MatchString(text) || true) {'),
  ('review: blind eval after a pipe or a here-string','internal/specblind/judge.go','handsOn := strings.Contains(j.command, "<(") || strings.Contains(j.command, "|") || strings.Contains(j.command, "<<<")','handsOn := strings.Contains(j.command, "<(")'),
  ('p2: blind the substitution followed by a name','internal/specblind/judge.go','\t\t\t\t\t\trootTails = append(rootTails, j.projCanon+"/"+w[1:])\n','\t\t\t\t\t\t_ = w\n'),
+ ('review: a refspec survives the reduction to plain values','internal/gitguard/gitguard.go','leads(v, "-+:")','leads(v, "-")'),
+ ('review: configuration survives the reduction to plain values','internal/gitguard/gitguard.go',' || strings.Contains(v, "=") || isGit(v) {',' || isGit(v) {'),
+ ('review: git configuration that is not written out','internal/gitguard/gitguard.go','\t\t\tif unresolved(at(words, i+1)) {\n\t\t\t\tj.block(ConfigOverride)','\t\t\tif false {\n\t\t\t\tj.block(ConfigOverride)'),
 ]
 ok=0
 for name,f,old,new in muts:
