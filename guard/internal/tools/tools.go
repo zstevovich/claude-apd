@@ -171,6 +171,7 @@ func parse(a []string, short string, long ...string) opts {
 			return o
 		case strings.HasPrefix(x, "--"):
 			name, v, eq := strings.Cut(x[2:], "=")
+			name = fullName(name, long)
 			o.flags["--"+name] = true
 			if eq {
 				o.val["--"+name] = append(o.val["--"+name], literalTilde(v))
@@ -206,6 +207,26 @@ func literalTilde(v string) string {
 		return "./" + v
 	}
 	return v
+}
+
+// fullName: getopt takes any unambiguous abbreviation of a long option. A name
+// that abbreviates a declared option is read as that option — the first one
+// declared when it could be several, and entries declare the option that
+// writes first: an abbreviation the tool would call ambiguous is not a way past.
+func fullName(name string, declared []string) string {
+	match := ""
+	for _, d := range declared {
+		if d == name {
+			return name
+		}
+		if match == "" && name != "" && strings.HasPrefix(d, name) {
+			match = d
+		}
+	}
+	if match != "" {
+		return match
+	}
+	return name
 }
 
 func operands(short string, long ...string) entry {
@@ -503,6 +524,29 @@ func perlInPlace(_ string, a []string) ([]string, bool) {
 
 // git rm / mv / restore / clean write their pathspecs; `git checkout [ref] -- paths` overwrites them.
 func git(_ string, a []string) ([]string, bool) {
+	// git's own options come before the subcommand. With -C, --git-dir or
+	// --work-tree the paths are taken from another directory.
+	moved := false
+	for len(a) > 0 && strings.HasPrefix(a[0], "-") {
+		switch {
+		case in(a[0], "-C", "--git-dir", "--work-tree"):
+			moved = true
+			a = a[min(2, len(a)):]
+		case in(a[0], "-c", "--namespace", "--exec-path", "--super-prefix", "--config-env"):
+			a = a[min(2, len(a)):]
+		default:
+			moved = moved || strings.HasPrefix(a[0], "--git-dir=") || strings.HasPrefix(a[0], "--work-tree=")
+			a = a[1:]
+		}
+	}
+	out, ok := gitWrites(a)
+	if ok && moved && len(out) > 0 {
+		return []string{unknown + "git run from another directory (-C, --git-dir, --work-tree): its paths are not relative to this one"}, true
+	}
+	return out, ok
+}
+
+func gitWrites(a []string) ([]string, bool) {
 	switch at(a, 0) {
 	case "rm", "mv", "restore", "clean":
 		nf := Positionals(a[1:], `^(--source|--pathspec-from-file|-s|-e)$`)
@@ -511,7 +555,7 @@ func git(_ string, a []string) ([]string, bool) {
 		}
 		return nf, true
 	case "diff", "log", "show":
-		o := parse(a[1:], "", "output")
+		o := parse(a[1:], "", "output", "output-indicator-new", "output-indicator-old", "output-indicator-context")
 		return o.all("--output"), len(o.val["--output"]) > 0
 	case "format-patch":
 		o := parse(a[1:], "o", "output-directory", "output")
@@ -534,16 +578,20 @@ func git(_ string, a []string) ([]string, bool) {
 			return Positionals(a[2:], `^(-b|-B|--reason)$`)[:min(1, len(Positionals(a[2:], `^(-b|-B|--reason)$`)))], true
 		}
 	case "init":
-		if p := Positionals(a[1:], `^(--template|--separate-git-dir|-b|--initial-branch|--object-format|--shared)$`); len(p) > 0 {
-			return p[:1], true
+		o := parse(a[1:], "b", "template", "separate-git-dir", "initial-branch", "object-format", "shared")
+		out := o.all("--separate-git-dir")
+		if len(o.pos) > 0 {
+			return append(out, o.pos[0]), true
 		}
-		return []string{"./"}, true
+		return append(out, "./"), true
 	case "clone":
-		p := Positionals(a[1:], `^(-b|--branch|-o|--origin|--depth|--reference|--template|-c|--config|-j|--jobs|--separate-git-dir|-u|--upload-pack|--filter|--shallow-since|--shallow-exclude|--recurse-submodules|--bundle-uri)$`)
-		if len(p) >= 2 {
-			return p[1:2], true
+		o := parse(a[1:], "bocju", "branch", "origin", "depth", "reference", "template", "config", "jobs", "separate-git-dir",
+			"upload-pack", "filter", "shallow-since", "shallow-exclude", "bundle-uri", "reference-if-able", "server-option")
+		out := o.all("--separate-git-dir")
+		if len(o.pos) >= 2 {
+			return append(out, o.pos[1]), true
 		}
-		return []string{"./"}, true
+		return append(out, "./"), true
 	case "checkout":
 		var out []string
 		after := false

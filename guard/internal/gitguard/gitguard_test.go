@@ -255,8 +255,13 @@ func TestConfigByOtherRoutes(t *testing.T) {
 		{`git config --rename-section x alias`, ConfigOverride, false},
 		{`git config -e`, ConfigOverride, false},
 		{`git config user.name x`, "", false},
+		{`git config alias.x 'commit -m y' --get`, ConfigOverride, false}, // --get after the operands is not an action
+		{`declare -n X=GIT_CONFIG_PARAMETERS; X=y; git status`, ConfigOverride, false},
+		{`export "$N"; git status`, ConfigOverride, false},
+		{`export PATH="$PATH:/x"; git status`, "", false},
 	})
 	check(t, "builder", []row{
+		{`git config user.name x --get`, ConfigOverride, false},
 		{`git config user.name x`, ConfigOverride, false},
 		{`git config --unset user.name`, ConfigOverride, false},
 		{`git config user.name`, "", false},

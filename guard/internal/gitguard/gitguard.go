@@ -199,7 +199,10 @@ func (j *judge) Command(c shell.Command) {
 	if setters[u.Cmd] || c.Decl != "" {
 		// `export GIT_CONFIG_PARAMETERS`, `read HOME`: the variable is named, its value comes from elsewhere
 		for _, w := range c.Words {
-			j.gitEnv = j.gitEnv || configEnv(w)
+			j.gitEnv = j.gitEnv || configEnv(w) || unresolved(w) // a name that is not written out may be one of them
+		}
+		for _, a := range c.Assigns {
+			j.gitEnv = j.gitEnv || configEnv(a.Value) // declare -n X=GIT_CONFIG_PARAMETERS
 		}
 	}
 	// the arguments find, xargs and parallel hand a command are not written here
@@ -426,9 +429,17 @@ func (j *judge) statement(words []string, marked, xargs bool) {
 		}
 	case "config":
 		// a setting that turns hooks off or renames a command, written by the command being judged
-		read := anyLong(args, "--get", "--list", "--get-all", "--get-regexp", "--get-urlmatch", "--show-origin") || has(args, "-l")
-		write := anyLong(args, "--unset", "--unset-all", "--add", "--replace-all") ||
-			len(tools.Positionals(args, `^(--file|-f|--blob|--type|--default)$`)) != 1 // `git config key` alone prints it
+		// git reads its action from the options before the first operand
+		lead := args
+		for k, a := range args {
+			if !strings.HasPrefix(a, "-") {
+				lead = args[:k]
+				break
+			}
+		}
+		operands := len(tools.Positionals(args, `^(--file|-f|--blob|--type|--default)$`))
+		read := (anyLong(lead, "--get", "--list", "--get-all", "--get-regexp", "--get-urlmatch") || has(lead, "-l")) && operands <= 1
+		write := anyLong(args, "--unset", "--unset-all", "--add", "--replace-all") || operands != 1 // `git config key` alone prints it
 		if j.o.AgentType != "" && !read && write {
 			j.block(ConfigOverride) // a pipeline agent reads configuration, it does not write it
 			return
@@ -449,7 +460,7 @@ func (j *judge) statement(words []string, marked, xargs bool) {
 				j.block(NoVerify)
 				return
 			}
-			if strings.HasPrefix(l, "alias.") && !anyLong(args, "--get", "--list", "--get-all", "--get-regexp") && !has(args, "-l") {
+			if strings.HasPrefix(l, "alias.") && !read {
 				j.block(ConfigOverride)
 				return
 			}
