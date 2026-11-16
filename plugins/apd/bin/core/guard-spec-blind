@@ -37,7 +37,6 @@ FILE_PATH=""
 COMMAND=""
 AGENT_TYPE=""
 TOOL=""
-ARGS=("$@")
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --agent-type) AGENT_TYPE="$2"; shift 2 ;;
@@ -47,9 +46,6 @@ while [[ $# -gt 0 ]]; do
     *) shift ;;
   esac
 done
-if [ "${APD_GUARD_ENGINE:-}" = bash ]; then
-  exec bash "$0.bash" ${ARGS[@]+"${ARGS[@]}"}
-fi
 
 # Empty agent_type = the orchestrator's own call. The canonical name, and any
 # renamed variant that still says what it is: a project that renames the role

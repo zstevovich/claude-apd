@@ -205,6 +205,14 @@ func (j *judge) addTarget(raw string, nofollow bool) {
 		return
 	}
 	s := j.subst(j.tilde(raw))
+	if strings.Contains(raw, "$") && !strings.ContainsAny(raw, " \t\n") && strings.ContainsAny(s, " \t\n") {
+		// `d='src/a /etc/x'; touch $d`: unquoted, the value is two arguments. The
+		// word no longer says whether it was quoted, so it is judged both ways —
+		// as the one name it would be quoted (below), and as each of its words.
+		for _, f := range strings.Fields(s) {
+			j.addTarget(f, nofollow)
+		}
+	}
 	if unresolved(s) {
 		j.add(target{raw: raw, note: "unresolved variable or substitution"})
 		return
@@ -462,6 +470,11 @@ var stateWords = map[string]bool{"cd": true, "pushd": true, "popd": true, "eval"
 	"typeset": true, "local": true, "readonly": true, "unset": true, "source": true, ".": true, "set": true, "shopt": true,
 	"alias": true, "command": true, "builtin": true, "exec": true}
 
+// programOnly: builtins whose effect is on the shell itself. Behind a wrapper
+// that starts a program they are not the builtin.
+var programOnly = map[string]bool{"cd": true, "pushd": true, "popd": true, "read": true, "mapfile": true, "readarray": true,
+	"printf": true, "getopts": true, "unset": true, "export": true, "local": true, "declare": true, "typeset": true, "readonly": true}
+
 // unknownValue stands for a variable whose value the guard cannot know (read,
 // mapfile, an array): a path built from it is unresolved, and so refused.
 const unknownValue = "`unknown`"
@@ -637,10 +650,18 @@ func (j *judge) process(c shell.Command) {
 		// a variable in command position: readable only when this command assigned it
 		head := j.subst(cmd)
 		f := strings.Fields(head)
-		if len(f) == 0 || strings.HasPrefix(f[0], "$") {
+		if len(f) == 0 && len(a) == 0 {
+			writes() // `SUDO=; $SUDO`: nothing runs
+			return
+		}
+		if len(f) > 0 && strings.HasPrefix(f[0], "$") {
 			j.addOpaque(cmd, "variable in command position")
 			writes()
 			return
+		}
+		// `SUDO=; $SUDO npm install`: an empty value leaves the arguments as the command
+		if len(f) == 0 {
+			f, a = a[:1], a[1:]
 		}
 		if defined, maybe := j.rd.Func(f[0]); defined {
 			// a function called through the variable: its body runs in THIS shell
@@ -702,6 +723,12 @@ func (j *judge) process(c shell.Command) {
 				j.setvar(x, unknownValue)
 			}
 		}
+	}
+	if u.Program && programOnly[cmd] {
+		// `nice cd dir`, `env export X=v`, `sudo read x`: a program of that name in a
+		// child process — this shell's directory and variables stay as they were
+		writes()
+		return
 	}
 	switch cmd {
 	case "cd":

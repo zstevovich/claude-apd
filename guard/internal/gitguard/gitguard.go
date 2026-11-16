@@ -225,7 +225,9 @@ func (j *judge) combos(names []string, plain bool) []map[string]string {
 			// (`/usr/bin/git`); a word that starts with a dash is an option, one that
 			// starts with `+` or `:` is a refspec (`+refs/heads/x` forces), and one
 			// with `=` in it may be configuration (`core.hooksPath=/dev/null`).
-			if !plain || !strings.ContainsAny(v, "/.") || leads(v, "-+:") || strings.Contains(v, "=") || isGit(v) {
+			// A value of several words is not a file name either: it may be the whole
+			// command (`git push --force origin refs/heads/main`).
+			if !plain || !strings.ContainsAny(v, "/.") || strings.ContainsAny(v, " \t\n") || leads(v, "-+:") || strings.Contains(v, "=") || isGit(v) {
 				vals = append(vals, v)
 			}
 		}

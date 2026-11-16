@@ -19,7 +19,6 @@ source "$(dirname "$0")/../lib/apd-guard.sh"
 COMMAND=""
 AGENT_ID=""
 AGENT_TYPE=""
-ARGS=("$@")
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --command)    COMMAND="$2"; shift 2 ;;
@@ -28,9 +27,6 @@ while [[ $# -gt 0 ]]; do
     *) shift ;;
   esac
 done
-if [ "${APD_GUARD_ENGINE:-}" = bash ]; then
-  exec bash "$0.bash" ${ARGS[@]+"${ARGS[@]}"}
-fi
 
 # Log function — logs blocked actions with agent context. guard-git carries
 # its own (it does not source style.sh) and records the whole command; it

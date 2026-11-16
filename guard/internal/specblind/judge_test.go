@@ -112,6 +112,14 @@ func TestBash(t *testing.T) {
 		"sh -c \"find . 'x\"",
 		"cat <<EOF | script -q /dev/null sh\nfind . -name x\nEOF",
 		"sh -s -- x <<EOF\nfind . -name x\nEOF",
+		// a shell that reads its script from stdin, started by another shell's command string
+		"sh -c 'sh -s y' <<EOF\ncat .a*/p*/s*\nEOF",
+		"sh -c 'sh /dev/stdin y' <<EOF\ncat .a*/p*/s*\nEOF",
+		"bash -c 'bash -s y' z <<EOF\nfind . -type f\nEOF",
+		"c='sh -s y'; cat <<EOF | $c\ncat .a*/p*/s*\nEOF",
+		// the root by git, where the substitution does not spell the command out
+		"find $(sh -c 'git rev-parse --show-toplevel') -type f",
+		"x=--show-toplevel; find $(git rev-parse $x) -type f",
 		"python3 -c \"os.system('apd pipeline show spec')\"",
 		"python3 -c \"open( '.apd/./pipeline/spec-card.md' )\"",
 		"python3 -c \"open('.APD/pipeline/spec-card.md')\"",
@@ -495,6 +503,10 @@ func TestAudit(t *testing.T) {
 		"[[ x == @(a|$(ls -R)) ]]",
 		"[[ x == +($(cat .a*/p*/s*)) ]]",
 		"echo ${x:-<(echo ')'; ls -R)}",
+		// pass 3: an unreadable command falls to the fallback rules, which know a recursive ls
+		"[[ x == @(a|$(echo ')'; ls -R)) ]]",
+		// pass 3: a `)` in a comment inside kept text closes nothing
+		"echo ${x:-<(echo a # )\ncat .a*/p*/s*\n)}",
 		// deeper than is read: refused whatever it is
 		nine,
 		strings.Replace(nine, "cat .a*/p*/s*", "ls src", 1),
@@ -505,6 +517,7 @@ func TestAudit(t *testing.T) {
 		"[[ $x == @(a|b) ]] && cat src/app/main.go",
 		"eval \"$(ssh-agent)\"; cat src/app/main.go",
 		"bash -c 'ls src/*.go'",
+		"[[ x == @(a|$(echo ')'; ls -lr src/app)) ]]", // unreadable, and -r is reverse order
 		// a shell handed a script file runs the file, whatever else the command pipes
 		"cat > /tmp/p.php <<'EOF'\n<?php echo $row[module_enabled] . $t=.*//;\nEOF\nbash /tmp/run.sh | tail -5",
 		"bash scripts/check.sh 2>&1 | grep -c '.*FAIL'",

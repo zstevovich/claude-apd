@@ -1399,7 +1399,7 @@ func (j *judge) fallback() {
 		head = head[:k]
 	}
 	gitHead := base(head) == "git"
-	git, grep, rec := false, false, false
+	git, grep, rec, ls, recR := false, false, false, false, false
 	words := fields(j.command)
 	for _, raw := range words {
 		tok := strip(raw, `;&|()<>"'`)
@@ -1417,12 +1417,18 @@ func (j *judge) fallback() {
 			j.deny("the whole project (a recursive "+tok+" in a command that could not be tokenized)", "cmd:"+tok+":opaque")
 		case in(tok, "grep", "egrep", "fgrep", "ggrep", "ugrep", "ug"):
 			grep = true
+		case in(tok, "ls", "gls", "exa", "eza", "lsd"):
+			ls = true
 		case in(tok, "--recursive", "--dereference-recursive"):
-			rec = true
+			rec, recR = true, true
 		case strings.HasPrefix(tok, "--"):
 		case strings.HasPrefix(tok, "-") && strings.ContainsAny(tok, "rR"):
 			rec = true
+			recR = recR || strings.Contains(tok, "R")
 		}
+	}
+	if ls && recR {
+		j.deny("the whole project (a recursive ls in a command that could not be tokenized)", "cmd:ls:opaque")
 	}
 	if grep && rec {
 		j.deny("the whole project (a recursive grep in a command that could not be tokenized)", "cmd:grep:opaque")

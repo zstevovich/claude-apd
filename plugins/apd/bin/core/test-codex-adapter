@@ -16308,7 +16308,7 @@ section "138. guard-git judges git STATEMENTS, not the command text"
 # were refused as unprefixed commits — guard-git grepped the raw string. The
 # CC hook gate (`if: Bash(git *)`) hid most of it, but `git log --oneline |
 # grep "git commit"` starts with git and fell through. Now guard-bash-scope
-# lends its tokenizer (`--emit-git`): one line per git STATEMENT, words
+# lent its tokenizer (until v8, where the compiled guard reads the command): one line per git STATEMENT, words
 # tab-separated, nested shells recursed; guard-git judges those. Quoted text
 # is data; a git word in a pipeline is a statement of its own.
 
@@ -16421,21 +16421,6 @@ _g138 2 "mixed quotes across a line break: --no-verify after the break is seen (
 _g138 2 "a backslash before the closing single quote is literal: --no-verify after the break is seen" $'APD_ORCHESTRATOR_COMMIT=1 git commit -m \'a\\\' \'body\nrest\' --no-verify' "Hooks must pass"
 _g138 2 "a multi-line -m, then a force push in the next statement, is refused AS a force push" $'APD_ORCHESTRATOR_COMMIT=1 git commit -m \'a\nb\' && git push --force' "[Ff]orce"
 _g138 2 "a quote left open at the end of the text: the raw scan judges it (rc 2 on --no-verify)" $'APD_ORCHESTRATOR_COMMIT=1 git commit -m \'a\nb --no-verify' "Hooks must pass"
-if APD_PROJECT_DIR="$G138_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --emit-git --command $'git commit -m "it\'s" \'body\nrest\' --no-verify "x\'y"' 2>/dev/null | grep -q $'^GIT\x1fcommit\x1f-m\x1fit\'s\x1fbody\x1erest\x1f--no-verify\x1fx\'y$'; then
-    pass "--emit-git carries a word spanning lines as ONE word (newline as 0x1e), the words after it intact"; PASSES=$((PASSES + 1))
-else
-    fail "--emit-git split a word spanning lines (or lost the words after it)"; FAILS=$((FAILS + 1))
-fi
-if APD_PROJECT_DIR="$G138_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --emit-git --command $'git commit -m "it\'s" \'body\nrest\' --no-verify "x\'y"' 2>/dev/null | grep -q '^OPAQUE'; then
-    fail "--emit-git made a readable multi-line statement OPAQUE (the raw scan would judge text, not the statement)"; FAILS=$((FAILS + 1))
-else
-    pass "--emit-git reads a multi-line statement precisely (no OPAQUE for a closed quote spanning lines)"; PASSES=$((PASSES + 1))
-fi
-if APD_PROJECT_DIR="$G138_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --emit-git --command $'git commit -m \'a\nb --no-verify' 2>/dev/null | grep -q '^OPAQUE$'; then
-    pass "--emit-git reports a quote still open at the END of the text as OPAQUE"; PASSES=$((PASSES + 1))
-else
-    fail "--emit-git did not report an unterminated quote as OPAQUE"; FAILS=$((FAILS + 1))
-fi
 _g138 2 "a wall of nested shells is refused within the hook budget (total, not per level)" "$(printf 'bash -c "%s"; ' "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))" "$(printf 'bash -c \\"git status\\"; %.0s' $(seq 1 7))")git push --force"
 _g138 2 "a literal unit separator inside a word is opaque → raw scan"            $'git -C "x\x1fy" commit -m x'
 _g138 2 "prefixed commit -uno: the stuck VALUE of -u is not a cluster (gate refuses, not --no-verify)" 'APD_ORCHESTRATOR_COMMIT=1 git commit -uno -m x' "Pipeline steps are not completed" "Hooks must pass"
@@ -16448,22 +16433,6 @@ if [ $((G138_T1 - G138_T0)) -le 4 ]; then
     pass "a 7×7 wall of nested shells is judged in $((G138_T1 - G138_T0))s (hook budget is 5s)"; PASSES=$((PASSES + 1))
 else
     fail "a 7×7 wall of nested shells took $((G138_T1 - G138_T0))s — past the 5s hook timeout, which does not block on CC"; FAILS=$((FAILS + 1))
-fi
-# --- the emit contract itself ---
-if APD_PROJECT_DIR="$G138_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --emit-git --command 'git -C src commit -m "a b"; echo "git push" | cat; sh -c "git push -f"' 2>/dev/null | grep -c '^GIT' | grep -qx 2; then
-    pass "--emit-git emits exactly the two git statements (quoted text and the pipeline are not statements)"; PASSES=$((PASSES + 1))
-else
-    fail "--emit-git did not emit exactly two git statements for a 3-statement command"; FAILS=$((FAILS + 1))
-fi
-if APD_PROJECT_DIR="$G138_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --emit-git --command 'git commit -m "a b"' 2>/dev/null | grep -q $'^GIT\x1fcommit\x1f-m\x1fa b$'; then
-    pass "--emit-git keeps a quoted argument as ONE word (unit-separator delimited)"; PASSES=$((PASSES + 1))
-else
-    fail "--emit-git split or lost a quoted argument"; FAILS=$((FAILS + 1))
-fi
-if APD_PROJECT_DIR="$G138_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --emit-git --command 'git -C "" commit -m x' 2>/dev/null | grep -q $'^GIT\x1f-C\x1f\x1fcommit'; then
-    pass "--emit-git keeps an EMPTY word (git -C \"\")"; PASSES=$((PASSES + 1))
-else
-    fail "--emit-git dropped an empty word — the subcommand after -C \"\" is misread"; FAILS=$((FAILS + 1))
 fi
 # v8: the judge is a compiled binary. A guard whose judge is MISSING, or answers with
 # something that is neither allow nor block, must refuse — on a copy of the plugin, for
@@ -16695,10 +16664,6 @@ _g140() {  # <expected rc> <label> <command> [orch]
     else APD_PROJECT_DIR="$G140_T" AGENT_TYPE=builder bash "$G140" --command "$cmd" --cwd "$G140_T" src/ >/dev/null 2>&1 || rc=$?; fi
     if [ "$rc" = "$exp" ]; then pass "$label (rc=$rc)"; PASSES=$((PASSES + 1)); else fail "$label: want rc=$exp got rc=$rc — ${cmd:0:80}"; FAILS=$((FAILS + 1)); fi
 }
-_e140() {  # <label> <command> <emit output must contain (after 0x1f→space, 0x1e→~)>
-    local out; out=$(APD_PROJECT_DIR="$G140_T" bash "$G140" --emit-git --command "$2" --cwd "$G140_T" 2>/dev/null | tr '\037\036' ' ~')
-    if printf '%s\n' "$out" | grep -q -- "$3"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1 — got: $(printf '%s' "$out" | tr '\n' '|' | cut -c1-120)"; FAILS=$((FAILS + 1)); fi
-}
 NL=$'\n'
 # --- (a) ANSI-C quoting ---
 _g140 2 "ANSI-C escaped quote no longer desyncs: echo \$'a\\'b' > /etc/x blocks"            "echo \$'a\\'b' > /etc/x"
@@ -16754,14 +16719,6 @@ _g140 2 "the same shape with an in-scope redirect is ALSO refused — the statem
 _g140 0 "a normal quoted heredoc tag still parses (body is data, redirect judged)"           "cat <<'EOF' > src/ok${NL}> /etc/x${NL}EOF"
 _g140 2 "a tag with a quoted part followed by text (<<\"E\"OF) matches EOF: the write after the heredoc is read" "cat <<\"E\"OF > src/ok${NL}x${NL}EOF${NL}rm /etc/x"
 _g140 2 "orchestrator: a heredoc tag spanning lines while the command names the fence is refused" "cat <<'EO${NL}F' > .apd/pipeline/x${NL}t${NL}EOF" orch
-# --- guard-git's protocol must not get worse ---
-_e140 "guard-git: a substitution inside a quoted -m stays OPAQUE (raw scan judges the text)"  'git commit -m "x $(date)" --no-verify' "OPAQUE"
-_e140 "guard-git: an ANSI-C -m value is decoded, the flag after it is a word of its own"      "git commit -m \$'a b' --no-verify" "GIT commit -m a b --no-verify"
-_e140 "guard-git: a heredoc tag spanning lines is OPAQUE"                                    "git commit -F - <<'EO${NL}F' --no-verify${NL}x${NL}EOF" "OPAQUE"
-_e140 "guard-git: an unterminated quoted substitution is OPAQUE"                             'git commit -m "$(date' "OPAQUE"
-_e140 "guard-git: \$\$'…' does not swallow a git statement after it (audit C1)"               "git status; echo \$\$'a\\' ; git push --force #'" "GIT push --force"
-_e140 "guard-git: a hex-spelled git word is decoded: \$'\\x67it' push --force"                  "\$'\\x67it' push --force" "GIT push --force"
-_e140 "guard-git: a git ARGUMENT with an undecoded escape is OPAQUE (audit P3: bash 5 decodes \\u)"   "git \$'\\u0070ush' --force" "OPAQUE"
 # --- v7.2: the two limits the v7.1.7 audit stated (P1, P2) --------------------
 # P1: bash tries `$((…))` as arithmetic and falls back to a substitution of a
 # subshell — `$((echo x > /etc/a) )` WRITES. The tokenizer read every `$((` as
@@ -16787,7 +16744,6 @@ _g140 2 "P2: <<\\EOF still names EOF (regression guard)"                        
 _g140 0 "P2: a write INSIDE the body of a mixed-quoted heredoc is data, not a command" "cat <<E\"OF\"${NL}echo x > /etc/n${NL}EOF"
 _g140 0 "P2: a mixed-quoted heredoc redirected in scope is allowed"                   "cat <<E\"OF\" > src/o${NL}body${NL}EOF"
 _g140 2 "P2: a tag whose quote does not close on its line is still unreadable (v7.1.7 OPENTAG)" "cat <<\"EO${NL}F\" > /etc/p"
-_e140 "guard-git: after a mixed-quoted heredoc the git word is a statement again (the body ends where bash ends it)" "cat <<E\"OF\"${NL}body${NL}EOF${NL}git push --force" "GIT push --force"
 # --- v7.2, the P1/P2 audit's pre-existing fail-opens in the same area (I1–I5, M1) --
 # I1 a `$((` whose close is on a later line: unreadable (OPENARITH → refused / OPAQUE /
 # fence-opaque), and the groups still parse the text of the first line. I2 a heredoc tag
@@ -16825,10 +16781,6 @@ LANG=C.UTF-8 LC_ALL= _g140 2 "I5: a non-ASCII byte in an unquoted tag under a UT
 LANG=C.UTF-8 LC_ALL= _g140 2 "I5: the orchestrator fence after such a tag"                   "cat <<ÉOF${NL}body${NL}ÉOF${NL}rm -rf .apd/pipeline" orch
 LANG=C.UTF-8 LC_ALL= _g140 2 "I5 (v8, stated): a non-ASCII heredoc tag is not read by the parser — refused in scope too" "cat <<'ÉOF' > src/a${NL}body${NL}ÉOF"
 _g140 2 "M1 (v8, stated): a tag with a backslash-escaped quote is not read by the parser — refused in scope too" "cat <<\"E\\\"F\" > src/dx${NL}body${NL}E\"F"
-_c140_end() { local out; out=$(printf '%s\n' "$1" | LC_ALL=C awk "$(sed -n "/^_TOKENIZER='/,/^'$/p" "$G140.bash" | sed '1s/^_TOKENIZER=.//; $d')" 2>/dev/null | tail -1); [ "$out" = "S END" ]; }
-if _c140_end 'echo hi' && _c140_end "cat <<EOF${NL}body${NL}EOF"; then pass "the tokenizer ends every command with the END canary (the consumer fails closed without it)"; PASSES=$((PASSES + 1)); else fail "no END canary at the end of the tokenizer output"; FAILS=$((FAILS + 1)); fi
-_e140 "guard-git: after an ANSI-C-tagged heredoc the git word is a statement again"       "cat <<\$'E'${NL}body${NL}E${NL}git push --force" "GIT push --force"
-_e140 "guard-git: a git command inside arithmetic is not invisible (nested statement or OPAQUE)" "echo \$(( \$(git push --force; echo 1) ))" "push --force\|OPAQUE"
 # --- the P1/P2 audit's pass 2: one false-block class and one perf hole closed ------------
 # In an UNQUOTED heredoc body a backslash quotes `$`, a backtick, `\` and newline — `\$(…)`
 # is the idiom for writing a shell script or Makefile through a heredoc, and the body scan
@@ -17555,7 +17507,6 @@ _g149 2 "G1: … the .claude staging rule keys on the statement too"            
 _g149 2 "G1: a commit cannot sign ITSELF through its message"                           'git commit -m "fix; APD_ORCHESTRATOR_COMMIT=1 git x"' 'only allowed with APD_ORCHESTRATOR_COMMIT'
 _g149 2 "G1: … nor through a trailing comment"                                          'git commit -m y # (APD_ORCHESTRATOR_COMMIT=1 git commit' 'only allowed with APD_ORCHESTRATOR_COMMIT'
 _g149 2 "G1: … nor through text in an EARLIER statement"                                'echo "x; APD_ORCHESTRATOR_COMMIT=1 git commit"; git commit -m y' 'only allowed with APD_ORCHESTRATOR_COMMIT'
-_c149 "G1: the marker travels with the tokenized statement (@APD_MARK from guard-bash-scope --emit-git), no raw-text regex left in guard-git" '( cd "$G149_T" && APD_PROJECT_DIR="$G149_T" bash "$G149_BS" --emit-git --command "git add a && APD_ORCHESTRATOR_COMMIT=1 git commit -m x # APD_ORCHESTRATOR_COMMIT=1 git push" ) | tr "\037" "|" | grep -qx "GIT|@APD_MARK|commit|-m|x" && ! grep -q "APD_ORCHESTRATOR_COMMIT=1\[\[:space:\]\]+git" "$G149_GG"'
 _g149 2 "G2: git restore --staged -Wq (git bundles short options) is destructive"       'git restore --staged -Wq x'        'Destructive'
 _g149 2 "G2: … -S -qW"                                                                  'git restore -S -qW x'              'Destructive'
 _g149 2 "G2: … --staged -pW"                                                            'git restore --staged -pW x'        'Destructive'
@@ -17633,7 +17584,6 @@ _x149 2 "B3: four data levels hit the depth cap — the fence still holds"      
 printf -- '---\nname: ro-nomem\ndescription: readonly, no memory declared\ntools: Read, Write\nreadonly: true\n---\nbody\n' > "$G149_T/.claude/agents/ro-nomem.md"
 _s149 2 "N1: a readonly agent WITHOUT memory: has no memory directory to write"          ro-nomem ".claude/agent-memory/ro-nomem/x.md"
 # --- audit-723 pass 2 shapes ---
-_c149 "P2 G: a LITERAL user word @APD_MARK makes the statement OPAQUE for guard-git (raw path, never read as the mark)" '( cd "$G149_T" && APD_PROJECT_DIR="$G149_T" bash "$G149_BS" --emit-git --command "git @APD_MARK push origin main" ) | grep -qx OPAQUE'
 _g149 0 "P2 G: git restore -S -sWIP x — -s takes a value, the W in it is not --worktree"  'git restore -S -sWIP x'
 _g149 2 "P2 G: every marked statement is judged under THIS bash too (the 3.2 collapse): push --force" 'APD_ORCHESTRATOR_COMMIT=1 git push --force origin main' 'force'
 _g149 2 "P2 G: … commit -am"                                                               'APD_ORCHESTRATOR_COMMIT=1 git commit -am x' 'commit -a'

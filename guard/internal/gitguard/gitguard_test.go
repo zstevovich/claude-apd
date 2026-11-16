@@ -393,6 +393,10 @@ func TestAudit(t *testing.T) {
 		{`for a in ` + manyFiles + `; do for k in ` + manyFiles + ` alias.p=push.x; do git -c $k status "$a"; done; done`, ConfigOverride, false},
 		{`for a in ` + manyFiles + `; do for o in ` + manyFiles + ` -uf.; do ` + sign + `git push $o origin "$a"; done; done`, ForcePush, false}, // an option cluster with a dot in it
 		{`git -c "$UNKNOWN" status`, ConfigOverride, false},
+		// pass 3: a value that is the whole command survives the reduction (the split quote hides it from the text scan)
+		{`X=echo; X="git pu""sh --force origin refs/heads/main"; for a in ` + manyFiles + `; do for b in ` + manyFiles + `; do $X -o $a -o $b; done; done`, ForcePush, false},
+		{`c='time git'; $c push --force`, ForcePush, false},
+		{`stdbuf -o0 git push --force`, ForcePush, false},
 		{`for a in ` + manyFiles + `; do for e in ` + manyFiles + ` ""; do git diff --stat -- "$a" $e; done; done`, "", false}, // an empty value among them
 		{`git -c core.pager=cat log -1`, "", false},
 		{`for a in ` + manyFiles + `; do for o in ` + manyFiles + ` --force-with-lease=x.y; do ` + sign + `git push $o origin "$a"; done; done`, ForcePush, false},

@@ -405,6 +405,15 @@ func closeParen(s string, open int) int {
 					i++
 				}
 			}
+		case '#':
+			// a comment runs to the end of the line: a `)` in it closes nothing
+			if strings.IndexByte(" \t\n;&|(", s[i-1]) >= 0 {
+				k := strings.IndexByte(s[i:], '\n')
+				if k < 0 {
+					return -1
+				}
+				i += k
+			}
 		case '(':
 			depth++
 		case ')':

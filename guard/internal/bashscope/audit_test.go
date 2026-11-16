@@ -149,6 +149,44 @@ func TestAuditFunctionThroughAVariable(t *testing.T) {
 		// env inside the value reaches the command
 		{`g='env D=out sh -c'; $g 'touch $D/a'`, 2},
 		{`g='env D=src sh -c'; $g 'touch $D/a'`, 0},
+		// pass 3: a value of several words among the arguments is several arguments
+		{`c=touch; d='src/a out/b'; $c $d`, 2},
+		{`c=cp; d='src/a out/b'; $c $d`, 2},
+		{`c='rm -rf'; d='src/a out/b'; $c $d`, 2},
+		{`c=env; d='src/a out/b'; $c touch $d`, 2},
+		{`for d in 'src/a out/b'; do c=touch; $c $d; done`, 2},
+		{`d='src/a out/b'; touch $d`, 2}, // the same written out
+		{`d='src/a src/b'; touch $d`, 0},
+		{`cd src; d='-f b'; rm $d`, 0}, // an option among the words is not a target
+		{`c=tee; d='-a out/b'; echo | $c $d`, 2},
+		// pass 3: `time` out of an expansion is the program, and runs the rest
+		{`c='time touch'; $c out/a`, 2},
+		{`c=time; $c touch out/a`, 2},
+		{`c=time; $c -p touch out/a`, 2},
+		{`command time touch out/a`, 2},
+		{`env time touch out/a`, 2},
+		{`c=time; $c touch src/a`, 0},
+		{`c=time; $c -o src/log touch out/a`, 2}, // -o takes a value: the command is touch
+		{`stdbuf -o L touch out/a`, 2},
+		{`cd out; c=time; $c cd ../src; touch a`, 2}, // a program named cd, in a child
+		{`cd out; stdbuf -o0 cd ../src; touch a`, 2},
+		// an empty value in command position leaves the arguments as the command
+		{`SUDO=; $SUDO touch src/a`, 0},
+		{`SUDO=; $SUDO touch out/a`, 2},
+		{`SUDO=""; $SUDO make test`, 0},
+		{`SUDO=; $SUDO`, 0},
+		// a builtin's name behind a wrapper that starts a program changes nothing here
+		{`cd out; nice cd ../src; touch a`, 2},
+		{`cd out; c='nice cd ../src'; "$c"; touch a`, 2},
+		{`cd out; c='env cd ../src'; $c; touch a`, 2},
+		{`x=out; env export x=src; touch $x/a`, 2},
+		{`cd src; nice cd ../out; touch a`, 0},
+		{`cd out; command cd ../src; touch a`, 0}, // command runs the builtin
+		// a `)` in a comment inside text the parser keeps does not close it
+		{"echo ${x:-<(echo a # )\ntouch out/a\n)}", 2},
+		{"echo ${x:-<(echo a # )\ntouch src/a\n)}", 0},
+		{"echo ${x:-<(echo a#b; touch out/a)}", 2}, // not a comment: `#` inside a word
+		{"echo ${x:-<(echo a#b; touch src/a)}", 0},
 		// a wrapper inside the value
 		{`g='sudo touch'; $g out/a`, 2},
 		{`g='env touch'; $g src/a`, 0},
@@ -188,6 +226,11 @@ func TestAuditFenceInAnotherCase(t *testing.T) {
 		"c=:; $c; $c; $c; $c; $c; $c; $c; $c; $c; touch .apd//pipeline/reviewer.done",
 		"f() { :; }; unset f; touch .apd//pipeline/reviewer.done",
 		"if false; then f() { :; }; fi; f; touch .apd//pipeline/reviewer.done",
+		"c=touch; d='x .apd//pipeline/reviewer.done'; $c $d",
+		"c=tee; d='-a .apd//pipeline/verifier.done'; echo | $c $d",
+		"c=rm; d='-f .apd//pipeline/spec.done'; $c $d",
+		"c='time touch'; $c .apd//pipeline/reviewer.done",
+		"echo ${x:-<(: #)\ntouch .apd//pipeline/reviewer.done)}",
 		"eval :; eval :; eval :; eval :; eval :; eval :; eval :; eval :; eval :; touch .apd//pipeline/reviewer.done",
 	} {
 		if got := judgeIn(root, cmd); got != 2 {

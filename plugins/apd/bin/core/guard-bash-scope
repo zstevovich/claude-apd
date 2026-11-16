@@ -21,9 +21,7 @@ source "$(dirname "$0")/../lib/apd-guard.sh"
 COMMAND=""
 CWD_ARG=""
 DENY_ALL_WRITES=false
-LEGACY=false
 ALLOWED_PATHS=()
-ARGS=("$@")
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --command) COMMAND="$2"; shift 2 ;;
@@ -34,13 +32,9 @@ while [[ $# -gt 0 ]]; do
     # path, but "no scope" must not read as "every path": the agent is stopped
     # at writes and still free to run `git diff` or the test command.
     --deny-all-writes) DENY_ALL_WRITES=true; shift ;;
-    --emit-git|--emit-words) LEGACY=true; shift ;;
     *) ALLOWED_PATHS+=("$1"); shift ;;
   esac
 done
-if [ "$LEGACY" = true ] || [ "${APD_GUARD_ENGINE:-}" = bash ]; then
-  exec bash "$0.bash" ${ARGS[@]+"${ARGS[@]}"}
-fi
 
 [ -z "$COMMAND" ] && exit 0
 _apd_guard_require guard-bash-scope

@@ -711,7 +711,7 @@ loop:
 		}
 		if !in(w, "command", "builtin") {
 			switch w {
-			case "exec", "nohup", "caffeinate", "sudo", "doas", "nice", "ionice", "timeout", "env", "xargs":
+			case "exec", "nohup", "caffeinate", "sudo", "doas", "nice", "ionice", "timeout", "env", "xargs", "time", "stdbuf":
 				u.Program = true
 			}
 		}
@@ -722,6 +722,12 @@ loop:
 			skip("-u", "-g", "-p", "-h", "-C", "-D", "-r", "-t", "-U")
 		case "nice", "ionice":
 			skip("-n", "-c", "-p")
+		case "time":
+			// as a word that came out of an expansion, behind `command` or `env`, or
+			// quoted, `time` is the program /usr/bin/time (the keyword never gets here)
+			skip("-o", "-f", "--output", "--format")
+		case "stdbuf":
+			skip("-i", "-o", "-e")
 		case "timeout":
 			i++
 			for i < n {
