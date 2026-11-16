@@ -6,6 +6,7 @@
 package shell
 
 import (
+	"regexp"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -285,14 +286,22 @@ func (w *walker) word(x *syntax.Word) string {
 	if !strings.HasPrefix(s, "~") {
 		return s
 	}
-	if l, ok := x.Parts[0].(*syntax.Lit); !ok || !strings.HasPrefix(l.Value, "~") {
-		return "./" + s
+	// The tilde-prefix runs to the first unquoted slash and must be unquoted throughout.
+	raw := ""
+	if l, ok := x.Parts[0].(*syntax.Lit); ok {
+		raw = l.Value
 	}
-	if s != "~" && !strings.HasPrefix(s, "~/") {
+	switch {
+	case strings.HasPrefix(raw, "~/"), raw == "~" && len(x.Parts) == 1:
+		return s
+	case tildeName.MatchString(raw) && (len(x.Parts) == 1 || strings.Contains(raw, "/")):
 		return "`" + s
 	}
-	return s
+	return "./" + s
 }
+
+// tildeName: `~user`, `~+`, `~-`, `~2` — a directory looked up by the shell.
+var tildeName = regexp.MustCompile(`^~[A-Za-z0-9_.+-]+(/|$)`)
 
 func (w *walker) stmts(l []*syntax.Stmt) {
 	for _, s := range l {

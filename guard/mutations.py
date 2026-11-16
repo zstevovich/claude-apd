@@ -75,12 +75,14 @@ muts=[
  ('scratchpad exact layout','internal/paths/paths.go','claude-[0-9]+/[^/]+/[^/]+/scratchpad','claude-[0-9]+.*/scratchpad'),
  ('dangling symlink followed','internal/paths/paths.go','\tif abs == "" && !nofollow && IsLink(p) {','\tif false && abs == "" && !nofollow && IsLink(p) {'),
  ('last-component symlink followed','internal/paths/paths.go','\tif !nofollow && IsLink(abs) {\n\t\treturn e.CanonAbs(abs, "/", false)\n\t}\n',''),
- ('a quoted ~ is a file name','internal/shell/walk.go','\t\treturn "./" + s\n\t}\n\tif s != "~"','\t\treturn s\n\t}\n\tif s != "~"'),
- ('~user is unresolvable','internal/shell/walk.go','\t\treturn "`" + s\n','\t\treturn s\n'),
  ('~ after = is literal','internal/tools/tools.go','\tif strings.HasPrefix(v, "~") {\n\t\treturn "./" + v\n\t}\n',''),
  ('glued short option value','internal/tools/tools.go','\t\t\t\t\tv := literalTilde(x[k+1:])\n','\t\t\t\t\tv := ""\n'),
  ('long option with =','internal/tools/tools.go','\t\t\t\to.val["--"+name] = append(o.val["--"+name], literalTilde(v))\n','\t\t\t\t_ = v\n'),
  ('rsync directory from the parent of a file destination','internal/tools/tools.go','\t\t\t\tout = append(out, strings.TrimSuffix(parent, "/")+"/"+d)\n','\t\t\t\t_ = parent\n'),
+ ('a quoted ~ is a file name','internal/shell/walk.go','\treturn "./" + s\n}\n\n// tildeName','\treturn s\n}\n\n// tildeName'),
+ ('~user is unresolvable','internal/shell/walk.go','\t\treturn "`" + s\n','\t\treturn s\n'),
+ ('~ alone must be the whole word','internal/shell/walk.go','raw == "~" && len(x.Parts) == 1:','raw == "~":'),
+ ('~user must be unquoted to its slash','internal/shell/walk.go','tildeName.MatchString(raw) && (len(x.Parts) == 1 || strings.Contains(raw, "/")):','tildeName.MatchString(raw):'),
 ]
 ok=0
 for name,f,old,new in muts:
