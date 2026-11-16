@@ -98,8 +98,13 @@ type fn struct {
 
 func NewReader() *Reader { return &Reader{funcs: map[string]fn{}} }
 
-// Func reports whether name is a shell function defined in what the reader has read so far.
-func (r *Reader) Func(name string) bool { _, ok := r.funcs[name]; return ok }
+// Func reports whether name is a shell function defined in what the reader has
+// read so far; maybe says the definition sat where it may not have run, so the
+// name may still be a program or a builtin.
+func (r *Reader) Func(name string) (defined, maybe bool) {
+	f, ok := r.funcs[name]
+	return ok, ok && f.maybe
+}
 
 func (r *Reader) Walk(src string, v Visitor) error {
 	f, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(src), "")

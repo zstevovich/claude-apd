@@ -630,23 +630,33 @@ func (j *judge) process(c shell.Command) {
 		// a variable in command position: readable only when this command assigned it
 		head := j.subst(cmd)
 		f := strings.Fields(head)
-		switch {
-		case len(f) == 0, strings.HasPrefix(f[0], "$"):
+		if len(f) == 0 || strings.HasPrefix(f[0], "$") {
 			j.addOpaque(cmd, "variable in command position")
 			writes()
 			return
-		case j.rd.Func(f[0]):
+		}
+		if defined, maybe := j.rd.Func(f[0]); defined {
 			// a function called through the variable: its body runs in THIS shell
 			j.evalHere("'" + strings.ReplaceAll(f[0], "'", `'\''`) + "'")
-			writes()
-			return
+			if !maybe {
+				writes()
+				return
+			}
+			// a function that may not have been defined: the name may as well be the
+			// program, so the command and its arguments are judged too
 		}
 		// The shell only SPLITS an expanded value into words — it does not read
 		// `x=1`, `>` or `;` in it as syntax. The words of the value, followed by the
 		// arguments exactly as the parser made them, are the command: it is judged
 		// below like any other, in this shell (`g='cd src'; $g` does change directory;
 		// `g='x=src'; $g` runs a program named `x=src` and assigns nothing).
+		fed := u.Xargs // `xargs $g`: stdin still supplies part of the arguments
 		u = tools.Unwrap(append(f, a...))
+		u.Xargs = u.Xargs || fed
+		for _, e := range u.Env { // g='env X=v cmd': the variable reaches the command
+			k := strings.Index(e, "=")
+			j.envN, j.envV = append(j.envN, e[:k]), append(j.envV, j.subst(e[k+1:]))
+		}
 		cmd, a = u.Cmd, u.Args
 		if cmd == "" || strings.HasPrefix(cmd, "$") || strings.HasPrefix(cmd, "`") {
 			j.addOpaque(head, "variable in command position")

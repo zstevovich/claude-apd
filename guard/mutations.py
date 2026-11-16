@@ -175,6 +175,7 @@ muts=[
  ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
  ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
  ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
+ ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
  ('blind: any name that says adversarial','internal/specblind/judge.go','return strings.Contains(agentType, "adversarial")','return agentType == "adversarial-reviewer"'),
  ('blind: a Grep with no path','internal/specblind/judge.go','in(o.Tool, "Grep", "Glob") {','in(o.Tool, "Glob") {'),
  ('blind: a Glob with no path','internal/specblind/judge.go','in(o.Tool, "Grep", "Glob") {','in(o.Tool, "Grep") {'),
@@ -373,9 +374,12 @@ muts=[
  ('audit: blind a search rooted above the project','internal/specblind/judge.go','\tif strings.HasPrefix(rel, "/") && j.o.Tool != "Read" &&','\tif false && j.o.Tool != "Read" &&'),
  ('audit: blind a Read above the project is not a search','internal/specblind/judge.go','j.o.Tool != "Read" &&','true &&'),
  ('audit: more brace groups than are counted','internal/shell/walk.go','\tif braceGroup.MatchString(s) {','\tif false {'),
- ('audit: a function called through a variable runs here','internal/bashscope/judge.go','\t\tcase j.rd.Func(f[0]):','\t\tcase false:'),
+ ('audit: a function called through a variable runs here','internal/bashscope/judge.go','\t\tif defined, maybe := j.rd.Func(f[0]); defined {','\t\tif defined, maybe := j.rd.Func(f[0]); defined && false {'),
  ('audit: the command behind a variable is judged','internal/bashscope/judge.go','\t\tcmd, a = u.Cmd, u.Args\n\t\tif cmd == "" || strings.HasPrefix(cmd, "$")','\t\tcmd, a = "true", a[:0]\n\t\tif cmd == "" || strings.HasPrefix(cmd, "$")'),
  ('audit: a wrapper inside the value is stepped','internal/bashscope/judge.go','\t\tu = tools.Unwrap(append(f, a...))','\t\tu = tools.Unwrapped{Cmd: f[0], Args: append(f[1:], a...)}'),
+ ('audit: a maybe-function behind a variable is also judged as the program','internal/bashscope/judge.go','\t\t\tif !maybe {\n\t\t\t\twrites()\n\t\t\t\treturn','\t\t\tif !maybe || true {\n\t\t\t\twrites()\n\t\t\t\treturn'),
+ ('audit: xargs in front of a variable still feeds arguments','internal/bashscope/judge.go','\t\tu.Xargs = u.Xargs || fed\n','\t\t_ = fed\n'),
+ ('audit: env inside a variable value reaches the command','internal/bashscope/judge.go',"\t\tfor _, e := range u.Env { // g='env X=v cmd'","\t\tfor _, e := range u.Env[:0] { // g='env X=v cmd'"),
 ]
 ok=0
 for name,f,old,new in muts:

@@ -113,6 +113,15 @@ func TestAuditFunctionThroughAVariable(t *testing.T) {
 		// a prefix assignment is not what the arguments expand to
 		{`cd src; X=../out/b; g=touch; X=a $g $X`, 2},
 		{`cd src; X=a; g=touch; X=../out/b $g $X`, 0},
+		// a function that may not have been defined: the name may be the program
+		{`if false; then touch(){ :; }; fi; g=touch; $g out/a`, 2},
+		{`touch(){ :; }; g=touch; $g out/a`, 0}, // certainly the function: it writes nothing
+		// xargs in front of the variable: stdin still supplies arguments
+		{`g=rm; ls | xargs $g`, 2},
+		{`g=cat; ls | xargs $g`, 0},
+		// env inside the value reaches the command
+		{`g='env D=out sh -c'; $g 'touch $D/a'`, 2},
+		{`g='env D=src sh -c'; $g 'touch $D/a'`, 0},
 		// a wrapper inside the value
 		{`g='sudo touch'; $g out/a`, 2},
 		{`g='env touch'; $g src/a`, 0},
