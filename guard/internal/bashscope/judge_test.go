@@ -199,6 +199,12 @@ func TestTools(t *testing.T) {
 	root := project(t)
 	check(t, root, []row{
 		{"tar xf a.tar -C out", 2},
+		// brace expansion makes several words of one
+		{"cd src; rm {a,../out/b}", 2},
+		{"cd src; rm {a,b}", 0},
+		{"touch src/{a,b,c}.txt", 0},
+		{"cp src/a {src/b,out/c}", 2},
+		{"echo hi > ~{,}/x", 2},
 		{"tar xzf a.tgz", 2}, // extracts into the project root, outside src/
 		{"cd src && tar xzf ../a.tgz", 0},
 		{"tar -xf a.tar -C src", 0},

@@ -6,9 +6,9 @@
 package shell
 
 import (
-	"regexp"
 	"strings"
 
+	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -275,9 +275,10 @@ func (w *walker) inner(n syntax.Node) {
 }
 
 // word renders one word. A leading `~` means the home directory only where the
-// shell expands it: unquoted, alone or before a slash. A quoted or escaped one
-// is a file name and is returned as `./~…`; `~user`, `~+` and `~-` name a
-// directory the reader does not know and come back unresolvable.
+// shell expands it: when the tilde-prefix — up to the first slash — is unquoted
+// throughout. `~` and `~/…` stay as written; `~user`, `~+`, `~-` name a directory
+// the reader does not know and come back unresolvable; a tilde that is provably
+// quoted or escaped is a file name and comes back as `./~…`.
 func (w *walker) word(x *syntax.Word) string {
 	if x == nil {
 		return ""
@@ -286,22 +287,48 @@ func (w *walker) word(x *syntax.Word) string {
 	if !strings.HasPrefix(s, "~") {
 		return s
 	}
-	// The tilde-prefix runs to the first unquoted slash and must be unquoted throughout.
-	raw := ""
-	if l, ok := x.Parts[0].(*syntax.Lit); ok {
-		raw = l.Value
+	// the unquoted text the word starts with
+	lead, allLit := "", true
+	for _, p := range x.Parts {
+		l, ok := p.(*syntax.Lit)
+		if !ok {
+			allLit = false
+			break
+		}
+		lead += l.Value
+	}
+	if !strings.HasPrefix(lead, "~") {
+		return "./" + s // the tilde itself is quoted
+	}
+	prefix, slash := lead, false
+	if k := strings.Index(lead, "/"); k >= 0 {
+		prefix, slash = lead[:k], true
 	}
 	switch {
-	case strings.HasPrefix(raw, "~/"), raw == "~" && len(x.Parts) == 1:
+	case strings.Contains(prefix, `\`), !slash && !allLit:
+		return "./" + s // an escape or a quoted part inside the tilde-prefix
+	case prefix == "~":
 		return s
-	case tildeName.MatchString(raw) && (len(x.Parts) == 1 || strings.Contains(raw, "/")):
-		return "`" + s
 	}
-	return "./" + s
+	return "`" + s
 }
 
-// tildeName: `~user`, `~+`, `~-`, `~2` — a directory looked up by the shell.
-var tildeName = regexp.MustCompile(`^~[A-Za-z0-9_.+-]+(/|$)`)
+// words renders a word after brace expansion: `a{b,c}` is two words, and each
+// is a word of its own for everything that follows.
+func (w *walker) words(x *syntax.Word) []string {
+	if x == nil {
+		return nil
+	}
+	cp := *x // a copy: the tree is read again when a function is called
+	if !syntax.SplitBraces(&cp) {
+		return []string{w.word(x)}
+	}
+	var out []string
+	for _, e := range expand.Braces(&cp) {
+		out = append(out, w.word(e))
+	}
+	return out
+}
 
 func (w *walker) stmts(l []*syntax.Stmt) {
 	for _, s := range l {
@@ -351,11 +378,13 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 		switch r.Op {
 		case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.ClbOut, syntax.RdrInOut:
 			// `<> file` opens for reading and writing and creates the file
-			c.Writes = append(c.Writes, w.word(r.Word))
+			c.Writes = append(c.Writes, w.words(r.Word)...)
 		case syntax.DplOut:
 			// `>&2` and `>&-` act on a descriptor; `>& file` writes stdout and stderr to the file
-			if t := w.word(r.Word); !fdOnly(t) {
-				c.Writes = append(c.Writes, t)
+			for _, t := range w.words(r.Word) {
+				if !fdOnly(t) {
+					c.Writes = append(c.Writes, t)
+				}
 			}
 		case syntax.Hdoc, syntax.DashHdoc:
 			body := w.parts(r.Hdoc.Parts, true)
@@ -384,7 +413,7 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 			c.Assigns = append(c.Assigns, w.assign(a))
 		}
 		for _, a := range x.Args {
-			c.Words = append(c.Words, w.word(a))
+			c.Words = append(c.Words, w.words(a)...)
 		}
 		// a call runs the body here, in the caller's shell — by the name the shell
 		// sees after quote removal ("f", \f and f are the same call)
@@ -422,7 +451,7 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 		c.Decl = x.Variant.Value
 		for _, a := range x.Args {
 			if a.Name == nil {
-				c.Words = append(c.Words, w.word(a.Value))
+				c.Words = append(c.Words, w.words(a.Value)...)
 			} else if !a.Naked {
 				c.Assigns = append(c.Assigns, w.assign(a))
 			}
@@ -470,7 +499,7 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 		if wi, ok := x.Loop.(*syntax.WordIter); ok && wi.InPos.IsValid() {
 			var items []string
 			for _, it := range wi.Items {
-				items = append(items, w.word(it))
+				items = append(items, w.words(it)...)
 			}
 			w.v.For(wi.Name.Value, items)
 		} else {

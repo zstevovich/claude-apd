@@ -21,7 +21,6 @@ muts=[
  ("read forgets the variable","internal/bashscope/judge.go","\t\tforget(tools.Positionals(a, `^-[adinNptu]$`)...)\n","\n"),
  ("append to an unknown value is unknown","internal/bashscope/judge.go","\t\tif !ok {\n\t\t\treturn unknownValue\n\t\t}\n","\t\t_ = ok\n"),
  ("array value is unknown","internal/bashscope/judge.go","\tif a.Opaque {\n\t\treturn unknownValue\n\t}\n",""),
- (">& file is a write","internal/shell/walk.go","\t\t\tif t := w.word(r.Word); !fdOnly(t) {\n","\t\t\tif t := w.word(r.Word); false && !fdOnly(t) {\n"),
  ("<> file is a write","internal/shell/walk.go","syntax.AppAll, syntax.ClbOut, syntax.RdrInOut:","syntax.AppAll, syntax.ClbOut:"),
  ("pipeline elements isolated","internal/shell/walk.go","\t\t\tw.scoped(PipeElement, func() { w.stmt(x.X, \"\") })\n\t\t\tw.scoped(PipeElement, func() { w.stmt(x.Y, body) })\n","\t\t\tw.stmt(x.X, \"\")\n\t\t\tw.stmt(x.Y, body)\n"),
  ("background isolated","internal/shell/walk.go","\tcase s.Background || s.Coprocess:\n\t\tw.scoped(Background, func() { w.stmt1(s, fed) })\n","\tcase s.Background || s.Coprocess:\n\t\tw.stmt1(s, fed)\n"),
@@ -79,10 +78,13 @@ muts=[
  ('glued short option value','internal/tools/tools.go','\t\t\t\t\tv := literalTilde(x[k+1:])\n','\t\t\t\t\tv := ""\n'),
  ('long option with =','internal/tools/tools.go','\t\t\t\to.val["--"+name] = append(o.val["--"+name], literalTilde(v))\n','\t\t\t\t_ = v\n'),
  ('rsync directory from the parent of a file destination','internal/tools/tools.go','\t\t\t\tout = append(out, strings.TrimSuffix(parent, "/")+"/"+d)\n','\t\t\t\t_ = parent\n'),
- ('a quoted ~ is a file name','internal/shell/walk.go','\treturn "./" + s\n}\n\n// tildeName','\treturn s\n}\n\n// tildeName'),
- ('~user is unresolvable','internal/shell/walk.go','\t\treturn "`" + s\n','\t\treturn s\n'),
- ('~ alone must be the whole word','internal/shell/walk.go','raw == "~" && len(x.Parts) == 1:','raw == "~":'),
- ('~user must be unquoted to its slash','internal/shell/walk.go','tildeName.MatchString(raw) && (len(x.Parts) == 1 || strings.Contains(raw, "/")):','tildeName.MatchString(raw):'),
+ ('a quoted ~ is a file name','internal/shell/walk.go','\t\treturn "./" + s // the tilde itself is quoted\n','\t\treturn s\n'),
+ ('~user is unresolvable','internal/shell/walk.go','\treturn "`" + s\n}\n\n// words','\treturn s\n}\n\n// words'),
+ ('brace expansion','internal/shell/walk.go','\tif !syntax.SplitBraces(&cp) {\n','\tif true {\n'),
+ ('brace expansion in arguments','internal/shell/walk.go','\t\t\tc.Words = append(c.Words, w.words(a)...)\n\t\t}\n\t\t// a call runs','\t\t\tc.Words = append(c.Words, w.word(a))\n\t\t}\n\t\t// a call runs'),
+ ('>& file is a write','internal/shell/walk.go','\t\t\t\tif !fdOnly(t) {\n\t\t\t\t\tc.Writes = append(c.Writes, t)\n\t\t\t\t}\n','\t\t\t\t_ = t\n'),
+ ('an escape or a quote inside the tilde-prefix','internal/shell/walk.go','\tcase strings.Contains(prefix, `\\`), !slash && !allLit:\n','\tcase false && strings.Contains(prefix, `\\`), false && !slash && !allLit:\n'),
+ ('the tree is not mutated by brace expansion','internal/shell/walk.go','\tif !syntax.SplitBraces(&cp) {\n\t\treturn []string{w.word(x)}\n\t}\n\tvar out []string\n\tfor _, e := range expand.Braces(&cp) {','\t_ = cp\n\tif !syntax.SplitBraces(x) {\n\t\treturn []string{w.word(x)}\n\t}\n\tvar out []string\n\tfor _, e := range expand.Braces(x) {'),
 ]
 ok=0
 for name,f,old,new in muts:
