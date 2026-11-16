@@ -26,10 +26,12 @@ type Assign struct {
 // and a substitution inside double quotes is kept as written. Writes are the
 // targets of output redirections attached to the command, in the same form.
 type Command struct {
-	Decl         string // export, local, declare, readonly, typeset — or ""
-	Assigns      []Assign
-	Words        []string
-	Writes       []string
+	Decl    string // export, local, declare, readonly, typeset — or ""
+	Assigns []Assign
+	Words   []string
+	Writes  []string
+	// Reads are the files input redirections open (`< file`, `<> file`).
+	Reads        []string
 	UnknownRedir bool
 	Heredoc      string
 	// Function: the command word names a shell function defined earlier, so the
@@ -378,7 +380,11 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 		switch r.Op {
 		case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.ClbOut, syntax.RdrInOut:
 			// `<> file` opens for reading and writing and creates the file
-			c.Writes = append(c.Writes, w.words(r.Word)...)
+			t := w.words(r.Word)
+			c.Writes = append(c.Writes, t...)
+			if r.Op == syntax.RdrInOut {
+				c.Reads = append(c.Reads, t...)
+			}
 		case syntax.DplOut:
 			// `>&2` and `>&-` act on a descriptor; `>& file` writes stdout and stderr to the file
 			for _, t := range w.words(r.Word) {
@@ -392,7 +398,16 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 				body += "\n"
 			}
 			c.Heredoc += body
-		case syntax.RdrIn, syntax.DplIn, syntax.WordHdoc:
+		case syntax.RdrIn:
+			c.Reads = append(c.Reads, w.words(r.Word)...)
+		case syntax.DplIn:
+			// `<&3` and `<&-` act on a descriptor; anything else names a file
+			for _, t := range w.words(r.Word) {
+				if !fdOnly(t) {
+					c.Reads = append(c.Reads, t)
+				}
+			}
+		case syntax.WordHdoc:
 			w.word(r.Word)
 		default:
 			w.word(r.Word)
@@ -401,8 +416,8 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 	}
 	// a compound command's own redirections are reported after its body
 	tail := func() {
-		if len(c.Writes) > 0 || c.UnknownRedir {
-			w.v.Command(Command{Writes: c.Writes, UnknownRedir: c.UnknownRedir})
+		if len(c.Writes) > 0 || len(c.Reads) > 0 || c.UnknownRedir {
+			w.v.Command(Command{Writes: c.Writes, Reads: c.Reads, UnknownRedir: c.UnknownRedir})
 		}
 	}
 	switch x := s.Cmd.(type) {
