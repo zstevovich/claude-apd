@@ -107,6 +107,15 @@ func TestAuditFunctionThroughAVariable(t *testing.T) {
 		{`g=touch; $g "src/a b"`, 0},
 		{`cd src; g=touch; $g "a ; touch /etc/b"`, 0}, // one odd file name under src, not two commands
 		{`cd src; g=touch; $g "a > /etc/b"`, 0},
+		// a value with a quote in it does not change how the rest is read
+		{`cd src; v='" #'; g=touch; $g "$v" ../out/b`, 2},
+		{`cd src; v='"; : "'; g=cp; $g x "$v" ../out/b`, 2},
+		// a prefix assignment is not what the arguments expand to
+		{`cd src; X=../out/b; g=touch; X=a $g $X`, 2},
+		{`cd src; X=a; g=touch; X=../out/b $g $X`, 0},
+		// a wrapper inside the value
+		{`g='sudo touch'; $g out/a`, 2},
+		{`g='env touch'; $g src/a`, 0},
 	} {
 		if got := judgeIn(root, c.cmd, "src/"); got != c.want {
 			t.Errorf("%q: rc=%d, want %d", c.cmd, got, c.want)

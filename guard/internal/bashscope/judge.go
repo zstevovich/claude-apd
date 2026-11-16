@@ -629,29 +629,33 @@ func (j *judge) process(c shell.Command) {
 	case strings.HasPrefix(cmd, "$"):
 		// a variable in command position: readable only when this command assigned it
 		head := j.subst(cmd)
-		if strings.HasPrefix(strings.TrimLeft(head, " "), "$") {
+		f := strings.Fields(head)
+		switch {
+		case len(f) == 0, strings.HasPrefix(f[0], "$"):
 			j.addOpaque(cmd, "variable in command position")
-		} else {
-			// What the variable names runs in THIS shell: a function it calls is known
-			// here and a cd in it stays in effect. But the shell only SPLITS an expanded
-			// value into words — it does not read `x=1`, `>` or `;` in it as syntax — so
-			// each of its words is handed on in single quotes: `g='x=src'; $g` runs a
-			// program named `x=src`, it assigns nothing.
-			var q []string
-			for _, w := range strings.Fields(head) {
-				q = append(q, "'"+strings.ReplaceAll(w, "'", `'\''`)+"'")
-			}
-			// The arguments are the words the parser already made: each stays ONE word
-			// (double quotes — a space in it does not split it) and an expansion left
-			// in it stays an expansion, so a target the guard cannot resolve is still
-			// one it cannot resolve.
-			for _, w := range a {
-				q = append(q, `"`+strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(w)+`"`)
-			}
-			j.evalHere(strings.Join(q, " "))
+			writes()
+			return
+		case j.rd.Func(f[0]):
+			// a function called through the variable: its body runs in THIS shell
+			j.evalHere("'" + strings.ReplaceAll(f[0], "'", `'\''`) + "'")
+			writes()
+			return
 		}
-		writes()
-		return
+		// The shell only SPLITS an expanded value into words — it does not read
+		// `x=1`, `>` or `;` in it as syntax. The words of the value, followed by the
+		// arguments exactly as the parser made them, are the command: it is judged
+		// below like any other, in this shell (`g='cd src'; $g` does change directory;
+		// `g='x=src'; $g` runs a program named `x=src` and assigns nothing).
+		u = tools.Unwrap(append(f, a...))
+		cmd, a = u.Cmd, u.Args
+		if cmd == "" || strings.HasPrefix(cmd, "$") || strings.HasPrefix(cmd, "`") {
+			j.addOpaque(head, "variable in command position")
+			writes()
+			return
+		}
+		if u.Xargs && (tools.Writer(cmd) || cmd == "git") {
+			j.addUnknown("xargs " + cmd)
+		}
 	}
 
 	if cmd == "bash" || cmd == "sh" {
