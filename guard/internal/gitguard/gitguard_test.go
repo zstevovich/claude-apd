@@ -260,6 +260,8 @@ func TestConfigByOtherRoutes(t *testing.T) {
 		{`export "$N"; git status`, ConfigOverride, false},
 		{`declare -n X=$Y; X=y; git status`, ConfigOverride, false},
 		{`declare X=$Y; git status`, "", false},
+		{`declare -n X; X=HOME; X=/t; git status`, ConfigOverride, false},
+		{`declare -x X; X=HOME; git status`, "", false},
 		{`export PATH="$PATH:/x"; git status`, "", false},
 	})
 	check(t, "builder", []row{

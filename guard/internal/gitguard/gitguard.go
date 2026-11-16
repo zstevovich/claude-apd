@@ -209,6 +209,8 @@ func (j *judge) Command(c shell.Command) {
 			// declare -n X=GIT_CONFIG_PARAMETERS — or a nameref onto a name that is not written out
 			j.gitEnv = j.gitEnv || configEnv(a.Value) || (ref && unresolved(a.Value))
 		}
+		// `declare -n X` with no target yet: the next plain `X=NAME` picks it, out of sight
+		j.gitEnv = j.gitEnv || (ref && c.Decl != "" && len(c.Words) > len(flagsOf(c.Words)))
 	}
 	// the arguments find, xargs and parallel hand a command are not written here
 	fed := u.Xargs || in(u.Cmd, "find", "parallel")
@@ -274,6 +276,16 @@ var valueFlags = map[string][]string{
 }
 
 func unresolved(w string) bool { return strings.ContainsAny(w, "$`") }
+
+func flagsOf(words []string) []string {
+	var out []string
+	for _, w := range words {
+		if strings.HasPrefix(w, "-") || strings.HasPrefix(w, "+") {
+			out = append(out, w)
+		}
+	}
+	return out
+}
 
 func (j *judge) statement(words []string, marked, xargs bool) {
 	// git's own options come before the subcommand

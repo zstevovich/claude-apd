@@ -170,6 +170,7 @@ muts=[
  ('git: a nameref onto a config variable','internal/gitguard/gitguard.go','j.gitEnv = j.gitEnv || configEnv(a.Value) || (ref && unresolved(a.Value))','j.gitEnv = j.gitEnv || (ref && unresolved(a.Value))'),
  ('git: a nameref onto an unwritten name','internal/gitguard/gitguard.go','j.gitEnv = j.gitEnv || configEnv(a.Value) || (ref && unresolved(a.Value))','j.gitEnv = j.gitEnv || configEnv(a.Value)'),
  ('an abbreviation without = is not read on trust','internal/tools/tools.go','\t\t\t} else if abbr && valued[name] {\n','\t\t\t} else if abbr && false {\n'),
+ ('git: a nameref declared without a target','internal/gitguard/gitguard.go','\t\tj.gitEnv = j.gitEnv || (ref && c.Decl != "" && len(c.Words) > len(flagsOf(c.Words)))\n','\n'),
 ]
 ok=0
 for name,f,old,new in muts:
