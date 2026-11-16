@@ -50,21 +50,25 @@ func init() {
 	table = map[string]entry{
 		"cp": copyLike, "install": copyLike,
 		"mv":    move,
-		"mkdir": all(`^(-m|--mode)$`),
-		"touch": all(`^(-t|-r|-d|--date|--reference)$`),
-		"rm":    all(`^$`), "rmdir": all(`^$`), "unlink": all(`^$`), "tee": all(`^$`), "shred": all(`^$`),
+		"mkdir": operands("m", "mode"),
+		"touch": operands("trd", "date", "reference"),
+		"rm":    operands(""), "rmdir": operands(""), "unlink": operands(""),
+		"tee":   operands(""),
+		"shred": operands("ns", "iterations", "size", "random-source"),
 		"chmod": afterFirst, "chown": afterFirst, "chgrp": afterFirst,
-		"truncate": all(`^(-s|-r|--size|--reference)$`),
+		"truncate": operands("sr", "size", "reference"),
 		"rsync":    rsync,
 		"ln":       link,
 		"dd":       dd,
-		"curl":     download, "wget": download,
-		"sort": sortOut,
-		"tar":  extract, "unzip": extract,
-		"sed":  sedInPlace,
-		"perl": perlInPlace,
-		"git":  git,
-		"find": find,
+		"curl":     curl,
+		"wget":     wget,
+		"sort":     sortOut,
+		"tar":      tar,
+		"unzip":    unzip,
+		"sed":      sedInPlace,
+		"perl":     perlInPlace,
+		"git":      git,
+		"find":     find,
 	}
 }
 
@@ -88,7 +92,8 @@ func letter(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z
 func alnum(c byte) bool  { return letter(c) || (c >= '0' && c <= '9') }
 
 // Positionals returns the arguments that are not flags. A flag matching valued
-// consumes the argument after it; `--` ends the flags; `-` alone is data.
+// consumes the argument after it; `--` ends the flags; `-` alone is data. It
+// reads each argument whole — for the shell builtins the guard steps over.
 func Positionals(a []string, valued string) []string {
 	re := regexp.MustCompile(valued)
 	var out []string
@@ -113,66 +118,133 @@ func Positionals(a []string, valued string) []string {
 	return out
 }
 
-func all(valued string) entry {
-	return func(_ string, a []string) ([]string, bool) { return Positionals(a, valued), true }
+// opts is a command line read the way getopt reads it.
+type opts struct {
+	val   map[string][]string // "-o" / "--output" → the values given
+	flags map[string]bool     // every option seen, valued or not
+	pos   []string            // the operands
 }
 
-// targetDir is GNU `-t DIR` / `--target-directory=DIR`.
-func targetDir(a []string) []string {
-	var out []string
-	for k, x := range a {
-		if x == "-t" || x == "--target-directory" {
-			out = append(out, at(a, k+1))
-		} else if strings.HasPrefix(x, "--target-directory=") {
-			out = append(out, strings.TrimPrefix(x, "--target-directory="))
+func (o opts) last(names ...string) string {
+	v := ""
+	for _, n := range names {
+		if l := o.val[n]; len(l) > 0 {
+			v = l[len(l)-1]
 		}
+	}
+	return v
+}
+
+func (o opts) all(names ...string) []string {
+	var out []string
+	for _, n := range names {
+		out = append(out, o.val[n]...)
 	}
 	return out
 }
 
-// cp, install: the destination is the last operand, or the -t directory.
-func copyLike(_ string, a []string) ([]string, bool) {
-	if d := targetDir(a); len(d) > 0 && d[len(d)-1] != "" {
-		return d[len(d)-1:], true
+// parse reads short options in bundles: in `-sSo out`, `s` and `S` are flags and
+// `o` — a letter in short — takes the rest of the bundle or the next argument
+// as its value. long names the long options that take a value (`--name v` or
+// `--name=v`). `--` ends the options.
+func parse(a []string, short string, long ...string) opts {
+	o := opts{val: map[string][]string{}, flags: map[string]bool{}}
+	valued := map[string]bool{}
+	for _, l := range long {
+		valued[l] = true
 	}
-	nf := Positionals(a, `^(-t|--target-directory|-m|-o|-g|--mode|--owner|--group)$`)
-	if len(nf) == 0 {
+	for i := 0; i < len(a); i++ {
+		x := a[i]
+		switch {
+		case x == "--":
+			o.pos = append(o.pos, a[i+1:]...)
+			return o
+		case strings.HasPrefix(x, "--"):
+			name, v, eq := strings.Cut(x[2:], "=")
+			o.flags["--"+name] = true
+			if eq {
+				o.val["--"+name] = append(o.val["--"+name], v)
+			} else if valued[name] {
+				i++
+				o.val["--"+name] = append(o.val["--"+name], at(a, i))
+			}
+		case len(x) >= 2 && x[0] == '-':
+			for k := 1; k < len(x); k++ {
+				c := string(x[k])
+				o.flags["-"+c] = true
+				if strings.Contains(short, c) {
+					v := x[k+1:]
+					if v == "" {
+						i++
+						v = at(a, i)
+					}
+					o.val["-"+c] = append(o.val["-"+c], v)
+					break
+				}
+			}
+		default:
+			o.pos = append(o.pos, x)
+		}
+	}
+	return o
+}
+
+func operands(short string, long ...string) entry {
+	return func(_ string, a []string) ([]string, bool) { return parse(a, short, long...).pos, true }
+}
+
+// cp, install: the destination is the last operand, or the -t directory.
+func copyLike(cmd string, a []string) ([]string, bool) {
+	short := "tS"
+	if cmd == "install" {
+		short = "tSmogB"
+	}
+	o := parse(a, short, "target-directory", "suffix", "mode", "owner", "group")
+	if d := o.last("-t", "--target-directory"); d != "" {
+		return []string{d}, true
+	}
+	if len(o.pos) == 0 {
 		return nil, true
 	}
-	return nf[len(nf)-1:], true
+	return o.pos[len(o.pos)-1:], true
 }
 
 // mv: the source leaves its place, so every operand is a write.
 func move(_ string, a []string) ([]string, bool) {
-	return append(Positionals(a, `^(-t|--target-directory)$`), targetDir(a)...), true
+	o := parse(a, "tS", "target-directory", "suffix")
+	return append(o.pos, o.all("-t", "--target-directory")...), true
 }
 
 // chmod, chown, chgrp: the first operand is the mode or the owner.
 func afterFirst(_ string, a []string) ([]string, bool) {
-	nf := Positionals(a, `^(--reference)$`)
-	if len(nf) > 0 {
-		nf = nf[1:]
+	o := parse(a, "", "reference")
+	if len(o.val["--reference"]) > 0 || len(o.pos) == 0 {
+		return o.pos, true
 	}
-	return nf, true
+	return o.pos[1:], true
 }
 
 func rsync(_ string, a []string) ([]string, bool) {
-	nf := Positionals(a, `^(-e|--rsh|--exclude|--include|--filter|--files-from|--log-file)$`)
-	if len(nf) > 0 {
-		nf = nf[len(nf)-1:]
+	o := parse(a, "ef", "rsh", "exclude", "include", "filter", "files-from", "log-file", "exclude-from", "include-from")
+	out := o.all("--log-file")
+	if len(o.pos) > 0 {
+		out = append(out, o.pos[len(o.pos)-1])
 	}
-	return nf, true
+	return out, true
 }
 
 // ln [-s] target linkname: the link is what gets created; with one operand it
 // lands in the working directory under the target's own name.
 func link(_ string, a []string) ([]string, bool) {
-	nf := Positionals(a, `^(-t|--target-directory|-S|--suffix)$`)
+	o := parse(a, "tS", "target-directory", "suffix")
+	if d := o.last("-t", "--target-directory"); d != "" {
+		return []string{d}, true
+	}
 	switch {
-	case len(nf) >= 2:
-		return nf[len(nf)-1:], true
-	case len(nf) == 1:
-		return []string{nf[0][strings.LastIndex(nf[0], "/")+1:]}, true
+	case len(o.pos) >= 2:
+		return o.pos[len(o.pos)-1:], true
+	case len(o.pos) == 1:
+		return []string{o.pos[0][strings.LastIndex(o.pos[0], "/")+1:]}, true
 	}
 	return nil, true
 }
@@ -187,77 +259,100 @@ func dd(_ string, a []string) ([]string, bool) {
 	return out, true
 }
 
-func download(cmd string, a []string) ([]string, bool) {
+// curl writes where -o says, and with -O / -J under the remote's own name in
+// the working directory (or --output-dir); headers, cookies and traces are files too.
+func curl(_ string, a []string) ([]string, bool) {
+	o := parse(a, "AbcCdDeEFHhKmoPQrtTuUwxXyYz",
+		"output", "dump-header", "cookie-jar", "trace", "trace-ascii", "stderr", "etag-save", "hsts", "alt-svc",
+		"output-dir", "libcurl", "config", "data", "header", "request", "user", "user-agent", "cookie", "form", "url",
+		"data-raw", "data-binary", "data-urlencode", "max-time", "connect-timeout", "retry", "proxy", "cert", "key",
+		"cacert", "range", "referer", "upload-file", "write-out", "resolve", "limit-rate")
 	var out []string
-	named := false
-	for k, x := range a {
-		switch {
-		case in(x, "-o", "--output", "-O", "--output-document"):
-			out = append(out, at(a, k+1))
-		case strings.HasPrefix(x, "--output=") || strings.HasPrefix(x, "--output-document="):
-			out = append(out, x[strings.Index(x, "=")+1:])
-		case strings.HasPrefix(x, "-o") && cmd == "curl":
-			out = append(out, x[2:])
-		case strings.HasPrefix(x, "-O") && cmd == "wget":
-			out = append(out, x[2:])
-		}
-		if strings.HasPrefix(x, "-O") || strings.HasPrefix(x, "--output-document") {
-			named = true
+	for _, v := range o.all("-o", "--output", "-D", "--dump-header", "-c", "--cookie-jar", "--trace", "--trace-ascii",
+		"--stderr", "--etag-save", "--hsts", "--alt-svc", "--libcurl", "--output-dir") {
+		if v != "-" {
+			out = append(out, v)
 		}
 	}
-	if cmd == "wget" && !named {
-		out = append(out, "./") // wget saves into the working directory
+	if o.flags["-O"] || o.flags["--remote-name"] || o.flags["--remote-name-all"] || o.flags["-J"] || o.flags["--remote-header-name"] {
+		if len(o.val["--output-dir"]) == 0 {
+			out = append(out, "./")
+		}
+	}
+	return out, true
+}
+
+// wget saves under the remote's name in the working directory (or -P DIR)
+// unless -O names the file; its logs are files too.
+func wget(_ string, a []string) ([]string, bool) {
+	o := parse(a, "OoaPiTtwQUeBARDIXl", "output-document", "output-file", "append-output", "directory-prefix",
+		"input-file", "tries", "timeout", "wait", "quota", "user-agent", "execute", "base", "accept", "reject",
+		"domains", "level", "header", "post-data", "post-file", "user", "password", "load-cookies", "save-cookies")
+	var out []string
+	for _, v := range o.all("-O", "--output-document", "-o", "--output-file", "-a", "--append-output", "--save-cookies") {
+		if v != "-" {
+			out = append(out, v)
+		}
+	}
+	if len(o.all("-O", "--output-document")) == 0 {
+		if d := o.last("-P", "--directory-prefix"); d != "" {
+			out = append(out, d)
+		} else {
+			out = append(out, "./")
+		}
 	}
 	return out, true
 }
 
 func sortOut(_ string, a []string) ([]string, bool) {
-	var out []string
-	for k, x := range a {
-		switch {
-		case x == "-o" || x == "--output":
-			out = append(out, at(a, k+1))
-		case strings.HasPrefix(x, "--output="):
-			out = append(out, x[9:])
-		case strings.HasPrefix(x, "-o") && len(x) > 2:
-			out = append(out, x[2:])
-		}
-	}
-	return out, true
+	o := parse(a, "okStT", "output", "key", "buffer-size", "field-separator", "temporary-directory", "parallel")
+	return o.all("-o", "--output"), true
 }
 
-// tar, unzip: an extraction writes into -C DIR (unzip: -d DIR), else the working directory.
-// tar's first argument may be a flag bundle with no dash (`tar xzf a.tgz`).
-func extract(cmd string, a []string) ([]string, bool) {
-	dir := ""
-	for k, x := range a {
-		if in(x, "-C", "--directory", "-d") {
-			dir = at(a, k+1)
-		} else if strings.HasPrefix(x, "--directory=") {
-			dir = x[12:]
-		}
-	}
-	extracting := cmd == "unzip"
-	if cmd == "tar" {
-		for k, x := range a {
-			switch {
-			case x == "--extract" || x == "--get":
-				extracting = true
-			case strings.HasPrefix(x, "--"):
-			case strings.HasPrefix(x, "-") && strings.Contains(x, "x"):
-				extracting = true
-			case k == 0 && !strings.HasPrefix(x, "-") && strings.Contains(x, "x"):
-				extracting = true
+// tar: an extraction writes into -C DIR, else the working directory; creating
+// an archive writes the archive. The first argument may be a flag bundle with
+// no dash (`tar xzf a.tgz`), whose valued letters take the arguments after it in order.
+func tar(_ string, a []string) ([]string, bool) {
+	const valued = "fCbTXKNV"
+	if len(a) > 0 && !strings.HasPrefix(a[0], "-") {
+		// old style: rewrite `xzf a.tgz` as `-x -z -f a.tgz`
+		rest := a[1:]
+		var b []string
+		for k := 0; k < len(a[0]); k++ {
+			c := string(a[0][k])
+			b = append(b, "-"+c)
+			if strings.Contains(valued, c) && len(rest) > 0 {
+				b = append(b, rest[0])
+				rest = rest[1:]
 			}
 		}
+		a = append(b, rest...)
 	}
-	if !extracting {
-		return nil, false
+	o := parse(a, valued, "file", "directory", "exclude", "files-from", "exclude-from", "transform", "strip-components")
+	dir := o.last("-C", "--directory")
+	switch {
+	case o.flags["-x"] || o.flags["--extract"] || o.flags["--get"]:
+		if dir == "" {
+			dir = "./"
+		}
+		return []string{dir}, true
+	case o.flags["-c"] || o.flags["--create"] || o.flags["-r"] || o.flags["--append"] || o.flags["-u"] || o.flags["--update"]:
+		if f := o.last("-f", "--file"); f != "" && f != "-" {
+			return []string{f}, true
+		}
 	}
-	if dir == "" {
-		dir = "./"
+	return nil, false
+}
+
+func unzip(_ string, a []string) ([]string, bool) {
+	o := parse(a, "dP")
+	if o.flags["-l"] || o.flags["-t"] || o.flags["-p"] || o.flags["-Z"] || o.flags["-v"] {
+		return nil, false // list, test, to stdout
 	}
-	return []string{dir}, true
+	if d := o.last("-d"); d != "" {
+		return []string{d}, true
+	}
+	return []string{"./"}, true
 }
 
 // sed -i (also -Ei, -ni, -i.bak, --in-place): the files are the operands after
@@ -333,7 +428,7 @@ func perlInPlace(_ string, a []string) ([]string, bool) {
 func git(_ string, a []string) ([]string, bool) {
 	switch at(a, 0) {
 	case "rm", "mv", "restore", "clean":
-		nf := Positionals(a[1:], `^(--source|--pathspec-from-file)$`)
+		nf := Positionals(a[1:], `^(--source|--pathspec-from-file|-s|-e)$`)
 		if a[0] == "clean" && len(nf) == 0 {
 			nf = []string{"./"}
 		}
@@ -356,27 +451,32 @@ func git(_ string, a []string) ([]string, bool) {
 // find … -delete, or -exec with a writing tool: the search roots are what gets written.
 func find(_ string, a []string) ([]string, bool) {
 	writes := false
+	var out []string
 	for k, x := range a {
-		if x == "-delete" {
+		switch {
+		case x == "-delete":
 			writes = true
-		} else if in(x, "-exec", "-execdir", "-ok", "-okdir") {
+		case in(x, "-exec", "-execdir", "-ok", "-okdir"):
 			if c := at(a, k+1); Writer(c) || c == "sh" || c == "bash" {
 				writes = true
 			}
+		case in(x, "-fprint", "-fprint0", "-fls", "-fprintf"):
+			out = append(out, at(a, k+1)) // find's own output files
 		}
 	}
 	if !writes {
-		return nil, false
+		return out, len(out) > 0
 	}
-	var roots []string
+	roots := 0
 	for _, x := range a {
 		if strings.HasPrefix(x, "-") || x == "(" || x == "!" {
 			break
 		}
-		roots = append(roots, x)
+		out = append(out, x)
+		roots++
 	}
-	if len(roots) == 0 {
-		roots = []string{"./"}
+	if roots == 0 {
+		out = append(out, "./")
 	}
-	return roots, true
+	return out, true
 }

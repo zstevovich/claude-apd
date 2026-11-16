@@ -45,6 +45,8 @@ func (t *trace) For(n string, it []string) {
 }
 func (t *trace) QuotedSubst(x string) { t.out = append(t.out, "quoted "+x) }
 func (t *trace) Lost(why string)      { t.out = append(t.out, "lost") }
+func (t *trace) Call([]Assign)        { t.out = append(t.out, "call") }
+func (t *trace) Return()              { t.out = append(t.out, "return") }
 
 func TestWalk(t *testing.T) {
 	cases := []struct{ src, want string }{
@@ -71,9 +73,12 @@ func TestWalk(t *testing.T) {
 		{`if a; then b; else c; fi`, `cmd [a]; cmd [b]; cmd [c]`},
 		{"cat <<X\nbody\nX", `cmd [cat] heredoc="body\n"`},
 		{"cat <<X | sh\nbody\nX", `enter 2; cmd [cat] heredoc="body\n"; leave; enter 2; cmd [sh] heredoc="body\n"; leave`},
-		{`f() { a; }; f`, `enter 4; cmd [a]; leave; cmd [f]; cmd [a]`},
-		{`f() { a; }; "f"; \f`, `enter 4; cmd [a]; leave; cmd [f]; cmd [a]; cmd [f]; cmd [a]`},
-		{`f() { f; }; f`, `enter 4; cmd [f]; leave; cmd [f]` + strings.Repeat("; cmd [f]", 16) + `; lost`},
+		{`f() { a; }; f`, `enter 4; cmd [a]; leave; cmd [f]; call; cmd [a]; return`},
+		{`f() { a; }; "f"; \f`, `enter 4; cmd [a]; leave; cmd [f]; call; cmd [a]; return; cmd [f]; call; cmd [a]; return`},
+		{`f() { f; }; f`, `enter 4; cmd [f]; leave` + strings.Repeat("; cmd [f]; call", 16) + `; cmd [f]; lost` + strings.Repeat("; return", 16)},
+		{`(f() { a; }); f`, `enter 0; enter 4; cmd [a]; leave; leave; cmd [f]`},
+		{`f() { a; }; unset -f f; f`, `enter 4; cmd [a]; leave; cmd [unset|-f|f]; cmd [f]`},
+		{`f() { a; }; unset f; f`, `enter 4; cmd [a]; leave; cmd [unset|f]; lost; cmd [f]`},
 		{`(( $(a) ))`, `enter 1; cmd [a]; leave`},
 		{`[[ $a > $b ]] && c`, `cmd [c]`},
 		{`diff <(a) <(b)`, `enter 1; cmd [a]; leave; enter 1; cmd [b]; leave; cmd [diff|/dev/fd/63|/dev/fd/63]`},

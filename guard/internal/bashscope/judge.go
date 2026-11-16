@@ -55,6 +55,7 @@ type judge struct {
 	nCwd        []cwdState
 	nTxt        []string
 	saved       []snapshot
+	frames      [][]restore
 	rd          *shell.Reader
 	evals       int
 	envN, envV  []string // assignments that reach only the current command's environment
@@ -344,6 +345,40 @@ func (j *judge) For(name string, items []string) {
 
 func (j *judge) Command(c shell.Command) { j.process(c) }
 
+// Call: `X=v f` — the prefix is in effect while the body runs, and only then.
+func (j *judge) Call(assigns []shell.Assign) {
+	var fr []restore
+	for _, a := range assigns {
+		old, had := j.assigned(a.Name)
+		fr = append(fr, restore{a.Name, old, had})
+		j.setvar(a.Name, j.valueOf(a))
+	}
+	j.frames = append(j.frames, fr)
+}
+
+func (j *judge) Return() {
+	k := len(j.frames) - 1
+	fr := j.frames[k]
+	j.frames = j.frames[:k]
+	for i := len(fr) - 1; i >= 0; i-- {
+		if fr[i].had {
+			j.setvar(fr[i].name, fr[i].old)
+			continue
+		}
+		for n := range j.vn {
+			if j.vn[n] == fr[i].name {
+				j.vn, j.vv = append(j.vn[:n], j.vn[n+1:]...), append(j.vv[:n], j.vv[n+1:]...)
+				break
+			}
+		}
+	}
+}
+
+type restore struct {
+	name, old string
+	had       bool
+}
+
 // Lost: the reader stopped following the shell's state — nothing relative and
 // nothing built from a variable can be placed after this point.
 func (j *judge) Lost(string) {
@@ -502,7 +537,8 @@ func (j *judge) process(c shell.Command) {
 			j.addUnknown("a redirection the guard does not know")
 		}
 	}
-	if n == 0 {
+	if n == 0 || c.Function {
+		// a function of this name runs, not the builtin or the tool: its body follows
 		writes()
 		return
 	}
@@ -657,6 +693,13 @@ loop:
 		forget(at(a, 1))
 	case "unset":
 		forget(tools.Positionals(a, `^$`)...)
+	case "export", "local", "declare", "typeset", "readonly":
+		// reached through `command` or `builtin`: the assignments still last
+		for _, x := range a {
+			if k := strings.Index(x, "="); k > 0 && nameRe.MatchString(x[:k]) {
+				j.setvar(x[:k], j.subst(x[k+1:]))
+			}
+		}
 	case "eval":
 		j.evalHere(strings.Join(a, " "))
 	case "bash", "sh", "zsh", "dash", "su":

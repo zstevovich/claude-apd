@@ -108,6 +108,8 @@ func TestPrefixAssignment(t *testing.T) {
 		{"X=src/a true; echo hi > $X", 2}, // X is unset afterwards: unresolved, refused
 		{"X=src/a; echo hi > $X", 0},
 		{"export X=src/a; echo hi > $X", 0},
+		{"X=src/a; command export X=out/a; echo hi > $X", 2},
+		{"X=out/a; builtin declare X=src/a; echo hi > $X", 0},
 		{"X=out/a sh -c 'echo hi > $X'", 2},
 		{"X=src/a sh -c 'echo hi > $X'", 0},
 		{"env X=out/a sh -c 'echo hi > $X'", 2},
@@ -144,6 +146,21 @@ func TestFunctions(t *testing.T) {
 		{"f() { cd out; }; \\f; echo hi > a", 2},
 		{"f() { cd out; }; eval f; echo hi > a", 2},
 		{"f() { f; }; cd src; f; echo hi > a", 2}, // the reader gave up following: nothing relative is placed
+		// a function defined in a subshell does not exist after it
+		{"(f() { cd src; }); f; echo hi > a", 2},
+		{"f() { cd ../out; }; (f() { :; }); cd src; f; echo hi > a", 2},
+		{"f() { cd src; }; unset -f f; f; echo hi > a", 2},
+		{"f() { cd src; }; unset f; f; echo hi > a", 2},
+		// a function named like a builtin runs instead of it
+		{"cd() { builtin cd out; }; cd src; echo hi > a", 2},
+		{"cd() { builtin cd src; }; cd out; echo hi > a", 0},
+		{"rm() { :; }; rm out/a", 0},
+		// `X=v f`: in effect for the body, gone after it
+		{"X=src/a; f() { echo hi > $X; }; X=out/a f", 2},
+		{"X=src/a; f() { echo hi > $X; }; X=src/b f", 0},
+		{"X=out/a; f() { echo hi > $X; }; X=src/a f", 2}, // the body is also judged where it is defined, with X as it was there
+		{"X=src/a; f() { :; }; X=out/a f; echo hi > $X", 0},
+		{"f() { :; }; X=src/a f; echo hi > $X", 2},
 	}, "src/")
 }
 
@@ -181,6 +198,15 @@ func TestTools(t *testing.T) {
 		{"cd src && tar xzf ../a.tgz", 0},
 		{"tar -xf a.tar -C src", 0},
 		{"tar tf box.tar -C out", 0},
+		{"tar czf out/a.tgz src", 2},
+		{"tar czf src/a.tgz src", 0},
+		{"curl -sSLo out/x https://example.org", 2},
+		{"curl -sSLo src/x https://example.org", 0},
+		{"curl -fsSLO https://example.org/x", 2},
+		{"cd src && curl -fsSLO https://example.org/x", 0},
+		{"cp -rt out src/a", 2},
+		{"cp -rt src/dest src/a", 0},
+		{"sort -uo out/sorted src/a", 2},
 		{"find out -name '*.tmp' -delete", 2},
 		{"find src -name '*.tmp' -delete", 0},
 		{"ls | xargs rm", 2},

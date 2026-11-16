@@ -31,6 +31,10 @@ type Command struct {
 	Writes       []string
 	UnknownRedir bool
 	Heredoc      string
+	// Function: the command word names a shell function defined earlier, so the
+	// shell runs that function and not a builtin or a program of the same name.
+	// Call, the body's commands and Return follow.
+	Function bool
 }
 
 // Scope is a region whose changes to the working directory and to variables do
@@ -55,6 +59,11 @@ type Visitor interface {
 	// QuotedSubst is a substitution inside double quotes or an unquoted heredoc
 	// body: `$(…)` or a backquoted command, as written.
 	QuotedSubst(text string)
+	// Call and Return bracket a function body run by a call. assigns are the
+	// call's own `X=v f` prefix: in effect for the body, gone after it. Everything
+	// else the body changes stays changed — it runs in the caller's shell.
+	Call(assigns []Assign)
+	Return()
 	// Lost: from here on the reader no longer knows what the shell's state is
 	// (the working directory, the variables).
 	Lost(why string)
@@ -97,10 +106,16 @@ type walker struct {
 
 func (w *walker) text(n syntax.Node) string { return w.src[n.Pos().Offset():n.End().Offset()] }
 
+// scoped reads f inside a scope: what it defines or changes stays inside.
 func (w *walker) scoped(s Scope, f func()) {
+	saved := make(map[string]fn, len(w.funcs))
+	for k, v := range w.funcs {
+		saved[k] = v
+	}
 	w.v.Enter(s)
 	f()
 	w.v.Leave(s)
+	w.Reader.funcs = saved
 }
 
 // unescape removes the backslashes the shell removes: every one outside quotes,
@@ -287,13 +302,16 @@ func fdOnly(s string) bool {
 // stmt reports one statement. fed is a heredoc body piped into it from the
 // previous pipeline element.
 func (w *walker) stmt(s *syntax.Stmt, fed string) {
-	if s == nil {
-		return
+	switch {
+	case s == nil:
+	case s.Background || s.Coprocess:
+		w.scoped(Background, func() { w.stmt1(s, fed) })
+	default:
+		w.stmt1(s, fed)
 	}
-	if s.Background || s.Coprocess {
-		w.v.Enter(Background)
-		defer w.v.Leave(Background)
-	}
+}
+
+func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 	c := Command{Heredoc: fed}
 	for _, r := range s.Redirs {
 		switch r.Op {
@@ -334,18 +352,23 @@ func (w *walker) stmt(s *syntax.Stmt, fed string) {
 		for _, a := range x.Args {
 			c.Words = append(c.Words, w.word(a))
 		}
-		w.v.Command(c)
+		// a call runs the body here, in the caller's shell — by the name the shell
+		// sees after quote removal ("f", \f and f are the same call)
+		var f fn
 		if len(c.Words) > 0 {
-			// a call runs the body here, in the caller's shell — by the name the
-			// shell sees after quote removal ("f", \f and f are the same call)
-			if f, ok := w.funcs[c.Words[0]]; ok {
-				if w.calls >= 16 {
-					w.v.Lost("more function calls than the reader follows")
-				} else {
-					w.calls++
-					(&walker{Reader: w.Reader, src: f.src, v: w.v}).stmt(f.body, "")
-				}
-			}
+			f, c.Function = w.funcs[c.Words[0]]
+		}
+		w.v.Command(c)
+		switch {
+		case c.Function && w.calls >= 16:
+			w.v.Lost("more function calls than the reader follows")
+		case c.Function:
+			w.calls++
+			w.v.Call(c.Assigns)
+			(&walker{Reader: w.Reader, src: f.src, v: w.v}).stmt(f.body, "")
+			w.v.Return()
+		case len(c.Words) > 1 && c.Words[0] == "unset":
+			w.unset(c.Words[1:])
 		}
 	case *syntax.DeclClause:
 		c.Decl = x.Variant.Value
@@ -422,6 +445,30 @@ func (w *walker) stmt(s *syntax.Stmt, fed string) {
 		// (( … )), [[ … ]], let: no words to report, but a substitution inside still runs
 		w.inner(s.Cmd)
 		tail()
+	}
+}
+
+// unset: `unset -f NAME` removes a function. Plain `unset NAME` removes the
+// variable if there is one and the function only otherwise — which of the two
+// the reader cannot tell, so a function of that name leaves the state unknown.
+func (w *walker) unset(args []string) {
+	fOnly, vOnly := false, false
+	for _, x := range args {
+		switch {
+		case x == "-f":
+			fOnly = true
+		case x == "-v" || x == "-n":
+			vOnly = true
+		case strings.HasPrefix(x, "-"):
+		default:
+			if _, ok := w.funcs[x]; !ok || vOnly {
+				continue
+			}
+			if !fOnly {
+				w.v.Lost("unset of a name that is a function")
+			}
+			delete(w.funcs, x) // not followed any more: a body replayed after Lost would claim to know the state again
+		}
 	}
 }
 
