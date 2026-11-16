@@ -261,6 +261,10 @@ func TestConfigByOtherRoutes(t *testing.T) {
 		{`declare -n X=$Y; X=y; git status`, ConfigOverride, false},
 		{`declare X=$Y; git status`, "", false},
 		{`declare -n X; X=HOME; X=/t; git status`, ConfigOverride, false},
+		{`command declare -n X; X=HOME; X=/t; git status`, ConfigOverride, false},
+		{`builtin declare -n X=HOME; X=/t; git status`, ConfigOverride, false},
+		{`f() { local -n R=$1; R=/t; }; f HOME; git status`, ConfigOverride, false},
+		{`command declare -x X=1; git status`, "", false},
 		{`declare -x X; X=HOME; git status`, "", false},
 		{`export PATH="$PATH:/x"; git status`, "", false},
 	})

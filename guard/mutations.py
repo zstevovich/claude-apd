@@ -167,10 +167,9 @@ muts=[
  ("git's own options before the subcommand",'internal/tools/tools.go','\t\tcase in(a[0], "-c", "--namespace", "--exec-path", "--super-prefix", "--config-env", "--attr-source"):\n\t\t\ta = a[min(2, len(a)):]\n',''),
  ('an unknown git option leaves the paths unplaced','internal/tools/tools.go','\t\t\tmoved = true\n\t\t\ta = a[1:]\n\t\t}','\t\t\ta = a[1:]\n\t\t}'),
  ('git --separate-git-dir','internal/tools/tools.go','\t\tout := o.all("--separate-git-dir")\n\t\tif len(o.pos) >= 2 {','\t\tvar out []string\n\t\tif len(o.pos) >= 2 {'),
- ('git: a nameref onto a config variable','internal/gitguard/gitguard.go','j.gitEnv = j.gitEnv || configEnv(a.Value) || (ref && unresolved(a.Value))','j.gitEnv = j.gitEnv || (ref && unresolved(a.Value))'),
- ('git: a nameref onto an unwritten name','internal/gitguard/gitguard.go','j.gitEnv = j.gitEnv || configEnv(a.Value) || (ref && unresolved(a.Value))','j.gitEnv = j.gitEnv || configEnv(a.Value)'),
  ('an abbreviation without = is not read on trust','internal/tools/tools.go','\t\t\t} else if abbr && valued[name] {\n','\t\t\t} else if abbr && false {\n'),
- ('git: a nameref declared without a target','internal/gitguard/gitguard.go','\t\tj.gitEnv = j.gitEnv || (ref && c.Decl != "" && len(c.Words) > len(flagsOf(c.Words)))\n','\n'),
+ ('git: any nameref leaves the configuration unreadable','internal/gitguard/gitguard.go','\t\t\t\tj.gitEnv = true\n\t\t\t}\n\t\t}\n\t}\n','\t\t\t}\n\t\t}\n\t}\n'),
+ ('git: a nameref through command/builtin','internal/gitguard/gitguard.go','\tif c.Decl != "" || in(u.Cmd, "declare", "typeset", "local") {\n','\tif c.Decl != "" {\n'),
 ]
 ok=0
 for name,f,old,new in muts:

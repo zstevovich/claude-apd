@@ -201,16 +201,16 @@ func (j *judge) Command(c shell.Command) {
 		for _, w := range c.Words {
 			j.gitEnv = j.gitEnv || configEnv(w) || unresolved(w) // a name that is not written out may be one of them
 		}
-		ref := false
-		for _, w := range c.Words {
-			ref = ref || (len(w) > 1 && w[0] == '-' && w[1] != '-' && strings.Contains(w, "n"))
+	}
+	if c.Decl != "" || in(u.Cmd, "declare", "typeset", "local") {
+		// a nameref (-n) makes one name stand for another, chosen now or by a later
+		// plain assignment: which variable a write lands in is no longer readable,
+		// and it may be one git takes its configuration from
+		for _, w := range append(append([]string{}, c.Words...), u.Args...) {
+			if len(w) > 1 && w[0] == '-' && w[1] != '-' && strings.Contains(w, "n") {
+				j.gitEnv = true
+			}
 		}
-		for _, a := range c.Assigns {
-			// declare -n X=GIT_CONFIG_PARAMETERS — or a nameref onto a name that is not written out
-			j.gitEnv = j.gitEnv || configEnv(a.Value) || (ref && unresolved(a.Value))
-		}
-		// `declare -n X` with no target yet: the next plain `X=NAME` picks it, out of sight
-		j.gitEnv = j.gitEnv || (ref && c.Decl != "" && len(c.Words) > len(flagsOf(c.Words)))
 	}
 	// the arguments find, xargs and parallel hand a command are not written here
 	fed := u.Xargs || in(u.Cmd, "find", "parallel")
@@ -276,16 +276,6 @@ var valueFlags = map[string][]string{
 }
 
 func unresolved(w string) bool { return strings.ContainsAny(w, "$`") }
-
-func flagsOf(words []string) []string {
-	var out []string
-	for _, w := range words {
-		if strings.HasPrefix(w, "-") || strings.HasPrefix(w, "+") {
-			out = append(out, w)
-		}
-	}
-	return out
-}
 
 func (j *judge) statement(words []string, marked, xargs bool) {
 	// git's own options come before the subcommand
