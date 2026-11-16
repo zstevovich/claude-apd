@@ -349,8 +349,7 @@ func (j *judge) Command(c shell.Command) { j.process(c) }
 func (j *judge) Call(assigns []shell.Assign) {
 	var fr []restore
 	for _, a := range assigns {
-		old, had := j.assigned(a.Name)
-		fr = append(fr, restore{a.Name, old, had})
+		fr = append(fr, restore{a.Name})
 		j.setvar(a.Name, j.valueOf(a))
 	}
 	j.frames = append(j.frames, fr)
@@ -361,23 +360,13 @@ func (j *judge) Return() {
 	fr := j.frames[k]
 	j.frames = j.frames[:k]
 	for i := len(fr) - 1; i >= 0; i-- {
-		if fr[i].had {
-			j.setvar(fr[i].name, fr[i].old)
-			continue
-		}
-		for n := range j.vn {
-			if j.vn[n] == fr[i].name {
-				j.vn, j.vv = append(j.vn[:n], j.vn[n+1:]...), append(j.vv[:n], j.vv[n+1:]...)
-				break
-			}
-		}
+		// bash restores the old value; a shell in POSIX mode (`sh` on macOS) keeps
+		// the prefix. Which one runs is not the guard's to know.
+		j.setvar(fr[i].name, unknownValue)
 	}
 }
 
-type restore struct {
-	name, old string
-	had       bool
-}
+type restore struct{ name string }
 
 // Lost: the reader stopped following the shell's state — nothing relative and
 // nothing built from a variable can be placed after this point.
@@ -761,7 +750,11 @@ loop:
 	default:
 		if ts, ok := tools.Writes(cmd, a); ok {
 			for _, t := range ts {
-				j.addTarget(t.Path, t.NoFollow)
+				if t.Unknown != "" {
+					j.addUnknown(t.Unknown)
+				} else {
+					j.addTarget(t.Path, t.NoFollow)
+				}
 			}
 		} else if cmd == "perl" {
 			text, take := "", false

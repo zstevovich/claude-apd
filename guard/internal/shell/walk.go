@@ -84,6 +84,9 @@ type Reader struct {
 type fn struct {
 	body *syntax.Stmt
 	src  string
+	// maybe: the definition sits where it may not have run (a branch, a loop
+	// body, the right side of && or ||), so the name may still be something else.
+	maybe bool
 }
 
 func NewReader() *Reader { return &Reader{funcs: map[string]fn{}} }
@@ -100,8 +103,16 @@ func (r *Reader) Walk(src string, v Visitor) error {
 
 type walker struct {
 	*Reader
-	src string
-	v   Visitor
+	src  string
+	v    Visitor
+	cond int // depth inside code that may not run
+}
+
+// maybeRun reads code that the shell may skip.
+func (w *walker) maybeRun(f func()) {
+	w.cond++
+	f()
+	w.cond--
 }
 
 func (w *walker) text(n syntax.Node) string { return w.src[n.Pos().Offset():n.End().Offset()] }
@@ -355,20 +366,34 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 		// a call runs the body here, in the caller's shell — by the name the shell
 		// sees after quote removal ("f", \f and f are the same call)
 		var f fn
+		called := false
 		if len(c.Words) > 0 {
-			f, c.Function = w.funcs[c.Words[0]]
+			f, called = w.funcs[c.Words[0]]
 		}
+		// a name that is only maybe a function is read as both: the command of
+		// that name, then the body — and after it the state is not known
+		c.Function = called && !f.maybe
 		w.v.Command(c)
 		switch {
-		case c.Function && w.calls >= 16:
+		case called && w.calls >= 16:
 			w.v.Lost("more function calls than the reader follows")
-		case c.Function:
+		case called:
 			w.calls++
 			w.v.Call(c.Assigns)
-			(&walker{Reader: w.Reader, src: f.src, v: w.v}).stmt(f.body, "")
+			(&walker{Reader: w.Reader, src: f.src, v: w.v, cond: w.cond}).stmt(f.body, "")
 			w.v.Return()
-		case len(c.Words) > 1 && c.Words[0] == "unset":
-			w.unset(c.Words[1:])
+			if f.maybe {
+				w.v.Lost("a function that may not have been defined")
+			}
+		default:
+			// unset, also behind `command` / `builtin`
+			k := 0
+			for k < len(c.Words) && (c.Words[k] == "command" || c.Words[k] == "builtin") {
+				k++
+			}
+			if k+1 < len(c.Words) && c.Words[k] == "unset" {
+				w.unset(c.Words[k+1:])
+			}
 		}
 	case *syntax.DeclClause:
 		c.Decl = x.Variant.Value
@@ -395,7 +420,7 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 			w.scoped(PipeElement, func() { w.stmt(x.Y, body) })
 		} else {
 			w.stmt(x.X, "")
-			w.stmt(x.Y, "")
+			w.maybeRun(func() { w.stmt(x.Y, "") }) // the right side of && / || may not run
 		}
 		tail()
 	case *syntax.Subshell:
@@ -406,13 +431,17 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 		tail()
 	case *syntax.IfClause:
 		for cl := x; cl != nil; cl = cl.Else {
-			w.stmts(cl.Cond)
-			w.stmts(cl.Then)
+			if cl == x {
+				w.stmts(cl.Cond)
+			} else {
+				w.maybeRun(func() { w.stmts(cl.Cond) })
+			}
+			w.maybeRun(func() { w.stmts(cl.Then) })
 		}
 		tail()
 	case *syntax.WhileClause:
 		w.stmts(x.Cond)
-		w.stmts(x.Do)
+		w.maybeRun(func() { w.stmts(x.Do) })
 		tail()
 	case *syntax.ForClause:
 		if wi, ok := x.Loop.(*syntax.WordIter); ok && wi.InPos.IsValid() {
@@ -424,19 +453,19 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 		} else {
 			w.inner(x.Loop)
 		}
-		w.stmts(x.Do)
+		w.maybeRun(func() { w.stmts(x.Do) })
 		tail()
 	case *syntax.CaseClause:
 		w.word(x.Word)
 		for _, it := range x.Items {
-			w.stmts(it.Stmts)
+			w.maybeRun(func() { w.stmts(it.Stmts) })
 		}
 		tail()
 	case *syntax.FuncDecl:
 		// read once where it is defined (a body is judged called or not); the name
 		// exists only afterwards, so the body's own recursion is not followed here
 		w.scoped(FuncBody, func() { w.stmt(x.Body, "") })
-		w.funcs[x.Name.Value] = fn{x.Body, w.src}
+		w.funcs[x.Name.Value] = fn{x.Body, w.src, w.cond > 0}
 	case *syntax.TimeClause:
 		w.stmt(x.Stmt, "")
 	case *syntax.CoprocClause:

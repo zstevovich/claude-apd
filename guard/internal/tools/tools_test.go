@@ -9,6 +9,10 @@ import (
 func paths(ts []Target) []string {
 	var out []string
 	for _, t := range ts {
+		if t.Unknown != "" {
+			out = append(out, "?")
+			continue
+		}
 		out = append(out, t.Path)
 	}
 	return out
@@ -45,6 +49,12 @@ func TestWrites(t *testing.T) {
 		{"curl -H o -d o https://x", nil, true},
 		{"curl -fsSLO https://x/y", []string{"./"}, true},
 		{"curl -O --output-dir dl https://x/y", []string{"dl"}, true},
+		{"curl --output-dir dl -o x https://x/y", []string{"dl/x"}, true},
+		{"curl --output-dir dl -o /abs/x https://x/y", []string{"/abs/x"}, true},
+		{"curl -K cfg https://x/y", []string{"?"}, true},
+		{"wget -e output_document=x https://x/y", []string{"?", "./"}, true},
+		{"rsync -a --backup-dir=bak -T tmp src/ dest/", []string{"bak", "tmp", "dest/"}, true},
+		{"rsync -a --link-dest ../prev src/ dest/", []string{"dest/"}, true},
 		{"curl -sD headers.txt -c jar.txt https://x", []string{"headers.txt", "jar.txt"}, true},
 		{"curl -o - https://x", nil, true},
 		{"wget -qO out https://x/y", []string{"out"}, true},

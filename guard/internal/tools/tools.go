@@ -13,6 +13,9 @@ import (
 type Target struct {
 	Path     string
 	NoFollow bool
+	// Unknown, when set, says why the files this invocation writes cannot be
+	// read off its arguments (they are named in a config file, for one).
+	Unknown string
 }
 
 // Writes returns the files `cmd args…` would write. ok is false when the tool
@@ -29,6 +32,10 @@ func Writes(cmd string, args []string) (targets []Target, ok bool) {
 	}
 	nofollow := cmd == "rm" || cmd == "rmdir" || cmd == "unlink"
 	for _, p := range paths {
+		if strings.HasPrefix(p, unknown) {
+			targets = append(targets, Target{Unknown: p[len(unknown):]})
+			continue
+		}
 		targets = append(targets, Target{Path: p, NoFollow: nofollow})
 	}
 	return targets, true
@@ -43,6 +50,9 @@ var writers = map[string]bool{"cp": true, "mv": true, "rm": true, "rmdir": true,
 	"chmod": true, "chown": true, "rsync": true}
 
 type entry func(cmd string, a []string) ([]string, bool)
+
+// unknown prefixes an entry's result that is a reason, not a path.
+const unknown = "\x00unknown:"
 
 var table map[string]entry
 
@@ -225,8 +235,13 @@ func afterFirst(_ string, a []string) ([]string, bool) {
 }
 
 func rsync(_ string, a []string) ([]string, bool) {
-	o := parse(a, "ef", "rsh", "exclude", "include", "filter", "files-from", "log-file", "exclude-from", "include-from")
-	out := o.all("--log-file")
+	o := parse(a, "efTBM", "rsh", "exclude", "include", "filter", "files-from", "log-file", "exclude-from", "include-from",
+		"temp-dir", "backup-dir", "partial-dir", "compare-dest", "copy-dest", "link-dest", "block-size", "max-size",
+		"min-size", "timeout", "port", "password-file", "write-batch", "only-write-batch", "read-batch", "suffix",
+		"chmod", "chown", "usermap", "groupmap", "out-format", "log-file-format", "bwlimit", "rsync-path", "remote-option",
+		"info", "debug", "max-delete", "modify-window", "contimeout", "address", "sockopts", "iconv", "checksum-choice",
+		"compress-choice", "compress-level", "skip-compress", "stop-after", "stop-at", "protocol", "checksum-seed", "outbuf")
+	out := o.all("--log-file", "--backup-dir", "--temp-dir", "-T", "--partial-dir", "--write-batch", "--only-write-batch")
 	if len(o.pos) > 0 {
 		out = append(out, o.pos[len(o.pos)-1])
 	}
@@ -268,16 +283,30 @@ func curl(_ string, a []string) ([]string, bool) {
 		"data-raw", "data-binary", "data-urlencode", "max-time", "connect-timeout", "retry", "proxy", "cert", "key",
 		"cacert", "range", "referer", "upload-file", "write-out", "resolve", "limit-rate")
 	var out []string
-	for _, v := range o.all("-o", "--output", "-D", "--dump-header", "-c", "--cookie-jar", "--trace", "--trace-ascii",
-		"--stderr", "--etag-save", "--hsts", "--alt-svc", "--libcurl", "--output-dir") {
+	if o.flags["-K"] || o.flags["--config"] {
+		out = append(out, unknown+"curl reads its options, output file included, from a config file")
+	}
+	dir := o.last("--output-dir")
+	for _, v := range o.all("-o", "--output") {
+		switch {
+		case v == "-":
+		case dir != "" && !strings.HasPrefix(v, "/"):
+			out = append(out, strings.TrimSuffix(dir, "/")+"/"+v) // -o is taken relative to --output-dir
+		default:
+			out = append(out, v)
+		}
+	}
+	for _, v := range o.all("-D", "--dump-header", "-c", "--cookie-jar", "--trace", "--trace-ascii",
+		"--stderr", "--etag-save", "--hsts", "--alt-svc", "--libcurl") {
 		if v != "-" {
 			out = append(out, v)
 		}
 	}
 	if o.flags["-O"] || o.flags["--remote-name"] || o.flags["--remote-name-all"] || o.flags["-J"] || o.flags["--remote-header-name"] {
-		if len(o.val["--output-dir"]) == 0 {
-			out = append(out, "./")
+		if dir == "" {
+			dir = "./"
 		}
+		out = append(out, dir)
 	}
 	return out, true
 }
@@ -289,6 +318,9 @@ func wget(_ string, a []string) ([]string, bool) {
 		"input-file", "tries", "timeout", "wait", "quota", "user-agent", "execute", "base", "accept", "reject",
 		"domains", "level", "header", "post-data", "post-file", "user", "password", "load-cookies", "save-cookies")
 	var out []string
+	if o.flags["-e"] || o.flags["--execute"] || o.flags["--config"] {
+		out = append(out, unknown+"wget takes settings, output file included, from -e or a config file")
+	}
 	for _, v := range o.all("-O", "--output-document", "-o", "--output-file", "-a", "--append-output", "--save-cookies") {
 		if v != "-" {
 			out = append(out, v)

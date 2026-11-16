@@ -158,8 +158,13 @@ func TestFunctions(t *testing.T) {
 		// `X=v f`: in effect for the body, gone after it
 		{"X=src/a; f() { echo hi > $X; }; X=out/a f", 2},
 		{"X=src/a; f() { echo hi > $X; }; X=src/b f", 0},
-		{"X=out/a; f() { echo hi > $X; }; X=src/a f", 2}, // the body is also judged where it is defined, with X as it was there
-		{"X=src/a; f() { :; }; X=out/a f; echo hi > $X", 0},
+		{"X=out/a; f() { echo hi > $X; }; X=src/a f", 2},    // the body is also judged where it is defined, with X as it was there
+		{"X=src/a; f() { :; }; X=out/a f; echo hi > $X", 2}, // restored in bash, kept in POSIX mode: not known
+		{"X=src/a; f() { :; }; Y=out/a f; echo hi > $X", 0},
+		// a definition that may not have run: the name is read as both, then nothing is known
+		{"cd src; false && cd() { :; }; cd ../out; echo hi > a", 2},
+		{"if true; then rm() { :; }; fi; rm out/a", 2},
+		{"cd() { builtin cd src; }; command unset -f cd; cd out; echo hi > a", 2},
 		{"f() { :; }; X=src/a f; echo hi > $X", 2},
 	}, "src/")
 }
@@ -203,6 +208,9 @@ func TestTools(t *testing.T) {
 		{"curl -sSLo out/x https://example.org", 2},
 		{"curl -sSLo src/x https://example.org", 0},
 		{"curl -fsSLO https://example.org/x", 2},
+		{"curl -K src/cfg https://example.org/x", 2},
+		{"cd out && curl --output-dir ../src -o x https://example.org/x", 0},
+		{"rsync -a --backup-dir=out/bak src/a/ src/b/", 2},
 		{"cd src && curl -fsSLO https://example.org/x", 0},
 		{"cp -rt out src/a", 2},
 		{"cp -rt src/dest src/a", 0},
