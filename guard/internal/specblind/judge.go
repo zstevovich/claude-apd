@@ -59,6 +59,7 @@ type judge struct {
 	bodies    string // every heredoc body in the command
 	bodiesRun bool
 	vars      map[string][]string
+	over      map[string]bool // names given more values than are kept
 	depth     int
 }
 
@@ -73,7 +74,7 @@ func Judge(o Options) (v Verdict) {
 	if !Governs(o.AgentType) {
 		return Verdict{}
 	}
-	j := &judge{o: o, env: paths.Env{Home: o.Home}, command: o.Command, vars: map[string][]string{}}
+	j := &judge{o: o, env: paths.Env{Home: o.Home}, command: o.Command, vars: map[string][]string{}, over: map[string]bool{}}
 	j.projCanon = paths.Real(o.ProjectDir)
 	if j.projCanon == "" {
 		j.projCanon = o.ProjectDir
@@ -364,24 +365,44 @@ func (j *judge) expand(w string) []string {
 			next = append(next, cur)
 			for _, v := range vals {
 				r := strings.ReplaceAll(strings.ReplaceAll(cur, "${"+name+"}", v), "$"+name, v)
-				if r != cur && len(next) < 16 {
+				if r != cur {
 					next = append(next, r)
 				}
 			}
+		}
+		if j.over[name] || len(next) > maxForms {
+			j.lostTrack(name)
 		}
 		out = next
 	}
 	return out
 }
 
+// A variable may be given this many values, and a word or a statement may be
+// read in this many forms. Past that the guard refuses a command that uses the
+// variable: a value it silently dropped could be the one that names pipeline state.
+const (
+	maxValues = 256
+	maxForms  = 4096
+)
+
+func (j *judge) lostTrack(name string) {
+	j.deny("anything through a variable the guard cannot follow ($"+name+" is given more values than it tracks)", "cmd:var-overflow")
+}
+
 func (j *judge) setvar(name, value string) {
-	if name == "" || len(j.vars[name]) >= 8 {
+	if name == "" {
 		return
 	}
 	for _, v := range j.expand(value) {
-		if !in(v, j.vars[name]...) && len(j.vars[name]) < 8 {
-			j.vars[name] = append(j.vars[name], v)
+		if in(v, j.vars[name]...) {
+			continue
 		}
+		if len(j.vars[name]) >= maxValues {
+			j.over[name] = true
+			return
+		}
+		j.vars[name] = append(j.vars[name], v)
 	}
 }
 
@@ -399,8 +420,8 @@ func (j *judge) variants(words []string) [][]string {
 		var next [][]string
 		for _, cur := range out {
 			for _, a := range alts {
-				if len(next) >= 16 {
-					break
+				if len(next) >= maxForms {
+					j.lostTrack("…")
 				}
 				cp := append([]string{}, cur...)
 				cp[i] = a

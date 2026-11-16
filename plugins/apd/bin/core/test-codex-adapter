@@ -8428,13 +8428,15 @@ else
     FAILS=$((FAILS + 1))
 fi
 
-# Static J: all three pipeline-state-write branches share the guidance helper
-GBS_GUIDANCE_CALLS=$(grep -c '_pipeline_block_guidance$' "$GBS")
-if [ "$GBS_GUIDANCE_CALLS" -ge 3 ]; then
-    pass "all 3 pipeline-state BLOCK branches emit the three-way guidance ($GBS_GUIDANCE_CALLS calls)"
+# Static J: both branches that refuse a pipeline-state write (direct, and through a
+# nested shell) share the guidance helper. v8: the judge is the compiled guard, the
+# launcher prints one message per reason.
+GBS_GUIDANCE_CALLS=$(grep -c '_pipeline_block_guidance ;;$' "$GBS")
+if [ "$GBS_GUIDANCE_CALLS" -ge 2 ]; then
+    pass "both pipeline-state BLOCK branches emit the three-way guidance ($GBS_GUIDANCE_CALLS calls)"
     PASSES=$((PASSES + 1))
 else
-    fail "pipeline-state BLOCK branches missing shared guidance ($GBS_GUIDANCE_CALLS/3 calls)"
+    fail "pipeline-state BLOCK branches missing shared guidance ($GBS_GUIDANCE_CALLS/2 calls)"
     FAILS=$((FAILS + 1))
 fi
 
@@ -15775,12 +15777,28 @@ _gb4 0 "python -c body spanning lines writing IN scope is allowed"              
 _gb4 0 "bash -c body spanning lines writing IN scope is allowed"                  $'bash -c \'\necho hi > src/ok.txt\n\'' src/
 _gb4 0 "a multi-line commit message is one word and not a write"                  $'git commit -m \'a\nb\'' src/
 _gb4 2 "a redirect after a word spanning lines, out of scope, still blocks"       $'printf \'%s\' \'a\nb\' > /etc/x' src/
-# both guards share one canonicaliser
-if grep -q 'path-canon.sh' "$APD_PLUGIN_ROOT/bin/core/guard-scope" && grep -q 'path-canon.sh' "$GB4" \
-   && [ -f "$APD_PLUGIN_ROOT/bin/lib/path-canon.sh" ]; then
-    pass "guard-scope and guard-bash-scope source the same path canonicaliser"; PASSES=$((PASSES + 1))
+# v8: guard-scope canonicalises in bash (path-canon.sh), guard-bash-scope in the compiled
+# guard (guard/internal/paths). Two implementations of one rule must agree: every path
+# below is judged by both — the shared library's scratchpad test, and a no-scope shell
+# write to it (allowed exactly when the target is the session scratchpad).
+if grep -q 'path-canon.sh' "$APD_PLUGIN_ROOT/bin/core/guard-scope" && [ -f "$APD_PLUGIN_ROOT/bin/lib/path-canon.sh" ]; then
+    pass "guard-scope sources the shared path canonicaliser"; PASSES=$((PASSES + 1))
 else
-    fail "path-canon.sh not shared by both scope guards"; FAILS=$((FAILS + 1))
+    fail "guard-scope does not source path-canon.sh"; FAILS=$((FAILS + 1))
+fi
+_V8_UID=$(id -u); _V8_DIFF=""
+for _v8p in "/tmp/claude-$_V8_UID/proj/sess/scratchpad/a.txt" "/private/tmp/claude-$_V8_UID/proj/sess/scratchpad/d/a.txt" \
+            "/tmp/claude-$_V8_UID/proj/sess/scratchpad" "/tmp/claude-$_V8_UID/proj/sess/scratchpadX/a" \
+            "/tmp/claude-$_V8_UID/proj/scratchpad/a" "/tmp/claude-x/proj/sess/scratchpad/a" \
+            "/tmp/claude-$_V8_UID/proj/sess/scratchpad/../../../../etc/x" "/tmp/other/a" "/var/tmp/claude-$_V8_UID/p/s/scratchpad/a"; do
+    _v8l=1; ( source "$APD_PLUGIN_ROOT/bin/lib/path-canon.sh"; _is_session_scratchpad "$_v8p" ) && _v8l=0
+    _v8g=0; APD_PROJECT_DIR="$GB4_T" bash "$GB4" --command "echo x > $_v8p" --cwd "$GB4_T" --deny-all-writes >/dev/null 2>&1 || _v8g=$?
+    { [ "$_v8l" = 0 ] && [ "$_v8g" = 0 ]; } || { [ "$_v8l" != 0 ] && [ "$_v8g" = 2 ]; } || _V8_DIFF="$_V8_DIFF $_v8p(lib=$_v8l,guard=$_v8g)"
+done
+if [ -z "$_V8_DIFF" ]; then
+    pass "the bash library and the compiled guard agree on the session scratchpad (9 paths)"; PASSES=$((PASSES + 1))
+else
+    fail "scratchpad rule differs between path-canon.sh and the compiled guard:$_V8_DIFF"; FAILS=$((FAILS + 1))
 fi
 rm -rf "$GB4_T"
 
@@ -16260,7 +16278,7 @@ if [ -z "$G137_COPIES" ]; then
 else
     fail "private copies of _is_session_scratchpad: $G137_COPIES"; FAILS=$((FAILS + 1))
 fi
-for _g in guard-bash-scope guard-orchestrator guard-scope; do
+for _g in guard-orchestrator guard-scope; do   # guard-bash-scope: the compiled guard, joined to the library by execution (see "agree on the session scratchpad")
     if grep -q '_is_session_scratchpad' "$APD_PLUGIN_ROOT/bin/core/$_g" && grep -q 'path-canon.sh' "$APD_PLUGIN_ROOT/bin/core/$_g"; then
         pass "$_g uses the shared scratchpad rule"; PASSES=$((PASSES + 1))
     else
@@ -16447,12 +16465,31 @@ if APD_PROJECT_DIR="$G138_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" -
 else
     fail "--emit-git dropped an empty word — the subcommand after -C \"\" is misread"; FAILS=$((FAILS + 1))
 fi
-# fallback: if the tokenizer path cannot run, guard-git must fail CLOSED to its raw scan, not open
-if grep -q '_raw_scan_fallback\|raw scan' "$G138"; then
-    pass "guard-git keeps a raw-scan fallback for when the tokenizer cannot run"; PASSES=$((PASSES + 1))
-else
-    fail "guard-git has no fallback when --emit-git is unavailable (would fail open)"; FAILS=$((FAILS + 1))
-fi
+# v8: the judge is a compiled binary. A guard whose judge is MISSING, or answers with
+# something that is neither allow nor block, must refuse — on a copy of the plugin, for
+# all three guards, with a command each would otherwise allow.
+V8_P="$(mktemp -d -t apd-v8bin.XXXXXX)"; mkdir -p "$V8_P/bin"
+cp -R "$APD_PLUGIN_ROOT/bin/core" "$APD_PLUGIN_ROOT/bin/lib" "$V8_P/bin/"; cp "$APD_PLUGIN_ROOT/VERSION" "$V8_P/" 2>/dev/null || true
+mkdir -p "$V8_P/bin/compiled"
+_v8bin() {  # <label> <expected rc> <stderr must contain>
+    local label="$1" exp="$2" must="$3" g rc err bad=""
+    for g in "guard-bash-scope --command ls" "guard-git --command ls" "guard-spec-blind --agent-type adversarial-reviewer --command ls"; do
+        rc=0; err=$(APD_PROJECT_DIR="$G138_T" bash "$V8_P/bin/core/"$g 2>&1 >/dev/null) || rc=$?
+        { [ "$rc" = "$exp" ] && { [ -z "$must" ] || printf '%s' "$err" | grep -q -- "$must"; }; } || bad="$bad [${g%% *} rc=$rc]"
+    done
+    if [ -z "$bad" ]; then pass "$label (all three guards, rc=$exp)"; PASSES=$((PASSES + 1)); else fail "$label:$bad"; FAILS=$((FAILS + 1)); fi
+}
+_v8bin "a guard whose binary is missing refuses" 2 "binary is missing"
+_V8_BIN="$V8_P/bin/compiled/$(basename "$(source "$APD_PLUGIN_ROOT/bin/lib/apd-guard.sh"; APD_PLUGIN_ROOT="$APD_PLUGIN_ROOT" _apd_guard_bin)")"
+printf '#!/bin/bash\nexit 3\n' > "$_V8_BIN"; chmod +x "$_V8_BIN"
+_v8bin "a guard whose binary exits with an unknown code refuses" 2 "could not judge"
+printf '#!/bin/bash\nkill -9 $$\n' > "$_V8_BIN"
+_v8bin "a guard whose binary is killed refuses" 2 "could not judge"
+printf '#!/bin/bash\nexit 0\n' > "$_V8_BIN"
+_v8bin "control: the same copy with a judge that allows lets the command through" 0 ""
+chmod -x "$_V8_BIN"
+_v8bin "a binary that is not executable counts as missing" 2 "binary is missing"
+rm -rf "$V8_P"
 rm -rf "$G138_T"
 
 section "139. workflow.md keeps up with the framework: shipped-copy record + three-way merge"
@@ -16680,7 +16717,8 @@ _g140 2 "three dollars: the last one opens ANSI-C quoting (odd run) — the writ
 _g140 2 "a hex-spelled writer is decoded and judged: \$'\\x74ee' out/a = tee out/a"            "\$'\\x74ee' out/a"
 _g140 2 "a hex-spelled writer in a pipeline: … | \$'t\\x65e' out/a"                             "echo x | \$'t\\x65e' out/a"
 _g140 2 "orchestrator: a hex-spelled rm on the fence is decoded and refused (audit C2)"        "\$'\\x72m' -rf .apd/pipeline" orch
-_g140 2 "an undecodable escape in the command word is opaque: \$'\\u0074ee' src/a"             "\$'\\u0074ee' src/a"
+_g140 0 "v8: a \\u escape in the command word is decoded — tee into the scope is allowed"       "\$'\\u0074ee' src/a"
+_g140 2 "v8: … and the same writer out of scope is refused"                                    "\$'\\u0074ee' /etc/a"
 # --- (b) substitutions inside double quotes ---
 _g140 2 "\"\$(…)\" inside double quotes: the inner write out of scope blocks"                "echo \"\$(echo a > /etc/x)\""
 _g140 2 "\"\$(…)\" spanning lines: the inner write blocks"                                   "echo \"x \$(${NL}echo a > /etc/x${NL})\""
@@ -16731,7 +16769,7 @@ _e140 "guard-git: a git ARGUMENT with an undecoded escape is OPAQUE (audit P3: b
 # never closed, and every command after it was data (fail-open past the body).
 _g140 2 "P1: a quoted \$(( that is a subshell substitution writes out of scope"       'echo "$((echo x > /etc/a) )"'
 _g140 2 "P1: the bare form writes out of scope"                                     'echo $((echo x > /etc/b) )'
-_g140 0 "P1: the same shape writing IN scope is allowed"                             'echo "$((echo x > src/a) )"'
+_g140 2 "P1 (v8, stated): the parser does not read this shape — refused in scope too" 'echo "$((echo x > src/a) )"'
 _g140 2 "P1: a quoted paren inside the subshell does not end the capture early"      'echo "$((echo "a)b" > /etc/f) )"'
 _g140 0 "P1: real arithmetic is untouched: \$((1+2)) with an in-scope redirect"        'echo $((1+2)) > src/ok'
 _g140 0 "P1: real arithmetic with a parenthesised group"                             'x=$(( (1+2) * 4 )); echo $x > src/ok3'
@@ -16760,7 +16798,8 @@ _g140 2 "I1: a quoted \$(( closing on a later line writes — unreadable, refuse
 _g140 2 "I1: the bare multi-line form"                                                       "echo \$((echo x > /etc/p2${NL}) )"
 _g140 2 "I1: a ) in a comment inside the first line does not end the scan early"             "echo \"\$((echo x > /etc/ab # )${NL}) )\""
 _g140 2 "I1: the orchestrator fence through a multi-line quoted subshell substitution"        "echo \"\$((rm -rf .apd/pipeline${NL}) )\"" orch
-_g140 2 "I1: stated cost — real arithmetic spanning lines is refused too (fail closed)"       "echo \$((1+${NL}2)) > src/ok"
+_g140 0 "I1 (v8): real arithmetic spanning lines is read as arithmetic — the in-scope redirect is allowed" "echo \$((1+${NL}2)) > src/ok"
+_g140 2 "I1 (v8): … and the same arithmetic redirected out of scope is refused"              "echo \$((1+${NL}2)) > /etc/ok"
 _g140 2 "I2: <<\$'E' names E — the write after the body is seen"                             "cat <<\$'E'${NL}body${NL}E${NL}echo x > /etc/cq"
 _g140 2 "I2: <<\$'E\\tF' decodes the tab"                                                     "cat <<\$'E\\tF'${NL}body${NL}E	F${NL}echo x > /etc/dt"
 _g140 2 "I2: <<E\$\"X\" names EX"                                                              "cat <<E\$\"X\"${NL}body${NL}EX${NL}echo x > /etc/cp"
@@ -16780,9 +16819,9 @@ _g140 0 "I4: an in-scope substitution in an unquoted body is allowed"           
 _g140 2 "I4: through bash -c"                                                                "bash -c 'cat <<EOF${NL}\$(echo x > /etc/dw)${NL}EOF'"
 LANG=C.UTF-8 LC_ALL= _g140 2 "I5: a non-ASCII byte in an unquoted tag under a UTF-8 locale no longer kills the tokenizer — the write after the body is refused" "cat <<ÉOF${NL}body${NL}ÉOF${NL}echo x > /etc/u1"
 LANG=C.UTF-8 LC_ALL= _g140 2 "I5: the orchestrator fence after such a tag"                   "cat <<ÉOF${NL}body${NL}ÉOF${NL}rm -rf .apd/pipeline" orch
-LANG=C.UTF-8 LC_ALL= _g140 0 "I5: a quoted non-ASCII tag with an in-scope redirect is allowed" "cat <<'ÉOF' > src/a${NL}body${NL}ÉOF"
-_g140 0 "M1: a backslash-escaped quote inside a double-quoted tag: bash tag E\"F, in-scope write allowed" "cat <<\"E\\\"F\" > src/dx${NL}body${NL}E\"F"
-_c140_end() { local out; out=$(printf '%s\n' "$1" | LC_ALL=C awk "$(sed -n "/^_TOKENIZER='/,/^'$/p" "$G140" | sed '1s/^_TOKENIZER=.//; $d')" 2>/dev/null | tail -1); [ "$out" = "S END" ]; }
+LANG=C.UTF-8 LC_ALL= _g140 2 "I5 (v8, stated): a non-ASCII heredoc tag is not read by the parser — refused in scope too" "cat <<'ÉOF' > src/a${NL}body${NL}ÉOF"
+_g140 2 "M1 (v8, stated): a tag with a backslash-escaped quote is not read by the parser — refused in scope too" "cat <<\"E\\\"F\" > src/dx${NL}body${NL}E\"F"
+_c140_end() { local out; out=$(printf '%s\n' "$1" | LC_ALL=C awk "$(sed -n "/^_TOKENIZER='/,/^'$/p" "$G140.bash" | sed '1s/^_TOKENIZER=.//; $d')" 2>/dev/null | tail -1); [ "$out" = "S END" ]; }
 if _c140_end 'echo hi' && _c140_end "cat <<EOF${NL}body${NL}EOF"; then pass "the tokenizer ends every command with the END canary (the consumer fails closed without it)"; PASSES=$((PASSES + 1)); else fail "no END canary at the end of the tokenizer output"; FAILS=$((FAILS + 1)); fi
 _e140 "guard-git: after an ANSI-C-tagged heredoc the git word is a statement again"       "cat <<\$'E'${NL}body${NL}E${NL}git push --force" "GIT push --force"
 _e140 "guard-git: a git command inside arithmetic is not invisible (nested statement or OPAQUE)" "echo \$(( \$(git push --force; echo 1) ))" "push --force\|OPAQUE"

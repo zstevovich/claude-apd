@@ -375,6 +375,33 @@ func TestCallDirectory(t *testing.T) {
 	}
 }
 
+func TestVariableBudget(t *testing.T) {
+	o := fixture(t)
+	many, files, some := "", "", ""
+	for i := 0; i < 300; i++ {
+		n := string(rune('a'+i%26)) + string(rune('a'+i/26))
+		many += "x=v" + n + "; "
+		files += " src/f" + n
+		if i < 60 {
+			some += " src/f" + n
+		}
+	}
+	for c, want := range map[string]bool{
+		many + "x=.apd; cat $x/*/*":                   true,  // the value that matters is past the budget
+		"x=.apd; " + many + "cat $x/*/*":              true,  // … or before it
+		many + "cat src/app/main.go":                  false, // the variable is never used
+		many + "y=src; cat $y/app/main.go":            false, // another variable is still followed
+		"for f in" + files + "; do cat \"$f\"; done":  true,  // more items than are followed
+		"for f in" + some + "; do cat \"$f\"; done":   false, // sixty files is an ordinary loop
+		"for f in src/a src/b src/c; do cat $f; done": false,
+	} {
+		o.Command = c
+		if got := Judge(o); got.Blocked() != want {
+			t.Errorf("%.60q…: got %+v, want blocked=%v", c, got, want)
+		}
+	}
+}
+
 func TestHomeVar(t *testing.T) {
 	for a, want := range map[string]int{"$HOME": 5, "$HOME/x": 5, "${HOME}/x": 7, "$HOMEWORK/x": -1, "x$HOME": -1} {
 		if got := homeVar(a); got != want {

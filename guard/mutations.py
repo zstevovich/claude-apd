@@ -323,6 +323,8 @@ muts=[
  ('blind: env assignments reach the nested shell','internal/specblind/judge.go','\t\t\t\t\tj.setvar(kv[:k], kv[k+1:])\n','\t\t\t\t\t_ = k\n'),
  ('blind: a link to an ancestor of the project','internal/specblind/judge.go','\t\tj.outside(reader, a, rel) // a link to an ancestor of the project\n','\n'),
  ('blind: a link elsewhere is not refused','internal/specblind/judge.go','\tif rel == j.allowed {\n\t\treturn\n\t}\n\tinside','\tif true {\n\t\tj.deny("x", "x")\n\t}\n\tinside'),
+ ('blind: a variable past its value budget refuses on use','internal/specblind/judge.go','\t\t\tj.over[name] = true\n','\t\t\tj.over[name] = false\n'),
+ ('blind: the value budget is not a refusal by itself','internal/specblind/judge.go','\t\tif j.over[name] || len(next) > maxForms {','\t\tif len(j.over) > 0 || len(next) > maxForms {'),
 ]
 ok=0
 for name,f,old,new in muts:

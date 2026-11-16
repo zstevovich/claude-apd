@@ -77,6 +77,45 @@ jobs:
           SW_MAX_ITERS: 1
         run: bash plugins/apd/bin/core/test-system
 
+  # v8: the guards that read shell commands are a compiled binary, built from
+  # guard/ and committed for four platforms. Two things can go wrong that the
+  # suite on its own would not show: the Go tests fail while the committed
+  # binary is an older, passing build; or someone commits a binary that was not
+  # built from this source. The build is reproducible (same toolchain, same
+  # flags, same bytes), so the second is a byte comparison.
+  guard-binary:
+    name: apd-guard (tests, binaries match the source)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.0'   # the exact toolchain the committed binaries were built with
+          cache-dependency-path: guard/go.sum
+      - name: vet and test
+        working-directory: guard
+        run: |
+          go version
+          test -z "$(gofmt -l .)" || { echo "not gofmt-clean:"; gofmt -l .; exit 1; }
+          go vet ./...
+          go test ./...
+      - name: Committed binaries match the source
+        run: |
+          out="$(mktemp -d)"
+          bash guard/build.sh "$out"
+          rc=0
+          for f in "$out"/apd-guard-*; do
+            n="$(basename "$f")"
+            if cmp -s "$f" "plugins/apd/bin/compiled/$n"; then
+              echo "ok   $n"
+            else
+              echo "FAIL $n differs from a build of this source — run: bash guard/build.sh"; rc=1
+            fi
+          done
+          [ "$(ls "$out" | wc -l | tr -d ' ')" = 4 ] || { echo "FAIL expected four binaries"; rc=1; }
+          exit $rc
+
   # The guard is symmetric but each host can only prove one direction natively.
   # The force seam drives both from both, so a matcher that silently stops
   # matching on the other platform's grep still shows up here.
