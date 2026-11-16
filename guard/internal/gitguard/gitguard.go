@@ -32,6 +32,8 @@ const (
 	StashFromAgent  = "stash-from-agent"
 	ForceDelete     = "force-delete-branch"
 	ClaudeDirPrefix = "claude-dir-no-prefix"
+	ConfigOverride  = "git-config-override"
+	Unreadable      = "git-unreadable"
 )
 
 var messages = map[string]string{
@@ -46,6 +48,8 @@ var messages = map[string]string{
 	StashFromAgent:  "git stash is not allowed from a pipeline agent.\n  It moves uncommitted work — yours and every other agent's — out of the working tree; the orchestrator owns the tree. Leave your changes in place and report; git stash list / git stash show are allowed.",
 	ForceDelete:     "git branch -D (force delete) is not allowed. Use -d for safe delete.",
 	ClaudeDirPrefix: "git add .claude/ is only allowed with " + Marker + "=1 prefix.",
+	Unreadable:      "a git statement whose subcommand is not written out (a variable, a substitution, xargs) is not allowed: what it runs cannot be read.",
+	ConfigOverride:  "git with an alias or configuration supplied by the command itself is not allowed: what it runs cannot be read.",
 }
 
 // Options is one call of the guard.
@@ -75,6 +79,10 @@ type judge struct {
 	commit    bool
 	addClaude bool
 	depth     int
+	gitEnv    bool // git configuration reaches git through the environment this command set
+	// opaque: a command whose name is not written out (`$G push`), or shell state
+	// the reader lost. The text scan then judges the whole command as well.
+	opaque bool
 }
 
 var spaces = regexp.MustCompile(` +`)
@@ -96,6 +104,11 @@ func Judge(o Options) Verdict {
 	case j.addClaude:
 		return *refuse(ClaudeDirPrefix)
 	}
+	if j.opaque {
+		if v := rawScan(o, norm, j.prefixed); v.Blocked() {
+			return v
+		}
+	}
 	return Verdict{Commit: j.commit}
 }
 
@@ -104,7 +117,7 @@ func (j *judge) Leave(shell.Scope)        {}
 func (j *judge) For(string, []string)     {}
 func (j *judge) Call([]shell.Assign)      {}
 func (j *judge) Return()                  {}
-func (j *judge) Lost(string)              {}
+func (j *judge) Lost(string)              { j.opaque = true }
 func (j *judge) QuotedSubst(text string)  { j.nested(text) }
 func (j *judge) block(code string)        { j.verdict = refuse(code) }
 func isGit(w string) bool                 { return w == "git" || strings.HasSuffix(w, "/git") }
@@ -144,19 +157,36 @@ func (j *judge) nested(text string) {
 	j.depth--
 }
 
+// configEnv: variables through which a command hands git configuration of its own.
+func configEnv(name string) bool {
+	return strings.HasPrefix(name, "GIT_CONFIG") || name == "GIT_EXEC_PATH" || name == "GIT_ALIAS"
+}
+
 func (j *judge) Command(c shell.Command) {
-	if j.verdict != nil || len(c.Words) == 0 {
+	if j.verdict != nil {
 		return
 	}
 	// the statement's own `APD_ORCHESTRATOR_COMMIT=1 git …` prefix signs it
 	marked := false
 	for _, a := range c.Assigns {
 		marked = marked || isMarker(a.Name, a.Value)
+		j.gitEnv = j.gitEnv || (configEnv(a.Name) && (len(c.Words) == 0 || c.Decl != ""))
+		if configEnv(a.Name) && len(c.Words) > 0 {
+			defer func(was bool) { j.gitEnv = was }(j.gitEnv)
+			j.gitEnv = true
+		}
+	}
+	if len(c.Words) == 0 {
+		return
 	}
 	u := tools.Unwrap(c.Words)
 	for _, e := range u.Env {
 		k := strings.Index(e, "=")
 		marked = marked || isMarker(e[:k], e[k+1:])
+		if configEnv(e[:k]) {
+			defer func(was bool) { j.gitEnv = was }(j.gitEnv)
+			j.gitEnv = true
+		}
 	}
 	if text, ok := tools.ShellText(u.Cmd, u.Args, c.Heredoc); ok {
 		j.nested(text)
@@ -164,9 +194,12 @@ func (j *judge) Command(c shell.Command) {
 	// git by any spelling and behind any wrapper: every word that is `git` or
 	// ends in `/git` starts a statement (xcrun git, /usr/bin/git, find -exec git …)
 	words := append([]string{u.Cmd}, u.Args...)
+	if unresolved(u.Cmd) {
+		j.opaque = true // `$G push`: what runs is not written here
+	}
 	for k, w := range words {
 		if isGit(w) && j.verdict == nil {
-			j.statement(words[k+1:], marked)
+			j.statement(words[k+1:], marked, u.Xargs)
 		}
 	}
 }
@@ -192,6 +225,24 @@ func clusterHas(w, letters, valued string) bool {
 	return false
 }
 
+// long reports a long option by its full spelling or by an abbreviation: git
+// accepts any unambiguous prefix (`--no-verif`, `--forc`), with or without `=value`.
+func long(arg, full string) bool {
+	arg, _, _ = strings.Cut(arg, "=")
+	return len(arg) > 3 && strings.HasPrefix(arg, "--") && strings.HasPrefix(full, arg)
+}
+
+func anyLong(args []string, full ...string) bool {
+	for _, a := range args {
+		for _, f := range full {
+			if long(a, f) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // flags whose next word is a value — never a flag, never a path
 var valueFlags = map[string][]string{
 	"commit": {"-m", "-F", "-C", "-c", "-t", "--message", "--file", "--author", "--date", "--template", "--fixup",
@@ -201,14 +252,28 @@ var valueFlags = map[string][]string{
 	"clean": {"-e", "--exclude"},
 }
 
-func (j *judge) statement(words []string, marked bool) {
+func unresolved(w string) bool { return strings.ContainsAny(w, "$`") }
+
+// reads: subcommands that change nothing — safe to run on arguments the guard does not see.
+var reads = map[string]bool{"status": true, "log": true, "diff": true, "show": true, "grep": true, "blame": true,
+	"ls-files": true, "rev-parse": true, "cat-file": true, "describe": true, "shortlog": true, "ls-tree": true}
+
+func (j *judge) statement(words []string, marked, xargs bool) {
 	// git's own options come before the subcommand
 	sub, hooksOff, i := "", false, 0
+	if j.gitEnv {
+		j.block(ConfigOverride)
+		return
+	}
 	for i < len(words) && sub == "" {
 		w := words[i]
 		switch {
 		case w == "-c" || w == "--config-env":
 			hooksOff = hooksOff || hooksPath(at(words, i+1), "core.hookspath=")
+			if strings.HasPrefix(lower(at(words, i+1)), "alias.") {
+				j.block(ConfigOverride) // an alias defined on the command line: what `git x` runs is its value
+				return
+			}
 			i += 2
 		case in(w, "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix"):
 			i += 2
@@ -217,6 +282,10 @@ func (j *judge) statement(words []string, marked bool) {
 			i++
 		case strings.HasPrefix(w, "-c"):
 			hooksOff = hooksOff || hooksPath(w, "-ccore.hookspath=")
+			if strings.HasPrefix(lower(w), "-calias.") {
+				j.block(ConfigOverride)
+				return
+			}
 			i++
 		case strings.HasPrefix(w, "-"):
 			i++
@@ -225,7 +294,12 @@ func (j *judge) statement(words []string, marked bool) {
 			i++
 		}
 	}
-	if sub == "" {
+	switch {
+	case unresolved(sub), sub == "" && xargs, xargs && !reads[sub]:
+		// the subcommand, or the arguments xargs appends, are not written here
+		j.block(Unreadable)
+		return
+	case sub == "":
 		return
 	}
 	var args []string
@@ -239,7 +313,7 @@ func (j *judge) statement(words []string, marked bool) {
 	signed := j.signed(marked)
 
 	// --no-verify on any statement, and its equivalents: commit -n, -c core.hooksPath=…
-	nv := has(args, "--no-verify") || hooksOff
+	nv := anyLong(args, "--no-verify") || hooksOff
 	if sub == "commit" {
 		for _, a := range args {
 			nv = nv || clusterHas(a, "n", "mFCctSu")
@@ -252,7 +326,7 @@ func (j *judge) statement(words []string, marked bool) {
 	switch sub {
 	case "add":
 		for _, a := range args {
-			if in(a, ".", "./", ":/", "-A", "-u", "-U", "--all", "--update") || strings.HasPrefix(a, "--all=") ||
+			if in(a, ".", "./", ":/", "-A", "-u", "-U") || long(a, "--all") || long(a, "--update") ||
 				strings.HasPrefix(a, "*") || clusterHas(a, "AuU", "") {
 				j.block(MassStaging) // `*`-leading is the whole tree; src/*.cs is targeted
 				return
@@ -268,7 +342,7 @@ func (j *judge) statement(words []string, marked bool) {
 		}
 		j.commit = true
 		for _, a := range args {
-			if a == "--all" || clusterHas(a, "a", "mFCctSu") {
+			if long(a, "--all") || clusterHas(a, "a", "mFCctSu") {
 				j.block(CommitAll)
 				return
 			}
@@ -278,8 +352,9 @@ func (j *judge) statement(words []string, marked bool) {
 		}
 	case "push":
 		for _, a := range args {
-			if in(a, "--force", "--force-with-lease", "--force-if-includes") || strings.HasPrefix(a, "--force-with-lease=") ||
-				(strings.HasPrefix(a, "+") && len(a) > 1) || clusterHas(a, "f", "o") {
+			if long(a, "--force") || long(a, "--force-with-lease") || long(a, "--force-if-includes") || long(a, "--mirror") ||
+				long(a, "--delete") || long(a, "--prune") ||
+				(strings.HasPrefix(a, "+") && len(a) > 1) || clusterHas(a, "fd", "o") {
 				j.block(ForcePush) // `+refspec` is a force push by refspec
 				return
 			}
@@ -288,21 +363,60 @@ func (j *judge) statement(words []string, marked bool) {
 			j.block(PushNoPrefix)
 		}
 	case "reset":
-		if has(args, "--hard") {
+		if anyLong(args, "--hard", "--merge", "--keep") {
 			j.block(Destructive)
 		}
 	case "clean":
 		dry, force := false, false
 		for _, a := range args {
-			dry = dry || a == "--dry-run" || clusterHas(a, "n", "e")
-			force = force || a == "--force" || clusterHas(a, "fdxX", "e")
+			dry = dry || a == "--dry-run" || clusterHas(a, "n", "e") // by its full spelling only: an abbreviation is not taken on trust
+			force = force || long(a, "--force") || clusterHas(a, "fdxX", "e")
 		}
 		if force && !dry {
 			j.block(Destructive)
 		}
 	case "checkout":
-		if has(args, "--") || has(args, ".") {
+		forced := anyLong(args, "--force", "--discard-changes")
+		for _, a := range args {
+			forced = forced || clusterHas(a, "f", "bBt")
+		}
+		if has(args, "--") || has(args, ".") || forced {
 			j.block(Destructive)
+		}
+	case "switch":
+		forced := anyLong(args, "--force", "--discard-changes")
+		for _, a := range args {
+			forced = forced || clusterHas(a, "fC", "ct")
+		}
+		if forced {
+			j.block(Destructive)
+		}
+	case "commit-tree", "update-ref", "fast-import", "replace":
+		// the plumbing under a commit: the same act, the same signature
+		if !signed {
+			j.block(CommitNoPrefix)
+		}
+	case "send-pack":
+		if !signed {
+			j.block(PushNoPrefix)
+		}
+	case "merge", "cherry-pick", "revert", "am", "rebase", "pull":
+		// these write commits; a pipeline agent commits nothing
+		if j.o.AgentType != "" {
+			j.block(CommitNoPrefix)
+		}
+	case "config":
+		// a setting that turns hooks off or renames a command, written by the command being judged
+		for _, a := range args {
+			l := lower(a)
+			if strings.HasPrefix(l, "core.hookspath") {
+				j.block(NoVerify)
+				return
+			}
+			if strings.HasPrefix(l, "alias.") && !anyLong(args, "--get", "--list", "--get-all", "--get-regexp") && !has(args, "-l") {
+				j.block(ConfigOverride)
+				return
+			}
 		}
 	case "restore":
 		// `git restore --staged <path>` only unstages. Destructive when it touches
@@ -313,7 +427,7 @@ func (j *judge) statement(words []string, marked bool) {
 				break
 			}
 			staged = staged || a == "--staged" || (!strings.HasPrefix(a, "--") && clusterHas(a, "S", "s"))
-			tree = tree || a == "--worktree" || (!strings.HasPrefix(a, "--") && clusterHas(a, "W", "s"))
+			tree = tree || long(a, "--worktree") || (!strings.HasPrefix(a, "--") && clusterHas(a, "W", "s"))
 		}
 		if !staged || tree {
 			j.block(Destructive)
@@ -331,11 +445,16 @@ func (j *judge) statement(words []string, marked bool) {
 			}
 		}
 	case "tag":
-		if has(args, "-d") {
+		if has(args, "-d") || anyLong(args, "--delete") {
 			j.block(Destructive)
 		}
 	case "branch":
-		if has(args, "-D") {
+		del, force := false, false
+		for _, a := range args {
+			del = del || long(a, "--delete") || clusterHas(a, "d", "")
+			force = force || long(a, "--force") || clusterHas(a, "f", "")
+		}
+		if has(args, "-D") || (del && force) {
 			j.block(ForceDelete)
 		}
 	}

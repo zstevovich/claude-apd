@@ -122,6 +122,11 @@ func TestPrefixAssignment(t *testing.T) {
 		{"X=src/a; command declare -l X=OUT/A; echo hi > $X", 2},
 		{"declare -x X=src/a; echo hi > $X", 0},
 		{"command declare -u X=src/a; echo hi > $X", 2},
+		// the attribute stays on the name
+		{"declare -l X; X=src/a; echo hi > $X", 2},
+		{"declare -u X=x; X=src/a; echo hi > $X", 2},
+		{"command declare -l X; X=src/a; echo hi > $X", 2},
+		{"declare -x X; X=src/a; echo hi > $X", 0},
 		{"command declare -x X=src/a; echo hi > $X", 0},
 		{"declare -rx X=src/a; echo hi > $X", 0},
 		{"X=out/a sh -c 'echo hi > $X'", 2},

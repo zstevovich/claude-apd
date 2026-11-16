@@ -148,3 +148,85 @@ func TestUnreadable(t *testing.T) {
 	})
 	check(t, "", []row{{sign + `git commit -m "unclosed`, "", true}})
 }
+
+// git takes any unambiguous abbreviation of a long option.
+func TestAbbreviatedOptions(t *testing.T) {
+	check(t, "", []row{
+		{sign + `git commit --no-verif -m x`, NoVerify, false},
+		{sign + `git commit --no-ver -m x`, NoVerify, false},
+		{sign + `git commit --no-edit -m x`, "", true},
+		{sign + `git push --forc`, ForcePush, false},
+		{sign + `git push --force-with-l`, ForcePush, false},
+		{sign + `git push --follow-tags`, "", false},
+		{sign + `git push --delete origin x`, ForcePush, false},
+		{sign + `git push --mirror`, ForcePush, false},
+		{`git reset --har HEAD~1`, Destructive, false},
+		{`git add --al`, MassStaging, false},
+		{`git add --upd`, MassStaging, false},
+		{`git clean --forc -d`, Destructive, false},
+		{`git clean --dry -fd`, Destructive, false}, // an abbreviated dry run is not taken on trust
+		{`git restore --stag --worktr a`, Destructive, false},
+		{`git tag --delete v1`, Destructive, false},
+		{`git branch --delete --force x`, ForceDelete, false},
+		{`git branch -d -f x`, ForceDelete, false},
+		{`git branch --delete x`, "", false},
+	})
+}
+
+// What git runs can be changed by the command itself: an alias or configuration
+// it supplies, a setting it writes, the plumbing under a commit.
+func TestOtherWaysToTheSameAct(t *testing.T) {
+	check(t, "", []row{
+		{`git -c alias.x='commit -m y' x`, ConfigOverride, false},
+		{`git -calias.x=push x`, ConfigOverride, false},
+		{`GIT_CONFIG_PARAMETERS="'alias.x=push'" git x`, ConfigOverride, false},
+		{`export GIT_CONFIG_COUNT=1; git x`, ConfigOverride, false},
+		{`env GIT_CONFIG_GLOBAL=/tmp/c git status`, ConfigOverride, false},
+		{`GIT_CONFIG_NOSYSTEM=1 true; git status`, "", false}, // reached `true` only
+		{`git config alias.x 'commit -m y'`, ConfigOverride, false},
+		{`git config --get alias.x`, "", false},
+		{`git config core.hooksPath /dev/null`, NoVerify, false},
+		{`git config user.name x`, "", false},
+		{`git commit-tree -m x HEAD^{tree}`, CommitNoPrefix, false},
+		{`git update-ref refs/heads/main abc123`, CommitNoPrefix, false},
+		{`git send-pack origin main`, PushNoPrefix, false},
+		{`git checkout -f main`, Destructive, false},
+		{`git checkout --force main`, Destructive, false},
+		{`git checkout -b feature`, "", false},
+		{`git switch --discard-changes main`, Destructive, false},
+		{`git switch -C main`, Destructive, false},
+		{`git switch -c feature`, "", false},
+		{`git merge feature`, "", false}, // the orchestrator owns the tree
+		{`git rebase main`, "", false},
+	})
+	check(t, "builder", []row{
+		{`git merge feature`, CommitNoPrefix, false},
+		{`git cherry-pick abc123`, CommitNoPrefix, false},
+		{`git revert HEAD`, CommitNoPrefix, false},
+		{`git rebase main`, CommitNoPrefix, false},
+		{`git pull`, CommitNoPrefix, false},
+		{`git fetch origin`, "", false},
+	})
+}
+
+// A statement that is not written out in full.
+func TestNotWrittenOut(t *testing.T) {
+	check(t, "builder", []row{
+		{`S=commit; git $S -m x`, Unreadable, false},
+		{"git `echo push` --force", Unreadable, false},
+		{`echo commit | xargs git`, Unreadable, false},
+		{`git ls-files -m | xargs git add`, Unreadable, false},
+		{`echo --force | xargs git push`, Unreadable, false},
+		{`git ls-files | xargs git blame`, "", false},
+		{`git --version`, "", false},
+		// arguments from a variable: judged by what is written, and by the text of the whole command
+		{`git add $(git diff --name-only)`, "", false},
+		{`git log $RANGE`, "", false},
+		{`G=git; $G commit -m x`, "", false},              // nothing here says git commit as text; a stated limit
+		{`$GIT commit --no-verify -m x`, NoVerify, false}, // an unnamed command: the text is judged too
+		{`$GIT add .claude/x`, ClaudeDirPrefix, false},
+		{`$TOOL push --force`, "", false},
+		{`B=x; git commit -m "$B"`, CommitNoPrefix, false},
+		{`X=1; git push origin $BRANCH`, PushNoPrefix, false},
+	})
+}

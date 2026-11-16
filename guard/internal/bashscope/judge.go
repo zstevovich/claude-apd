@@ -56,6 +56,7 @@ type judge struct {
 	nTxt        []string
 	saved       []snapshot
 	frames      [][]restore
+	altered     map[string]bool
 	rd          *shell.Reader
 	evals       int
 	envN, envV  []string // assignments that reach only the current command's environment
@@ -457,7 +458,7 @@ func (j *judge) assigned(n string) (string, bool) {
 }
 
 func (j *judge) valueOf(a shell.Assign) string {
-	if a.Opaque {
+	if a.Opaque || j.altered[a.Name] {
 		return unknownValue
 	}
 	v := j.subst(a.Value)
@@ -545,6 +546,19 @@ func altersValue(words []string) bool {
 	return false
 }
 
+// alter marks names whose stored value is no longer the text assigned to them.
+func (j *judge) alter(names ...string) {
+	if j.altered == nil {
+		j.altered = map[string]bool{}
+	}
+	for _, n := range names {
+		if nameRe.MatchString(n) && !strings.HasPrefix(n, "-") {
+			j.altered[n] = true
+			j.setvar(n, unknownValue)
+		}
+	}
+}
+
 func (j *judge) process(c shell.Command) {
 	st := c.Words
 	n := len(st)
@@ -552,13 +566,16 @@ func (j *judge) process(c shell.Command) {
 	// reaches only cmd's environment: this line's own words and redirections
 	// were expanded before it, and the next command does not see it.
 	persistent := n == 0 || c.Decl != ""
-	altered := c.Decl != "" && altersValue(st)
+	if c.Decl != "" && altersValue(st) {
+		// the attribute stays on the name: every later assignment is altered too
+		for _, a := range c.Assigns {
+			j.alter(a.Name)
+		}
+		j.alter(st...)
+	}
 	j.envN, j.envV = nil, nil
 	for _, a := range c.Assigns {
 		v := j.valueOf(a)
-		if altered {
-			v = unknownValue
-		}
 		if persistent {
 			j.setvar(a.Name, v)
 		} else {
@@ -689,11 +706,14 @@ func (j *judge) process(c shell.Command) {
 		for _, x := range a {
 			if k := strings.Index(x, "="); k > 0 && nameRe.MatchString(x[:k]) {
 				if altersValue(a) {
-					j.setvar(x[:k], unknownValue)
-				} else {
+					j.alter(x[:k])
+				} else if !j.altered[x[:k]] {
 					j.setvar(x[:k], j.subst(x[k+1:]))
 				}
 			}
+		}
+		if altersValue(a) {
+			j.alter(a...)
 		}
 	case "eval":
 		// runs in THIS shell

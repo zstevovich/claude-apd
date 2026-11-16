@@ -58,6 +58,7 @@ func TestWalk(t *testing.T) {
 		{`X=1 Y="$HOME/a" cmd arg`, `cmd X=1 Y=$HOME/a [cmd|arg]`},
 		{`X=1`, `cmd X=1`},
 		{`export X=1`, `cmd decl=export X=1`},
+		{`declare -l X Y=a`, `cmd decl=declare Y=a [-l|X]`},
 		{`X+=b`, `cmd X+=b`},
 		{`X=(a b)`, `cmd X=?`},
 		{`echo $'a\x2fb'`, `cmd [echo|a/b]`},

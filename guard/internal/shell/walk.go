@@ -450,9 +450,12 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 	case *syntax.DeclClause:
 		c.Decl = x.Variant.Value
 		for _, a := range x.Args {
-			if a.Name == nil {
+			switch {
+			case a.Name == nil:
 				c.Words = append(c.Words, w.words(a.Value)...)
-			} else if !a.Naked {
+			case a.Naked:
+				c.Words = append(c.Words, a.Name.Value) // `declare -n X`: the name alone
+			default:
 				c.Assigns = append(c.Assigns, w.assign(a))
 			}
 		}
