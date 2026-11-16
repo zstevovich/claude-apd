@@ -341,6 +341,14 @@ func (w *walker) inner(n syntax.Node) {
 				// repeats what it reports.
 				w.procText(w.text(cs.Exp.Word))
 			}
+			if cs.Repl != nil { // `${x/pattern/<(cmd)}`: the same in both words of a replacement
+				if cs.Repl.Orig != nil {
+					w.procText(w.text(cs.Repl.Orig))
+				}
+				if cs.Repl.With != nil {
+					w.procText(w.text(cs.Repl.With))
+				}
+			}
 		}
 		return true
 	})

@@ -20,6 +20,15 @@ func check(t *testing.T, agent string, rows []row) {
 
 const sign = Marker + "=1 "
 
+// manyFiles: sixty file names, as a reviewer's loop over a diff has them
+var manyFiles = func() string {
+	s := ""
+	for i := 0; i < 60; i++ {
+		s += " src/Service/File" + string(rune('A'+i%26)) + string(rune('a'+i/26)) + ".php"
+	}
+	return s[1:]
+}()
+
 // Text that mentions git is not a git statement.
 func TestDataIsNotAStatement(t *testing.T) {
 	check(t, "builder", []row{
@@ -373,6 +382,12 @@ func TestAudit(t *testing.T) {
 		{`X=git; Y='push --force'; bash -c "$X $Y"`, ForcePush, false},        // the value given whole, as the string after -c
 		{`X='true;git'; Y='push --force'; bash -c "$X $Y"`, ForcePush, false}, // … where no single word of it is `git`
 		{`bash -eo pipefail scripts/build.sh`, "", false},
+		// a loop variable named in several words is one value at a time, not a product
+		{`for v in 6.0 6.3 6.4 6.5 6.6 6.7 6.8; do curl -s -o "out/menu-$v.php" -w "$v %{http_code}" "https://raw.githubusercontent.com/x/y/$v/src/menu.php"; done`, "", false},
+		{`for f in ` + manyFiles + `; do git diff --stat -- "$f"; git log -1 --format=%h -- "$f"; done`, "", false},
+		{`for f in ` + manyFiles + `; do printf '%s %s\n' "$f" "$(git hash-object "$f")"; done`, "", false},
+		{`for g in ` + manyFiles + ` git; do $g push --force; done`, ForcePush, false},
+		{`for f in ` + manyFiles + `; do for g in ` + manyFiles + `; do git diff --stat -- "$f" "$g"; done; done`, "", false}, // 3600 pairs of file names: left as written
 		{`bash -o errexit scripts/build.sh`, "", false},
 		{`bash scripts/release.sh "git push is next"`, "", false},
 	})

@@ -102,7 +102,7 @@ func (j *judge) setvar(name, value string) {
 		if unresolved(v) || in(v, j.vars[name]...) {
 			continue
 		}
-		if len(j.vars[name]) >= 32 {
+		if len(j.vars[name]) >= 512 {
 			j.block(Unreadable) // more values than are followed: one of them may name git
 			return
 		}
@@ -156,49 +156,90 @@ func shq(w string) string { return "'" + strings.ReplaceAll(w, "'", `'\''`) + "'
 // words is given both ways the shell may use it: split into words (`$X`), and
 // whole (`"$X"`, the string after `sh -c`).
 func (j *judge) filled(words []string) []string {
-	known := false
+	var names []string
 	for _, w := range words {
 		for _, m := range varRef.FindAllStringSubmatch(w, -1) {
-			known = known || len(j.vars[m[1]+m[2]]) > 0
-		}
-	}
-	if !known {
-		return nil
-	}
-	forms := [][2]string{{"", ""}} // split, whole
-	for _, w := range words {
-		alts := j.fill(w)
-		if alts == nil {
-			return nil
-		}
-		var next [][2]string
-		for _, f := range forms {
-			for _, a := range alts {
-				if len(next) >= 256 {
-					j.block(Unreadable)
-					return nil
-				}
-				split := shq(a)
-				if a != w {
-					var q []string
-					for _, piece := range strings.Fields(a) {
-						q = append(q, shq(piece))
-					}
-					split = strings.Join(q, " ")
-				}
-				next = append(next, [2]string{f[0] + " " + split, f[1] + " " + shq(a)})
+			if n := m[1] + m[2]; len(j.vars[n]) > 0 && !in(n, names...) {
+				names = append(names, n)
 			}
 		}
-		forms = next
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	// One value per variable for the whole statement, every combination. A loop
+	// over forty files gives forty readings, not forty to the power of the words
+	// that name the variable. When there are still too many, values that are
+	// paths or file names (they hold a `/` or a `.`) are left as written: they
+	// cannot be the word `git` or a subcommand.
+	envs := j.combos(names, false)
+	if envs == nil {
+		if envs = j.combos(names, true); envs == nil {
+			j.block(Unreadable)
+			return nil
+		}
 	}
 	var out []string
-	for _, f := range forms {
-		out = append(out, strings.TrimSpace(f[0]))
-		if f[1] != f[0] {
-			out = append(out, strings.TrimSpace(f[1]))
+	for _, env := range envs {
+		if len(env) == 0 {
+			continue // nothing filled in: the statement as written has been judged already
+		}
+		var split, whole []string
+		for _, w := range words {
+			a := varRef.ReplaceAllStringFunc(w, func(ref string) string {
+				if v, ok := env[strings.Trim(ref, "${}")]; ok {
+					return v
+				}
+				return ref
+			})
+			whole = append(whole, shq(a))
+			if a == w {
+				split = append(split, shq(a))
+				continue
+			}
+			for _, piece := range strings.Fields(a) {
+				split = append(split, shq(piece))
+			}
+		}
+		s, wh := strings.Join(split, " "), strings.Join(whole, " ")
+		out = append(out, s)
+		if wh != s {
+			out = append(out, wh)
 		}
 	}
 	return out
+}
+
+// combos returns every assignment of one value to each name, or nil when there
+// are more than are followed. plain leaves out values that hold a `/` or a `.`.
+func (j *judge) combos(names []string, plain bool) []map[string]string {
+	envs := []map[string]string{{}}
+	for _, n := range names {
+		var vals []string
+		for _, v := range j.vars[n] {
+			if !plain || !strings.ContainsAny(v, "/.") {
+				vals = append(vals, v)
+			}
+		}
+		if len(vals) == 0 {
+			continue // left as written
+		}
+		var next []map[string]string
+		for _, e := range envs {
+			for _, v := range vals {
+				if len(next) >= 256 {
+					return nil
+				}
+				c := map[string]string{n: v}
+				for k, x := range e {
+					c[k] = x
+				}
+				next = append(next, c)
+			}
+		}
+		envs = next
+	}
+	return envs
 }
 
 var spaces = regexp.MustCompile(` +`)
@@ -325,7 +366,7 @@ func (j *judge) Command(c shell.Command) {
 		j.nested(text)
 	}
 	u := tools.Unwrap(c.Words)
-	if fedShell(c.Words, c.Heredoc != "" && len(c.Feeds) == 0) {
+	if tools.FedShell(c.Words, c.Heredoc != "" && len(c.Feeds) == 0) {
 		// a shell reading its commands from a pipe or a file descriptor: what it
 		// runs is another command's output — the text scan reads the whole command
 		j.opaque = true
@@ -429,59 +470,6 @@ var valueFlags = map[string][]string{
 }
 
 func unresolved(w string) bool { return strings.ContainsAny(w, "$`") }
-
-// fedShell: somewhere in the statement a shell is started with no command
-// string and no script — or with a process substitution for one — so it runs
-// what it reads. The shell may sit behind any wrapper (`stdbuf -o0 sh`,
-// `xargs -I{} sh -c '{}'` runs what xargs is fed). heredoc: the statement has a
-// heredoc body, which the reader has already read as that shell's text.
-func fedShell(words []string, heredoc bool) bool {
-	xargs := false
-	for k, w := range words {
-		if i := strings.LastIndex(w, "/"); i >= 0 {
-			w = w[i+1:]
-		}
-		if in(w, "xargs", "parallel") {
-			xargs = true
-		}
-		if !in(w, "sh", "bash", "zsh", "dash", "ksh", "source", ".") {
-			continue
-		}
-		if xargs {
-			return true // a shell behind xargs: its command string or its input is what xargs is fed
-		}
-		args, script, cmdString := words[k+1:], false, false
-		for i := 0; i < len(args) && !script; i++ {
-			a := args[i]
-			switch {
-			case strings.HasPrefix(a, "/dev/fd/"):
-				return true // a process substitution in place of the script
-			case in(a, "--rcfile", "--init-file"):
-				i++
-			case strings.HasPrefix(a, "--"), a == "/dev/stdin":
-			case len(a) > 1 && (a[0] == '-' || a[0] == '+'):
-				// a cluster of short options: -s reads commands from standard input
-				// whatever follows, -c takes a command string, -o / -O take a value
-				if strings.Contains(a, "s") {
-					return true
-				}
-				if strings.Contains(a, "c") {
-					cmdString = true
-				}
-				if strings.ContainsAny(a, "oO") {
-					i++
-				}
-			case a == "-":
-			default:
-				script = true
-			}
-		}
-		if !script && !cmdString && !heredoc && (len(args) > 0 || !in(w, "source", ".")) {
-			return true
-		}
-	}
-	return false
-}
 
 // fedReadOnly: subcommands that only read whatever arguments xargs, find or
 // parallel append — `git ls-files | xargs git diff --stat`. `grep` is not among

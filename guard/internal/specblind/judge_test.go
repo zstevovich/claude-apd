@@ -500,6 +500,10 @@ func TestAudit(t *testing.T) {
 		"[[ $x == @(a|b) ]] && cat src/app/main.go",
 		"eval \"$(ssh-agent)\"; cat src/app/main.go",
 		"bash -c 'ls src/*.go'",
+		// a shell handed a script file runs the file, whatever else the command pipes
+		"cat > /tmp/p.php <<'EOF'\n<?php echo $row[module_enabled] . $t=.*//;\nEOF\nbash /tmp/run.sh | tail -5",
+		"bash scripts/check.sh 2>&1 | grep -c '.*FAIL'",
+		"cat > /tmp/m.sh <<'EOF'\nsed -i -e 's/\\$row\\[module_enabled\\]/x/' -e 't=.*//' f.php\nEOF\nbash /tmp/m.sh | tail -5",
 		"cat $(git rev-parse --show-toplevel)/src/app/main.go",
 		`case "$1" in a|b) cat src/app/main.go ;; esac`,
 		"git diff --name-only | xargs git diff --stat",

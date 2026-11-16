@@ -752,6 +752,59 @@ loop:
 
 var name = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
+// FedShell: somewhere in the statement a shell is started with no command
+// string and no script — or with a process substitution for one — so it runs
+// what it reads. The shell may sit behind any wrapper (`stdbuf -o0 sh`,
+// `xargs -I{} sh -c '{}'` runs what xargs is fed). heredoc: the statement has a
+// heredoc body, which the reader has already read as that shell's text.
+func FedShell(words []string, heredoc bool) bool {
+	xargs := false
+	for k, w := range words {
+		if i := strings.LastIndex(w, "/"); i >= 0 {
+			w = w[i+1:]
+		}
+		if in(w, "xargs", "parallel") {
+			xargs = true
+		}
+		if !in(w, "sh", "bash", "zsh", "dash", "ksh", "source", ".") {
+			continue
+		}
+		if xargs {
+			return true // a shell behind xargs: its command string or its input is what xargs is fed
+		}
+		args, script, cmdString := words[k+1:], false, false
+		for i := 0; i < len(args) && !script; i++ {
+			a := args[i]
+			switch {
+			case strings.HasPrefix(a, "/dev/fd/"):
+				return true // a process substitution in place of the script
+			case in(a, "--rcfile", "--init-file"):
+				i++
+			case strings.HasPrefix(a, "--"), a == "/dev/stdin":
+			case len(a) > 1 && (a[0] == '-' || a[0] == '+'):
+				// a cluster of short options: -s reads commands from standard input
+				// whatever follows, -c takes a command string, -o / -O take a value
+				if strings.Contains(a, "s") {
+					return true
+				}
+				if strings.Contains(a, "c") {
+					cmdString = true
+				}
+				if strings.ContainsAny(a, "oO") {
+					i++
+				}
+			case a == "-":
+			default:
+				script = true
+			}
+		}
+		if !script && !cmdString && !heredoc && (len(args) > 0 || !in(w, "source", ".")) {
+			return true
+		}
+	}
+	return false
+}
+
 // ShellText returns the command line a command hands to a shell: the string
 // after `sh -c`, a heredoc fed to a shell, the arguments of `eval`. A script
 // file is not read.

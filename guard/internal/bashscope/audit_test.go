@@ -43,6 +43,10 @@ func TestAuditReader(t *testing.T) {
 		{"echo ${a[$(touch src/a)]:-x}", 0},
 		{`echo "${x:-'$(touch out/a)'}"`, 2}, // inside double quotes a single quote quotes nothing
 		{"echo ${x:-$(touch out/a)}", 2},
+		{"x=y; echo ${x/y/<(touch out/a)}", 2},
+		{"x=y; echo ${x/<(touch out/a)/z}", 2},
+		{"x=y; echo ${x/y/<(touch src/a)}", 0},
+		{"x=y; echo ${x/y/$(touch out/a)}", 2},
 		// a here-string is the standard input of a shell
 		{"sh <<< 'echo x > out/a'", 2},
 		{"sh <<< 'echo x > src/a'", 0},

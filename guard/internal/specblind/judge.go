@@ -236,10 +236,24 @@ func (j *judge) bash() {
 		// -o0 bash <(…)`, `xargs sh -c '{}'`, `read l < <(…); eval "$l"`), in a
 		// command that feeds text from one command to another at all: what runs is
 		// not in the statements, so the pattern test reads the raw words.
-		for _, w := range e.cmd.Words {
-			if in(base(w), "sh", "bash", "zsh", "dash", "ksh", "source", "eval", ".") &&
-				(strings.Contains(j.command, "<(") || strings.Contains(j.command, "|") || strings.Contains(j.command, "<<<")) {
-				j.rawGlobs = true
+		// A shell handed a script file, or a command string that is written out,
+		// is not one of them: `bash run.sh | tail` runs what is in run.sh.
+		c := e.cmd
+		if tools.FedShell(c.Words, c.Heredoc != "" && len(c.Feeds) == 0) {
+			j.rawGlobs = true
+		}
+		for _, w := range c.Words {
+			switch b := base(w); {
+			case in(b, "sh", "bash", "zsh", "dash", "ksh"):
+				for _, r := range c.Reads {
+					if strings.HasPrefix(r, "/dev/fd/") {
+						j.rawGlobs = true // `bash -c 'source /dev/stdin' < <(…)`
+					}
+				}
+			case in(b, "eval", "source", "."):
+				if strings.Contains(j.command, "<(") {
+					j.rawGlobs = true // `read l < <(…); eval "$l"`
+				}
 			}
 		}
 	}
