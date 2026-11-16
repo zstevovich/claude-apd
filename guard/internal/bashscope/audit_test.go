@@ -27,6 +27,22 @@ func TestAuditReader(t *testing.T) {
 		{"coproc dd if=/dev/zero of=out/a", 2},
 		{"coproc dd of=src/a", 0},
 		{"coproc W { cat > out/a; }", 2},
+		// pass 2: a substitution inside an extended pattern
+		{"[[ x == @(a|$(touch out/a)) ]]", 2},
+		{"[[ x == +($(touch out/a)) ]]", 2},
+		{"[[ x == @(a|$(touch src/a)) ]]", 0},
+		{"shopt -s extglob\necho @($(touch out/a))", 2},
+		// pass 2: a `)` inside quotes does not end a substitution kept as text
+		{"echo ${x:-<(echo ')'; touch out/a)}", 2},
+		{`echo ${x:-<(echo ")"; touch out/a)}`, 2},
+		{`echo ${x:-<(echo \); touch out/a)}`, 2},
+		{"echo ${x:-<(echo ')'; touch src/a)}", 0},
+		{"echo ${x:-<(echo}", 2}, // not closed: unreadable
+		// every child of a parameter expansion is read, not only the word after `:-`
+		{"echo ${a[$(touch out/a)]:-x}", 2},
+		{"echo ${a[$(touch src/a)]:-x}", 0},
+		{`echo "${x:-'$(touch out/a)'}"`, 2}, // inside double quotes a single quote quotes nothing
+		{"echo ${x:-$(touch out/a)}", 2},
 		// a here-string is the standard input of a shell
 		{"sh <<< 'echo x > out/a'", 2},
 		{"sh <<< 'echo x > src/a'", 0},
@@ -95,8 +111,15 @@ func TestAuditFunctionThroughAVariable(t *testing.T) {
 		{"cd out; f() { cd ../src; }; g=f; $g; touch a", 0},
 		// the shell splits an expanded value into words, it does not read syntax in it
 		{"x=out; g='x=src'; $g; touch $x/a", 2},
-		{"x=out; g='eval x=src'; $g; touch $x/a", 0}, // eval is a command: it does read its arguments
-		{"cd out; g='cd ../src'; $g; touch a", 0},
+		// A state-changing command of several words behind a variable: unquoted it
+		// runs (`$g` → cd ../src), quoted it is one word and a program that does not
+		// exist. The words no longer say which — after it the state is unknown, and
+		// a relative write is refused either way (stated).
+		{"x=out; g='eval x=src'; $g; touch $x/a", 2},
+		{"cd out; g='cd ../src'; $g; touch a", 2},
+		{`cd out; g='cd ../src'; "$g"; touch a`, 2},
+		{`x=out; c='export x=src'; "$c"; touch $x/a`, 2},
+		{"g=cd; $g src; touch a", 0},  // one word: the command it is
 		{"g='echo x > out/a'; $g", 0}, // prints `x > out/a`: nothing is written
 		{"g='touch out/a'; $g", 2},
 		// the arguments stay the words they were, and an unresolved one stays unresolved
@@ -154,6 +177,22 @@ func TestAuditFenceInAnotherCase(t *testing.T) {
 			t.Errorf("%q with scope ./: rc=%d, want 2", cmd, got)
 		}
 	}
+	// pass 2: when the reader loses track, the fence still holds for a relative path
+	for _, cmd := range []string{
+		": {1..5000}; touch .apd//pipeline/reviewer.done",
+		": {1..5000}; d=.apd; touch $d/pipeline/reviewer.done",
+		"c=:; $c; $c; $c; $c; $c; $c; $c; $c; $c; touch .apd//pipeline/reviewer.done",
+		"f() { :; }; unset f; touch .apd//pipeline/reviewer.done",
+		"if false; then f() { :; }; fi; f; touch .apd//pipeline/reviewer.done",
+		"eval :; eval :; eval :; eval :; eval :; eval :; eval :; eval :; eval :; touch .apd//pipeline/reviewer.done",
+	} {
+		if got := judgeIn(root, cmd); got != 2 {
+			t.Errorf("%q: rc=%d, want 2", cmd, got)
+		}
+	}
+	if got := judgeIn(root, ": {1..5000}; touch /tmp/apd-notes"); got != 0 {
+		t.Errorf("an absolute orchestrator write after a large expansion: rc=%d, want 0", got)
+	}
 	if got := judgeIn(root, "touch notes/Pipeline.md"); got != 0 {
 		t.Errorf("an ordinary orchestrator write: rc=%d, want 0", got)
 	}
@@ -172,6 +211,12 @@ func TestAuditBraceExpansionIsBounded(t *testing.T) {
 	if got != 2 {
 		t.Errorf("rc=%d, want 2", got)
 	}
+	// fifteen calls of a function whose body expands braces: budgeted over the whole command
+	many := "f() { : " + strings.Repeat("{1..4000} ", 30) + "; }; " + strings.Repeat("f; ", 15) + "touch src/a"
+	start = time.Now()
+	if got := judgeIn(root, many, "src/"); got != 2 || time.Since(start) > 3*time.Second {
+		t.Errorf("a function replaying brace expansions: rc=%d in %v, want 2 well under the timeout", got, time.Since(start))
+	}
 	for _, c := range []struct {
 		cmd  string
 		want int
@@ -184,6 +229,9 @@ func TestAuditBraceExpansionIsBounded(t *testing.T) {
 		{"touch out/" + strings.Repeat("{a,b}", 70), 2},                                    // more groups than are counted
 		{"touch src/" + strings.Repeat("{x}", 64) + strings.Repeat("{a,b}", 13), 2},        // … with the first sixty-four adding nothing
 		{"touch src/{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}{o,p}{q,r}{s,t}{u,v}{w,x}{y,z}", 2}, // 8192 words: not followed
+		{"touch out/f{+1..3000000}", 2},
+		{"touch src/f{+1..3000000}", 2}, // a signed bound is counted too
+		{"touch src/f{1..3000000..+1}", 2},
 	} {
 		if got := judgeIn(root, c.cmd, "src/"); got != c.want {
 			t.Errorf("%q: rc=%d, want %d", c.cmd, got, c.want)

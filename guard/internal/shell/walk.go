@@ -6,6 +6,7 @@
 package shell
 
 import (
+	"errors"
 	"regexp"
 	"strconv"
 	"strings"
@@ -86,6 +87,11 @@ func Walk(src string, v Visitor) error { return NewReader().Walk(src, v) }
 type Reader struct {
 	funcs map[string]fn
 	calls int
+	// unread: text inside the command that runs and that the reader could not
+	// read. Walk returns it as an error — the command counts as unreadable.
+	unread error
+	// braced: words made by brace expansion so far, over the whole command
+	braced int
 }
 
 type fn struct {
@@ -113,7 +119,8 @@ func (r *Reader) Walk(src string, v Visitor) error {
 	}
 	w := &walker{Reader: r, src: src, v: v}
 	w.stmts(f.Stmts)
-	return nil
+	err, r.unread = r.unread, nil
+	return err
 }
 
 type walker struct {
@@ -245,6 +252,16 @@ func ansiC(s string) string {
 func (w *walker) parts(ps []syntax.WordPart, quoted bool) string {
 	var b strings.Builder
 	for _, p := range ps {
+		if n := b.Len(); n > 0 {
+			// `$X""it`, `$(cmd)src`: what follows an expansion that was written without
+			// braces must not read as more of its name
+			if t := w.text(p); t != "" && nameByte(t[0]) && openName(b.String()) {
+				s := b.String()
+				k := strings.LastIndex(s, "$")
+				b.Reset()
+				b.WriteString(s[:k] + "${" + s[k+1:] + "}")
+			}
+		}
 		switch x := p.(type) {
 		case *syntax.Lit:
 			b.WriteString(unescape(x.Value, quoted))
@@ -268,12 +285,34 @@ func (w *walker) parts(ps []syntax.WordPart, quoted bool) string {
 		case *syntax.ProcSubst:
 			w.scoped(Substitution, func() { w.stmts(x.Stmts) })
 			b.WriteString("/dev/fd/63")
+		case *syntax.ExtGlob:
+			w.procText(x.Pattern.Value) // `@(a|$(cmd))`: the pattern is kept as text
+			b.WriteString(w.text(p))
 		default:
 			w.inner(p)
 			b.WriteString(w.text(p))
 		}
 	}
 	return b.String()
+}
+
+func nameByte(c byte) bool {
+	return c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// openName: s ends in `$NAME` written without braces (not the lone `$` that
+// stands for an unquoted substitution).
+func openName(s string) bool {
+	k := strings.LastIndex(s, "$")
+	if k < 0 || k == len(s)-1 {
+		return false
+	}
+	for i := k + 1; i < len(s); i++ {
+		if !nameByte(s[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // inner reports the command substitutions nested inside a node the walker does
@@ -287,51 +326,104 @@ func (w *walker) inner(n syntax.Node) {
 		case *syntax.ProcSubst: // `[[ -e <(cmd) ]]`
 			w.scoped(Substitution, func() { w.stmts(cs.Stmts) })
 			return false
-		case *syntax.Lit:
-			// `${x:-<(cmd)}`: the parser keeps the process substitution as text,
-			// the shell runs it
-			w.procText(cs.Value)
+		case *syntax.ExtGlob:
+			// `@(a|$(cmd))`: the parser keeps the pattern as text, the shell runs
+			// what is in it
+			w.procText(cs.Pattern.Value)
+			return false
+		case *syntax.ParamExp:
+			if cs.Exp != nil && cs.Exp.Word != nil {
+				// `${x:-<(cmd)}`: the parser keeps a process substitution in the word
+				// as text. The word is read as ONE text — the parser cuts it at every
+				// quote, and a `<(` opened in one piece closes in another. The walk
+				// goes on into the expansion's other children (an index, the parts
+				// of this word): a `$(…)` in them is then read twice, which only
+				// repeats what it reports.
+				w.procText(w.text(cs.Exp.Word))
+			}
 		}
 		return true
 	})
 }
 
-// procText reads the process substitutions written inside a piece of text the
-// parser did not open. Text it cannot read leaves the state unknown.
+// procText reads the substitutions written inside a piece of text the parser
+// did not open: `<(…)`, `>(…)`, `$(…)` and backquotes. Text it cannot read makes
+// the whole command unreadable. Single quotes around a substitution are not
+// honoured here: whether they quote depends on whether the text itself sits
+// inside double quotes, which this text does not say — a substitution between
+// them is read as if it ran.
 func (w *walker) procText(s string) {
-	for {
-		k := strings.Index(s, "<(")
-		if g := strings.Index(s, ">("); g >= 0 && (k < 0 || g < k) {
-			k = g
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '\\':
+			i++
+		case s[i] == '`':
+			k := strings.IndexByte(s[i+1:], '`')
+			if k < 0 {
+				w.unreadable("a backquoted substitution that is not closed")
+				return
+			}
+			w.subText(s[i+1 : i+1+k])
+			i += k + 1
+		case i+1 < len(s) && s[i+1] == '(' && (s[i] == '<' || s[i] == '>' || s[i] == '$'):
+			end := closeParen(s, i+1)
+			if end < 0 {
+				w.unreadable("a substitution that is not closed")
+				return
+			}
+			w.subText(s[i+2 : end])
+			i = end
 		}
-		if k < 0 {
-			return
-		}
-		depth, end := 0, -1
-		for i := k + 1; i < len(s); i++ {
-			if s[i] == '(' {
-				depth++
-			} else if s[i] == ')' {
-				if depth--; depth == 0 {
-					end = i
-					break
+	}
+}
+
+// closeParen returns the index of the `)` that closes the `(` at open, reading
+// quotes and backslashes as the shell does, or -1.
+func closeParen(s string, open int) int {
+	depth := 0
+	for i := open; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			i++
+		case '\'':
+			k := strings.IndexByte(s[i+1:], '\'')
+			if k < 0 {
+				return -1
+			}
+			i += k + 1
+		case '"':
+			for i++; i < len(s) && s[i] != '"'; i++ {
+				if s[i] == '\\' {
+					i++
 				}
 			}
+		case '(':
+			depth++
+		case ')':
+			if depth--; depth == 0 {
+				return i
+			}
 		}
-		if end < 0 {
-			w.v.Lost("a process substitution the reader could not close")
-			return
-		}
-		inner := s[k+2 : end]
-		f, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(inner), "")
-		if err != nil {
-			w.v.Lost("a process substitution the reader could not parse")
-		} else {
-			sub := &walker{Reader: w.Reader, src: inner, v: w.v, cond: w.cond}
-			sub.scoped(Substitution, func() { sub.stmts(f.Stmts) })
-		}
-		s = s[end+1:]
 	}
+	return -1
+}
+
+func (w *walker) unreadable(why string) {
+	if w.Reader.unread == nil {
+		w.Reader.unread = errors.New(why)
+	}
+	w.v.Lost(why)
+}
+
+// subText reads shell text found inside another piece of text.
+func (w *walker) subText(inner string) {
+	f, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(inner), "")
+	if err != nil {
+		w.unreadable("a substitution the reader could not parse")
+		return
+	}
+	sub := &walker{Reader: w.Reader, src: inner, v: w.v, cond: w.cond}
+	sub.scoped(Substitution, func() { sub.stmts(f.Stmts) })
 }
 
 // word renders one word. A leading `~` means the home directory only where the
@@ -377,8 +469,12 @@ func (w *walker) word(x *syntax.Word) string {
 // followed word by word.
 const maxBraceWords = 4096
 
+// maxBraceTotal bounds the same thing over a whole command: a function called
+// fifteen times expands its body's braces fifteen times.
+const maxBraceTotal = 100000
+
 var (
-	braceRange = regexp.MustCompile(`\{(-?[0-9]+|[A-Za-z])\.\.(-?[0-9]+|[A-Za-z])(\.\.-?[0-9]+)?\}`)
+	braceRange = regexp.MustCompile(`\{([+-]?[0-9]+|[A-Za-z])\.\.([+-]?[0-9]+|[A-Za-z])(\.\.[+-]?[0-9]+)?\}`)
 	braceGroup = regexp.MustCompile(`\{[^{}]*\}`)
 )
 
@@ -441,7 +537,8 @@ func (w *walker) words(x *syntax.Word) []string {
 	if !syntax.SplitBraces(&cp) {
 		return []string{w.word(x)}
 	}
-	if braceCount(w.text(x)) > maxBraceWords {
+	n := braceCount(w.text(x))
+	if w.braced += n; n > maxBraceWords || w.braced > maxBraceTotal {
 		// `{1..3000000}`: the shell would make millions of words, perhaps in code
 		// that never runs. The word is reported as written and the state is lost.
 		w.v.Lost("a brace expansion larger than the reader follows")

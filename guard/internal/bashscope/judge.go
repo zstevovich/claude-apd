@@ -61,6 +61,7 @@ type judge struct {
 	evals       int
 	envN, envV  []string // assignments that reach only the current command's environment
 	reason      string
+	lost        bool // the reader lost track of the shell's state at some point
 }
 
 // ---------- paths (internal/paths) ----------
@@ -407,6 +408,7 @@ type restore struct{ name string }
 // Lost: the reader stopped following the shell's state — nothing relative and
 // nothing built from a variable can be placed after this point.
 func (j *judge) Lost(string) {
+	j.lost = true
 	j.cwdUnknown = true
 	for i := range j.vv {
 		j.vv[i] = unknownValue
@@ -454,6 +456,11 @@ func (j *judge) evalHere(text string) {
 	}
 	j.data = data
 }
+
+// stateWords: builtins that change the shell's own state.
+var stateWords = map[string]bool{"cd": true, "pushd": true, "popd": true, "eval": true, "export": true, "declare": true,
+	"typeset": true, "local": true, "readonly": true, "unset": true, "source": true, ".": true, "set": true, "shopt": true,
+	"alias": true, "command": true, "builtin": true, "exec": true}
 
 // unknownValue stands for a variable whose value the guard cannot know (read,
 // mapfile, an array): a path built from it is unresolved, and so refused.
@@ -650,6 +657,13 @@ func (j *judge) process(c shell.Command) {
 		// arguments exactly as the parser made them, are the command: it is judged
 		// below like any other, in this shell (`g='cd src'; $g` does change directory;
 		// `g='x=src'; $g` runs a program named `x=src` and assigns nothing).
+		if len(f) > 1 && stateWords[f[0]] {
+			// `c='cd src'; $c` changes directory; `"$c"` is one word, a program named
+			// `cd src` that does not exist, and changes nothing. The words here no
+			// longer say which was written: the command is judged as if it ran, and
+			// after it the state counts as unknown.
+			defer j.Lost("a state-changing command behind a variable")
+		}
 		fed := u.Xargs // `xargs $g`: stdin still supplies part of the arguments
 		u = tools.Unwrap(append(f, a...))
 		u.Xargs = u.Xargs || fed
@@ -993,6 +1007,14 @@ func (j *judge) decide() Verdict {
 			return p == pipe || strings.HasPrefix(p+"/", pipe+"/")
 		}
 		for _, t := range j.targets {
+			if j.lost && !t.apd && t.abs == "" {
+				// The reader lost track of the shell's state (a brace expansion too
+				// large to follow, a function that may not be defined, more calls than
+				// are followed). The working directory itself did not change, so a
+				// relative write may still land in the pipeline directory: unplaced
+				// means refused.
+				return block(PipelineState, "a write the guard cannot place after it lost track of the shell's state: "+t.raw)
+			}
 			if t.apd || t.abs == "" {
 				continue
 			}

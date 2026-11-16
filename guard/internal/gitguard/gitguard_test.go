@@ -343,6 +343,39 @@ func TestAudit(t *testing.T) {
 		{`cat script.sh | bash`, "", false},
 	}
 	check(t, "", rows)
+	check(t, "", []row{
+		// the re-read statement keeps every word a word
+		{`X=git; sudo -u "#0" $X push --force`, ForcePush, false},
+		{`X=git; env -u "#" $X push --force`, ForcePush, false},
+		{`X=git; env 'A=\' $X push --force`, ForcePush, false},
+		{`X=git; ` + sign + `$X commit -m 'a # b' -a`, CommitAll, false},
+		{`X=git; ` + sign + `$X commit -m 'x' -m '#' -n`, NoVerify, false},
+		{`X=git; ` + sign + `$X commit -m 'a # b'`, "", true},
+		// names that share a prefix; values built from other variables
+		{`X=command; Xa=git; $X $Xa push --force`, ForcePush, false},
+		{`a=x; ab=git; abc=push; $ab $abc --force`, ForcePush, false},
+		{`X=git; Y=$X; $Y push --force`, ForcePush, false},
+		{`X=git; Y="$X push"; $Y --force`, ForcePush, false},
+		{`X=gi; X="${X}t"; $X push --force`, ForcePush, false},
+		{`X=gi; Y=t; Z=$X$Y; $Z push --force`, ForcePush, false},
+		{`X=g; $X""it push --force`, ForcePush, false},
+		// a shell that runs what it reads, behind options and wrappers
+		{`printf 'git push --force\n' | bash -o errexit`, PushNoPrefix, false},
+		{`printf 'git push --force\n' | bash --rcfile /dev/null`, PushNoPrefix, false},
+		{`printf 'git push --force\n' | stdbuf -o0 sh`, PushNoPrefix, false},
+		{`printf 'git push --force\n' | xargs -I{} sh -c '{}'`, PushNoPrefix, false},
+		{`bash <(printf 'git push --force\n') <<< x`, PushNoPrefix, false},
+		{`printf 'git push --force\n' | bash -eo pipefail`, PushNoPrefix, false},
+		{`printf 'git push --force\n' | bash -s -- arg`, PushNoPrefix, false},
+		{`printf 'git push --force\n' | bash -es arg`, PushNoPrefix, false},
+		{`printf 'git push --force\n' | xargs -I% sh -c '%'`, PushNoPrefix, false},
+		{`printf 'git push --force\n' | xargs sh -c`, PushNoPrefix, false},
+		{`X=git; Y='push --force'; bash -c "$X $Y"`, ForcePush, false},        // the value given whole, as the string after -c
+		{`X='true;git'; Y='push --force'; bash -c "$X $Y"`, ForcePush, false}, // … where no single word of it is `git`
+		{`bash -eo pipefail scripts/build.sh`, "", false},
+		{`bash -o errexit scripts/build.sh`, "", false},
+		{`bash scripts/release.sh "git push is next"`, "", false},
+	})
 	// the orchestrator's unsigned commit through a variable is still unsigned
 	check(t, "", []row{{`X=git; $X commit -m x`, CommitNoPrefix, false}, {`X=git; ` + sign + `$X commit -m x`, "", true}})
 }

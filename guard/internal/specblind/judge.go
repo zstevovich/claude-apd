@@ -197,9 +197,13 @@ func (c *collector) Command(cmd shell.Command) {
 		e.pwd, c.pwd = c.pwd, false
 	}
 	if c.subst > 0 && len(cmd.Words) > 0 {
-		// a substitution that prints the project root: `$(pwd)`, `$(git rev-parse --show-toplevel)`
-		w := cmd.Words
-		if base(w[0]) == "pwd" || (base(w[0]) == "git" && in("rev-parse", w...) && (in("--show-toplevel", w...) || in("--show-cdup", w...))) {
+		// A substitution that prints the project root: `$(pwd)`, `$(git rev-parse
+		// --show-toplevel)`, behind any wrapper — or one that was itself handed such
+		// a substitution (`$(dirname $(git rev-parse --show-toplevel)/x)`): what it
+		// prints is made from the root.
+		u := tools.Unwrap(cmd.Words)
+		w := append([]string{base(u.Cmd)}, u.Args...)
+		if e.pwd || w[0] == "pwd" || (w[0] == "git" && in("rev-parse", w...) && (in("--show-toplevel", w...) || in("--show-cdup", w...))) {
 			c.pwd = true
 		}
 	}
@@ -225,9 +229,16 @@ func (j *judge) bash() {
 	for _, e := range events {
 		// a shell that reads its commands from a pipe or a process substitution
 		// runs text the statements do not show: the pattern test reads the raw words
-		if e.cmd != nil && len(e.cmd.Words) > 0 && e.cmd.Heredoc == "" {
-			u := tools.Unwrap(e.cmd.Words)
-			if fedShell(base(u.Cmd), u.Args, e.cmd.Reads) {
+		if e.cmd == nil {
+			continue
+		}
+		// Anything that runs text, at any position in a statement (`sh`, `stdbuf
+		// -o0 bash <(…)`, `xargs sh -c '{}'`, `read l < <(…); eval "$l"`), in a
+		// command that feeds text from one command to another at all: what runs is
+		// not in the statements, so the pattern test reads the raw words.
+		for _, w := range e.cmd.Words {
+			if in(base(w), "sh", "bash", "zsh", "dash", "ksh", "source", "eval", ".") &&
+				(strings.Contains(j.command, "<(") || strings.Contains(j.command, "|") || strings.Contains(j.command, "<<<")) {
 				j.rawGlobs = true
 			}
 		}
@@ -269,32 +280,6 @@ func (j *judge) blindCommand(words []string) {
 			j.deny("pipeline state via `"+b+"`", "cmd:apd report")
 		}
 	}
-}
-
-// fedShell: a shell with no command string and no script file, or with a
-// process substitution for one.
-func fedShell(cmd string, args, reads []string) bool {
-	if !in(cmd, "sh", "bash", "zsh", "dash", "ksh", "source", ".") {
-		return false
-	}
-	script := false
-	for _, a := range args {
-		switch {
-		case a == "-c":
-			return false
-		case strings.HasPrefix(a, "-"), a == "/dev/stdin":
-		case strings.HasPrefix(a, "/dev/fd/"):
-			return true
-		default:
-			script = true
-		}
-	}
-	for _, r := range reads {
-		if strings.HasPrefix(r, "/dev/fd/") {
-			return true
-		}
-	}
-	return !script && !in(cmd, "source", ".")
 }
 
 // named: the text, already in lower case, carries a blinded directory by name. The review scope itself
@@ -578,10 +563,21 @@ func (j *judge) run(events []event) {
 					args = append([]string{}, args...)
 					for i, a := range args {
 						switch {
-						case a == "$" || strings.HasPrefix(a, "$/"):
+						case !strings.HasPrefix(a, "$"):
+						case a == "$" || a[1] == '/':
 							args[i] = j.projCanon + a[1:]
-						case strings.HasPrefix(a, "$."): // `$(git rev-parse --show-cdup).`
+						case len(a) > 1 && (a[1] == '_' || a[1] == '{' || a[1] == '(' || (a[1]|0x20 >= 'a' && a[1]|0x20 <= 'z')):
+							// `$src/..` may be the substitution followed by `src/..` (the
+							// reader writes both the same way): judged that way as well
+							if m := varRef.FindStringSubmatch(a); m == nil || len(j.vars[m[1]]) == 0 {
+								args = append(args, j.projCanon+"/"+a[1:])
+							}
+						default: // `$(git rev-parse --show-cdup).`, `$(…)$S`
 							args[i] = j.projCanon + "/" + a[1:]
+						}
+						if r := args[i]; r != a && strings.Contains(r, "$") {
+							// a variable the guard does not know after the root may be empty
+							args = append(args, varRef.ReplaceAllString(r, ""))
 						}
 					}
 				}

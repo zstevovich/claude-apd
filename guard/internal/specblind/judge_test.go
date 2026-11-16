@@ -468,12 +468,38 @@ func TestAudit(t *testing.T) {
 		`read a b <<< ".apd pipeline"; cat $a/$b/spec-card.md`,
 		`read -r a b <<< ".claude memory"; cat $a/$b/*`,
 		"bash <<< 'find . -type f'",
+		// pass 2: the root substitution behind a wrapper, nested, with a tail
+		"find $(command git rev-parse --show-toplevel)/ -type f",
+		"find $(env git rev-parse --show-toplevel)/ -type f",
+		"find $(dirname $(git rev-parse --show-toplevel)/x)/ -type f",
+		"find $(echo $(git rev-parse --show-toplevel))/ -type f",
+		"find $(realpath $(git rev-parse --show-toplevel))/ -type f",
+		"find $(git rev-parse --show-toplevel)$S -type f",
+		"find $(git rev-parse --show-toplevel)${S}/ -type f",
+		"find $(git rev-parse --show-cdup)src/.. -type f",
+		// pass 2: text handed from one command to something that runs it
+		"bash -c 'source /dev/stdin' < <(echo 'cat .a*/p*/s*')",
+		"xargs -I{} sh -c '{}' < <(echo 'cat .a*/p*/s*')",
+		`while read l; do eval "$l"; done < <(echo 'cat .a*/p*/s*')`,
+		`read l < <(echo 'cat .a*/p*/s*'); eval "$l"`,
+		`eval "$(cat <(echo 'cat .a*/p*/s*'))"`,
+		"stdbuf -o0 bash <(echo 'cat .a*/p*/s*')",
+		"busybox sh <(echo 'cat .a*/p*/s*')",
+		"bash <(echo 'cat .a*/p*/s*') <<< x",
+		// pass 2: a substitution inside an extended pattern; a `)` in quotes inside a substitution kept as text
+		"[[ x == @(a|$(ls -R)) ]]",
+		"[[ x == +($(cat .a*/p*/s*)) ]]",
+		"echo ${x:-<(echo ')'; ls -R)}",
 		// deeper than is read: refused whatever it is
 		nine,
 		strings.Replace(nine, "cat .a*/p*/s*", "ls src", 1),
 	}
 	allow := []string{
 		"cat $(git rev-parse --show-toplevel)/README.md",
+		"cat $(dirname $(git rev-parse --show-toplevel)/src/app/x)/main.go",
+		"[[ $x == @(a|b) ]] && cat src/app/main.go",
+		"eval \"$(ssh-agent)\"; cat src/app/main.go",
+		"bash -c 'ls src/*.go'",
 		"cat $(git rev-parse --show-toplevel)/src/app/main.go",
 		`case "$1" in a|b) cat src/app/main.go ;; esac`,
 		"git diff --name-only | xargs git diff --stat",

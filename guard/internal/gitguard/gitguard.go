@@ -91,51 +91,114 @@ type judge struct {
 }
 
 func (j *judge) setvar(name, value string) {
-	if name == "" || unresolved(value) || in(value, j.vars[name]...) {
+	if name == "" {
 		return
 	}
 	if j.vars == nil {
 		j.vars = map[string][]string{}
 	}
-	if len(j.vars[name]) >= 32 {
-		j.block(Unreadable) // more values than are followed: one of them may name git
-		return
+	// a value built from other variables is stored with them filled in
+	for _, v := range j.fill(value) {
+		if unresolved(v) || in(v, j.vars[name]...) {
+			continue
+		}
+		if len(j.vars[name]) >= 32 {
+			j.block(Unreadable) // more values than are followed: one of them may name git
+			return
+		}
+		j.vars[name] = append(j.vars[name], v)
 	}
-	j.vars[name] = append(j.vars[name], value)
 }
 
-var varRef = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?`)
+var varRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
 
-// filled returns the statement's text with the variables the command assigned
-// filled in, one value per variable, every combination — to be read again as
-// shell text, so a value that holds several words is split as the shell would.
-func (j *judge) filled(words []string) []string {
-	var names []string
-	for _, w := range words {
-		for _, m := range varRef.FindAllStringSubmatch(w, -1) {
-			if len(j.vars[m[1]]) > 0 && !in(m[1], names...) {
-				names = append(names, m[1])
-			}
+// fill returns s with the variables the command assigned filled in: every
+// combination of their values. A reference is replaced as a whole name —
+// `$Xa` is the variable Xa, never `$X` followed by `a`.
+func (j *judge) fill(s string) []string {
+	out := []string{""}
+	last := 0
+	for _, loc := range varRef.FindAllStringSubmatchIndex(s, -1) {
+		var name string
+		if loc[2] >= 0 {
+			name = s[loc[2]:loc[3]] // ${NAME}
+		} else {
+			name = s[loc[4]:loc[5]] // $NAME
 		}
-	}
-	if len(names) == 0 {
-		return nil
-	}
-	forms := []string{strings.Join(words, " ")}
-	for _, n := range names {
+		vals := j.vars[name]
+		if len(vals) == 0 {
+			vals = []string{s[loc[0]:loc[1]]} // not assigned here: stays as written
+		}
+		lit := s[last:loc[0]]
 		var next []string
-		for _, cur := range forms {
-			for _, v := range j.vars[n] {
+		for _, o := range out {
+			for _, v := range vals {
 				if len(next) >= 256 {
 					j.block(Unreadable)
 					return nil
 				}
-				next = append(next, strings.ReplaceAll(strings.ReplaceAll(cur, "${"+n+"}", v), "$"+n, v))
+				next = append(next, o+lit+v)
+			}
+		}
+		out, last = next, loc[1]
+	}
+	for i := range out {
+		out[i] += s[last:]
+	}
+	return out
+}
+
+func shq(w string) string { return "'" + strings.ReplaceAll(w, "'", `'\''`) + "'" }
+
+// filled returns the statement's text with the variables the command assigned
+// filled in, to be read again as a statement. Every word is quoted, so a `#`,
+// a `;` or a backslash in it stays that character. A value that holds several
+// words is given both ways the shell may use it: split into words (`$X`), and
+// whole (`"$X"`, the string after `sh -c`).
+func (j *judge) filled(words []string) []string {
+	known := false
+	for _, w := range words {
+		for _, m := range varRef.FindAllStringSubmatch(w, -1) {
+			known = known || len(j.vars[m[1]+m[2]]) > 0
+		}
+	}
+	if !known {
+		return nil
+	}
+	forms := [][2]string{{"", ""}} // split, whole
+	for _, w := range words {
+		alts := j.fill(w)
+		if alts == nil {
+			return nil
+		}
+		var next [][2]string
+		for _, f := range forms {
+			for _, a := range alts {
+				if len(next) >= 256 {
+					j.block(Unreadable)
+					return nil
+				}
+				split := shq(a)
+				if a != w {
+					var q []string
+					for _, piece := range strings.Fields(a) {
+						q = append(q, shq(piece))
+					}
+					split = strings.Join(q, " ")
+				}
+				next = append(next, [2]string{f[0] + " " + split, f[1] + " " + shq(a)})
 			}
 		}
 		forms = next
 	}
-	return forms
+	var out []string
+	for _, f := range forms {
+		out = append(out, strings.TrimSpace(f[0]))
+		if f[1] != f[0] {
+			out = append(out, strings.TrimSpace(f[1]))
+		}
+	}
+	return out
 }
 
 var spaces = regexp.MustCompile(` +`)
@@ -262,7 +325,7 @@ func (j *judge) Command(c shell.Command) {
 		j.nested(text)
 	}
 	u := tools.Unwrap(c.Words)
-	if stdinShell(u.Cmd, u.Args) && c.Heredoc == "" {
+	if fedShell(c.Words, c.Heredoc != "" && len(c.Feeds) == 0) {
 		// a shell reading its commands from a pipe or a file descriptor: what it
 		// runs is another command's output — the text scan reads the whole command
 		j.opaque = true
@@ -367,25 +430,57 @@ var valueFlags = map[string][]string{
 
 func unresolved(w string) bool { return strings.ContainsAny(w, "$`") }
 
-// stdinShell: a shell started with no command string and no script — or with a
-// process substitution for one — runs what it reads.
-func stdinShell(cmd string, args []string) bool {
-	if k := strings.LastIndex(cmd, "/"); k >= 0 {
-		cmd = cmd[k+1:]
-	}
-	if !in(cmd, "sh", "bash", "zsh", "dash", "ksh", "source", ".") {
-		return false
-	}
-	for _, a := range args {
-		switch {
-		case a == "-c" || (strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "c")):
-			return false
-		case strings.HasPrefix(a, "-"), a == "/dev/stdin", strings.HasPrefix(a, "/dev/fd/"):
-		default:
-			return false // a script file
+// fedShell: somewhere in the statement a shell is started with no command
+// string and no script — or with a process substitution for one — so it runs
+// what it reads. The shell may sit behind any wrapper (`stdbuf -o0 sh`,
+// `xargs -I{} sh -c '{}'` runs what xargs is fed). heredoc: the statement has a
+// heredoc body, which the reader has already read as that shell's text.
+func fedShell(words []string, heredoc bool) bool {
+	xargs := false
+	for k, w := range words {
+		if i := strings.LastIndex(w, "/"); i >= 0 {
+			w = w[i+1:]
+		}
+		if in(w, "xargs", "parallel") {
+			xargs = true
+		}
+		if !in(w, "sh", "bash", "zsh", "dash", "ksh", "source", ".") {
+			continue
+		}
+		if xargs {
+			return true // a shell behind xargs: its command string or its input is what xargs is fed
+		}
+		args, script, cmdString := words[k+1:], false, false
+		for i := 0; i < len(args) && !script; i++ {
+			a := args[i]
+			switch {
+			case strings.HasPrefix(a, "/dev/fd/"):
+				return true // a process substitution in place of the script
+			case in(a, "--rcfile", "--init-file"):
+				i++
+			case strings.HasPrefix(a, "--"), a == "/dev/stdin":
+			case len(a) > 1 && (a[0] == '-' || a[0] == '+'):
+				// a cluster of short options: -s reads commands from standard input
+				// whatever follows, -c takes a command string, -o / -O take a value
+				if strings.Contains(a, "s") {
+					return true
+				}
+				if strings.Contains(a, "c") {
+					cmdString = true
+				}
+				if strings.ContainsAny(a, "oO") {
+					i++
+				}
+			case a == "-":
+			default:
+				script = true
+			}
+		}
+		if !script && !cmdString && !heredoc && (len(args) > 0 || !in(w, "source", ".")) {
+			return true
 		}
 	}
-	return !in(cmd, "source", ".") || len(args) > 0
+	return false
 }
 
 // fedReadOnly: subcommands that only read whatever arguments xargs, find or
