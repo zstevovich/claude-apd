@@ -55,8 +55,6 @@ muts=[
  ("curl/wget start-up file moved, prefix","internal/bashscope/judge.go","\t\t\tif e == n {\n\t\t\t\treturn true\n\t\t\t}\n","\t\t\t_ = e\n"),
  ('assignment through command/builtin lasts','internal/bashscope/judge.go','\t\t\t\tj.setvar(x[:k], j.subst(x[k+1:]))\n\t\t\t}\n\t\t}\n\tcase "eval":','\t\t\t\t_ = k\n\t\t\t}\n\t\t}\n\tcase "eval":'),
  ('bundled short option takes a value','internal/tools/tools.go','\t\t\t\tif strings.Contains(short, c) {\n','\t\t\t\tif len(x) == 2 && strings.Contains(short, c) {\n'),
- ('glued short option value','internal/tools/tools.go','\t\t\t\t\tv := x[k+1:]\n\t\t\t\t\tif v == "" {','\t\t\t\t\tv := ""\n\t\t\t\t\tif v == "" {'),
- ('long option with =','internal/tools/tools.go','\t\t\tif eq {\n\t\t\t\to.val["--"+name] = append(o.val["--"+name], v)\n','\t\t\tif eq {\n\t\t\t\t_ = v\n'),
  ('-- ends the options','internal/tools/tools.go','\t\tcase x == "--":\n\t\t\to.pos = append(o.pos, a[i+1:]...)\n\t\t\treturn o\n',''),
  ('curl -O writes into the working directory','internal/tools/tools.go','\t\tif dir == "" {\n\t\t\tdir = "./"\n\t\t}\n\t\tout = append(out, dir)\n','\t\tif dir != "" {\n\t\t\tout = append(out, dir)\n\t\t}\n'),
  ('stdout is not a file','internal/tools/tools.go','\t\tswitch {\n\t\tcase v == "-":\n','\t\tswitch {\n\t\tcase false:\n'),
@@ -77,6 +75,12 @@ muts=[
  ('scratchpad exact layout','internal/paths/paths.go','claude-[0-9]+/[^/]+/[^/]+/scratchpad','claude-[0-9]+.*/scratchpad'),
  ('dangling symlink followed','internal/paths/paths.go','\tif abs == "" && !nofollow && IsLink(p) {','\tif false && abs == "" && !nofollow && IsLink(p) {'),
  ('last-component symlink followed','internal/paths/paths.go','\tif !nofollow && IsLink(abs) {\n\t\treturn e.CanonAbs(abs, "/", false)\n\t}\n',''),
+ ('a quoted ~ is a file name','internal/shell/walk.go','\t\treturn "./" + s\n\t}\n\tif s != "~"','\t\treturn s\n\t}\n\tif s != "~"'),
+ ('~user is unresolvable','internal/shell/walk.go','\t\treturn "`" + s\n','\t\treturn s\n'),
+ ('~ after = is literal','internal/tools/tools.go','\tif strings.HasPrefix(v, "~") {\n\t\treturn "./" + v\n\t}\n',''),
+ ('glued short option value','internal/tools/tools.go','\t\t\t\t\tv := literalTilde(x[k+1:])\n','\t\t\t\t\tv := ""\n'),
+ ('long option with =','internal/tools/tools.go','\t\t\t\to.val["--"+name] = append(o.val["--"+name], literalTilde(v))\n','\t\t\t\t_ = v\n'),
+ ('rsync directory from the parent of a file destination','internal/tools/tools.go','\t\t\t\tout = append(out, strings.TrimSuffix(parent, "/")+"/"+d)\n','\t\t\t\t_ = parent\n'),
 ]
 ok=0
 for name,f,old,new in muts:

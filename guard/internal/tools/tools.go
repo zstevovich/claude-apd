@@ -173,7 +173,7 @@ func parse(a []string, short string, long ...string) opts {
 			name, v, eq := strings.Cut(x[2:], "=")
 			o.flags["--"+name] = true
 			if eq {
-				o.val["--"+name] = append(o.val["--"+name], v)
+				o.val["--"+name] = append(o.val["--"+name], literalTilde(v))
 			} else if valued[name] {
 				i++
 				o.val["--"+name] = append(o.val["--"+name], at(a, i))
@@ -183,7 +183,7 @@ func parse(a []string, short string, long ...string) opts {
 				c := string(x[k])
 				o.flags["-"+c] = true
 				if strings.Contains(short, c) {
-					v := x[k+1:]
+					v := literalTilde(x[k+1:])
 					if v == "" {
 						i++
 						v = at(a, i)
@@ -197,6 +197,15 @@ func parse(a []string, short string, long ...string) opts {
 		}
 	}
 	return o
+}
+
+// literalTilde: the shell expands `~` only at the start of a word, so in
+// `--dir=~/x` and `-T~/x` the tool receives the tilde itself — a relative name.
+func literalTilde(v string) string {
+	if strings.HasPrefix(v, "~") {
+		return "./" + v
+	}
+	return v
 }
 
 func operands(short string, long ...string) entry {
@@ -255,7 +264,15 @@ func rsync(_ string, a []string) ([]string, bool) {
 		case dest == "":
 			out = append(out, unknown+"rsync directory relative to a destination that is not named")
 		default:
+			// from the destination directory: dest itself, or its parent when dest names a file
 			out = append(out, strings.TrimSuffix(dest, "/")+"/"+d)
+			if !strings.HasSuffix(dest, "/") {
+				parent := "."
+				if k := strings.LastIndex(dest, "/"); k >= 0 {
+					parent = dest[:k+1]
+				}
+				out = append(out, strings.TrimSuffix(parent, "/")+"/"+d)
+			}
 		}
 	}
 	return out, true

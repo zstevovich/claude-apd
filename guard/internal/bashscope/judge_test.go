@@ -217,6 +217,11 @@ func TestTools(t *testing.T) {
 		{"HOME=" + root + "/src; echo hi > ~/a", 0},
 		{"HOME=" + root + "/out; cd; echo hi > a", 2},
 		{"HOME=" + root + "/src; cd; echo hi > a", 0},
+		// a quoted ~ is a file name in the working directory, not the home directory
+		{"HOME=" + root + "/src; echo hi > \"~/a\"", 2},
+		{"cd src; echo hi > '~'", 0},
+		{"echo hi > ~nobody/a", 2},
+		{"cd src; rsync -a --backup-dir=../out/bak a b", 2},
 		{"rsync -a --backup-dir=../../out/bak src/a/ src/b/", 2},
 		{"rsync -a --backup-dir=bak src/a/ src/b/", 0},
 		{"cd out && curl --output-dir ../src -o x https://example.org/x", 0},

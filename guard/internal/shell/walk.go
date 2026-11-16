@@ -273,11 +273,25 @@ func (w *walker) inner(n syntax.Node) {
 	})
 }
 
+// word renders one word. A leading `~` means the home directory only where the
+// shell expands it: unquoted, alone or before a slash. A quoted or escaped one
+// is a file name and is returned as `./~…`; `~user`, `~+` and `~-` name a
+// directory the reader does not know and come back unresolvable.
 func (w *walker) word(x *syntax.Word) string {
 	if x == nil {
 		return ""
 	}
-	return w.parts(x.Parts, false)
+	s := w.parts(x.Parts, false)
+	if !strings.HasPrefix(s, "~") {
+		return s
+	}
+	if l, ok := x.Parts[0].(*syntax.Lit); !ok || !strings.HasPrefix(l.Value, "~") {
+		return "./" + s
+	}
+	if s != "~" && !strings.HasPrefix(s, "~/") {
+		return "`" + s
+	}
+	return s
 }
 
 func (w *walker) stmts(l []*syntax.Stmt) {

@@ -61,6 +61,8 @@ func TestWalk(t *testing.T) {
 		{`X+=b`, `cmd X+=b`},
 		{`X=(a b)`, `cmd X=?`},
 		{`echo $'a\x2fb'`, `cmd [echo|a/b]`},
+		{`echo ~ ~/a "~/a" '~' \~/a ~root/a ~+/a x~/a`, "cmd [echo|~|~/a|./~/a|./~|./~/a|`~root/a|`~+/a|x~/a]"},
+		{`echo hi > "~/a"`, `cmd [echo|hi] >./~/a`},
 		{`echo $'a\57b' $'a\x2Fb' $'\u0074ee' $'t\145e' $'a\tb' $'it\'s' $'a\qb'`, "cmd [echo|a/b|a/b|tee|tee|a\tb|it's|a\\qb]"},
 		{`(cd a; ls)`, `enter 0; cmd [cd|a]; cmd [ls]; leave`},
 		{`a | b`, `enter 2; cmd [a]; leave; enter 2; cmd [b]; leave`},
