@@ -211,13 +211,16 @@ func (j *judge) filled(words []string) []string {
 }
 
 // combos returns every assignment of one value to each name, or nil when there
-// are more than are followed. plain leaves out values that hold a `/` or a `.`.
+// are more than are followed. plain leaves out values that hold a `/` or a `.`
+// and are neither git by a path nor an option.
 func (j *judge) combos(names []string, plain bool) []map[string]string {
 	envs := []map[string]string{{}}
 	for _, n := range names {
 		var vals []string
 		for _, v := range j.vars[n] {
-			if !plain || !strings.ContainsAny(v, "/.") {
+			// a path or a file name cannot be a subcommand — but it can be git itself
+			// (`/usr/bin/git`), and a word that starts with a dash is an option
+			if !plain || !strings.ContainsAny(v, "/.") || strings.HasPrefix(v, "-") || isGit(v) {
 				vals = append(vals, v)
 			}
 		}

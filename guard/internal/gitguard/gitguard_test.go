@@ -387,6 +387,8 @@ func TestAudit(t *testing.T) {
 		{`for f in ` + manyFiles + `; do git diff --stat -- "$f"; git log -1 --format=%h -- "$f"; done`, "", false},
 		{`for f in ` + manyFiles + `; do printf '%s %s\n' "$f" "$(git hash-object "$f")"; done`, "", false},
 		{`for g in ` + manyFiles + ` git; do $g push --force; done`, ForcePush, false},
+		{`for a in ` + manyFiles + `; do for g in ` + manyFiles + ` /usr/bin/git; do $g push --force "$a"; done; done`, ForcePush, false},
+		{`for a in ` + manyFiles + `; do for o in ` + manyFiles + ` --force-with-lease=x.y; do ` + sign + `git push $o origin "$a"; done; done`, ForcePush, false},
 		{`for f in ` + manyFiles + `; do for g in ` + manyFiles + `; do git diff --stat -- "$f" "$g"; done; done`, "", false}, // 3600 pairs of file names: left as written
 		{`bash -o errexit scripts/build.sh`, "", false},
 		{`bash scripts/release.sh "git push is next"`, "", false},

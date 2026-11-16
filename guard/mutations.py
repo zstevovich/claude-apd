@@ -182,6 +182,9 @@ muts=[
  ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
  ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
  ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
+ ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
+ ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
+ ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
  ('blind: any name that says adversarial','internal/specblind/judge.go','return strings.Contains(agentType, "adversarial")','return agentType == "adversarial-reviewer"'),
  ('blind: a Grep with no path','internal/specblind/judge.go','in(o.Tool, "Grep", "Glob") {','in(o.Tool, "Glob") {'),
  ('blind: a Glob with no path','internal/specblind/judge.go','in(o.Tool, "Grep", "Glob") {','in(o.Tool, "Grep") {'),
@@ -397,7 +400,6 @@ muts=[
  ('p2: blind the root printer behind a wrapper','internal/specblind/judge.go','\t\tw := append([]string{base(u.Cmd)}, u.Args...)\n\t\tif e.pwd ||','\t\tw := append([]string{base(cmd.Words[0])}, cmd.Words[1:]...)\n\t\t_ = u\n\t\tif e.pwd ||'),
  ('p2: blind git rev-parse prints the root','internal/specblind/judge.go',' || (w[0] == "git" && in("rev-parse", w...) && (in("--show-toplevel", w...) || in("--show-cdup", w...))) {',' {'),
  ('p2: blind a substitution handed the root prints the root','internal/specblind/judge.go','\t\tif e.pwd || w[0] == "pwd"','\t\tif w[0] == "pwd"'),
- ('p2: blind the substitution followed by a name','internal/specblind/judge.go','\t\t\t\t\t\t\t\targs = append(args, j.projCanon+"/"+a[1:])\n',''),
  ('p2: blind an unknown variable after the root may be empty','internal/specblind/judge.go','\t\t\t\t\t\t\targs = append(args, varRef.ReplaceAllString(r, ""))\n',''),
  ('p2: blind the root substitution followed by a dot','internal/specblind/judge.go','\t\t\t\t\t\tdefault: // `$(git rev-parse --show-cdup).`, `$(…)$S`\n\t\t\t\t\t\t\targs[i] = j.projCanon + "/" + a[1:]','\t\t\t\t\t\tdefault: // `$(git rev-parse --show-cdup).`, `$(…)$S`\n\t\t\t\t\t\t\targs[i] = a'),
  ('p2: a parameter expansion word is read as one text','internal/shell/walk.go','\t\t\t\tw.procText(w.text(cs.Exp.Word))\n','\t\t\t\t_ = cs\n'),
@@ -413,8 +415,14 @@ muts=[
  ('p2: an option cluster with -o takes a value','internal/tools/tools.go','\t\t\t\tif strings.ContainsAny(a, "oO") {','\t\t\t\tif false {'),
  ('p2: blind a shell that runs what it reads turns on the raw pattern test','internal/specblind/judge.go','\t\tif tools.FedShell(c.Words, c.Heredoc != "" && len(c.Feeds) == 0) {\n\t\t\tj.rawGlobs = true','\t\tif tools.FedShell(c.Words, c.Heredoc != "" && len(c.Feeds) == 0) {\n\t\t\tj.rawGlobs = false'),
  ('p2: blind a shell reading a process substitution','internal/specblind/judge.go',"\t\t\t\t\t\tj.rawGlobs = true // `bash -c 'source","\t\t\t\t\t\tj.rawGlobs = false // `bash -c 'source"),
- ('p2: blind eval of text read from a process substitution','internal/specblind/judge.go','\t\t\t\t\tj.rawGlobs = true // `read l <','\t\t\t\t\tj.rawGlobs = false // `read l <'),
+ ('p2: blind eval of text read from a process substitution','internal/specblind/judge.go','\t\t\t\tif handsOn {\n\t\t\t\t\tj.rawGlobs = true // `read l <','\t\t\t\tif handsOn {\n\t\t\t\t\tj.rawGlobs = false // `read l <'),
  ('replay: blind a shell handed a script file is not a fed shell','internal/specblind/judge.go','\t\t\tcase in(b, "sh", "bash", "zsh", "dash", "ksh"):\n\t\t\t\tfor _, r := range c.Reads {','\t\t\tcase in(b, "sh", "bash", "zsh", "dash", "ksh"):\n\t\t\t\tj.rawGlobs = j.rawGlobs || strings.Contains(j.command, "|")\n\t\t\t\tfor _, r := range c.Reads {'),
+ ('review: git by a path survives the reduction to plain values','internal/gitguard/gitguard.go',' || strings.HasPrefix(v, "-") || isGit(v) {',' || strings.HasPrefix(v, "-") {'),
+ ('review: an option survives the reduction to plain values','internal/gitguard/gitguard.go',' || strings.HasPrefix(v, "-") || isGit(v) {',' || isGit(v) {'),
+ ('review: blind a command string that runs what it reads','internal/specblind/judge.go','ok && handsOn && runsInput.MatchString(text) {\n\t\t\t\t\tj.rawGlobs = true','ok && handsOn && runsInput.MatchString(text) {\n\t\t\t\t\tj.rawGlobs = false'),
+ ('review: blind a command string that carries its own text is not fed','internal/specblind/judge.go','ok && handsOn && runsInput.MatchString(text) {','ok && handsOn && (runsInput.MatchString(text) || true) {'),
+ ('review: blind eval after a pipe or a here-string','internal/specblind/judge.go','handsOn := strings.Contains(j.command, "<(") || strings.Contains(j.command, "|") || strings.Contains(j.command, "<<<")','handsOn := strings.Contains(j.command, "<(")'),
+ ('p2: blind the substitution followed by a name','internal/specblind/judge.go','\t\t\t\t\t\trootTails = append(rootTails, j.projCanon+"/"+w[1:])\n','\t\t\t\t\t\t_ = w\n'),
 ]
 ok=0
 for name,f,old,new in muts:

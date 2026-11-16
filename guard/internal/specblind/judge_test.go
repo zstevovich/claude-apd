@@ -477,6 +477,7 @@ func TestAudit(t *testing.T) {
 		"find $(git rev-parse --show-toplevel)$S -type f",
 		"find $(git rev-parse --show-toplevel)${S}/ -type f",
 		"find $(git rev-parse --show-cdup)src/.. -type f",
+		"src=lib; find $(git rev-parse --show-cdup)src/.. -type f", // a variable of that name changes nothing
 		// pass 2: text handed from one command to something that runs it
 		"bash -c 'source /dev/stdin' < <(echo 'cat .a*/p*/s*')",
 		"xargs -I{} sh -c '{}' < <(echo 'cat .a*/p*/s*')",
@@ -486,6 +487,10 @@ func TestAudit(t *testing.T) {
 		"stdbuf -o0 bash <(echo 'cat .a*/p*/s*')",
 		"busybox sh <(echo 'cat .a*/p*/s*')",
 		"bash <(echo 'cat .a*/p*/s*') <<< x",
+		`echo 'cat .a*/p*/s*' | while read l; do eval "$l"; done`,
+		`read l <<< 'cat .a*/p*/s*'; eval "$l"`,
+		"echo 'cat .a*/p*/s*' | bash -c 'source /dev/stdin'",
+		"echo 'cat .a*/p*/s*' | bash -c 'sh'",
 		// pass 2: a substitution inside an extended pattern; a `)` in quotes inside a substitution kept as text
 		"[[ x == @(a|$(ls -R)) ]]",
 		"[[ x == +($(cat .a*/p*/s*)) ]]",
@@ -503,6 +508,8 @@ func TestAudit(t *testing.T) {
 		// a shell handed a script file runs the file, whatever else the command pipes
 		"cat > /tmp/p.php <<'EOF'\n<?php echo $row[module_enabled] . $t=.*//;\nEOF\nbash /tmp/run.sh | tail -5",
 		"bash scripts/check.sh 2>&1 | grep -c '.*FAIL'",
+		"bash -c 'grep -c \".*FAIL\" out.log' | tail -1",
+		"bash -c 'grep -c \".*\" out.log' | tail -1", // the command string carries its own text: a regex in it is not a path
 		"cat > /tmp/m.sh <<'EOF'\nsed -i -e 's/\\$row\\[module_enabled\\]/x/' -e 't=.*//' f.php\nEOF\nbash /tmp/m.sh | tail -5",
 		"cat $(git rev-parse --show-toplevel)/src/app/main.go",
 		`case "$1" in a|b) cat src/app/main.go ;; esac`,

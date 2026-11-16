@@ -239,6 +239,7 @@ func (j *judge) bash() {
 		// A shell handed a script file, or a command string that is written out,
 		// is not one of them: `bash run.sh | tail` runs what is in run.sh.
 		c := e.cmd
+		handsOn := strings.Contains(j.command, "<(") || strings.Contains(j.command, "|") || strings.Contains(j.command, "<<<")
 		if tools.FedShell(c.Words, c.Heredoc != "" && len(c.Feeds) == 0) {
 			j.rawGlobs = true
 		}
@@ -250,9 +251,14 @@ func (j *judge) bash() {
 						j.rawGlobs = true // `bash -c 'source /dev/stdin' < <(…)`
 					}
 				}
+				// … and a command string that itself runs what it reads, in a command
+				// that hands text on: `echo '…' | bash -c 'source /dev/stdin'`
+				if text, ok := tools.ShellText(b, c.Words[1:], ""); ok && handsOn && runsInput.MatchString(text) {
+					j.rawGlobs = true
+				}
 			case in(b, "eval", "source", "."):
-				if strings.Contains(j.command, "<(") {
-					j.rawGlobs = true // `read l < <(…); eval "$l"`
+				if handsOn {
+					j.rawGlobs = true // `read l < <(…); eval "$l"`, `echo '…' | while read l; do eval "$l"; done`
 				}
 			}
 		}
@@ -295,6 +301,9 @@ func (j *judge) blindCommand(words []string) {
 		}
 	}
 }
+
+// runsInput: a command string that runs text it is handed rather than text it carries.
+var runsInput = regexp.MustCompile(`(^|[^A-Za-z0-9_])(eval|source|sh|bash|zsh|dash|ksh)([^A-Za-z0-9_]|$)|/dev/stdin|(^|[;&| ])\. `)
 
 // named: the text, already in lower case, carries a blinded directory by name. The review scope itself
 // is allowed.
@@ -552,6 +561,17 @@ func (j *judge) run(events []event) {
 					j.pathWord(piece) // `read a b <<< ".apd pipeline"`: what a here-string carries
 				}
 			}
+			// `$src/..` as the reader writes it is a variable — or the substitution that
+			// prints the root followed by `src/..`. Both are judged: the second reading
+			// is taken from the words as written, before any variable is filled in.
+			var rootTails []string
+			if e.pwd {
+				for _, w := range c.Words[1:] {
+					if len(w) > 1 && w[0] == '$' && (w[1] == '_' || (w[1]|0x20 >= 'a' && w[1]|0x20 <= 'z')) {
+						rootTails = append(rootTails, j.projCanon+"/"+w[1:])
+					}
+				}
+			}
 			for _, words := range j.variants(c.Words) {
 				for _, w := range words {
 					if strings.HasPrefix(w, "GLOBIGNORE=") || strings.HasPrefix(w, "GREP_OPTIONS=") {
@@ -574,18 +594,14 @@ func (j *judge) run(events []event) {
 				args := u.Args
 				if e.pwd {
 					// `$(pwd)` unquoted: the working directory, taken as the project root
-					args = append([]string{}, args...)
+					args = append(append([]string{}, args...), rootTails...)
 					for i, a := range args {
 						switch {
 						case !strings.HasPrefix(a, "$"):
 						case a == "$" || a[1] == '/':
 							args[i] = j.projCanon + a[1:]
 						case len(a) > 1 && (a[1] == '_' || a[1] == '{' || a[1] == '(' || (a[1]|0x20 >= 'a' && a[1]|0x20 <= 'z')):
-							// `$src/..` may be the substitution followed by `src/..` (the
-							// reader writes both the same way): judged that way as well
-							if m := varRef.FindStringSubmatch(a); m == nil || len(j.vars[m[1]]) == 0 {
-								args = append(args, j.projCanon+"/"+a[1:])
-							}
+							// a variable, or the substitution followed by a name: see rootTails
 						default: // `$(git rev-parse --show-cdup).`, `$(…)$S`
 							args[i] = j.projCanon + "/" + a[1:]
 						}
