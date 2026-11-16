@@ -386,14 +386,20 @@ func braceCount(s string) int {
 			n = maxBraceWords + 1
 		}
 	}
-	val := func(t string) int {
-		if v, err := strconv.Atoi(t); err == nil {
-			return v
+	val := func(t string) (int, bool) {
+		if len(t) == 1 && (t[0] < '0' || t[0] > '9') {
+			return int(t[0]), true
 		}
-		return int(t[0])
+		v, err := strconv.Atoi(t)
+		return v, err == nil && v > -1<<40 && v < 1<<40
 	}
 	for _, m := range braceRange.FindAllStringSubmatch(s, -1) {
-		d := val(m[1]) - val(m[2])
+		a, okA := val(m[1])
+		b, okB := val(m[2])
+		if !okA || !okB {
+			return maxBraceWords + 1 // a bound too large to count: not followed
+		}
+		d := a - b
 		if d < 0 {
 			d = -d
 		}
@@ -407,6 +413,9 @@ func braceCount(s string) int {
 		}
 		mul(strings.Count(g, ",") + 1)
 		s = strings.Replace(s, g, "", 1)
+	}
+	if braceGroup.MatchString(s) {
+		return maxBraceWords + 1 // more groups than are counted: not followed
 	}
 	return n
 }

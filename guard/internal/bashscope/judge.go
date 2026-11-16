@@ -636,9 +636,16 @@ func (j *judge) process(c shell.Command) {
 		if strings.HasPrefix(strings.TrimLeft(text, " "), "$") {
 			j.addOpaque(cmd, "variable in command position")
 		} else {
-			// what the variable names runs in THIS shell: a function it calls is
-			// known here, and a cd or an assignment in it stays in effect
-			j.evalHere(text)
+			// What the variable names runs in THIS shell: a function it calls is known
+			// here and a cd in it stays in effect. But the shell only SPLITS an expanded
+			// value into words — it does not read `x=1`, `>` or `;` in it as syntax — so
+			// each word is handed on quoted: `g='x=src'; $g` runs a program named
+			// `x=src`, it assigns nothing.
+			var q []string
+			for _, w := range strings.Fields(text) {
+				q = append(q, "'"+strings.ReplaceAll(w, "'", `'\''`)+"'")
+			}
+			j.evalHere(strings.Join(q, " "))
 		}
 		writes()
 		return

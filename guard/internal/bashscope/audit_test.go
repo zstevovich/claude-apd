@@ -93,6 +93,12 @@ func TestAuditFunctionThroughAVariable(t *testing.T) {
 		{"cd src; f() { cd ../out; }; for g in f; do $g; done; touch a", 2},
 		{"x=src; f() { x=out; }; g=f; $g; touch $x/a", 2},
 		{"cd out; f() { cd ../src; }; g=f; $g; touch a", 0},
+		// the shell splits an expanded value into words, it does not read syntax in it
+		{"x=out; g='x=src'; $g; touch $x/a", 2},
+		{"x=out; g='eval x=src'; $g; touch $x/a", 0}, // eval is a command: it does read its arguments
+		{"cd out; g='cd ../src'; $g; touch a", 0},
+		{"g='echo x > out/a'; $g", 0}, // prints `x > out/a`: nothing is written
+		{"g='touch out/a'; $g", 2},
 	} {
 		if got := judgeIn(root, c.cmd, "src/"); got != c.want {
 			t.Errorf("%q: rc=%d, want %d", c.cmd, got, c.want)
@@ -148,6 +154,9 @@ func TestAuditBraceExpansionIsBounded(t *testing.T) {
 		{"touch {src,out}/a", 2},
 		{"touch src/f{1..20}", 0},
 		{"touch out/f{1..3000000}", 2},
+		{"touch out/f{1..99999999999999999999}", 2},                                        // a bound too large to count
+		{"touch out/" + strings.Repeat("{a,b}", 70), 2},                                    // more groups than are counted
+		{"touch src/" + strings.Repeat("{x}", 64) + strings.Repeat("{a,b}", 13), 2},        // … with the first sixty-four adding nothing
 		{"touch src/{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}{o,p}{q,r}{s,t}{u,v}{w,x}{y,z}", 2}, // 8192 words: not followed
 	} {
 		if got := judgeIn(root, c.cmd, "src/"); got != c.want {

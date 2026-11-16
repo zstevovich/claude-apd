@@ -170,6 +170,8 @@ muts=[
  ('git: any nameref leaves the configuration unreadable','internal/gitguard/gitguard.go','\t\t\t\tj.gitEnv = true\n\t\t\t}\n\t\t}\n\t}\n','\t\t\t}\n\t\t}\n\t}\n'),
  ('git: a nameref through command/builtin','internal/gitguard/gitguard.go','\tif c.Decl != "" || in(u.Cmd, "declare", "typeset", "local") {\n','\tif c.Decl != "" {\n'),
  ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
+ ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
+ ('git: only a signed statement signs the text scan','internal/gitguard/gitguard.go','\tif signed && in(sub, "commit", "push") {','\tif in(sub, "commit", "push") {'),
  ('blind: any name that says adversarial','internal/specblind/judge.go','return strings.Contains(agentType, "adversarial")','return agentType == "adversarial-reviewer"'),
  ('blind: a Grep with no path','internal/specblind/judge.go','in(o.Tool, "Grep", "Glob") {','in(o.Tool, "Glob") {'),
  ('blind: a Glob with no path','internal/specblind/judge.go','in(o.Tool, "Grep", "Glob") {','in(o.Tool, "Grep") {'),
@@ -348,7 +350,7 @@ muts=[
  ('audit: a wrapper that runs a program is marked','internal/tools/tools.go','\t\t\t\tu.Program = true\n','\t\t\t\tu.Program = false\n'),
  ('audit: an unknown value in nested shell text','internal/bashscope/judge.go','\tif strings.Contains(text, unknownValue) {\n\t\tj.addOpaque(text, "variable body") // a value the guard gave up on','\tif false {\n\t\tj.addOpaque(text, "variable body") // a value the guard gave up on'),
  ('audit: an unknown value in eval','internal/bashscope/judge.go','\tif strings.Contains(text, unknownValue) {\n\t\tj.addOpaque(text, "variable body")\n\t\treturn\n\t}\n\tswitch t :=','\tif false {\n\t\tj.addOpaque(text, "variable body")\n\t\treturn\n\t}\n\tswitch t :='),
- ('audit: a variable in command position runs in this shell','internal/bashscope/judge.go','\t\t\t// known here, and a cd or an assignment in it stays in effect\n\t\t\tj.evalHere(text)','\t\t\t// known here, and a cd or an assignment in it stays in effect\n\t\t\tj.recurse(text, false)'),
+ ('audit: a variable in command position runs in this shell','internal/bashscope/judge.go','\t\t\tj.evalHere(strings.Join(q, " "))','\t\t\tj.recurse(strings.Join(q, " "), false)'),
  ('audit: eval behind a program is not the builtin','internal/bashscope/judge.go','\t\tif u.Program {','\t\tif false {'),
  ('audit: the pipeline fence without regard to case','internal/bashscope/judge.go','\t\t\tp = strings.ToLower(p)\n\t\t\treturn p == pipe','\t\t\treturn p == pipe'),
  ('audit: the text rules without regard to case','internal/bashscope/judge.go','c := fenceCase.ReplaceAllStringFunc(j.command, strings.ToLower)','c := j.command'),
@@ -368,6 +370,9 @@ muts=[
  ('audit: blind shells nested deeper than is read','internal/specblind/judge.go','\tif j.depth >= 8 {\n\t\tj.deny("anything through shells nested deeper','\tif false {\n\t\tj.deny("anything through shells nested deeper'),
  ('audit: blind a search rooted above the project','internal/specblind/judge.go','\tif strings.HasPrefix(rel, "/") && j.o.Tool != "Read" &&','\tif false && j.o.Tool != "Read" &&'),
  ('audit: blind a Read above the project is not a search','internal/specblind/judge.go','j.o.Tool != "Read" &&','true &&'),
+ ('audit: a brace range bound too large to count','internal/shell/walk.go','\t\tif !okA || !okB {','\t\tif (!okA || !okB) && false {'),
+ ('audit: more brace groups than are counted','internal/shell/walk.go','\tif braceGroup.MatchString(s) {','\tif false {'),
+ ('audit: an expanded value is split into words, not read as syntax','internal/bashscope/judge.go','\t\t\t\tq = append(q, "\'"+strings.ReplaceAll(w, "\'", `\'\\\'\'`)+"\'")\n','\t\t\t\tq = append(q, w)\n'),
 ]
 ok=0
 for name,f,old,new in muts:
