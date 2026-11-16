@@ -302,7 +302,7 @@ func (j *judge) recurse(text string, data bool) {
 	}
 	*j.c.budget--
 	n := &judge{c: j.c, command: text, depth: j.depth + 1, data: data}
-	if rc, _ := n.run(j.cwd); rc == 2 {
+	if n.run(j.cwd).Blocked() {
 		r := text
 		if len(r) > 60 {
 			r = r[:60]
@@ -872,29 +872,46 @@ var scanSubs = []struct {
 	{regexp.MustCompilePOSIX(`"#(\^[^"#]*|[^"#]*\\[^"#]*|[^"#]*\$)#[a-zA-Z]{0,5}"`), " "},
 }
 
-func (j *judge) block(r string) (int, string) { return 2, r }
+// The reasons a command is refused — the same names the audit log has always used.
+const (
+	PipelineState = "pipeline-state-write"    // a write into .apd/pipeline by anything but APD's own tools
+	PluginCache   = "plugin-cache-write"      // a write into an installed plugin
+	OpaqueBody    = "opaque-shell-body"       // text handed to a shell that the guard cannot read
+	NestedRefusal = "nested-shell-refusal"    // a nested shell's own command was refused
+	OutOfScope    = "out-of-scope-bash-write" // a write outside what the caller may write
+)
+
+// Verdict is the guard's answer. The zero value allows.
+type Verdict struct {
+	Code   string // one of the constants above; "" = allowed
+	Detail string
+}
+
+func (v Verdict) Blocked() bool { return v.Code != "" }
+
+func block(code, detail string) Verdict { return Verdict{code, detail} }
 
 func (j *judge) pathy(s string) bool { return strings.Contains(s, "/") || strings.HasPrefix(s, "~") }
 
 func (j *judge) canonTok(s string) string { return j.c.canonCached(s, j.cwd, false) }
 
-func (j *judge) decide() (int, string) {
+func (j *judge) decide() Verdict {
 	if len(j.targets) == 0 && !j.rtWrite {
-		return 0, ""
+		return Verdict{}
 	}
 	namesCache := strings.Contains(j.command, "plugins/cache")
 	for _, t := range j.targets {
 		if strings.HasPrefix(t.note, "opaque shell body") {
-			return j.block(t.note)
+			return block(OpaqueBody, t.note)
 		}
 		if t.abs == "" {
 			if namesCache {
-				return j.block("plugin cache named, target unresolved: " + t.raw)
+				return block(PluginCache, "plugin cache named, target unresolved: "+t.raw)
 			}
 			continue
 		}
 		if isPluginCache(t.abs) {
-			return j.block("plugin cache: " + t.abs)
+			return block(PluginCache, "plugin cache: "+t.abs)
 		}
 		r := j.subst(t.raw)
 		if r == "~" {
@@ -903,12 +920,12 @@ func (j *judge) decide() (int, string) {
 			r = j.c.home + "/" + r[2:]
 		}
 		if isPluginCache(r) {
-			return j.block("plugin cache by spelling: " + t.raw)
+			return block(PluginCache, "plugin cache by spelling: "+t.raw)
 		}
 	}
 	if j.rtWrite {
 		if j.rtCwdCache {
-			return j.block("writing program run inside the plugin cache")
+			return block(PluginCache, "writing program run inside the plugin cache")
 		}
 		for _, p := range tokRe.FindAllString(j.rtText, -1) {
 			if strings.HasPrefix(p, "$") {
@@ -924,7 +941,7 @@ func (j *judge) decide() (int, string) {
 			s := j.subst(p)
 			if unresolved(s) {
 				if namesCache {
-					return j.block("plugin cache named, program path unresolved: " + p)
+					return block(PluginCache, "plugin cache named, program path unresolved: "+p)
 				}
 				continue
 			}
@@ -932,7 +949,7 @@ func (j *judge) decide() (int, string) {
 				continue
 			}
 			if isPluginCache(s) || isPluginCache(j.canonTok(s)) {
-				return j.block("plugin cache named in the program: " + p)
+				return block(PluginCache, "plugin cache named in the program: "+p)
 			}
 		}
 	}
@@ -940,7 +957,7 @@ func (j *judge) decide() (int, string) {
 	if j.protectOnly {
 		for _, t := range j.targets {
 			if strings.HasPrefix(t.note, "nested shell text") {
-				return j.block("nested shell refused: " + t.raw)
+				return block(NestedRefusal, "nested shell refused: "+t.raw)
 			}
 		}
 		pipe := j.c.projCanon + "/.apd/pipeline"
@@ -953,7 +970,7 @@ func (j *judge) decide() (int, string) {
 				continue
 			}
 			if under(t.abs) {
-				return j.block("pipeline dir: " + t.abs)
+				return block(PipelineState, "pipeline dir: "+t.abs)
 			}
 		}
 		if j.rtWrite {
@@ -966,32 +983,32 @@ func (j *judge) decide() (int, string) {
 					continue
 				}
 				if under(j.canonTok(s)) {
-					return j.block("runtime write to the pipeline dir: " + p)
+					return block(PipelineState, "runtime write to the pipeline dir: "+p)
 				}
 			}
 		}
-		return 0, ""
+		return Verdict{}
 	}
 
 	noScope := j.c.denyAll && len(j.c.scopeRaw) == 0
 	for _, t := range j.targets {
 		if strings.HasPrefix(t.note, "opaque shell body") {
-			return j.block(t.note)
+			return block(OpaqueBody, t.note)
 		}
 		if t.note != "" {
-			return j.block("unplaceable target: " + t.raw + " (" + t.note + ")")
+			return block(OutOfScope, "unplaceable target: "+t.raw+" ("+t.note+")")
 		}
 		if hasTraversal(t.abs) {
-			return j.block("traversal: " + t.abs)
+			return block(OutOfScope, "traversal: "+t.abs)
 		}
 		if noScope {
 			if isScratchpad(t.abs) {
 				continue
 			}
-			return j.block("no writable scope: " + t.raw)
+			return block(OutOfScope, "no writable scope: "+t.raw)
 		}
 		if !j.c.inScope(t.abs) {
-			return j.block("out of scope: " + t.raw + " -> " + t.abs)
+			return block(OutOfScope, "out of scope: "+t.raw+" -> "+t.abs)
 		}
 	}
 
@@ -1005,10 +1022,10 @@ func (j *judge) decide() (int, string) {
 		}
 		scan := strings.Join(lines, "\n")
 		if noScope {
-			return j.block("runtime write with no writable scope")
+			return block(OutOfScope, "runtime write with no writable scope")
 		}
 		if j.rtCwdUnk || (!j.rtAllScope && !j.rtAllProj) {
-			return j.block("runtime write from a working directory outside the project")
+			return block(OutOfScope, "runtime write from a working directory outside the project")
 		}
 		any := false
 		for _, p := range tokRe.FindAllString(scan, -1) {
@@ -1026,7 +1043,7 @@ func (j *judge) decide() (int, string) {
 			}
 			s := j.subst(p)
 			if unresolved(s) {
-				return j.block("runtime path unresolved: " + p)
+				return block(OutOfScope, "runtime path unresolved: "+p)
 			}
 			if !j.pathy(s) {
 				continue
@@ -1056,27 +1073,27 @@ func (j *judge) decide() (int, string) {
 				any = true
 				abs := j.canonTok(s)
 				if hasTraversal(abs) {
-					return j.block("runtime traversal: " + p)
+					return block(OutOfScope, "runtime traversal: "+p)
 				}
 				if !j.c.inScope(abs) {
-					return j.block("runtime path out of scope: " + p)
+					return block(OutOfScope, "runtime path out of scope: "+p)
 				}
 			}
 		}
 		if !any && !j.rtAllScope {
-			return j.block("runtime write with bare names outside the scope")
+			return block(OutOfScope, "runtime write with bare names outside the scope")
 		}
 	}
-	return 0, ""
+	return Verdict{}
 }
 
-func (j *judge) run(cwdArg string) (int, string) {
+func (j *judge) run(cwdArg string) Verdict {
 	j.rtAllScope, j.rtAllProj = true, true
 	if j.command == "" {
-		return 0, ""
+		return Verdict{}
 	}
 	if j.stage0() {
-		return 2, j.reason
+		return block(PipelineState, j.reason)
 	}
 	j.protectOnly = len(j.c.scopeRaw) == 0 && !j.c.denyAll
 	base := cwdArg
@@ -1118,8 +1135,8 @@ type Options struct {
 	ApdRoot                  string // the plugin's own plugins/apd directory
 }
 
-// Judge returns 0 (allow) or 2 (block) and, for a block, a one-line reason.
-func Judge(o Options) (int, string) {
+// Judge answers whether the command may run, and if not, why.
+func Judge(o Options) Verdict {
 	c := &cfg{home: o.Home, tmpdir: o.TmpDir, pluginRoot: o.PluginRoot, projDir: o.ProjectDir,
 		scopeRaw: o.Scope, denyAll: o.DenyAllWrites, env: paths.Env{Home: o.Home}}
 	if c.tmpdir == "" {

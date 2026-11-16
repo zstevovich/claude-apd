@@ -20,9 +20,15 @@ func project(t *testing.T) string {
 	return root
 }
 
+func rc(v Verdict) int {
+	if v.Blocked() {
+		return 2
+	}
+	return 0
+}
+
 func judgeIn(root, cmd string, scope ...string) int {
-	rc, _ := Judge(Options{Command: cmd, ProjectDir: root, Cwd: root, Scope: scope, Home: filepath.Join(root, "home")})
-	return rc
+	return rc(Judge(Options{Command: cmd, ProjectDir: root, Cwd: root, Scope: scope, Home: filepath.Join(root, "home")}))
 }
 
 // Every form of output redirection names a write target; descriptor
@@ -257,8 +263,7 @@ func TestPipelineFence(t *testing.T) {
 		os.MkdirAll(filepath.Join(d, "bin/core"), 0o755)
 	}
 	j := func(cmd string) int {
-		rc, _ := Judge(Options{Command: cmd, ProjectDir: root, Cwd: root, ApdRoot: apd, Home: filepath.Join(root, "home")})
-		return rc
+		return rc(Judge(Options{Command: cmd, ProjectDir: root, Cwd: root, ApdRoot: apd, Home: filepath.Join(root, "home")}))
 	}
 	rows := []row{
 		{"echo hi > out/a", 0},
@@ -284,6 +289,40 @@ func TestPipelineFence(t *testing.T) {
 	for _, c := range rows {
 		if got := j(c.cmd); got != c.want {
 			t.Errorf("%q: rc=%d, want %d", c.cmd, got, c.want)
+		}
+	}
+}
+
+// The reason is part of the answer: the same refusal for a different reason is a different behaviour.
+func TestReasons(t *testing.T) {
+	root := project(t)
+	cache := filepath.Join(root, "home/.claude/plugins/cache/apd")
+	os.MkdirAll(cache, 0o755)
+	cases := []struct {
+		cmd   string
+		scope []string
+		deny  bool
+		want  string
+	}{
+		{"echo hi > src/a", []string{"src/"}, false, ""},
+		{"echo hi > out/a", []string{"src/"}, false, OutOfScope},
+		{"echo hi > $NOPE/a", []string{"src/"}, false, OutOfScope},
+		{"echo hi > src/a", nil, true, OutOfScope},
+		{"python3 -c \"open('out/a','w')\"", []string{"src/"}, false, OutOfScope},
+		{"rm -rf .apd/pipeline", nil, false, PipelineState},
+		{"cd .apd && rm pipeline/.agents", nil, false, PipelineState},
+		{"echo x > .apd/pipeline/spec.done", []string{"src/"}, false, PipelineState},
+		{"bash -c 'cd .apd && rm pipeline/.agents'", nil, false, NestedRefusal},
+		{"echo hi > " + cache + "/x", nil, false, PluginCache},
+		{"echo hi > " + cache + "/x", []string{"src/"}, false, PluginCache},
+		{"$UNKNOWN .apd/pipeline/x", nil, false, OpaqueBody},
+		{"eval \"$(cat .apd/pipeline/x)\"", nil, false, OpaqueBody},
+		{"$UNKNOWN out/a", []string{"src/"}, false, OpaqueBody},
+	}
+	for _, c := range cases {
+		v := Judge(Options{Command: c.cmd, ProjectDir: root, Cwd: root, Scope: c.scope, DenyAllWrites: c.deny, Home: filepath.Join(root, "home")})
+		if v.Code != c.want {
+			t.Errorf("%q: %q (%s), want %q", c.cmd, v.Code, v.Detail, c.want)
 		}
 	}
 }

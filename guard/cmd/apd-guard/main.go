@@ -45,11 +45,10 @@ func main() {
 				o.Scope = append(o.Scope, args[i])
 			}
 		}
-		rc, why := bashscope.Judge(o)
-		if rc != 0 {
-			fmt.Fprintln(os.Stderr, why)
+		if v := bashscope.Judge(o); v.Blocked() {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", v.Code, v.Detail)
+			os.Exit(2)
 		}
-		os.Exit(rc)
 	default:
 		fmt.Fprintf(os.Stderr, "apd-guard: unknown guard %q\n", os.Args[1])
 		os.Exit(64)
