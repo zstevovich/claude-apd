@@ -529,6 +529,22 @@ func (j *judge) apdTool(w, next string) bool {
 	return false
 }
 
+// altersValue: declare/typeset/local with an attribute under which the stored
+// value is not the text assigned — a nameref (-n), a case change (-l, -u), an
+// integer (-i), an array (-a, -A) — or with any option the guard does not know.
+// -x, -r, -g and -p leave the value as written.
+func altersValue(words []string) bool {
+	for _, w := range words {
+		if len(w) < 2 || (w[0] != '-' && w[0] != '+') || w == "--" {
+			continue
+		}
+		if strings.Trim(w[1:], "xrgp") != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (j *judge) process(c shell.Command) {
 	st := c.Words
 	n := len(st)
@@ -536,9 +552,13 @@ func (j *judge) process(c shell.Command) {
 	// reaches only cmd's environment: this line's own words and redirections
 	// were expanded before it, and the next command does not see it.
 	persistent := n == 0 || c.Decl != ""
+	altered := c.Decl != "" && altersValue(st)
 	j.envN, j.envV = nil, nil
 	for _, a := range c.Assigns {
 		v := j.valueOf(a)
+		if altered {
+			v = unknownValue
+		}
 		if persistent {
 			j.setvar(a.Name, v)
 		} else {
@@ -559,65 +579,15 @@ func (j *judge) process(c shell.Command) {
 		writes()
 		return
 	}
-	i := 0
-	skipFlags := func(valued ...string) {
-		i++
-		for i < n {
-			if in(st[i], valued...) {
-				i += 2
-			} else if strings.HasPrefix(st[i], "-") {
-				i++
-			} else {
-				break
-			}
-		}
+	u := tools.Unwrap(st)
+	for _, e := range u.Env { // env X=v cmd
+		k := strings.Index(e, "=")
+		j.envN, j.envV = append(j.envN, e[:k]), append(j.envV, j.subst(e[k+1:]))
 	}
-loop:
-	for i < n {
-		w := st[i]
-		if k := strings.Index(w, "="); k >= 0 {
-			if !nameRe.MatchString(w[:k]) {
-				break
-			}
-			j.envN, j.envV = append(j.envN, w[:k]), append(j.envV, j.subst(w[k+1:])) // env X=v cmd
-			i++
-			continue
-		}
-		switch w {
-		case "command", "builtin", "exec", "nohup", "caffeinate":
-			i++
-		case "sudo", "doas":
-			skipFlags("-u", "-g", "-p", "-h", "-C", "-D", "-r", "-t", "-U")
-		case "nice", "ionice":
-			skipFlags("-n", "-c", "-p")
-		case "timeout":
-			i++
-			for i < n {
-				if in(st[i], "-k", "-s", "--kill-after", "--signal") {
-					i += 2
-				} else if strings.HasPrefix(st[i], "-") {
-					i++
-				} else {
-					i++ // the duration
-					break
-				}
-			}
-		case "env":
-			skipFlags("-u", "-C", "-S", "--unset", "--chdir")
-		case "xargs":
-			// the command's targets come from stdin: not visible
-			skipFlags("-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a")
-			if x := at(st, i); tools.Writer(x) || x == "git" {
-				j.addUnknown("xargs " + x)
-			}
-		default:
-			break loop
-		}
-	}
-	cmd := at(st, i)
-	var a []string
-	if i+1 < n {
-		a = st[i+1:]
+	cmd, a := u.Cmd, u.Args
+	if u.Xargs && (tools.Writer(cmd) || cmd == "git") {
+		// the command's targets come from stdin: not visible
+		j.addUnknown("xargs " + cmd)
 	}
 
 	switch {
@@ -718,27 +688,19 @@ loop:
 		// reached through `command` or `builtin`: the assignments still last
 		for _, x := range a {
 			if k := strings.Index(x, "="); k > 0 && nameRe.MatchString(x[:k]) {
-				j.setvar(x[:k], j.subst(x[k+1:]))
+				if altersValue(a) {
+					j.setvar(x[:k], unknownValue)
+				} else {
+					j.setvar(x[:k], j.subst(x[k+1:]))
+				}
 			}
 		}
 	case "eval":
+		// runs in THIS shell
 		j.evalHere(strings.Join(a, " "))
 	case "bash", "sh", "zsh", "dash", "su":
-		// `-c <string>` is shell text; so is a heredoc fed to the shell. A script file is not read.
-		text := ""
-		for k, x := range a {
-			if x == "-c" {
-				text = at(a, k+1)
-				break
-			} else if strings.HasPrefix(x, "-c") {
-				text = x[2:]
-				break
-			}
-		}
-		if text == "" {
-			text = c.Heredoc
-		}
-		if text != "" {
+		// a shell of its own
+		if text, ok := tools.ShellText(cmd, a, c.Heredoc); ok {
 			j.recurse(text, false)
 		}
 	case "python", "python2", "python3", "node", "nodejs", "ruby", "php":

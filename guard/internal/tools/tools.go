@@ -316,6 +316,11 @@ func curl(_ string, a []string) ([]string, bool) {
 	if o.flags["-K"] || o.flags["--config"] {
 		out = append(out, unknown+"curl reads its options, output file included, from a config file")
 	}
+	for _, v := range o.all("-w", "--write-out") {
+		if strings.Contains(v, "%output{") || strings.Contains(v, "%{output") {
+			out = append(out, unknown+"curl --write-out sends text to a file named inside the format")
+		}
+	}
 	dir := o.last("--output-dir")
 	if dir != "" && (o.flags["--next"] || o.flags["-:"]) {
 		// each transfer after --next has its own options: which -o the directory applies to is not read
@@ -350,15 +355,20 @@ func curl(_ string, a []string) ([]string, bool) {
 func wget(_ string, a []string) ([]string, bool) {
 	o := parse(a, "OoaPiTtwQUeBARDIXl", "output-document", "output-file", "append-output", "directory-prefix",
 		"input-file", "tries", "timeout", "wait", "quota", "user-agent", "execute", "base", "accept", "reject",
-		"domains", "level", "header", "post-data", "post-file", "user", "password", "load-cookies", "save-cookies")
+		"domains", "level", "header", "post-data", "post-file", "user", "password", "load-cookies", "save-cookies",
+		"warc-file", "rejected-log", "hsts-file", "warc-tempdir", "warc-dedup")
 	var out []string
 	if o.flags["-e"] || o.flags["--execute"] || o.flags["--config"] {
 		out = append(out, unknown+"wget takes settings, output file included, from -e or a config file")
 	}
-	for _, v := range o.all("-O", "--output-document", "-o", "--output-file", "-a", "--append-output", "--save-cookies") {
+	for _, v := range o.all("-O", "--output-document", "-o", "--output-file", "-a", "--append-output", "--save-cookies",
+		"--rejected-log", "--hsts-file", "--warc-tempdir") {
 		if v != "-" {
 			out = append(out, v)
 		}
+	}
+	for _, v := range o.all("--warc-file") {
+		out = append(out, v+".warc.gz", v+".warc")
 	}
 	if len(o.all("-O", "--output-document")) == 0 {
 		if d := o.last("-P", "--directory-prefix"); d != "" {
@@ -402,7 +412,8 @@ func tar(_ string, a []string) ([]string, bool) {
 			dir = "./"
 		}
 		return []string{dir}, true
-	case o.flags["-c"] || o.flags["--create"] || o.flags["-r"] || o.flags["--append"] || o.flags["-u"] || o.flags["--update"]:
+	case o.flags["-c"] || o.flags["--create"] || o.flags["-r"] || o.flags["--append"] || o.flags["-u"] || o.flags["--update"],
+		o.flags["--delete"], o.flags["-A"], o.flags["--catenate"], o.flags["--concatenate"]:
 		if f := o.last("-f", "--file"); f != "" && f != "-" {
 			return []string{f}, true
 		}
@@ -545,4 +556,101 @@ func find(_ string, a []string) ([]string, bool) {
 		out = append(out, "./")
 	}
 	return out, true
+}
+
+// Unwrapped is a command with the words that only run another command stepped over.
+type Unwrapped struct {
+	Cmd  string
+	Args []string
+	// Env holds the `NAME=value` words met on the way (`env X=1 cmd`): they reach
+	// the command's environment and nothing else.
+	Env []string
+	// Xargs: the command came through xargs, so part of its arguments is stdin.
+	Xargs bool
+}
+
+// Unwrap steps over `sudo -u x`, `env -i`, `timeout 10`, `nice -n 5`, `nohup`,
+// `command`, `exec`, `xargs` and their own options to the command that runs.
+func Unwrap(words []string) Unwrapped {
+	var u Unwrapped
+	n, i := len(words), 0
+	skip := func(valued ...string) {
+		i++
+		for i < n {
+			if in(words[i], valued...) {
+				i += 2
+			} else if strings.HasPrefix(words[i], "-") {
+				i++
+			} else {
+				break
+			}
+		}
+	}
+loop:
+	for i < n {
+		w := words[i]
+		if k := strings.Index(w, "="); k >= 0 {
+			if !name.MatchString(w[:k]) {
+				break
+			}
+			u.Env = append(u.Env, w)
+			i++
+			continue
+		}
+		switch w {
+		case "command", "builtin", "exec", "nohup", "caffeinate":
+			i++
+		case "sudo", "doas":
+			skip("-u", "-g", "-p", "-h", "-C", "-D", "-r", "-t", "-U")
+		case "nice", "ionice":
+			skip("-n", "-c", "-p")
+		case "timeout":
+			i++
+			for i < n {
+				if in(words[i], "-k", "-s", "--kill-after", "--signal") {
+					i += 2
+				} else if strings.HasPrefix(words[i], "-") {
+					i++
+				} else {
+					i++ // the duration
+					break
+				}
+			}
+		case "env":
+			skip("-u", "-C", "-S", "--unset", "--chdir")
+		case "xargs":
+			u.Xargs = true
+			skip("-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a")
+		default:
+			break loop
+		}
+	}
+	if i < n {
+		u.Cmd = words[i]
+		u.Args = words[i+1:]
+	}
+	return u
+}
+
+var name = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+
+// ShellText returns the command line a command hands to a shell: the string
+// after `sh -c`, a heredoc fed to a shell, the arguments of `eval`. A script
+// file is not read.
+func ShellText(cmd string, args []string, heredoc string) (string, bool) {
+	switch cmd {
+	case "eval":
+		return strings.Join(args, " "), len(args) > 0
+	case "bash", "sh", "zsh", "dash", "su":
+		for k, x := range args {
+			if x == "-c" {
+				return at(args, k+1), at(args, k+1) != ""
+			}
+			if strings.HasPrefix(x, "-c") && len(x) > 2 {
+				return x[2:], true
+			}
+		}
+		return heredoc, heredoc != ""
+	}
+	return "", false
 }
