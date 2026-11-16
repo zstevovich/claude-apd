@@ -77,6 +77,7 @@ func TestWalk(t *testing.T) {
 		{`f() { a; }; "f"; \f`, `enter 4; cmd [a]; leave; cmd [f]; call; cmd [a]; return; cmd [f]; call; cmd [a]; return`},
 		{`f() { f; }; f`, `enter 4; cmd [f]; leave` + strings.Repeat("; cmd [f]; call", 16) + `; cmd [f]; lost` + strings.Repeat("; return", 16)},
 		{`true && f() { a; }; f`, `cmd [true]; enter 4; cmd [a]; leave; cmd [f]; call; cmd [a]; return; lost`},
+		{`f() { a; }; false && unset -f f; f`, `enter 4; cmd [a]; leave; cmd [false]; cmd [unset|-f|f]; cmd [f]; call; cmd [a]; return; lost`},
 		{`f() { a; }; command unset -f f; f`, `enter 4; cmd [a]; leave; cmd [command|unset|-f|f]; cmd [f]`},
 		{`(f() { a; }); f`, `enter 0; enter 4; cmd [a]; leave; leave; cmd [f]`},
 		{`f() { a; }; unset -f f; f`, `enter 4; cmd [a]; leave; cmd [unset|-f|f]; cmd [f]`},

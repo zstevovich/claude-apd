@@ -163,6 +163,34 @@ func (j *judge) add(t target) { t.apd = j.stmtAPD; j.targets = append(j.targets,
 var devFd = regexp.MustCompile(`^/dev/fd/[0-9][0-9]?$`)
 var fdWord = regexp.MustCompile(`^([0-9]+-?|-)$`)
 
+// tilde: `~` is $HOME as the shell has it when the word is expanded — an
+// assignment made in this command included.
+func (j *judge) tilde(s string) string {
+	if s != "~" && !strings.HasPrefix(s, "~/") {
+		return s
+	}
+	if h, ok := j.assigned("HOME"); ok {
+		return h + s[1:]
+	}
+	return s
+}
+
+// rcMoved: this command points curl or wget at a start-up file of its own choosing.
+func (j *judge) rcMoved() bool {
+	names := []string{"HOME", "CURL_HOME", "XDG_CONFIG_HOME", "WGETRC", "SYSTEM_WGETRC"}
+	for _, n := range names {
+		if _, ok := j.assigned(n); ok {
+			return true
+		}
+		for _, e := range j.envN {
+			if e == n {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (j *judge) addTarget(raw string, nofollow bool) {
 	switch raw {
 	case "", "/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty":
@@ -171,7 +199,7 @@ func (j *judge) addTarget(raw string, nofollow bool) {
 	if strings.HasPrefix(raw, "&") || devFd.MatchString(raw) {
 		return
 	}
-	s := j.subst(raw)
+	s := j.subst(j.tilde(raw))
 	if unresolved(s) {
 		j.add(target{raw: raw, note: "unresolved variable or substitution"})
 		return
@@ -623,7 +651,7 @@ loop:
 	}
 
 	chdir := func(w string) {
-		w = j.subst(w)
+		w = j.subst(j.tilde(w))
 		if unresolved(w) {
 			j.cwdUnknown = true
 		} else {
@@ -641,7 +669,11 @@ loop:
 	case "cd":
 		switch w := at(tools.Positionals(a, `^$`), 0); w {
 		case "", "~":
-			j.cwd, j.cwdUnknown = j.c.home, false
+			if _, moved := j.assigned("HOME"); moved {
+				chdir("~")
+			} else {
+				j.cwd, j.cwdUnknown = j.c.home, false
+			}
 		case "-":
 			j.cwdUnknown = true
 		default:
@@ -748,6 +780,9 @@ loop:
 			j.rtMark(text + "\n" + strings.Join(a, " "))
 		}
 	default:
+		if (cmd == "curl" || cmd == "wget") && j.rcMoved() {
+			j.addUnknown(cmd + " with its start-up file moved by this command")
+		}
 		if ts, ok := tools.Writes(cmd, a); ok {
 			for _, t := range ts {
 				if t.Unknown != "" {

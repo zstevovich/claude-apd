@@ -241,9 +241,22 @@ func rsync(_ string, a []string) ([]string, bool) {
 		"chmod", "chown", "usermap", "groupmap", "out-format", "log-file-format", "bwlimit", "rsync-path", "remote-option",
 		"info", "debug", "max-delete", "modify-window", "contimeout", "address", "sockopts", "iconv", "checksum-choice",
 		"compress-choice", "compress-level", "skip-compress", "stop-after", "stop-at", "protocol", "checksum-seed", "outbuf")
-	out := o.all("--log-file", "--backup-dir", "--temp-dir", "-T", "--partial-dir", "--write-batch", "--only-write-batch")
+	out := o.all("--log-file", "--write-batch", "--only-write-batch")
+	dest := ""
 	if len(o.pos) > 0 {
-		out = append(out, o.pos[len(o.pos)-1])
+		dest = o.pos[len(o.pos)-1]
+		out = append(out, dest)
+	}
+	// rsync takes a relative backup, temp or partial directory from the destination
+	for _, d := range o.all("--backup-dir", "--temp-dir", "-T", "--partial-dir") {
+		switch {
+		case strings.HasPrefix(d, "/") || strings.HasPrefix(d, "~"):
+			out = append(out, d)
+		case dest == "":
+			out = append(out, unknown+"rsync directory relative to a destination that is not named")
+		default:
+			out = append(out, strings.TrimSuffix(dest, "/")+"/"+d)
+		}
 	}
 	return out, true
 }
@@ -287,6 +300,10 @@ func curl(_ string, a []string) ([]string, bool) {
 		out = append(out, unknown+"curl reads its options, output file included, from a config file")
 	}
 	dir := o.last("--output-dir")
+	if dir != "" && (o.flags["--next"] || o.flags["-:"]) {
+		// each transfer after --next has its own options: which -o the directory applies to is not read
+		out = append(out, unknown+"curl --output-dir together with --next")
+	}
 	for _, v := range o.all("-o", "--output") {
 		switch {
 		case v == "-":

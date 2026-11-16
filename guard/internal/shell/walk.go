@@ -490,7 +490,14 @@ func (w *walker) unset(args []string) {
 			vOnly = true
 		case strings.HasPrefix(x, "-"):
 		default:
-			if _, ok := w.funcs[x]; !ok || vOnly {
+			f, ok := w.funcs[x]
+			if !ok || vOnly {
+				continue
+			}
+			if fOnly && w.cond > 0 {
+				// an unset that may not run: the function may still be there
+				f.maybe = true
+				w.funcs[x] = f
 				continue
 			}
 			if !fOnly {
