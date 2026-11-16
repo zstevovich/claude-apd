@@ -9,7 +9,7 @@ Use the issue templates. For bug reports, the three fields that matter most are 
 ## Before you start
 
 - This is a **framework** repository, not an application. Do not run the APD pipeline on APD itself — the framework detects its own source repo and stays dormant (`APD_FRAMEWORK_SELF`).
-- There is no build step. The runtime is bash scripts plus prebuilt Go binaries (`plugins/apd/bin/compiled/` — you generally don't need to touch these).
+- The runtime is bash scripts plus prebuilt Go binaries in `plugins/apd/bin/compiled/`. There is a build step only if you change `guard/` — the Go source of `apd-guard`, the judge behind `guard-bash-scope`, `guard-git` and `guard-spec-blind`. Then run `go test ./...` in `guard/`, rebuild with `bash guard/build.sh` and commit the four binaries with the source: the build is reproducible, and CI fails when a committed binary is not what the source builds (Go 1.26.0). `python3 guard/mutations.py <empty dir>` breaks one mechanism at a time and expects a test to notice; a change to a judge comes with a row that fails without it.
 - `docs/SPEC.md` is the authoritative runtime map. Read it before grepping the internals, and update it in the same commit as any framework change.
 
 ## Testing
@@ -20,7 +20,7 @@ Every change to scripts must pass the primary E2E suite before you submit:
 bash plugins/apd/bin/core/test-codex-adapter
 ```
 
-Expect 800+ checks and **0 FAIL**. For a quick static pass there is also `plugins/apd/bin/core/test-hooks`.
+Expect 3,300+ checks and **0 FAIL** (about ten minutes). For a quick static pass there is also `plugins/apd/bin/core/test-hooks`.
 
 Scripts must work on both macOS (BSD userland, bash 3.2) and Linux (GNU). BSD/GNU differences in `grep`, `sed`, and `find` have caused real bugs — test on macOS if you can.
 

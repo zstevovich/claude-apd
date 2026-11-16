@@ -285,7 +285,8 @@ ${CLAUDE_PLUGIN_ROOT}/                # = repo root for CC; CC auto-discovers ho
 ├── .claude-plugin/marketplace.json   # CC marketplace manifest
 ├── .agents/plugins/marketplace.json  # Codex marketplace manifest → ./plugins/apd
 ├── hooks/hooks.json                  # CC plugin hooks (auto-discovered)
-├── skills/                           # 8 CC skills (brainstorm, tdd, debug, finish, setup, audit, github, miro)
+├── skills/                           # 11 CC skills (pipeline-guide, brainstorm, tdd, debug, finish, setup, audit, github, miro, toggle, profile)
+├── guard/                            # Go source of apd-guard (the guards that read shell commands)
 └── plugins/apd/                      # Plugin payload — single source of truth for both runtimes
     ├── .apd-version                  # CC version constraints (MIN_CC_VERSION, FUNC_CC_VERSION)
     ├── .codex-plugin/plugin.json     # Codex plugin manifest
@@ -296,7 +297,7 @@ ${CLAUDE_PLUGIN_ROOT}/                # = repo root for CC; CC auto-discovers ho
     │   ├── core/                     # Pipeline + guard + verify scripts
     │   ├── adapter/cc/               # CC-specific guards + post-commit
     │   ├── adapter/cdx/              # Codex install + doctor + skills + agents
-    │   ├── compiled/                 # Go binaries (validate-agent)
+    │   ├── compiled/                 # Go binaries (validate-agent, apd-guard) for macOS/Linux × amd64/arm64
     │   └── lib/                      # resolve-project.sh + style.sh
     ├── mcp/apd_mcp_server.py         # Codex MCP server (10 tools)
     ├── rules/workflow.md             # Pipeline workflow rules (copied to project on init)
@@ -366,6 +367,8 @@ hooks:
         - type: command
           command: "bash ${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/guard-scope src/ tests/"
 ```
+
+This block is where an agent **declares** its scope (`src/ tests/`). It is not what enforces it: Claude Code does not run hooks from an agent's own frontmatter. The plugin's session-level hooks (`hooks/hooks.json`) run for every tool call, read the calling agent's name from the hook payload, look up the scope it declared here, and judge the call — `guard-scope` for Write/Edit, `guard-bash-scope` for anything the shell would write.
 
 Agent writing to `apps/frontend/App.tsx`:
 ```
