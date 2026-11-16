@@ -370,7 +370,6 @@ muts=[
  ('audit: blind shells nested deeper than is read','internal/specblind/judge.go','\tif j.depth >= 8 {\n\t\tj.deny("anything through shells nested deeper','\tif false {\n\t\tj.deny("anything through shells nested deeper'),
  ('audit: blind a search rooted above the project','internal/specblind/judge.go','\tif strings.HasPrefix(rel, "/") && j.o.Tool != "Read" &&','\tif false && j.o.Tool != "Read" &&'),
  ('audit: blind a Read above the project is not a search','internal/specblind/judge.go','j.o.Tool != "Read" &&','true &&'),
- ('audit: a brace range bound too large to count','internal/shell/walk.go','\t\tif !okA || !okB {','\t\tif (!okA || !okB) && false {'),
  ('audit: more brace groups than are counted','internal/shell/walk.go','\tif braceGroup.MatchString(s) {','\tif false {'),
  ('audit: an expanded value is split into words, not read as syntax','internal/bashscope/judge.go','\t\t\t\tq = append(q, "\'"+strings.ReplaceAll(w, "\'", `\'\\\'\'`)+"\'")\n','\t\t\t\tq = append(q, w)\n'),
 ]

@@ -397,7 +397,10 @@ func braceCount(s string) int {
 		a, okA := val(m[1])
 		b, okB := val(m[2])
 		if !okA || !okB {
-			return maxBraceWords + 1 // a bound too large to count: not followed
+			// A bound too large to count. The parser does not expand such a range
+			// today, so no row can tell this branch from its absence; it is here so
+			// the subtraction below never overflows into a small number.
+			return maxBraceWords + 1
 		}
 		d := a - b
 		if d < 0 {
