@@ -113,20 +113,20 @@ func Judge(o Options) Verdict {
 	return Verdict{Commit: j.commit}
 }
 
-func (j *judge) Enter(shell.Scope)        {}
-func (j *judge) Leave(shell.Scope)        {}
-func (j *judge) For(string, []string)     {}
-func (j *judge) Call([]shell.Assign)      {}
-func (j *judge) Return()                  {}
-func (j *judge) Lost(string)              { j.opaque = true }
-func (j *judge) QuotedSubst(text string)  { j.nested(text) }
-func (j *judge) block(code string)        { j.verdict = refuse(code) }
-func isGit(w string) bool                 { return w == "git" || strings.HasSuffix(w, "/git") }
-func has(args []string, want string) bool { return indexOf(args, want) >= 0 }
-func lower(s string) string               { return strings.ToLower(s) }
-func (j *judge) signed(marked bool) bool  { return j.prefixed || marked }
-func isMarker(name, value string) bool    { return name == Marker && value == "1" }
-func hooksPath(s, prefix string) bool     { return strings.HasPrefix(lower(s), prefix) }
+func (j *judge) Enter(shell.Scope)           {}
+func (j *judge) Leave(shell.Scope)           {}
+func (j *judge) For(name string, _ []string) { j.gitEnv = j.gitEnv || configEnv(name) }
+func (j *judge) Call([]shell.Assign)         {}
+func (j *judge) Return()                     {}
+func (j *judge) Lost(string)                 { j.opaque = true }
+func (j *judge) QuotedSubst(text string)     { j.nested(text) }
+func (j *judge) block(code string)           { j.verdict = refuse(code) }
+func isGit(w string) bool                    { return w == "git" || strings.HasSuffix(w, "/git") }
+func has(args []string, want string) bool    { return indexOf(args, want) >= 0 }
+func lower(s string) string                  { return strings.ToLower(s) }
+func (j *judge) signed(marked bool) bool     { return j.prefixed || marked }
+func isMarker(name, value string) bool       { return name == Marker && value == "1" }
+func hooksPath(s, prefix string) bool        { return strings.HasPrefix(lower(s), prefix) }
 func at(a []string, i int) string {
 	if i >= 0 && i < len(a) {
 		return a[i]
@@ -160,8 +160,12 @@ func (j *judge) nested(text string) {
 
 // configEnv: variables through which a command hands git configuration of its own.
 func configEnv(name string) bool {
-	return strings.HasPrefix(name, "GIT_CONFIG") || name == "GIT_EXEC_PATH" || name == "GIT_ALIAS"
+	return strings.HasPrefix(name, "GIT_CONFIG") || in(name, "GIT_EXEC_PATH", "GIT_DIR", "GIT_COMMON_DIR", "HOME", "XDG_CONFIG_HOME")
 }
+
+// setters: builtins that give a variable a value or export it, by name.
+var setters = map[string]bool{"export": true, "declare": true, "typeset": true, "local": true, "readonly": true,
+	"read": true, "printf": true, "mapfile": true, "readarray": true, "getopts": true}
 
 func (j *judge) Command(c shell.Command) {
 	if j.verdict != nil {
@@ -192,6 +196,14 @@ func (j *judge) Command(c shell.Command) {
 	if text, ok := tools.ShellText(u.Cmd, u.Args, c.Heredoc); ok {
 		j.nested(text)
 	}
+	if setters[u.Cmd] || c.Decl != "" {
+		// `export GIT_CONFIG_PARAMETERS`, `read HOME`: the variable is named, its value comes from elsewhere
+		for _, w := range c.Words {
+			j.gitEnv = j.gitEnv || configEnv(w)
+		}
+	}
+	// the arguments find, xargs and parallel hand a command are not written here
+	fed := u.Xargs || in(u.Cmd, "find", "parallel")
 	// git by any spelling and behind any wrapper: every word that is `git` or
 	// ends in `/git` starts a statement (xcrun git, /usr/bin/git, find -exec git …)
 	words := append([]string{u.Cmd}, u.Args...)
@@ -200,7 +212,7 @@ func (j *judge) Command(c shell.Command) {
 	}
 	for k, w := range words {
 		if isGit(w) && j.verdict == nil {
-			j.statement(words[k+1:], marked, u.Xargs)
+			j.statement(words[k+1:], marked, fed)
 		}
 	}
 }
@@ -255,10 +267,6 @@ var valueFlags = map[string][]string{
 
 func unresolved(w string) bool { return strings.ContainsAny(w, "$`") }
 
-// reads: subcommands that change nothing — safe to run on arguments the guard does not see.
-var reads = map[string]bool{"status": true, "log": true, "diff": true, "show": true, "grep": true, "blame": true,
-	"ls-files": true, "rev-parse": true, "cat-file": true, "describe": true, "shortlog": true, "ls-tree": true}
-
 func (j *judge) statement(words []string, marked, xargs bool) {
 	// git's own options come before the subcommand
 	sub, hooksOff, i := "", false, 0
@@ -296,8 +304,8 @@ func (j *judge) statement(words []string, marked, xargs bool) {
 		}
 	}
 	switch {
-	case unresolved(sub), sub == "" && xargs, xargs && !reads[sub]:
-		// the subcommand, or the arguments xargs appends, are not written here
+	case unresolved(sub), strings.Contains(sub, "{}"), xargs:
+		// the subcommand, or arguments another program appends (an option may be among them), are not written here
 		j.block(Unreadable)
 		return
 	case sub == "":
@@ -409,8 +417,32 @@ func (j *judge) statement(words []string, marked, xargs bool) {
 		if j.o.AgentType != "" {
 			j.block(CommitNoPrefix)
 		}
+	case "grep":
+		for _, a := range args {
+			if long(a, "--open-files-in-pager") || clusterHas(a, "O", "ABCefm") {
+				j.block(Unreadable) // runs a program of the command's choosing on the matches
+				return
+			}
+		}
 	case "config":
 		// a setting that turns hooks off or renames a command, written by the command being judged
+		read := anyLong(args, "--get", "--list", "--get-all", "--get-regexp", "--get-urlmatch", "--show-origin") || has(args, "-l")
+		write := anyLong(args, "--unset", "--unset-all", "--add", "--replace-all") ||
+			len(tools.Positionals(args, `^(--file|-f|--blob|--type|--default)$`)) != 1 // `git config key` alone prints it
+		if j.o.AgentType != "" && !read && write {
+			j.block(ConfigOverride) // a pipeline agent reads configuration, it does not write it
+			return
+		}
+		if anyLong(args, "--rename-section", "--remove-section", "--edit") || has(args, "-e") {
+			j.block(ConfigOverride)
+			return
+		}
+		for _, a := range args {
+			if l := lower(a); strings.HasPrefix(l, "include.") || strings.HasPrefix(l, "includeif.") {
+				j.block(ConfigOverride) // pulls in a file of settings
+				return
+			}
+		}
 		for _, a := range args {
 			l := lower(a)
 			if strings.HasPrefix(l, "core.hookspath") {

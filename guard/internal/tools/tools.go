@@ -510,6 +510,40 @@ func git(_ string, a []string) ([]string, bool) {
 			nf = []string{"./"}
 		}
 		return nf, true
+	case "diff", "log", "show":
+		o := parse(a[1:], "", "output")
+		return o.all("--output"), len(o.val["--output"]) > 0
+	case "format-patch":
+		o := parse(a[1:], "o", "output-directory", "output")
+		if d := o.all("-o", "--output-directory", "--output"); len(d) > 0 {
+			return d, true
+		}
+		if o.flags["--stdout"] {
+			return nil, false
+		}
+		return []string{"./"}, true
+	case "archive":
+		o := parse(a[1:], "o", "output", "format", "prefix", "remote")
+		return o.all("-o", "--output"), len(o.all("-o", "--output")) > 0
+	case "bundle":
+		if at(a, 1) == "create" {
+			return []string{at(Positionals(a[2:], `^$`), 0)}, true
+		}
+	case "worktree":
+		if at(a, 1) == "add" {
+			return Positionals(a[2:], `^(-b|-B|--reason)$`)[:min(1, len(Positionals(a[2:], `^(-b|-B|--reason)$`)))], true
+		}
+	case "init":
+		if p := Positionals(a[1:], `^(--template|--separate-git-dir|-b|--initial-branch|--object-format|--shared)$`); len(p) > 0 {
+			return p[:1], true
+		}
+		return []string{"./"}, true
+	case "clone":
+		p := Positionals(a[1:], `^(-b|--branch|-o|--origin|--depth|--reference|--template|-c|--config|-j|--jobs|--separate-git-dir|-u|--upload-pack|--filter|--shallow-since|--shallow-exclude|--recurse-submodules|--bundle-uri)$`)
+		if len(p) >= 2 {
+			return p[1:2], true
+		}
+		return []string{"./"}, true
 	case "checkout":
 		var out []string
 		after := false

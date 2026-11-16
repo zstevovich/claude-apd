@@ -217,7 +217,14 @@ func TestNotWrittenOut(t *testing.T) {
 		{`echo commit | xargs git`, Unreadable, false},
 		{`git ls-files -m | xargs git add`, Unreadable, false},
 		{`echo --force | xargs git push`, Unreadable, false},
-		{`git ls-files | xargs git blame`, "", false},
+		{`git ls-files | xargs git grep TODO`, Unreadable, false}, // an option may come through stdin
+		{`find . -name x -exec git {} +`, Unreadable, false},
+		{`find . -name '*.go' -exec git add {} +`, Unreadable, false},
+		{`ls | parallel git push`, Unreadable, false},
+		{`git grep -Ovim TODO`, Unreadable, false},
+		{`git grep --open-files-in-pager=sh TODO`, Unreadable, false},
+		{`git grep -n TODO`, "", false},
+		{`git ls-files | xargs grep TODO`, "", false},
 		{`git --version`, "", false},
 		// arguments from a variable: judged by what is written, and by the text of the whole command
 		{`git add $(git diff --name-only)`, "", false},
@@ -231,5 +238,29 @@ func TestNotWrittenOut(t *testing.T) {
 		{`$TOOL push --force`, "", false},
 		{`B=x; git commit -m "$B"`, CommitNoPrefix, false},
 		{`X=1; git push origin $BRANCH`, PushNoPrefix, false},
+	})
+}
+
+// Configuration can reach git by a name alone, and through a file.
+func TestConfigByOtherRoutes(t *testing.T) {
+	check(t, "", []row{
+		{`export GIT_CONFIG_PARAMETERS; git status`, ConfigOverride, false},
+		{`read -r GIT_CONFIG_GLOBAL < f; git status`, ConfigOverride, false},
+		{`printf -v GIT_CONFIG_COUNT 1; git status`, ConfigOverride, false},
+		{`for HOME in /tmp/x; do git status; done`, ConfigOverride, false},
+		{`HOME=/tmp/x git status`, ConfigOverride, false},
+		{`GIT_DIR=/tmp/other/.git git log`, ConfigOverride, false},
+		{`HOME=/tmp/x npm test; echo done`, "", false},
+		{`git config include.path /tmp/evil`, ConfigOverride, false},
+		{`git config --rename-section x alias`, ConfigOverride, false},
+		{`git config -e`, ConfigOverride, false},
+		{`git config user.name x`, "", false},
+	})
+	check(t, "builder", []row{
+		{`git config user.name x`, ConfigOverride, false},
+		{`git config --unset user.name`, ConfigOverride, false},
+		{`git config user.name`, "", false},
+		{`git config --get user.name`, "", false},
+		{`git config --list`, "", false},
 	})
 }
