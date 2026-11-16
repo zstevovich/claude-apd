@@ -393,7 +393,10 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 				}
 			}
 		case syntax.Hdoc, syntax.DashHdoc:
-			body := w.parts(r.Hdoc.Parts, true)
+			body := ""
+			if r.Hdoc != nil { // an empty heredoc has no body node
+				body = w.parts(r.Hdoc.Parts, true)
+			}
 			if body != "" && !strings.HasSuffix(body, "\n") {
 				body += "\n"
 			}
@@ -481,7 +484,7 @@ func (w *walker) stmt1(s *syntax.Stmt, fed string) {
 			if readsStdin(x.Y) {
 				// a heredoc piped into a shell or an interpreter is that program's text
 				for _, r := range x.X.Redirs {
-					if r.Op == syntax.Hdoc || r.Op == syntax.DashHdoc {
+					if (r.Op == syntax.Hdoc || r.Op == syntax.DashHdoc) && r.Hdoc != nil {
 						body += w.parts(r.Hdoc.Parts, true)
 					}
 				}

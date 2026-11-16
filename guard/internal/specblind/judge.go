@@ -60,6 +60,7 @@ type judge struct {
 	bodiesRun bool
 	vars      map[string][]string
 	over      map[string]bool // names given more values than are kept
+	unk       map[string]bool // names also given a value the guard cannot read
 	depth     int
 }
 
@@ -74,7 +75,7 @@ func Judge(o Options) (v Verdict) {
 	if !Governs(o.AgentType) {
 		return Verdict{}
 	}
-	j := &judge{o: o, env: paths.Env{Home: o.Home}, command: o.Command, vars: map[string][]string{}, over: map[string]bool{}}
+	j := &judge{o: o, env: paths.Env{Home: o.Home}, command: o.Command, vars: map[string][]string{}, over: map[string]bool{}, unk: map[string]bool{}}
 	j.projCanon = paths.Real(o.ProjectDir)
 	if j.projCanon == "" {
 		j.projCanon = o.ProjectDir
@@ -394,7 +395,15 @@ func (j *judge) setvar(name, value string) {
 	if name == "" {
 		return
 	}
-	for _, v := range j.expand(value) {
+	forms := j.expand(value)
+	if len(forms) > 1 {
+		forms = forms[1:] // filled in from other variables: the form as written adds nothing
+	}
+	for _, v := range forms {
+		if strings.ContainsAny(v, "$`") {
+			j.unk[name] = true // a value the guard cannot read: the name stays an unknown as well
+			continue
+		}
 		if in(v, j.vars[name]...) {
 			continue
 		}
@@ -406,31 +415,53 @@ func (j *judge) setvar(name, value string) {
 	}
 }
 
-// variants returns the statement as written and with assigned variables filled in.
+var varRef = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?`)
+
+// variants returns the forms of a statement to judge: with every assigned
+// variable filled in — one value per variable for the whole statement, each
+// combination once — and the statement as written when some variable in it may
+// hold a value the guard does not know.
 func (j *judge) variants(words []string) [][]string {
-	out := [][]string{words}
-	if len(j.vars) == 0 {
-		return out
-	}
-	for i, w := range words {
-		alts := j.expand(w)
-		if len(alts) == 1 {
-			continue
+	var names []string
+	asWritten := false
+	for _, w := range words {
+		for _, m := range varRef.FindAllStringSubmatch(w, -1) {
+			n := m[1]
+			if j.over[n] {
+				j.lostTrack(n)
+			}
+			if j.unk[n] {
+				asWritten = true // it may also hold a value the guard does not know
+			}
+			if len(j.vars[n]) > 0 && !in(n, names...) {
+				names = append(names, n)
+			}
 		}
+	}
+	if len(names) == 0 {
+		return [][]string{words}
+	}
+	forms := [][]string{words}
+	for _, n := range names {
 		var next [][]string
-		for _, cur := range out {
-			for _, a := range alts {
+		for _, cur := range forms {
+			for _, v := range j.vars[n] {
 				if len(next) >= maxForms {
-					j.lostTrack("…")
+					j.lostTrack(n)
 				}
-				cp := append([]string{}, cur...)
-				cp[i] = a
+				cp := make([]string, len(cur))
+				for i, w := range cur {
+					cp[i] = strings.ReplaceAll(strings.ReplaceAll(w, "${"+n+"}", v), "$"+n, v)
+				}
 				next = append(next, cp)
 			}
 		}
-		out = next
+		forms = next
 	}
-	return out
+	if asWritten {
+		forms = append([][]string{words}, forms...)
+	}
+	return forms
 }
 
 // ---------- statements ----------
@@ -500,7 +531,12 @@ func (j *judge) run(events []event) {
 
 // text judges shell text another shell will run: a heredoc body fed to a
 // shell, the string after `sh -c`, a command line handed to a runner.
-func (j *judge) text(t string) {
+func (j *judge) text(t string) { j.shellText(t, true) }
+
+// shellText: sure says the text is certainly a shell's (a heredoc fed to one,
+// the string after `sh -c`). A runner's argument with spaces may be a command
+// line or may be SQL: when it does not parse it is read as one plain statement.
+func (j *judge) shellText(t string, sure bool) {
 	if t == "" {
 		return
 	}
@@ -511,6 +547,12 @@ func (j *judge) text(t string) {
 			j.depth--
 			return
 		}
+	}
+	if !sure {
+		if w := fields(strip(t, `"'`)); len(w) > 0 {
+			j.stmt(base(w[0]), w[1:])
+		}
+		return
 	}
 	for _, r := range fields(t) {
 		if dotOnly(strip(r, `;&|()<>"'`)) {
@@ -534,7 +576,7 @@ var rgFamily = map[string]bool{"rg": true, "ag": true, "ack": true, "ack-grep": 
 var readers = map[string]bool{}
 
 func init() {
-	for _, c := range strings.Fields("find fd fdfind bfs gfind ls gls eza exa lsd tree du gdu cat head tail less more diff cp gcp rsync tar gtar zip 7z 7za unzip xargs stat file wc sort awk gawk sed gsed python python3 node php ruby perl rg ag ack ack-grep sift pt ucg rgrep ditto") {
+	for _, c := range strings.Fields("find fd fdfind bfs gfind ls gls eza exa lsd tree du gdu cat head tail less more diff cp gcp rsync tar gtar zip 7z 7za unzip xargs stat file wc sort awk gawk sed gsed python python3 node php ruby perl rg ag ack ack-grep sift pt ucg rgrep ditto ln gln link") {
 		readers[c] = true
 	}
 }
@@ -1007,11 +1049,6 @@ func (j *judge) stmt(c string, args []string) {
 		}
 		c, args = args[0], args[1:]
 	}
-	if in(c, "ln", "gln", "link") {
-		// a link made now is followed by a later word of the same command, when
-		// nothing on disk can be resolved yet — and this role reads, it links nothing
-		j.deny("anything through a new link (this role reads; a link can lead into pipeline state)", "cmd:"+c)
-	}
 	j.shellSettings(c, args)
 	if readsCwd(c, args) {
 		j.deny("the whole project (a recursive "+c+" with no path reads the current directory, pipeline state and memory included — name the path)", "cmd:"+c+":nopath")
@@ -1021,7 +1058,7 @@ func (j *judge) stmt(c string, args []string) {
 		reader = true
 		for _, a := range args {
 			if strings.ContainsAny(a, " \t\n") {
-				j.text(a) // an argument that is itself a command line: `watch "find . -name x"`
+				j.shellText(a, false) // an argument that may itself be a command line: `watch "find . -name x"`
 			}
 			if in(a, "sh", "bash", "zsh", "dash", "ksh") {
 				j.heredocBodies() // `cat <<EOF | script -q /dev/null sh`

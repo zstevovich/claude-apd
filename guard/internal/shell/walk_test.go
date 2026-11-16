@@ -81,6 +81,8 @@ func TestWalk(t *testing.T) {
 		{`{ a; b; } > out`, `cmd [a]; cmd [b]; cmd >out`},
 		{`if a; then b; else c; fi`, `cmd [a]; cmd [b]; cmd [c]`},
 		{"cat <<X\nbody\nX", `cmd [cat] heredoc="body\n"`},
+		{"cat <<X\nX\nls", `cmd [cat]; cmd [ls]`},
+		{"cat <<X | sh\nX", `enter 2; cmd [cat]; leave; enter 2; cmd [sh]; leave`},
 		{"cat <<X | sh\nbody\nX", `enter 2; cmd [cat] heredoc="body\n"; leave; enter 2; cmd [sh] heredoc="body\n"; leave`},
 		{`f() { a; }; f`, `enter 4; cmd [a]; leave; cmd [f]; call; cmd [a]; return`},
 		{`f() { a; }; "f"; \f`, `enter 4; cmd [a]; leave; cmd [f]; call; cmd [a]; return; cmd [f]; call; cmd [a]; return`},

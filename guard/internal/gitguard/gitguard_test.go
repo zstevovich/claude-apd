@@ -96,6 +96,29 @@ func TestPush(t *testing.T) {
 		{sign + `git push -o ci.skip origin main`, "", false},
 		{sign + `git push -of`, "", false}, // -o takes the rest of the word
 		{`sudo -u me git push --force`, ForcePush, false},
+		// the documented recipe: the remote comes from a substitution, the statement carries the marker
+		{`REMOTE=$(bash .claude/bin/apd git-remote) && ` + sign + `git push -u "$REMOTE" develop 2>&1; echo "exit=$?"`, "", false},
+		{`REMOTE=$(bash .claude/bin/apd git-remote) && ` + sign + `git push "$REMOTE" master 2>&1 | tail -5`, "", false},
+		{`REMOTE=$(x) && git push "$REMOTE" master`, PushNoPrefix, false},
+		{`REMOTE=$(x) && ` + sign + `git push "$REMOTE" a; git push "$REMOTE" b`, PushNoPrefix, false}, // one unsigned statement is enough
+		{`REMOTE=$(x) && ` + sign + `git push --force "$REMOTE" a`, ForcePush, false},
+		{`M="$(cat msg)"; ` + sign + `git commit -m "$M"`, "", true},
+		{`M="$(cat msg)"; git commit -m "$M"`, CommitNoPrefix, false},
+	})
+}
+
+// printf names a variable only with -v; reading through xargs is reading.
+func TestReplayedFalseBlocks(t *testing.T) {
+	check(t, "builder", []row{
+		{`for f in a b; do printf '%s %s\n' "$f" "$(head -c 3 "$f" | xxd -p)"; done; git diff --numstat HEAD -- a`, "", false},
+		{`printf '%s: ' "$r"; git status --short`, "", false},
+		{`printf -v GIT_CONFIG_COUNT 1; git status`, ConfigOverride, false},
+		{`printf -v "$N" 1; git status`, ConfigOverride, false},
+		{`find src -name '*.php' | xargs git diff --name-only HEAD -- | wc -l`, "", false},
+		{`git diff HEAD --name-only | xargs -n1 git hash-object`, "", false},
+		{`find . -name '*.go' -exec git blame {} +`, "", false},
+		{`git ls-files -m | xargs git checkout --`, Unreadable, false},
+		{`git ls-files -m | xargs git rm`, Unreadable, false},
 	})
 }
 

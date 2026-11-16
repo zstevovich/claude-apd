@@ -84,6 +84,8 @@ type judge struct {
 	// among a git statement's arguments, or shell state the reader lost. The text
 	// scan then judges the whole command as well.
 	opaque bool
+	// a commit or push statement read here carried the marker as its own prefix
+	signedSeen bool
 }
 
 var spaces = regexp.MustCompile(` +`)
@@ -106,7 +108,10 @@ func Judge(o Options) Verdict {
 		return *refuse(ClaudeDirPrefix)
 	}
 	if j.opaque {
-		if v := rawScan(o, norm, j.prefixed); v.Blocked() {
+		// the text scan cannot see a marker in the middle of a command; a statement
+		// read here that carried one signs the command for it (an unsigned commit or
+		// push statement has already been refused by then)
+		if v := rawScan(o, norm, j.prefixed || j.signedSeen); v.Blocked() {
 			return v
 		}
 	}
@@ -198,7 +203,15 @@ func (j *judge) Command(c shell.Command) {
 	}
 	if setters[u.Cmd] || c.Decl != "" {
 		// `export GIT_CONFIG_PARAMETERS`, `read HOME`: the variable is named, its value comes from elsewhere
-		for _, w := range c.Words {
+		named := c.Words
+		if u.Cmd == "printf" {
+			// printf names a variable only after -v; the rest is what it prints
+			named = nil
+			if k := indexOf(u.Args, "-v"); k >= 0 {
+				named = []string{at(u.Args, k+1)}
+			}
+		}
+		for _, w := range named {
 			j.gitEnv = j.gitEnv || configEnv(w) || unresolved(w) // a name that is not written out may be one of them
 		}
 	}
@@ -277,6 +290,15 @@ var valueFlags = map[string][]string{
 
 func unresolved(w string) bool { return strings.ContainsAny(w, "$`") }
 
+// fedReadOnly: subcommands that only read whatever arguments xargs, find or
+// parallel append — `git ls-files | xargs git diff --stat`. `grep` is not among
+// them: an appended `-O<cmd>` makes it run a program.
+var fedReadOnly = map[string]bool{"diff": true, "log": true, "show": true, "status": true, "blame": true, "annotate": true,
+	"ls-files": true, "ls-tree": true, "cat-file": true, "rev-parse": true, "rev-list": true, "hash-object": true,
+	"check-ignore": true, "check-attr": true, "describe": true, "shortlog": true, "name-rev": true, "merge-base": true,
+	"diff-tree": true, "diff-index": true, "diff-files": true, "for-each-ref": true, "show-ref": true, "whatchanged": true,
+	"count-objects": true}
+
 func (j *judge) statement(words []string, marked, xargs bool) {
 	// git's own options come before the subcommand
 	sub, hooksOff, i := "", false, 0
@@ -314,7 +336,7 @@ func (j *judge) statement(words []string, marked, xargs bool) {
 		}
 	}
 	switch {
-	case unresolved(sub), strings.Contains(sub, "{}"), xargs:
+	case unresolved(sub), strings.Contains(sub, "{}"), xargs && !fedReadOnly[sub]:
 		// the subcommand, or arguments another program appends (an option may be among them), are not written here
 		j.block(Unreadable)
 		return
@@ -333,6 +355,9 @@ func (j *judge) statement(words []string, marked, xargs bool) {
 		j.opaque = j.opaque || unresolved(words[k])
 	}
 	signed := j.signed(marked)
+	if signed && in(sub, "commit", "push") {
+		j.signedSeen = true // an unsigned one is refused below, on its own
+	}
 
 	// --no-verify on any statement, and its equivalents: commit -n, -c core.hooksPath=…
 	nv := anyLong(args, "--no-verify") || hooksOff

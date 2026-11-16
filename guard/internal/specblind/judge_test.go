@@ -116,7 +116,10 @@ func TestBash(t *testing.T) {
 		"python3 -c \"open('.APD/pipeline/spec-card.md')\"",
 		"a=x/.apd; b=pipeline; cat $a/$b/y",
 		"a=x/.apd; b=pipeline; wc -l < $a/$b/y",
-		"ln -s src /tmp/y",
+		"ln -s $PWD /tmp/l",
+		"ln -s $PWD/.a* /tmp/l && cat /tmp/l/p*/s*",
+		"x=src; x=$(pick); cat $x/pipeline/spec-card.md",
+		"S=src; M=$S/$U/m.sh; $M one . two",
 		"env a=.apd b=pipeline sh -c 'cat $a/$b/spec-card.md'",
 		"sudo a=.claude b=memory bash -c 'cat $a/$b/status.md'",
 		"grep -rn foo src/up",
@@ -302,6 +305,16 @@ func TestBash(t *testing.T) {
 		"ls $dir/*",
 		"go test ./...",
 		"rg --files src",
+		"ln -s src /tmp/y",
+		`ln -s "$PWD"/vendor /tmp/v`,
+		"cat > /dev/null <<'EOF'\nEOF\nls src",
+		`docker exec pg psql -At -c "SELECT a || '/' || b FROM t WHERE x = 'it''s'"`,
+		"M=src/m.sh\n$M one . two",
+		"S=tool; $S $U .",
+		`docker exec pg psql -c "SELECT lower('a' || chr(1)), (SELECT x || '/' FROM t)"`,
+		"S=src; M=$S/m.sh\n$M one . two",
+		"for f in $(git ls-files -- src/); do awk '/ x/ {print}' \"$f\"; done",
+		"for f in a b c d e; do echo $f $f $f $f $f $f $f $f; done",
 		"cat src/etc/hosts",
 		"echo src/up",
 		`cat "$PWD/.apd/pipeline/.reviewed-files"`,
@@ -391,6 +404,7 @@ func TestVariableBudget(t *testing.T) {
 		"x=.apd; " + many + "cat $x/*/*":              true,  // … or before it
 		many + "cat src/app/main.go":                  false, // the variable is never used
 		many + "y=src; cat $y/app/main.go":            false, // another variable is still followed
+		many + "y=src; cat < $y/app/main.go":          false,
 		"for f in" + files + "; do cat \"$f\"; done":  true,  // more items than are followed
 		"for f in" + some + "; do cat \"$f\"; done":   false, // sixty files is an ordinary loop
 		"for f in src/a src/b src/c; do cat $f; done": false,

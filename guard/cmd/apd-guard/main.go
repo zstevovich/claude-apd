@@ -18,6 +18,15 @@ import (
 )
 
 func main() {
+	// A fault inside a judge is not a verdict. Go ends a panic with exit code 2,
+	// which is this program's code for "blocked": answer 70 instead, so the
+	// caller reports a guard that could not judge rather than a reason it made up.
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "apd-guard: internal error: %v\n", r)
+			os.Exit(70)
+		}
+	}()
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: apd-guard bash-scope --project-dir <dir> --command <cmd> [--cwd <dir>] [--deny-all-writes] [scope ...]")
 		os.Exit(64)
