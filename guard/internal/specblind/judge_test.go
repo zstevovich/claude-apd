@@ -12,8 +12,16 @@ func fixture(t *testing.T) Options {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, sub := range []string{".apd/pipeline", ".claude/memory", "src/app"} {
+	for _, sub := range []string{".apd/pipeline", ".claude/memory", "src/app", "proj2"} {
 		if err := os.MkdirAll(filepath.Join(d, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(d+"/.apd/pipeline/spec-card.md", []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for link, to := range map[string]string{"lnk": ".apd", "src/deep": "../.apd/pipeline", "src/rootlnk": "..", "src/ok": "app"} {
+		if err := os.Symlink(to, d+"/"+link); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -48,6 +56,11 @@ func TestFilePath(t *testing.T) {
 		{"Glob", ".claude", true},
 		{"Grep", ".", true},
 		{"Read", ".apd/pipeline/../pipeline/spec-card.md", true},
+		{"Read", ".APD/Pipeline/spec-card.md", true},
+		{"Read", "lnk/pipeline/spec-card.md", true},
+		{"Read", "src/deep/spec-card.md", true},
+		{"Glob", "lnk", true},
+		{"Read", "src/ok/main.go", false},
 		{"Read", ".apd/./pipeline/spec-card.md", true},
 		{"Read", ".apd//pipeline/spec-card.md", true},
 		{"Read", o.ProjectDir + "/.apd/pipeline/spec-card.md", true},
@@ -88,6 +101,74 @@ func TestBash(t *testing.T) {
 		"cat < .apd/pipeline/spec-card.md",
 		"python3 - <<'EOF'\nprint(open('.apd/pipeline/spec-card.md').read())\nEOF",
 		"cat src/../.claude/memory/status.md;.apd/pipeline/.reviewed-files",
+		"python3 -c \"open('.claude/memory/status.md')\"",
+		`php -r 'echo file_get_contents(".apd\/pipeline\/spec-card.md");'`,
+		`php -r 'readfile( ".apd/pipeline/a/.apd/pipeline/.reviewed-files" );'`,
+		"a=.apd; b=pipeline; cat < $a/$b/spec-card.md",
+		"for d in src .; do grep -rn x $d; done",
+		"echo \"$(find . -name x)\"",
+		"eval \"find . -name x\"",
+		"sh -c \"find . 'x\"",
+		"cat <<EOF | script -q /dev/null sh\nfind . -name x\nEOF",
+		"sh -s -- x <<EOF\nfind . -name x\nEOF",
+		"python3 -c \"os.system('apd pipeline show spec')\"",
+		"python3 -c \"open( '.apd/./pipeline/spec-card.md' )\"",
+		"python3 -c \"open('.APD/pipeline/spec-card.md')\"",
+		"a=x/.apd; b=pipeline; cat $a/$b/y",
+		"a=x/.apd; b=pipeline; wc -l < $a/$b/y",
+		"ln -s src /tmp/y",
+		`php -r 'echo file_get_contents(".APD\/pipeline\/spec-card.md");'`,
+		"python3 -c \"x='.APD/pipeline/spec-card.md'>y\"",
+		"cat $'x/.apd/pipe\\x6cine/y'",
+		"wc -l < $'x/.apd/pipe\\x6cine/y'",
+		"ls $PWD/.a*",
+		`cp -r "$PWD"/.c* /tmp/x`,
+		"cat $PWD/.a*/p*/s*",
+		"source /dev/stdin <<EOF\nfind . -name x\nEOF",
+		"git grep --no-exclude-standard foo",
+		"git ls-files --ignored --exclude-standard",
+		"rgrep foo",
+		"docker build .",
+		"python3 -c \"import os; print(os.listdir(os.getcwd()))\"",
+		"python3 -c \"from pathlib import Path; print(list(Path('.').rglob('*')))\"",
+		"python3 -c \"import subprocess; c=['find','.']; subprocess.run(c)\"",
+		"awk 'BEGIN{while((\"find . -type f\" | getline f)>0) print f}'",
+		". ./env.sh",
+		"python3 -c \"open('.apd/pipeline/spec-card.md')#.apd/pipeline/.reviewed-files\"",
+		"a=.apd; cat src/../$a/pipeline/x < src/../$a/pipeline/y",
+		"a=.apd; cat x/$a/pipeline/y",
+		"a=.apd; wc -l < src/../$a/pipeline/y",
+		"for d in .apd .claude; do echo hi; done",
+		"for f in .a*/p*/s*; do :; done",
+		"a=.apd; b=$a/*; cat $b/*",
+		"echo . | xargs cat",
+		"git -c alias.x='!cat secret' x",
+		"ls .c*",
+		"dd if=.a*/p*/s*",
+		// case: the same directory on a case-insensitive volume
+		"cat .APD/pipeline/spec-card.md",
+		"cat .Apd/Pipe*/spec-card.md",
+		"ls .CLAUDE",
+		"head .Claude/Memory/status.md",
+		// through a symbolic link
+		"cat lnk/pipeline/spec-card.md",
+		"cat lnk/p*/s*",
+		"cd lnk",
+		"cat src/deep/spec-card.md",
+		"cat src/deep/*",
+		"wc -l < src/deep/spec-card.md",
+		"grep -rn foo src/rootlnk",
+		"ln -s .a* /tmp/x",
+		// the dispatcher's aliases, spacing and quoting
+		"apd pl show spec",
+		"apd rp",
+		"apd pipeline  show spec",
+		"apd \"pipeline\" show spec",
+		"p=pipeline; apd $p show spec",
+		"apd pipeline stats",
+		"apd pipeline $what",
+		"bash plugins/apd/bin/core/pipeline-advance show spec",
+		"bash plugins/apd/bin/core/pipeline-report",
 		// sanctioned read paths
 		"bash .claude/bin/apd pipeline show spec",
 		"bash .claude/bin/apd report",
@@ -217,6 +298,20 @@ func TestBash(t *testing.T) {
 		"cat $a/$b",
 		"ls $dir/*",
 		"go test ./...",
+		"rg --files src",
+		`cat "$PWD/.apd/pipeline/.reviewed-files"`,
+		"ls $PWD/src/*",
+		"cat nonexistent/file.txt",
+		"rg foo -g '.a*' src",
+		"echo .a*",
+		"git log --oneline -- .claude",
+		"cat src/ok/main.go",
+		"ls src/ok",
+		"apd doctor",
+		"apd pipeline",
+		"fd '.*' src",
+		"cd src && ls",
+		"grep -rn foo ~/other",
 		"npm test",
 		"echo done",
 		"cat > /tmp/probe.php <<'EOF'\n<?php echo 'a' . 'b';\nEOF",
@@ -244,6 +339,45 @@ func TestBash(t *testing.T) {
 	}
 }
 
+func TestHome(t *testing.T) {
+	o := fixture(t)
+	o.Home = filepath.Dir(o.ProjectDir)
+	name := filepath.Base(o.ProjectDir)
+	for c, want := range map[string]bool{
+		"grep -rn foo ~/" + name:               true,
+		"grep -rn foo $HOME/" + name:           true,
+		"grep -rn foo ${HOME}/" + name:         true,
+		"cat $HOME/" + name + "/.apd/Pipeline": true,
+		"grep -rn foo $HOME":                   true, // an ancestor of the project
+		"grep -rn foo $HOME/" + name + "/src":  false,
+		"grep -rn foo $HOMEWORK/" + name:       false, // another variable
+	} {
+		o.Command = c
+		if got := Judge(o); got.Blocked() != want {
+			t.Errorf("%q: got %+v, want blocked=%v", c, got, want)
+		}
+	}
+}
+
+func TestCallDirectory(t *testing.T) {
+	o := fixture(t)
+	o.Cwd = o.ProjectDir + "/src"
+	for c, want := range map[string]bool{"cat deep/spec-card.md": true, "cat app/main.go": false, "cat ok/main.go": false} {
+		o.Command = c
+		if got := Judge(o); got.Blocked() != want {
+			t.Errorf("%q: got %+v, want blocked=%v", c, got, want)
+		}
+	}
+}
+
+func TestHomeVar(t *testing.T) {
+	for a, want := range map[string]int{"$HOME": 5, "$HOME/x": 5, "${HOME}/x": 7, "$HOMEWORK/x": -1, "x$HOME": -1} {
+		if got := homeVar(a); got != want {
+			t.Errorf("homeVar(%q) = %d, want %d", a, got, want)
+		}
+	}
+}
+
 func TestUnreadable(t *testing.T) {
 	o := fixture(t)
 	deny := []string{
@@ -254,6 +388,8 @@ func TestUnreadable(t *testing.T) {
 		"cat .a*/p*/s* 'x",
 		"shopt -s dotglob 'x",
 		"ls .apd 'x",
+		"ls .APD 'x",
+		"cat `echo .apd`/pipeline/x 'u",
 	}
 	allow := []string{"cat src/a 'x", "git diff . 'x", "echo 'x"}
 	for _, c := range deny {

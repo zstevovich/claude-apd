@@ -10,6 +10,7 @@
 package specblind
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -77,8 +78,10 @@ func Judge(o Options) (v Verdict) {
 	if j.projCanon == "" {
 		j.projCanon = o.ProjectDir
 	}
-	j.pipe = relTo(o.PipelineDir, o.ProjectDir)
-	j.mem = relTo(o.MemoryDir, o.ProjectDir)
+	// compared without regard to case: on a case-insensitive volume `.APD/pipeline`
+	// is the same directory
+	j.pipe = strings.ToLower(relTo(o.PipelineDir, o.ProjectDir))
+	j.mem = strings.ToLower(relTo(o.MemoryDir, o.ProjectDir))
 	j.allowed = j.pipe + "/" + AllowedBasename
 	defer func() {
 		if r := recover(); r != nil {
@@ -105,16 +108,19 @@ func Judge(o Options) (v Verdict) {
 // root itself, an absolute path when p lies outside the project.
 func (j *judge) relPath(p string) string {
 	abs := j.env.CanonAbs(p, j.o.Cwd, false)
-	if abs == j.projCanon {
+	if strings.EqualFold(abs, j.projCanon) {
 		return ""
 	}
-	return strings.TrimPrefix(abs, j.projCanon+"/")
+	if n := len(j.projCanon) + 1; len(abs) > n && strings.EqualFold(abs[:n], j.projCanon+"/") {
+		return abs[n:]
+	}
+	return abs
 }
 
 // ---------- channel 1: Read / Glob / Grep ----------
 
 func (j *judge) filePath(p string) {
-	rel := norm(j.relPath(p))
+	rel := strings.ToLower(norm(j.relPath(p)))
 	// a `..` that survived resolution: the comparison below cannot be trusted
 	if paths.HasTraversal(rel) {
 		j.deny("a path with unresolved traversal ("+rel+")", rel)
@@ -217,11 +223,37 @@ func (j *judge) bash() {
 	j.run(events)
 }
 
-// named: the text carries a blinded directory by name. The review scope itself
+// blindCommand judges the words of a statement for an apd command that prints
+// pipeline state, by any alias and however the words are spaced or quoted.
+func (j *judge) blindCommand(words []string) {
+	at := func(i int) string {
+		if i < len(words) {
+			return words[i]
+		}
+		return ""
+	}
+	unknown := func(s string) bool { return strings.ContainsAny(s, "$`") }
+	prints := func(s string) bool { return in(s, "show", "status", "metrics", "report", "stats") || unknown(s) }
+	for i, w := range words {
+		next, after := at(i+1), at(i+2)
+		switch b := base(w); {
+		case b == "apd" && (in(next, "report", "rp") || unknown(next)):
+			j.deny("pipeline state via `apd "+next+"`", "cmd:apd report")
+		case b == "apd" && in(next, "pipeline", "pl") && prints(after):
+			j.deny("pipeline state via `apd "+next+" "+after+"`", "cmd:pipeline "+after)
+		case b == "pipeline-advance" && prints(next):
+			j.deny("pipeline state via `pipeline-advance "+next+"`", "cmd:pipeline "+next)
+		case b == "pipeline-report" || b == "pipeline-report-turns":
+			j.deny("pipeline state via `"+b+"`", "cmd:apd report")
+		}
+	}
+}
+
+// named: the text, already in lower case, carries a blinded directory by name. The review scope itself
 // is allowed.
 func (j *judge) named(text, shown string) {
+	text = strings.TrimSuffix(text, j.allowed)
 	switch {
-	case strings.HasSuffix(text, j.allowed):
 	case strings.Contains(text, j.pipe):
 		j.deny("pipeline state ("+shown+")", "cmd:"+shown)
 	case strings.Contains(text, j.mem):
@@ -249,9 +281,9 @@ func (j *judge) rawPass() {
 		// a blinded path can ride inside a token that is not a path at all:
 		// `git show HEAD:.apd/pipeline/spec-card.md`
 		plain := strip(tok, `"'`)
-		j.named(plain, plain)
+		j.named(strings.ToLower(plain), plain)
 		// what the shell makes of the token
-		g := gtok(raw)
+		g := gtok(strings.ToLower(raw))
 		j.named(g, plain)
 		// The pattern test belongs to the statements, where the command is known
 		// (a grep pattern or a `find -name` value is not a path). Here it runs only
@@ -277,7 +309,7 @@ func (j *judge) rawPass() {
 		if abbr(opt, "--no-index", 7) || abbr(opt, "--untracked", 5) || abbr(opt, "--no-exclude-standard", 8) {
 			j.deny("files git does not track (`"+opt+"` reads the working tree past the index, pipeline state included)", "cmd:"+opt)
 		}
-		t := cutGlob(norm(tok))
+		t := strings.ToLower(cutGlob(norm(tok)))
 		if t == "" || t == j.allowed {
 			continue // the root is judged with the statements
 		}
@@ -301,7 +333,7 @@ func (j *judge) rawHasDot() bool {
 // redirection target, an item of a `for` list.
 func (j *judge) pathWord(w string) {
 	for _, cand := range j.expand(w) {
-		g := gtok(cand)
+		g := gtok(strings.ToLower(cand))
 		j.named(g, cand)
 		if lt := norm(g); lt != "" && lt != j.allowed && (reaches(lt, j.pipe) || reaches(lt, j.mem)) {
 			j.deny("a directory that contains pipeline state ("+cand+", in a loop list or a redirection)", "cmd:"+cand)
@@ -309,6 +341,7 @@ func (j *judge) pathWord(w string) {
 		if j.globHits(g) {
 			j.deny("pipeline state or project memory (a pattern that can match it: "+cand+")", "cmd:"+cand)
 		}
+		j.physical(true, cand)
 	}
 }
 
@@ -411,11 +444,8 @@ func (j *judge) run(events []event) {
 				continue
 			}
 			for _, words := range j.variants(c.Words) {
+				j.blindCommand(words)
 				u := tools.Unwrap(words)
-				for _, kv := range u.Env {
-					k := strings.Index(kv, "=")
-					j.setvar(kv[:k], kv[k+1:])
-				}
 				if u.Cmd == "" {
 					continue
 				}
@@ -843,12 +873,13 @@ func (j *judge) judgeGlobs(reader bool, c string, args []string) {
 				continue
 			}
 		}
-		g := gtok(a)
-		if strings.HasSuffix(g, j.allowed) {
-			continue
-		}
-		if strings.Contains(g, j.pipe) || strings.Contains(g, j.mem) {
+		g := gtok(strings.ToLower(a))
+		rest := strings.TrimSuffix(g, j.allowed)
+		if strings.Contains(rest, j.pipe) || strings.Contains(rest, j.mem) {
 			j.deny("pipeline state or project memory ("+a+")", "cmd:"+a)
+		}
+		if rest != g {
+			continue // the review scope itself
 		}
 		if !isGlob(g) && !strings.Contains(g, anyText) {
 			continue
@@ -950,6 +981,11 @@ func (j *judge) stmt(c string, args []string) {
 		}
 		c, args = args[0], args[1:]
 	}
+	if in(c, "ln", "gln", "link") {
+		// a link made now is followed by a later word of the same command, when
+		// nothing on disk can be resolved yet — and this role reads, it links nothing
+		j.deny("anything through a new link (this role reads; a link can lead into pipeline state)", "cmd:"+c)
+	}
 	j.shellSettings(c, args)
 	if readsCwd(c, args) {
 		j.deny("the whole project (a recursive "+c+" with no path reads the current directory, pipeline state and memory included — name the path)", "cmd:"+c+":nopath")
@@ -1044,7 +1080,7 @@ func (j *judge) outside(reader bool, a, rel string) (done bool) {
 		}
 		return true
 	case strings.HasPrefix(rel, "/"):
-		if strings.HasPrefix(j.projCanon+"/", strings.TrimSuffix(rel, "/")+"/") {
+		if strings.HasPrefix(strings.ToLower(j.projCanon)+"/", strings.ToLower(strings.TrimSuffix(rel, "/"))+"/") {
 			if reader {
 				j.deny(containsState+"(an ancestor of the project: "+a+")", "cmd:"+a)
 			}
@@ -1054,8 +1090,71 @@ func (j *judge) outside(reader bool, a, rel string) (done bool) {
 	return false
 }
 
+// homeVar: a begins with `$HOME` or `${HOME}` as a whole name; the result is
+// where the rest of the path starts, or -1.
+func homeVar(a string) int {
+	for _, n := range []string{"${HOME}", "$HOME"} {
+		if strings.HasPrefix(a, n) && (len(a) == len(n) || a[len(n)] == '/') {
+			return len(n)
+		}
+	}
+	return -1
+}
+
+// physical judges where an operand really leads: a path that exists is
+// resolved through its symbolic links, a pattern by the directory its literal
+// part names. `ln -s .apd x` in one call and `cat x/pipeline/…` in the next
+// names nothing blinded in the text.
+func (j *judge) physical(reader bool, a string) {
+	lit := a
+	if k := strings.IndexAny(lit, "*?["); k >= 0 {
+		lit = lit[:k]
+		if s := strings.LastIndex(lit, "/"); s >= 0 {
+			lit = lit[:s]
+		} else {
+			return
+		}
+	}
+	if lit == "" || strings.ContainsAny(lit, "$`") {
+		return
+	}
+	bases := []string{j.projCanon}
+	if j.o.Cwd != "" && j.o.Cwd != j.projCanon {
+		bases = append(bases, j.o.Cwd) // the call's own working directory, when it is not the root
+	}
+	for _, b := range bases {
+		p := lit
+		if !strings.HasPrefix(p, "/") {
+			p = b + "/" + p
+		}
+		// the deepest part that exists is resolved; a path with no link in it
+		// comes back as written and is left to the rules on its text
+		if real := j.env.CanonAbs(p, "/", false); real != filepath.Clean(p) {
+			j.linked(reader, a, real)
+		}
+	}
+}
+
+func (j *judge) linked(reader bool, a, real string) {
+	rel := strings.ToLower(norm(j.relPath(real)))
+	if rel == j.allowed || strings.HasPrefix(rel, "/") {
+		return
+	}
+	inside := func(b string) bool { return rel == b || strings.HasPrefix(rel, b+"/") }
+	if inside(j.pipe) || inside(j.mem) {
+		j.deny(containsState+"("+a+" is a link into it)", "cmd:"+a)
+	}
+	if rel != "" && (strings.HasPrefix(j.pipe, rel+"/") || strings.HasPrefix(j.mem, rel+"/")) {
+		j.deny(containsState+"("+a+" is a link to "+rel+")", "cmd:"+a)
+	}
+	if rel == "" && reader {
+		j.deny(containsState+"("+a+" is a link to the project root)", "cmd:"+a)
+	}
+}
+
 // operand applies the ancestor rule to one argument.
 func (j *judge) operand(reader bool, a string) {
+	written := a
 	// the reader's mark for `~user`, `~+`, `~-`
 	if strings.HasPrefix(a, "`~") {
 		a = a[1:]
@@ -1064,6 +1163,8 @@ func (j *judge) operand(reader bool, a string) {
 		}
 	} else if a == "~" || strings.HasPrefix(a, "~/") {
 		a = j.o.Home + a[1:]
+	} else if h := homeVar(a); h >= 0 {
+		a = j.o.Home + a[h:]
 	} else {
 		for _, n := range rootNames {
 			if strings.HasPrefix(a, n) {
@@ -1094,7 +1195,16 @@ func (j *judge) operand(reader bool, a string) {
 			a = rel
 		}
 	}
-	t := cutGlob(norm(a))
+	j.physical(reader, a)
+	if a != written && isGlob(a) {
+		// a pattern behind a name for the root (`$PWD/.a*`), judged in its relative form
+		for _, b := range []string{j.pipe, j.mem} {
+			if r := globReaches(strings.ToLower(norm(a)), b); r == "full" || (r == "anc" && reader) {
+				j.deny(containsState+"(a pattern that can match it: "+written+")", "cmd:"+written)
+			}
+		}
+	}
+	t := strings.ToLower(cutGlob(norm(a)))
 	// `..`, `../..`, `/` are ancestors of the project; `../<name>` is a sibling.
 	// Never `...`: `go test ./...` is the canonical Go form.
 	if !strings.Contains(t, "...") && in(t, "..", "../..", "../../..", "../../../..", "../../../../..", "/.", "//", "/./.") {
@@ -1159,7 +1269,7 @@ func (j *judge) fallback() {
 		if tok == "" {
 			continue
 		}
-		t := cutGlob(norm(tok))
+		t := strings.ToLower(cutGlob(norm(tok)))
 		if t == "" {
 			if in(tok, ".", "./") && !gitHead {
 				j.deny(containsState+"(the project root; the command could not be tokenized)", "cmd:.")
