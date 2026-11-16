@@ -1,5 +1,77 @@
 # Changelog
 
+## v8.0.0 — 2026-11-16
+
+Major: the three guards that read shell commands — `guard-bash-scope`, `guard-git`, `guard-spec-blind` — are judged by one compiled program, `apd-guard`, whose source is in the repository (`guard/`). Nothing about how a project is set up changes; what a guard allows and refuses changes in the ways listed below, which is why this is a major version.
+
+**Why.** Each of the three read a command with its own bash/awk tokenizer. An independent review called that the weakest part of the framework: a shell is not a regular language, every audit pass since v7.1 found shapes the tokenizers read differently from bash, and each fix was another special case. `apd-guard` reads the command with a shell parser (`mvdan.cc/sh`) into one sequence of events — commands with their words and redirections, the places where a `cd` or an assignment stops leaking (subshells, substitutions, pipeline elements), loops, function calls — and all three guards judge that same reading.
+
+**What stays the same.** The scripts `bin/core/guard-bash-scope`, `guard-git`, `guard-spec-blind` keep their names and arguments; `hooks/hooks.json`, the Claude Code and Codex adapters and the MCP server are untouched. Block messages and the reason names in `guard-audit.log` are the ones they were. The scripts now resolve the project, run the judge, print the message and write the log line; for a signed commit `guard-git` still runs the pipeline gate and `verify-all.sh`.
+
+**A guard whose judge cannot answer refuses.** A missing or non-executable binary, an exit code other than "allow" or "block", a killed process, or an exit code 0 without the judge's own word `ok` (an empty file at the binary's path runs as an empty script) all block the call, with `guard-binary-missing` or `guard-error` in the log. Binaries ship for macOS and Linux on amd64 and arm64.
+
+### Holes closed (each passed the v7.5.3 guards)
+
+Write scope (`guard-bash-scope`):
+- brace expansion — `cd src; rm {a,/etc/passwd}` deleted outside the scope;
+- `cat <<X | sh`, a here-string fed to a shell, `tar xf`;
+- a variable or the working directory set inside a subshell, a substitution or one side of a pipe counted for the commands after it;
+- `X=v cmd` treated as a lasting assignment; `eval` read as a separate shell;
+- the exemption for APD's own tools matched by path suffix (any script named like one passed);
+- bundled short options (`curl -sSLo out`, `cp -rt dir`), abbreviated long options;
+- shell functions (called quoted, defined in a subshell, shadowing a builtin);
+- `HOME=` moving `~`, a quoted tilde.
+
+Git (`guard-git`):
+- git aliases and configuration supplied by the command (`-c alias.…`, `GIT_CONFIG_*`, `HOME=`, a nameref onto one of those variables);
+- plumbing that does what a guarded command does (`commit-tree`, `update-ref`, `send-pack`).
+
+Adversarial reviewer (`guard-spec-blind`):
+- on a case-insensitive volume (stock macOS) `cat .APD/pipeline/spec-card.md` read the spec card;
+- a symbolic link into the pipeline directory, or to one of its ancestors;
+- `$HOME/…/project` where `~/…/project` was refused;
+- a variable the command itself assigned (`x=.a*/p*/s*; cat $x`, `d=.apd; cat $d/*/*`);
+- the dispatcher's aliases — `apd pl show spec`, `apd rp` — and `apd pipeline  show` with two spaces;
+- `.reviewed-files` as the end of a word that also carried another path.
+
+### Behaviour that changes for a working project
+
+New refusals:
+- a pipeline agent may not `git merge`, `rebase`, `cherry-pick`, `revert`, `am` or `pull`, and may not write git configuration;
+- `git commit-tree`, `update-ref` and `send-pack` need the orchestrator's marker;
+- git run through `xargs`, `find -exec` or `parallel` is refused unless the subcommand only reads (`diff`, `log`, `show`, `status`, `blame`, `ls-files`, `hash-object` …);
+- after any nameref declaration (`declare -n`) in a command, git in that command is refused;
+- `HOME=…` or `GIT_CONFIG_*` in front of git is refused;
+- for the adversarial reviewer: Glob/Grep rooted at an ancestor of the project; a variable given more than 256 values and then used; shells nested more than eight deep.
+
+Now allowed (the old guards refused them by mistake):
+- the orchestrator's push when the remote comes from a variable and the marker is on the statement: `REMOTE=$(apd git-remote) && APD_ORCHESTRATOR_COMMIT=1 git push "$REMOTE" main` followed by anything;
+- commands whose heredoc bodies carry PHP or SQL text that looked like a path or a pattern;
+- `unzip -p`, `unzip -l` and other reads that were taken for writes; ANSI-C `\u` escapes in a command word; arithmetic that spans lines.
+
+Refused because the parser does not read them, also when the write is in scope: `"$((cmd) )"`, a heredoc tag that is not ASCII, a heredoc tag with a backslash-escaped quote, a redirection whose file name carries a substitution (`> out-$(date +%s).txt`).
+
+### Proof
+
+- Go tests: table rows for each guard; `guard/mutations.py` removes one mechanism at a time — 416 mutations, each caught by a row (the whole list run in one go on the final source).
+- The suite, with the compiled guards behind the launchers: 3306 checks, bash 5 and /bin/bash 3.2; test-system 36. Ten rows changed: five read the old scripts' text, five are verdicts the parser reads differently (listed above). It stood at 3325 while the bash guards were still beside the launchers; the 19 rows that tested the old tokenizer's emit protocol left with them.
+- Measured before the audit fixes, with the bash guards still in the tree (they are in git history only now, so neither can be repeated on the final source): a shadow run of the whole suite with both judges on every guard call: 733 spec-blind calls and 404 git calls with the same verdict; bash-scope 578 of 587, the nine differences being the five verdicts above and four reason texts.
+- Replay, measured at the same point: every Bash command the adversarial reviewer ever ran in the local transcripts (8,967), 4,000 commands that mention git and 6,000 others were judged by the old and the new guards — judged only, never executed. It found what no row had: a crash on an empty heredoc, the documented push recipe refused, `printf` with a variable argument read as a configuration write, `xargs git diff` refused, and a rule of mine (the reviewer gets no `ln`) that 37 real commands contradicted. After the fixes the new guards block five commands the old ones allowed (two artefacts of the replay's own fixture, three a reviewer experimenting with git configuration in the scratchpad) and allow about thirty the old ones blocked, all false blocks by inspection.
+- As a non-root user in an ubuntu:24.04 container, on the final source: 85 failing rows, every one among the 88 v7.5.3 has there (the three missing are timing rows of `stall-watch`); the four binaries built in a Linux container are byte-identical to the ones built on macOS, and CI compares the committed binaries with a fresh build.
+- One independent audit, three passes. Pass 1: NOT SAFE — nineteen commands the v7.5.3 guards refused and the first build allowed (a substitution in a `case` pattern or inside `[[ … ]]` was never read; a three-million-word brace expansion in dead code outlasted the hook timeout; the pipeline fence in another letter case; `read l; eval "$l"`; git named through a variable; eight shapes for the reviewer; an empty file at the binary's path allowed everything). All fixed, each with a row and a mutation. Pass 2: the nineteen closed and the launchers safe, eight findings around the fixes (after the reader loses track the orchestrator's fence was off for relative paths; a quoted multi-word variable in command position; substitutions inside extended patterns; a `)` in quotes inside `${x:-<(…)}`; the git re-read losing quoting; signed brace bounds; the root substitution behind wrappers; text fed to `eval`/`source`). Pass 3, narrow, over those fixes (1,510 commands on three engines, 2,451 verdicts): the eight closed; three opened by the fixes (an unquoted multi-word variable among the arguments behind a variable in command position, `time` out of a variable, a multi-word value dropped by the git reduction) and three older ones (`nice cd` in a variable, a `)` in a comment inside kept text, a recursive `ls` in an unreadable command) — fixed, each with rows and mutations. **There was no fourth pass: the fixes of the third are proven by rows and mutations only, not independently confirmed.**
+
+### Stated
+
+- The adversarial reviewer's `cd` out of the project is not followed, and a path assembled by a command substitution (`$(echo .apd/pipe)line`) is not caught.
+- `git push $FLAGS` with a plain variable that expands to `--force` is not caught (as in v7.5.3).
+- The pre-existing list from the audit (tools run by absolute path, `bash -lc`, `trap`, interpreters that build a path) is unchanged from v7.5.3 and is in the backlog.
+- From the third audit pass, not fixed: a function defined among several items of a loop; for the adversarial reviewer, the project root reached through an unknown wrapper, held in a variable (`d=$(git rev-parse --show-toplevel); find $d`) or followed by `$(true)` / `${x:-/}`; text read into a variable and run without `eval`, or piped to `$SHELL`.
+- False blocks, stated: `git -c key=$VAR …`; `c='cd src'; $c; touch a` for the orchestrator; `: {1..5000}; touch src/a`.
+- As in v7.5.3: `env X=git bash -c '$X push --force'`, a conditional assignment (`false && g=true`), `printf … | bash /proc/self/fd/0`, `| ash`, interpreters that run their stdin, a script written to a file and sourced.
+- The old bash guards are removed in this release (`bin/core/guard-*.bash`); there is no second engine and `APD_GUARD_ENGINE` does nothing.
+
+Suite 3317 → 3306 (bash 5 and /bin/bash 3.2).
+
 ## v7.5.3 — 2026-11-13
 
 Patch: a compaction in the middle of a pipeline is no longer refused.
