@@ -20,7 +20,7 @@ func fixture(t *testing.T) Options {
 	if err := os.WriteFile(d+"/.apd/pipeline/spec-card.md", []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for link, to := range map[string]string{"lnk": ".apd", "src/deep": "../.apd/pipeline", "src/rootlnk": "..", "src/ok": "app"} {
+	for link, to := range map[string]string{"lnk": ".apd", "src/deep": "../.apd/pipeline", "src/rootlnk": "..", "src/ok": "app", "src/up": "../..", "src/etc": "/etc"} {
 		if err := os.Symlink(to, d+"/"+link); err != nil {
 			t.Fatal(err)
 		}
@@ -117,6 +117,9 @@ func TestBash(t *testing.T) {
 		"a=x/.apd; b=pipeline; cat $a/$b/y",
 		"a=x/.apd; b=pipeline; wc -l < $a/$b/y",
 		"ln -s src /tmp/y",
+		"env a=.apd b=pipeline sh -c 'cat $a/$b/spec-card.md'",
+		"sudo a=.claude b=memory bash -c 'cat $a/$b/status.md'",
+		"grep -rn foo src/up",
 		`php -r 'echo file_get_contents(".APD\/pipeline\/spec-card.md");'`,
 		"python3 -c \"x='.APD/pipeline/spec-card.md'>y\"",
 		"cat $'x/.apd/pipe\\x6cine/y'",
@@ -299,6 +302,8 @@ func TestBash(t *testing.T) {
 		"ls $dir/*",
 		"go test ./...",
 		"rg --files src",
+		"cat src/etc/hosts",
+		"echo src/up",
 		`cat "$PWD/.apd/pipeline/.reviewed-files"`,
 		"ls $PWD/src/*",
 		"cat nonexistent/file.txt",

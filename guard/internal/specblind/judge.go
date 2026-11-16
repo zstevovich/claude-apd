@@ -446,6 +446,11 @@ func (j *judge) run(events []event) {
 			for _, words := range j.variants(c.Words) {
 				j.blindCommand(words)
 				u := tools.Unwrap(words)
+				// `env a=.apd sh -c 'cat $a/…'`: the nested shell sees the variable
+				for _, kv := range u.Env {
+					k := strings.Index(kv, "=")
+					j.setvar(kv[:k], kv[k+1:])
+				}
 				if u.Cmd == "" {
 					continue
 				}
@@ -1137,7 +1142,11 @@ func (j *judge) physical(reader bool, a string) {
 
 func (j *judge) linked(reader bool, a, real string) {
 	rel := strings.ToLower(norm(j.relPath(real)))
-	if rel == j.allowed || strings.HasPrefix(rel, "/") {
+	if strings.HasPrefix(rel, "/") {
+		j.outside(reader, a, rel) // a link to an ancestor of the project
+		return
+	}
+	if rel == j.allowed {
 		return
 	}
 	inside := func(b string) bool { return rel == b || strings.HasPrefix(rel, b+"/") }

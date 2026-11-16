@@ -303,7 +303,6 @@ muts=[
  ('blind: a link to an ancestor of a blinded directory','internal/specblind/judge.go','\tif rel != "" && (strings.HasPrefix(j.pipe, rel+"/") || strings.HasPrefix(j.mem, rel+"/")) {','\tif false {'),
  ('blind: a link to the project root','internal/specblind/judge.go','\tif rel == "" && reader {\n\t\tj.deny(containsState+"("+a+" is a link to the project root)"','\tif false {\n\t\tj.deny(containsState+"("+a+" is a link to the project root)"'),
  ('blind: a pattern under a link','internal/specblind/judge.go','\t\tif s := strings.LastIndex(lit, "/"); s >= 0 {\n\t\t\tlit = lit[:s]\n\t\t} else {\n\t\t\treturn\n\t\t}\n','\t\treturn\n'),
- ('blind: a link elsewhere is not refused','internal/specblind/judge.go','\tif rel == j.allowed || strings.HasPrefix(rel, "/") {\n\t\treturn\n\t}\n\tinside','\tif true {\n\t\tj.deny("x", "x")\n\t}\n\tinside'),
  ('blind: apd commands judged by their words','internal/specblind/judge.go','\t\t\t\tj.blindCommand(words)\n',''),
  ('blind: apd rp','internal/specblind/judge.go','in(next, "report", "rp")','in(next, "report")'),
  ('blind: apd pl','internal/specblind/judge.go','in(next, "pipeline", "pl") && prints(after)','in(next, "pipeline") && prints(after)'),
@@ -321,6 +320,9 @@ muts=[
  ('blind: names compared without case, the word as the shell reads it','internal/specblind/judge.go','\t\tg := gtok(strings.ToLower(raw))\n','\t\tg := gtok(raw)\n'),
  ('blind: the allowed suffix does not excuse the rest of the word','internal/specblind/judge.go','\ttext = strings.TrimSuffix(text, j.allowed)\n','\tif strings.HasSuffix(text, j.allowed) {\n\t\treturn\n\t}\n'),
  ('blind: the review scope may be named','internal/specblind/judge.go','\ttext = strings.TrimSuffix(text, j.allowed)\n','\n'),
+ ('blind: env assignments reach the nested shell','internal/specblind/judge.go','\t\t\t\t\tj.setvar(kv[:k], kv[k+1:])\n','\t\t\t\t\t_ = k\n'),
+ ('blind: a link to an ancestor of the project','internal/specblind/judge.go','\t\tj.outside(reader, a, rel) // a link to an ancestor of the project\n','\n'),
+ ('blind: a link elsewhere is not refused','internal/specblind/judge.go','\tif rel == j.allowed {\n\t\treturn\n\t}\n\tinside','\tif true {\n\t\tj.deny("x", "x")\n\t}\n\tinside'),
 ]
 ok=0
 for name,f,old,new in muts:
