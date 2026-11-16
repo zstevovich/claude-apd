@@ -148,6 +148,7 @@ muts=[
  ('array value is unknown','internal/bashscope/judge.go','\tif a.Opaque || j.altered[a.Name] {','\tif j.altered[a.Name] {'),
  ('git: unsigned push','internal/gitguard/gitguard.go','\t\tif !signed {\n\t\t\tj.block(PushNoPrefix)\n\t\t}\n\tcase "reset":','\tcase "reset":'),
  ('git: an unnamed command adds the text scan','internal/gitguard/gitguard.go','\tif unresolved(u.Cmd) {\n\t\tj.opaque = true','\tif unresolved(u.Cmd) {\n\t\tj.opaque = false'),
+ ('git: an expansion among the arguments adds the text scan','internal/gitguard/gitguard.go','\t\tj.opaque = j.opaque || unresolved(words[k])\n','\n'),
 ]
 ok=0
 for name,f,old,new in muts:

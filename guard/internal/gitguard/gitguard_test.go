@@ -222,8 +222,11 @@ func TestNotWrittenOut(t *testing.T) {
 		// arguments from a variable: judged by what is written, and by the text of the whole command
 		{`git add $(git diff --name-only)`, "", false},
 		{`git log $RANGE`, "", false},
-		{`G=git; $G commit -m x`, "", false},              // nothing here says git commit as text; a stated limit
-		{`$GIT commit --no-verify -m x`, NoVerify, false}, // an unnamed command: the text is judged too
+		{`G=git; $G commit -m x`, "", false},                             // nothing here says git commit as text; a stated limit
+		{`$GIT commit --no-verify -m x`, NoVerify, false},                // an unnamed command: the text is judged too
+		{sign + `git commit $(echo --no-verify ) -m x`, NoVerify, false}, // the flag is in the text the argument is made from
+		{sign + `git push origin $(echo x; echo git push --force )`, ForcePush, false},
+		{sign + `git commit -m "$(cat msg.txt)"`, "", true},
 		{`$GIT add .claude/x`, ClaudeDirPrefix, false},
 		{`$TOOL push --force`, "", false},
 		{`B=x; git commit -m "$B"`, CommitNoPrefix, false},

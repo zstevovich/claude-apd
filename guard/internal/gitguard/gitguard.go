@@ -80,8 +80,9 @@ type judge struct {
 	addClaude bool
 	depth     int
 	gitEnv    bool // git configuration reaches git through the environment this command set
-	// opaque: a command whose name is not written out (`$G push`), or shell state
-	// the reader lost. The text scan then judges the whole command as well.
+	// opaque: a command whose name is not written out (`$G push`), an expansion
+	// among a git statement's arguments, or shell state the reader lost. The text
+	// scan then judges the whole command as well.
 	opaque bool
 }
 
@@ -309,6 +310,9 @@ func (j *judge) statement(words []string, marked, xargs bool) {
 			continue
 		}
 		args = append(args, words[k])
+		// an argument that is an expansion: what it becomes is not written here, but
+		// the text it is made from is — the text scan reads that too
+		j.opaque = j.opaque || unresolved(words[k])
 	}
 	signed := j.signed(marked)
 
