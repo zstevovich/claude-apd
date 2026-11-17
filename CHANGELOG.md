@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v8.0.1 — 2026-11-17
 
 Fix: a signed commit is judged before Claude Code's hook time limit, and the pipeline is reset after a commit wherever the commit stands in the command.
 
