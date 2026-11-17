@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+Fix: a signed commit is judged before Claude Code's hook time limit, and the pipeline is reset after a commit wherever the commit stands in the command.
+
+**The defect.** `guard-git` runs the pipeline gate and the project's `verify-all.sh` inside a PreToolUse hook with a 30 s limit. Claude Code cancels a hook that passes its limit and then runs the call. On a project whose verification takes minutes every signed commit therefore went through unjudged — six of six on one real project in a day, on v7.5.3 and v8.0.0 alike — and nothing recorded it: cancelled guards are reported at the reviewer and verifier steps, and a commit comes after both.
+
+**What changed.**
+- The verifier step records the tree it verified in `.apd/pipeline/verified-tree.done`, signed the way the step flags are: HEAD, the tree git itself would write for the project's working files (content, file modes, links, deleted and new files, the commit a submodule or nested repository stands on; what the framework writes is left out; staging changes nothing) and the verification script that ran. It is computed in a copy of the index with a throwaway object directory — the repository is not touched. The record is written only when a verification ran and the tree is the same after it as before; a file edited while the verification ran is not recorded as verified, and the step says so (as it does when git cannot write the tree).
+- The verifier step always really verifies: it removes `verified.timestamp` before its run, so the 120 s cache of the generated `verify-all.sh` no longer turns a second pass of the step into a skip.
+- `guard-git` skips its own verification when the commit is made from that same tree and it would run that same script. Otherwise the verification runs in the hook as before — within a budget (`APD_COMMIT_GATE_SEC`, default 22 s, at most 25). A verification or a pipeline gate that does not finish in time REFUSES the commit (`commit-gate-timeout`) and is killed with everything it started; the message names the way out: run the verifier step again, which has no time limit, and commit without changing a file.
+- `pipeline-post-commit` recognises a signed commit anywhere in the command (`git status --short && APD_ORCHESTRATOR_COMMIT=1 git commit …` left the finished pipeline standing), through the same judge as the guard. The plain form resets as before. The forms it used to miss reset when a commit landed in this project and keep the pipeline when HEAD did not move. Its hook is asked about every git command and has 60 s instead of 10 (a reset cut off at 10 s lost the run's `run-end` line).
+
+**Behaviour to expect.**
+- A file changed after the verifier step on a project with a slow verification blocks the commit until the verifier step is run again. That includes a commit-message file written into the project and a commit made in a nested repository.
+- A verification that writes files into the tree (caches, reports) never matches its own record: add them to `.gitignore`.
+- A pipeline that passed its verifier step before the update has no record: its commit runs the verification in the hook once more, within the budget.
+- On a project whose verification is slower than the budget, commits used to go through unjudged. They are judged now — a commit the gate or the verification refuses is refused.
+
+**Stated limits.** The fingerprint covers the project directory; in a repository larger than the project a change outside it is not seen. Ignored files are not part of it. Uncommitted changes inside a submodule or nested repository are not seen, only the commit it stands on. A nested repository with no commit, or a file git cannot read, gives no fingerprint: nothing is recorded as verified and the verification runs in the hook every time. A verification whose result depends on something other than the files (a database, the network) is trusted as of the verifier step. The verification's output is shown when it ends, not while it runs. The pipeline gate reads every unstaged and untracked file; several thousand of them do not fit the budget and the commit is refused until they are staged or ignored.
+
 ## v8.0.0 — 2026-11-16
 
 Major: the three guards that read shell commands — `guard-bash-scope`, `guard-git`, `guard-spec-blind` — are judged by one compiled program, `apd-guard`, whose source is in the repository (`guard/`). Nothing about how a project is set up changes; what a guard allows and refuses changes in the ways listed below, which is why this is a major version.

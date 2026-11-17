@@ -156,10 +156,10 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git commit*)",
+            "if": "Bash(git *)",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/plugins/apd/bin/adapter/cc/pipeline-post-commit"],
-            "timeout": 10
+            "timeout": 60
           }
         ]
       }

@@ -20439,6 +20439,225 @@ _c158 "SPEC, workflow.md and the pipeline guide do not promise that compaction i
 rm -rf "$G158_T"
 
 
+section "159. The commit gate answers before the hook's time limit (verified tree, bounded stages, post-commit)"
+
+# guard-git ran the project's verification inside a 30 s PreToolUse hook. Claude
+# Code cancels a hook at its limit and then RUNS the call: on a project whose
+# verification takes minutes every signed commit went through unjudged (six of
+# six on one real project in a day). The verifier step now records the tree it
+# verified; the guard skips its own run on that same tree and refuses — instead
+# of being cancelled — when the tree differs and the verification does not fit.
+G159_T="$(mktemp -d "${TMPDIR:-/tmp}/apd-g159.XXXXXX")"; G159_T=$(cd "$G159_T" && pwd -P)
+G159_GG="$APD_PLUGIN_ROOT/bin/core/guard-git"
+G159_PC="$APD_PLUGIN_ROOT/bin/core/pipeline-post-commit"
+G159_CMD='APD_ORCHESTRATOR_COMMIT=1 git commit -m "g159"'
+_c159() { if eval "$2"; then pass "$1"; PASSES=$((PASSES + 1)); else fail "$1"; FAILS=$((FAILS + 1)); fi; }
+_git159() { git -C "$1" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "${@:2}" >/dev/null 2>&1; }
+# _mk159 <name> [subdir] — a git project past the reviewer step, with a
+# verification that counts its runs outside the tree and takes its duration and
+# exit status from the environment; then the verifier step. Prints the project dir.
+_mk159() {
+    local root="$G159_T/$1" d; d="$root${2:+/$2}"
+    mkdir -p "$d/src"; git init -q "$root" >/dev/null 2>&1
+    printf '.apd/pipeline/\n.claude/memory/pipeline-events.log\n.claude/memory/guard-audit.log\n.claude/memory/pipeline-metrics.log\n.claude/memory/session-log.md\n' > "$d/.gitignore"
+    echo one > "$d/src/a.txt"; echo keep > "$d/src/b.txt"
+    _git159 "$root" add -A; _git159 "$root" commit -m base
+    _v67_make_state "$d" "ADVERSARIAL:0:0:0" >/dev/null 2>&1
+    mkdir -p "$d/.claude/scripts"
+    cat > "$d/.claude/scripts/verify-all.sh" <<'EOF_V159'
+#!/bin/bash
+[ -n "${G159_CACHE:-}" ] && [ -f "$(dirname "$0")/../../.apd/pipeline/verified.timestamp" ] && exit 0
+echo run >> "${G159_RUNS:-/dev/null}"
+[ -n "${G159_TOUCH:-}" ] && echo edited >> "$G159_TOUCH"
+[ -n "${G159_DETACH:-}" ] && { python3 -c 'import os, sys, time; os.setsid(); time.sleep(float(sys.argv[2]))' g159det "$G159_DETACH" & }
+[ -n "${G159_STUBBORN:-}" ] && { trap "" TERM; while :; do sleep 0.3; done; }
+[ -n "${G159_SLEEP:-}" ] && sleep "$G159_SLEEP"
+echo "verify output line"
+exit "${G159_RC:-0}"
+EOF_V159
+    chmod +x "$d/.claude/scripts/verify-all.sh"
+    echo two > "$d/src/a.txt"                      # the task's change
+    _git159 "$root" add -A
+    G159_RUNS="$G159_T/$1.runs" _v67_run_verifier "$d" > "$G159_T/$1.verifier" 2>&1
+    printf '%s' "$d"
+}
+_runs159() { local n; n=$(wc -l < "$G159_T/$1.runs" 2>/dev/null | tr -d ' '); echo "${n:-0}"; }
+# _gg159 <name> <dir> [env…] — the guard on a signed commit; prints the exit code, output in <name>.out
+_gg159() { local n="$1" d="$2"; shift 2; ( cd "$d" && env G159_RUNS="$G159_T/$n.runs" APD_PROJECT_DIR="$d" "$@" bash "$G159_GG" --command "$G159_CMD" > "$G159_T/$n.out" 2>&1 ); echo $?; }
+_log159() { cat "$1/.claude/memory/guard-audit.log" 2>/dev/null; }
+# _vouch159 <dir> — the tree the record vouches for; empty when it vouches for none
+_vouch159() { head -1 "$1/.apd/pipeline/verified-tree.done" 2>/dev/null | cut -d"|" -f3 | cut -d. -f2; }
+
+G159_A=$(_mk159 a)
+_c159 "fixture: the verifier step passed and ran the verification once" \
+    '[ -f "$G159_A/.apd/pipeline/verifier.done" ] && [ "$(_runs159 a)" = 1 ]'
+_c159 "the verifier step records, signed like a step flag, the tree it verified and the script that verified it" \
+    'G159_REC="$G159_A/.apd/pipeline/verified-tree.done"; [ "$(head -1 "$G159_REC" | cut -d"|" -f3 | cut -d. -f1)" = "$(git -C "$G159_A" rev-parse HEAD)" ] && [ "$(_vouch159 "$G159_A" | wc -c | tr -d " ")" -ge 41 ] && [ "$(head -1 "$G159_REC" | cut -d"|" -f4)" = "s$(cksum < "$G159_A/.claude/scripts/verify-all.sh" | tr -s " \t" "-")" ] && "$( source "$APD_PLUGIN_ROOT/bin/lib/verified-tree.sh"; _vt_validator )" verify -step verified-tree -pipeline-dir "$G159_A/.apd/pipeline" >/dev/null 2>&1'
+_c159 "a signed commit from that same tree is allowed WITHOUT running the verification again" \
+    '[ "$(_gg159 a "$G159_A")" = 0 ] && [ "$(_runs159 a)" = 1 ] && grep -q "Verification holds" "$G159_T/a.out" && grep -q "commit allowed" "$G159_T/a.out"'
+_fp159() { ( PROJECT_DIR="$1"; PIPELINE_DIR="$1/.apd/pipeline"; source "$APD_PLUGIN_ROOT/bin/lib/verified-tree.sh" 2>/dev/null; _vt_fingerprint 2>/dev/null ); }
+G159_FP1=$(_fp159 "$G159_A"); _git159 "$G159_A" reset -q; G159_FP2=$(_fp159 "$G159_A"); _git159 "$G159_A" add -A
+_c159 "staging or unstaging changes nothing: the fingerprint is about content, and it is the one on record" \
+    '[ -n "$G159_FP1" ] && [ "$G159_FP1" = "$G159_FP2" ] && [ "$G159_FP1" = "$(head -1 "$G159_A/.apd/pipeline/verified-tree.done" 2>/dev/null | cut -d"|" -f3)" ]'
+echo three > "$G159_A/src/a.txt"; _git159 "$G159_A" add -A
+_c159 "a file changed after the verifier step: the verification runs here, and a quick passing one allows the commit" \
+    '[ "$(_gg159 a "$G159_A")" = 0 ] && [ "$(_runs159 a)" = 2 ] && grep -q "Running pre-commit verification" "$G159_T/a.out" && grep -q "verify output line" "$G159_T/a.out"'
+_c159 "… a failing one refuses it (verify-failed), with the verification's own output shown" \
+    '[ "$(_gg159 a "$G159_A" G159_RC=1)" = 2 ] && [ "$(_runs159 a)" = 3 ] && grep -q "verify output line" "$G159_T/a.out" && _log159 "$G159_A" | grep -q "|BLOCK|orchestrator|verify-failed|"'
+G159_T0=$SECONDS
+_c159 "… one that does not fit REFUSES (commit-gate-timeout) instead of running into the hook's limit" \
+    '[ "$(_gg159 a "$G159_A" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 2 ] && grep -q "The verification did not finish in 3s" "$G159_T/a.out" && _log159 "$G159_A" | grep -q "|BLOCK|orchestrator|commit-gate-timeout|"'
+_c159 "… well inside the limit, and nothing of the verification is left running" \
+    '[ $((SECONDS - G159_T0)) -le 12 ] && ! pgrep -f "sleep 47\.$$\$" >/dev/null'
+_c159 "… and the message names the way out: the verifier step, which has no time limit" \
+    'grep -q "pipeline verifier" "$G159_T/a.out" && grep -q "unjudged" "$G159_T/a.out"'
+_c159 "the content put back to what was verified: the record holds again (content, not time)" \
+    'echo two > "$G159_A/src/a.txt"; _git159 "$G159_A" add -A; G159_N=$(_runs159 a); [ "$(_gg159 a "$G159_A" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 0 ] && [ "$(_runs159 a)" = "$G159_N" ]'
+_c159 "a new untracked file is a different tree" \
+    'echo x > "$G159_A/src/new.txt"; G159_N=$(_runs159 a); [ "$(_gg159 a "$G159_A")" = 0 ] && [ "$(_runs159 a)" = $((G159_N + 1)) ]; G159_R=$?; rm -f "$G159_A/src/new.txt"; [ "$G159_R" = 0 ]'
+_c159 "a deleted file is a different tree" \
+    'rm -f "$G159_A/src/b.txt"; G159_N=$(_runs159 a); [ "$(_gg159 a "$G159_A" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 2 ] && [ "$(_runs159 a)" = $((G159_N + 1)) ]; G159_R=$?; echo keep > "$G159_A/src/b.txt"; [ "$G159_R" = 0 ]'
+_c159 "a name with a space and a non-ASCII letter is read as that file" \
+    'echo x > "$G159_A/src/š a.txt"; _git159 "$G159_A" add -A; G159_RUNS="$G159_T/a.runs" _v67_run_verifier "$G159_A" >/dev/null 2>&1; G159_N=$(_runs159 a); [ "$(_gg159 a "$G159_A")" = 0 ] && [ "$(_runs159 a)" = "$G159_N" ] && echo y > "$G159_A/src/š a.txt" && [ "$(_gg159 a "$G159_A" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 2 ]; G159_R=$?; rm -f "$G159_A/src/š a.txt"; _git159 "$G159_A" add -A; [ "$G159_R" = 0 ]'
+_c159 "a symbolic link pointed at another file with the same content is a different tree" \
+    'echo same > "$G159_A/src/c1.txt"; echo same > "$G159_A/src/c2.txt"; ln -s c1.txt "$G159_A/src/l"; _git159 "$G159_A" add -A; G159_F1=$(_fp159 "$G159_A"); ln -sfn c2.txt "$G159_A/src/l"; G159_F2=$(_fp159 "$G159_A"); rm -f "$G159_A/src/l" "$G159_A/src/c1.txt" "$G159_A/src/c2.txt"; _git159 "$G159_A" add -A; [ -n "$G159_F1" ] && [ "$G159_F1" != "$G159_F2" ]'
+_c159 "running the verifier step again records the tree as it now is, and the commit is then allowed" \
+    'echo four > "$G159_A/src/a.txt"; _git159 "$G159_A" add -A; G159_RUNS="$G159_T/a.runs" _v67_run_verifier "$G159_A" >/dev/null 2>&1; G159_N=$(_runs159 a); [ "$(_gg159 a "$G159_A" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 0 ] && [ "$(_runs159 a)" = "$G159_N" ]'
+_c159 "what the framework writes after the verifier step (its memory directory) does not make the tree different" \
+    'echo "line" >> "$G159_A/.claude/memory/notes-g159.md"; G159_N=$(_runs159 a); [ "$(_gg159 a "$G159_A" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 0 ] && [ "$(_runs159 a)" = "$G159_N" ]'
+_c159 "HEAD moved since the verifier step: a different tree even with the same files" \
+    '_git159 "$G159_A" reset -q; _git159 "$G159_A" commit --allow-empty -m other; _git159 "$G159_A" add -A; G159_N=$(_runs159 a); [ "$(_gg159 a "$G159_A" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 2 ] && [ "$(_runs159 a)" = $((G159_N + 1)) ]'
+
+# no record: a pipeline that passed its verifier step under an older version
+G159_B=$(_mk159 b); rm -f "$G159_B/.apd/pipeline/verified-tree.done"
+_c159 "no record: the verification runs here as before — quick passes, slow refuses" \
+    '[ "$(_gg159 b "$G159_B")" = 0 ] && [ "$(_runs159 b)" = 2 ] && [ "$(_gg159 b "$G159_B" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 2 ] && ! pgrep -f "sleep 47\.$$\$" >/dev/null'
+_c159 "a record that is not a record (one field, or empty) is no record" \
+    'echo "$(git -C "$G159_B" rev-parse HEAD)" > "$G159_B/.apd/pipeline/verified-tree.done"; G159_N=$(_runs159 b); [ "$(_gg159 b "$G159_B")" = 0 ] && [ "$(_runs159 b)" = $((G159_N + 1)) ] && : > "$G159_B/.apd/pipeline/verified-tree.done" && [ "$(_gg159 b "$G159_B")" = 0 ] && [ "$(_runs159 b)" = $((G159_N + 2)) ]'
+_c159 "a record written by hand, with the right tree and script but no signature, vouches for nothing" \
+    'printf "%s|%s|%s|%s\n" "$(date +%s)" "x" "$(_fp159 "$G159_B")" "s$(cksum < "$G159_B/.claude/scripts/verify-all.sh" | tr -s " \t" "-")" > "$G159_B/.apd/pipeline/verified-tree.done"; G159_N=$(_runs159 b); [ "$(_gg159 b "$G159_B")" = 0 ] && [ "$(_runs159 b)" = $((G159_N + 1)) ]'
+_c159 "the orchestrator may not write the record (guard-pipeline-state)" \
+    '( cd "$G159_B" && APD_PROJECT_DIR="$G159_B" bash "$APD_PLUGIN_ROOT/bin/core/guard-pipeline-state" --file-path "$G159_B/.apd/pipeline/verified-tree.done" >/dev/null 2>&1 ); [ $? = 2 ]'
+G159_H=$(_mk159 h)
+_c159 "a rollback of the verifier step removes the record with the step" \
+    'G159_K=no; [ -n "$(_vouch159 "$G159_H")" ] && G159_K=yes; APD_PROJECT_DIR="$G159_H" bash "$APD_PLUGIN_ROOT/bin/core/pipeline-advance" rollback >/dev/null 2>&1; [ "$G159_K" = yes ] && [ ! -e "$G159_H/.apd/pipeline/verified-tree.done" ] && [ ! -e "$G159_H/.apd/pipeline/verifier.done" ]'
+
+# what the record may and may not vouch for (independent audit of this change)
+G159_J=$(_mk159 j)
+_c159 "the verifier step run again really verifies: the script's own 120 s cache does not turn the recorded run into a skip" \
+    'G159_N=$(_runs159 j); G159_CACHE=1 G159_RUNS="$G159_T/j.runs" _v67_run_verifier "$G159_J" >/dev/null 2>&1; [ "$(_runs159 j)" = $((G159_N + 1)) ] && [ -n "$(_vouch159 "$G159_J")" ]'
+_c159 "a file edited WHILE the verification ran: the step passes, says so, and records nothing — the commit verifies again" \
+    'G159_TOUCH="$G159_J/src/a.txt" G159_RUNS="$G159_T/j.runs" _v67_run_verifier "$G159_J" > "$G159_T/j.v2" 2>&1; [ -f "$G159_J/.apd/pipeline/verifier.done" ] && [ -z "$(_vouch159 "$G159_J")" ] && grep -q "changed while the verification ran" "$G159_T/j.v2" && G159_N=$(_runs159 j) && [ "$(_gg159 j "$G159_J")" = 0 ] && [ "$(_runs159 j)" = $((G159_N + 1)) ]'
+_c159 "the verifier step with no verification to run leaves no record — not even the one of an earlier pass" \
+    'G159_RUNS="$G159_T/j.runs" _v67_run_verifier "$G159_J" >/dev/null 2>&1; G159_K=no; [ -n "$(_vouch159 "$G159_J")" ] && G159_K=yes; chmod -x "$G159_J/.claude/scripts/verify-all.sh"; G159_RUNS="$G159_T/j.runs" _v67_run_verifier "$G159_J" >/dev/null 2>&1; chmod +x "$G159_J/.claude/scripts/verify-all.sh"; [ "$G159_K" = yes ] && [ -f "$G159_J/.apd/pipeline/verifier.done" ] && [ -z "$(_vouch159 "$G159_J")" ] && [ "$(head -1 "$G159_J/.apd/pipeline/verified-tree.done" | cut -d"|" -f3 | cut -d. -f1)" = "$(git -C "$G159_J" rev-parse HEAD)" ]'
+_c159 "a verifier step whose verification FAILS takes the record of the earlier pass with it" \
+    'G159_K=no; [ -f "$G159_J/.apd/pipeline/verified-tree.done" ] && G159_K=yes; G159_RC=1 G159_RUNS="$G159_T/j.runs" _v67_run_verifier "$G159_J" >/dev/null 2>&1; G159_R=no; [ ! -e "$G159_J/.apd/pipeline/verified-tree.done" ] && G159_R=yes; G159_RUNS="$G159_T/j.runs" _v67_run_verifier "$G159_J" >/dev/null 2>&1; [ "$G159_K" = yes ] && [ "$G159_R" = yes ] && [ -n "$(_vouch159 "$G159_J")" ]'
+_c159 "a record made by ANOTHER verification script (the Codex one) does not excuse this one" \
+    'mkdir -p "$G159_J/.codex/bin" && printf "#!/bin/bash\nexit 0\n" > "$G159_J/.codex/bin/verify-all.sh" && chmod +x "$G159_J/.codex/bin/verify-all.sh" && G159_RUNS="$G159_T/j.runs" _v67_run_verifier "$G159_J" >/dev/null 2>&1; G159_N=$(_runs159 j); [ -n "$(_vouch159 "$G159_J")" ] && [ "$(_gg159 j "$G159_J" G159_RC=1)" = 2 ] && [ "$(_runs159 j)" = $((G159_N + 1)) ]; G159_R=$?; rm -rf "$G159_J/.codex"; [ "$G159_R" = 0 ]'
+_c159 "the library that reads the record has no function that writes it" \
+    'rm -f "$G159_J/.apd/pipeline/verified-tree.done"; ( PROJECT_DIR="$G159_J"; PIPELINE_DIR="$G159_J/.apd/pipeline"; source "$APD_PLUGIN_ROOT/bin/lib/verified-tree.sh"; for G159_FN in $(declare -F | awk "{print \$3}" | grep "^_vt_"); do "$G159_FN" >/dev/null 2>&1 < /dev/null; done ); [ ! -e "$G159_J/.apd/pipeline/verified-tree.done" ] && [ "$(grep -c "^_vt_[a-z_]*()" "$APD_PLUGIN_ROOT/bin/lib/verified-tree.sh")" -ge 6 ]'
+G159_K2=$(_mk159 k)
+_c159 "a tracked file deleted while a staged copy of it exists (git would call it a rename) is a different tree" \
+    'cp "$G159_K2/src/b.txt" "$G159_K2/src/b2.txt"; _git159 "$G159_K2" add -A; G159_RUNS="$G159_T/k.runs" _v67_run_verifier "$G159_K2" >/dev/null 2>&1; [ "$(_gg159 k "$G159_K2")" = 0 ] && [ "$(_runs159 k)" = 2 ] && rm -f "$G159_K2/src/b.txt" && [ "$(_gg159 k "$G159_K2" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 2 ]; G159_R=$?; echo keep > "$G159_K2/src/b.txt"; [ "$G159_R" = 0 ]'
+_c159 "a file made executable is a different tree" \
+    'G159_RUNS="$G159_T/k.runs" _v67_run_verifier "$G159_K2" >/dev/null 2>&1; G159_N=$(_runs159 k); [ "$(_gg159 k "$G159_K2")" = 0 ] && [ "$(_runs159 k)" = "$G159_N" ] && chmod +x "$G159_K2/src/a.txt" && [ "$(_gg159 k "$G159_K2" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 2 ]; G159_R=$?; chmod -x "$G159_K2/src/a.txt"; [ "$G159_R" = 0 ]'
+_c159 "a nested repository that moved to another commit is a different tree" \
+    'git init -q "$G159_K2/lib" && echo 1 > "$G159_K2/lib/f" && _git159 "$G159_K2/lib" add -A && _git159 "$G159_K2/lib" commit -m one && _git159 "$G159_K2" add -A; G159_RUNS="$G159_T/k.runs" _v67_run_verifier "$G159_K2" >/dev/null 2>&1; G159_N=$(_runs159 k); [ "$(_gg159 k "$G159_K2")" = 0 ] && [ "$(_runs159 k)" = "$G159_N" ] && echo 2 > "$G159_K2/lib/f" && _git159 "$G159_K2/lib" commit -am two && [ "$(_gg159 k "$G159_K2" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 2 ]'
+mkdir -p "$G159_K2/gen" && ( cd "$G159_K2/gen" && for G159_I in $(seq 1 1500); do echo "$G159_I" > "f$G159_I.txt"; done ); _git159 "$G159_K2" add gen
+G159_RUNS="$G159_T/k.runs" _v67_run_verifier "$G159_K2" >/dev/null 2>&1
+_c159 "fifteen hundred new files: recorded, the commit from that tree allowed without a run, and the fingerprint is one git pass, not one process per file" \
+    'G159_N=$(_runs159 k); [ -n "$(_vouch159 "$G159_K2")" ] && [ "$(_gg159 k "$G159_K2")" = 0 ] && [ "$(_runs159 k)" = "$G159_N" ] && G159_T0=$SECONDS && [ -n "$(_fp159 "$G159_K2")" ] && [ $((SECONDS - G159_T0)) -le 6 ]'
+_c159 "a file git was told to assume unchanged, or to skip, is read all the same" \
+    'G159_RUNS="$G159_T/k.runs" _v67_run_verifier "$G159_K2" >/dev/null 2>&1; G159_R=0; for G159_BIT in assume-unchanged skip-worktree; do [ "$(_gg159 k "$G159_K2" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 0 ] || G159_R=1; git -C "$G159_K2" update-index "--$G159_BIT" src/b.txt; echo BROKEN > "$G159_K2/src/b.txt"; [ "$(_gg159 k "$G159_K2" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 2 ] || G159_R=1; echo keep > "$G159_K2/src/b.txt"; git -C "$G159_K2" update-index "--no-$G159_BIT" src/b.txt; done; [ "$G159_R" = 0 ]'
+G159_CL=$(_mk159 "co:lon")
+_c159 "a project path with a colon in it is recorded and skipped like any other" \
+    '[ -n "$(_vouch159 "$G159_CL")" ] && [ "$(_gg159 "co:lon" "$G159_CL" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 0 ]'
+_c159 "a file git cannot read: the verifier step passes, says nothing is recorded, and vouches for no tree" \
+    '[ "$(id -u)" = 0 ] || { echo s > "$G159_CL/src/secret"; chmod 000 "$G159_CL/src/secret"; G159_RUNS="$G159_T/co:lon.runs" _v67_run_verifier "$G159_CL" > "$G159_T/cl.v2" 2>&1; chmod 644 "$G159_CL/src/secret"; [ -f "$G159_CL/.apd/pipeline/verifier.done" ] && [ -z "$(_vouch159 "$G159_CL")" ] && grep -q "git could not write the tree" "$G159_T/cl.v2"; }'
+_c159 "the new code parses under the system shell as well (bash 3.2 reads a case pattern inside a substitution differently)" \
+    'G159_R=0; for G159_SHELL in bash /bin/bash; do [ -x "$(command -v "$G159_SHELL")" ] || continue; for G159_FN in lib/verified-tree.sh core/guard-git core/pipeline-post-commit core/pipeline-advance; do "$G159_SHELL" -n "$APD_PLUGIN_ROOT/bin/$G159_FN" 2>/dev/null || G159_R=1; done; done; [ "$G159_R" = 0 ]'
+mkdir -p "$G159_T/tmpd3"
+_c159 "computing the fingerprint writes nothing into the repository and leaves no directory behind" \
+    'echo "g159 unique $$" > "$G159_K2/src/zz.txt"; G159_F1=$( TMPDIR="$G159_T/tmpd3" _fp159 "$G159_K2" ); [ -n "$G159_F1" ] && ! git -C "$G159_K2" cat-file -e "$(git -C "$G159_K2" hash-object "$G159_K2/src/zz.txt")" 2>/dev/null && [ -z "$(ls -A "$G159_T/tmpd3")" ] && [ -z "$(git -C "$G159_K2" status --porcelain -- src/zz.txt | grep -v "^??")" ]'
+_c159 "what git refuses to add (a nested repository with no commit) gives no fingerprint, so nothing is recorded" \
+    'git init -q "$G159_K2/hollow" && [ -z "$(_fp159 "$G159_K2")" ]; G159_R=$?; rm -rf "$G159_K2/hollow"; [ "$G159_R" = 0 ] && [ -n "$(_fp159 "$G159_K2")" ]'
+mkdir -p "$G159_T/gitshim" "$G159_T/tmpd2"; printf '#!/bin/bash\ncase " $* " in *" add -A "*) [ -n "${G159_GITSLEEP:-}" ] && sleep "$G159_GITSLEEP" ;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$G159_T/gitshim/git"; chmod +x "$G159_T/gitshim/git"
+_c159 "a fingerprint that does not finish refuses the commit as well, and leaves neither a process nor a directory" \
+    '[ "$(_gg159 j "$G159_J" PATH="$G159_T/gitshim:$PATH" G159_GITSLEEP="46.$$" APD_COMMIT_GATE_SEC=3 TMPDIR="$G159_T/tmpd2")" = 2 ] && grep -q "The verification did not finish in 3s" "$G159_T/j.out" && ! pgrep -f "sleep 46\.$$\$" >/dev/null && [ -z "$(ls -A "$G159_T/tmpd2")" ]'
+
+# a project that is a subdirectory of its repository
+G159_S=$(_mk159 s app)
+_c159 "project in a subdirectory of the repository: same tree allowed without a run, a changed file inside it seen" \
+    '[ "$(_gg159 s "$G159_S" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 0 ] && [ "$(_runs159 s)" = 1 ] && echo five > "$G159_S/src/a.txt" && [ "$(_gg159 s "$G159_S" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 2 ]'
+_c159 "… and a change elsewhere in that repository is not this project's tree (stated limit)" \
+    'echo two > "$G159_S/src/a.txt"; [ "$(_gg159 s "$G159_S" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 0 ] && echo x > "$G159_T/s/outside.txt" && [ "$(_gg159 s "$G159_S" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 0 ]'
+
+# a pipeline gate that does not finish
+G159_SH="$G159_T/shadow"; mkdir -p "$G159_SH/bin"; cp -R "$APD_PLUGIN_ROOT/bin/core" "$APD_PLUGIN_ROOT/bin/lib" "$G159_SH/bin/"; ln -s "$APD_PLUGIN_ROOT/bin/compiled" "$G159_SH/bin/compiled"; cp "$APD_PLUGIN_ROOT/VERSION" "$G159_SH/VERSION" 2>/dev/null
+printf '#!/bin/bash\necho "gate output line"\nsleep 48.%s\nexit 0\n' "$$" > "$G159_SH/bin/core/pipeline-gate"; chmod +x "$G159_SH/bin/core/pipeline-gate"
+G159_C=$(_mk159 c)
+_c159 "a pipeline gate that does not finish refuses the commit too, and is not left running" \
+    '( cd "$G159_C" && APD_COMMIT_GATE_SEC=3 APD_PROJECT_DIR="$G159_C" bash "$G159_SH/bin/core/guard-git" --command "$G159_CMD" > "$G159_T/c.out" 2>&1 ); [ $? = 2 ] && grep -q "The pipeline gate did not finish in 3s" "$G159_T/c.out" && grep -q "gate output line" "$G159_T/c.out" && ! pgrep -f "sleep 48\.$$\$" >/dev/null'
+_c159 "the guard's own budget is below the hook's time limit in hooks.json, whatever the environment asks for" \
+    'G159_CAP=$(sed -n "s/^\[ \"\$_CG_SEC\" -gt \([0-9]*\) \] .*/\1/p" "$G159_GG"); G159_HT=$(jq -r ".hooks.PreToolUse[] | .hooks[] | select((.args // [] | tostring) | test(\"guard-git\")) | .timeout" "$REPO_ROOT/hooks/hooks.json" | head -1); [ -n "$G159_CAP" ] && [ -n "$G159_HT" ] && [ "$G159_CAP" -le $((G159_HT - 5)) ] && ( cd "$G159_C" && G159_SLEEP=3 APD_COMMIT_GATE_SEC=1 APD_PROJECT_DIR="$G159_C" bash "$G159_GG" --command "$G159_CMD" 2>&1 | grep -q "Verification holds" )'
+mkdir -p "$G159_T/tmpd"
+_c159 "no temporary file of the guard is left behind, allowed or refused" \
+    '[ "$(_gg159 c "$G159_C" TMPDIR="$G159_T/tmpd")" = 0 ] && echo z > "$G159_C/src/a.txt" && [ "$(_gg159 c "$G159_C" TMPDIR="$G159_T/tmpd" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3)" = 2 ] && [ -z "$(ls -A "$G159_T/tmpd")" ]'
+_c159 "a temporary directory that cannot be used: the guard still judges, shows the verification's output, and leaves nothing in the pipeline directory" \
+    '[ "$(_gg159 c "$G159_C" TMPDIR=/nonexistent-g159 G159_RC=1)" = 2 ] && grep -q "verify output line" "$G159_T/c.out" && grep -q "Verification failed" "$G159_T/c.out" && [ "$(_gg159 c "$G159_C" TMPDIR=/nonexistent-g159)" = 0 ] && [ ! -e "$G159_C/.apd/pipeline/.commit-gate.out" ]'
+G159_T0=$SECONDS
+_c159 "a budget that is not a number is the default one, not none" \
+    '[ "$(_gg159 c "$G159_C" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=abc)" = 2 ] && grep -q "did not finish in 22s" "$G159_T/c.out" && [ $((SECONDS - G159_T0)) -le 27 ] && ! pgrep -f "sleep 47\.$$\$" >/dev/null'
+G159_T0=$SECONDS
+_c159 "a child of the verification that left its process group and keeps the output open does not keep the guard waiting" \
+    'G159_O=$( cd "$G159_C" && G159_DETACH="49.$$" G159_SLEEP=47.$$ APD_COMMIT_GATE_SEC=3 APD_PROJECT_DIR="$G159_C" bash "$G159_GG" --command "$G159_CMD" 2>&1 ); G159_E=$?; pkill -f "g159det 49.$$" 2>/dev/null; [ "$G159_E" = 2 ] && [ $((SECONDS - G159_T0)) -le 12 ] && printf "%s" "$G159_O" | grep -q "did not finish in 3s"'
+_c159 "a verification that ignores the request to stop is killed" \
+    '[ "$(_gg159 c "$G159_C" G159_STUBBORN=1 APD_COMMIT_GATE_SEC=3)" = 2 ] && sleep 1 && ! pgrep -f "$G159_C/.claude/scripts/verify-all.sh" >/dev/null'
+
+# no git at all, and a repository before its first commit
+G159_N="$G159_T/n"; mkdir -p "$G159_N"; _v67_make_state "$G159_N" "ADVERSARIAL:0:0:0" >/dev/null 2>&1; mkdir -p "$G159_N/.claude/scripts"; cp "$G159_A/.claude/scripts/verify-all.sh" "$G159_N/.claude/scripts/"
+G159_RUNS="$G159_T/n.runs" GIT_CEILING_DIRECTORIES="$G159_T" _v67_run_verifier "$G159_N" >/dev/null 2>&1
+_c159 "not a git checkout: nothing is recorded, and the verification runs before every commit" \
+    '[ -f "$G159_N/.apd/pipeline/verifier.done" ] && [ ! -e "$G159_N/.apd/pipeline/verified-tree.done" ] && [ "$(_gg159 n "$G159_N" GIT_CEILING_DIRECTORIES="$G159_T")" = 0 ] && [ "$(_runs159 n)" = 2 ]'
+_c159 "before the first commit, and for an edit of the same size in the second the index was written: the fingerprint follows the content" \
+    'mkdir -p "$G159_T/u" && git init -q "$G159_T/u" && echo 1 > "$G159_T/u/x" && _git159 "$G159_T/u" add x && G159_F1=$(_fp159 "$G159_T/u") && while :; do G159_S=$(date +%s); echo 1 > "$G159_T/u/x"; _git159 "$G159_T/u" add x; echo 2 > "$G159_T/u/x"; [ "$(date +%s)" = "$G159_S" ] && break; done && sleep 1 && G159_F2=$(_fp159 "$G159_T/u") && [ -n "$G159_F1" ] && [ "$G159_F1" != "$G159_F2" ]'
+
+# post-commit: the reset after a signed commit
+_pc159() { ( cd "$1" && APD_PROJECT_DIR="$1" bash "$G159_PC" --command "$2" > "$1.pc" 2>&1 ); }
+G159_D=$(_mk159 d)
+_c159 "post-commit: a signed commit behind another command, with HEAD where the verifier step saw it — no commit landed here, the pipeline is kept" \
+    '_pc159 "$G159_D" "git add src && $G159_CMD"; [ -f "$G159_D/.apd/pipeline/verifier.done" ] && grep -q "Pipeline kept" "$G159_D.pc"'
+_c159 "post-commit: a signed commit into ANOTHER repository (git -C) keeps the pipeline as well" \
+    '_pc159 "$G159_D" "APD_ORCHESTRATOR_COMMIT=1 git -C plugins/sdk commit -m x"; [ -f "$G159_D/.apd/pipeline/verifier.done" ]'
+_git159 "$G159_D" commit -m task
+_c159 "post-commit: a command that only mentions a signed commit resets nothing, even after HEAD moved" \
+    '_pc159 "$G159_D" "echo \"APD_ORCHESTRATOR_COMMIT=1 git commit -m x\""; _pc159 "$G159_D" "git commit -m unsigned"; [ -f "$G159_D/.apd/pipeline/verifier.done" ]'
+G159_G=$(_mk159 g); _git159 "$G159_G" commit -m task
+_c159 "post-commit: the signed commit is not the command's first word (git status --short && …) — the pipeline is reset" \
+    '[ -f "$G159_G/.apd/pipeline/verifier.done" ] && _pc159 "$G159_G" "git status --short && APD_ORCHESTRATOR_COMMIT=1 git commit -F msg.txt 2>&1 | tail -2; git log --oneline -1"; ! ls "$G159_G/.apd/pipeline"/*.done >/dev/null 2>&1 && [ ! -e "$G159_G/.apd/pipeline/verified-tree.done" ]'
+_c159 "… and the run's end is on record" \
+    'grep -q "|run-end|" "$G159_G/.claude/memory/pipeline-events.log"'
+G159_P=$(_mk159 p)
+_c159 "post-commit: the plain form resets whether or not HEAD moved, as it always did (a commit made from inside a nested repository)" \
+    '[ -n "$(_vouch159 "$G159_P")" ] && _pc159 "$G159_P" "$G159_CMD"; ! ls "$G159_P/.apd/pipeline"/*.done >/dev/null 2>&1'
+G159_Q=$(_mk159 q); rm -f "$G159_Q/.claude/scripts/verify-all.sh"; _v67_run_verifier "$G159_Q" >/dev/null 2>&1
+_c159 "post-commit in a project with no verification script: the step still recorded HEAD, a commit that did not land keeps the pipeline" \
+    '[ -z "$(_vouch159 "$G159_Q")" ] && _pc159 "$G159_Q" "git add src && $G159_CMD 2>&1 | tail -3"; [ -f "$G159_Q/.apd/pipeline/verifier.done" ] && grep -q "Pipeline kept" "$G159_Q.pc"'
+G159_E=$(_mk159 e); rm -f "$G159_E/.apd/pipeline/verified-tree.done"
+_c159 "post-commit: with no record a signed commit behind another command resets" \
+    '_pc159 "$G159_E" "git add src && $G159_CMD"; ! ls "$G159_E/.apd/pipeline"/*.done >/dev/null 2>&1'
+_c159 "with the pipeline reset the gate refuses the next commit, and its own words are shown" \
+    '[ "$(_gg159 e "$G159_E")" = 2 ] && [ "$(grep -c . "$G159_T/e.out")" -ge 3 ] && _log159 "$G159_E" | grep -q "|BLOCK|orchestrator|pipeline-incomplete|"'
+G159_SH2="$G159_T/shadow2"; mkdir -p "$G159_SH2/bin/compiled"; cp -R "$APD_PLUGIN_ROOT/bin/core" "$APD_PLUGIN_ROOT/bin/lib" "$G159_SH2/bin/"; cp "$APD_PLUGIN_ROOT/VERSION" "$G159_SH2/VERSION" 2>/dev/null
+G159_F=$(_mk159 f); rm -f "$G159_F/.apd/pipeline/verified-tree.done"
+_c159 "post-commit without the judge binary: an unsigned commit resets nothing, a signed one after another command does" \
+    '( cd "$G159_F" && APD_PROJECT_DIR="$G159_F" bash "$G159_SH2/bin/core/pipeline-post-commit" --command "git add -A && git commit -m unsigned" >/dev/null 2>&1 ); G159_K=no; [ -f "$G159_F/.apd/pipeline/verifier.done" ] && G159_K=yes; ( cd "$G159_F" && APD_PROJECT_DIR="$G159_F" bash "$G159_SH2/bin/core/pipeline-post-commit" --command "git add -A && APD_ORCHESTRATOR_COMMIT=1 git -C . commit -m x" >/dev/null 2>&1 ); [ "$G159_K" = yes ] && ! ls "$G159_F/.apd/pipeline"/*.done >/dev/null 2>&1'
+_c159 "hooks.json: post-commit is asked about every git command and has time to finish the reset" \
+    '[ "$(jq -r ".hooks.PostToolUse[] | .hooks[] | select((.args // [] | tostring) | test(\"pipeline-post-commit\")) | \"\(.if)|\(.timeout)\"" "$REPO_ROOT/hooks/hooks.json")" = "Bash(git *)|60" ]'
+_c159 "SPEC names the record, the refusal and the post-commit rule" \
+    'grep -q "verified-tree.done" "$REPO_ROOT/docs/SPEC.md" && grep -q "commit-gate-timeout" "$REPO_ROOT/docs/SPEC.md" && ! grep -q "Bash(git commit\*)" "$REPO_ROOT/docs/SPEC.md"'
+rm -rf "$G159_T"
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"

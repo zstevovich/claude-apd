@@ -68,19 +68,67 @@ fi
 [ "$RC" -eq 0 ] && [ "$OUT" = ok ] && exit 0
 { [ "$RC" -eq 0 ] && [ "$OUT" = commit ]; } || _apd_guard_failed guard-git "$RC" "$OUT"
 
-# A signed commit that the judge let through: pipeline gate + project verification
+# A signed commit that the judge let through: pipeline gate + project verification.
+#
+# Both run inside this hook, and Claude Code cancels a hook at its time limit
+# (30 s in hooks.json) and then RUNS the call — a gate that is still working at
+# that moment has let the commit through. So everything below answers before
+# the limit: each stage runs bounded, and a stage that does not finish REFUSES.
+# The verification itself is skipped when the tree is the one the verifier step
+# already verified with this same script (lib/verified-tree.sh); when it is not,
+# it runs here only as long as the budget allows.
+source "$(dirname "$0")/../lib/verified-tree.sh"
+_CG_SEC="${APD_COMMIT_GATE_SEC:-22}"
+case "$_CG_SEC" in ''|*[!0-9]*) _CG_SEC=22 ;; esac
+[ "$_CG_SEC" -gt 25 ] && _CG_SEC=25
+_CG_OUT=$(mktemp "${TMPDIR:-/tmp}/apd-cg.XXXXXX" 2>/dev/null) || _CG_OUT=""
+[ -n "$_CG_OUT" ] || { _CG_OUT="$PIPELINE_DIR/.commit-gate.out"; : > "$_CG_OUT" 2>/dev/null || _CG_OUT=/dev/null; }
+_cg_done() { [ "$_CG_OUT" != /dev/null ] && rm -f "$_CG_OUT" 2>/dev/null; rm -rf "${TMPDIR:-/tmp}"/apd-vt.$$.* 2>/dev/null; return 0; }
+trap _cg_done EXIT
+_cg_show() { [ -s "$_CG_OUT" ] && cat "$_CG_OUT" >&2; return 0; }
+_cg_timeout() {  # <what did not finish> <what to do, lines…>
+  local what="$1"; shift
+  _cg_show
+  echo "" >&2
+  echo "BLOCKED: $what did not finish in ${_CG_SEC}s. Commit rejected." >&2
+  echo "  Claude Code cancels this hook at its time limit and then runs the commit" >&2
+  echo "  unjudged, so the guard refuses instead of being cancelled." >&2
+  local l; for l in "$@"; do echo "$l" >&2; done
+  log_block "commit-gate-timeout"
+  exit 2
+}
+
 # 1. Pipeline gate
 if [ -x "$SCRIPT_DIR/pipeline-gate" ]; then
-  if ! bash "$SCRIPT_DIR/pipeline-gate" >&2; then
+  _vt_bounded "$_CG_SEC" "$_CG_OUT" bash "$SCRIPT_DIR/pipeline-gate"; _rc=$?
+  [ "$_rc" -eq 124 ] && _cg_timeout "The pipeline gate" \
+    "  Run it by hand to see where it stops: bash $SCRIPT_DIR/pipeline-gate"
+  _cg_show
+  if [ "$_rc" -ne 0 ]; then
     echo "" >&2
     _block "pipeline-incomplete" "BLOCKED: Pipeline steps are not completed. Commit rejected."
   fi
 fi
 # 2. Verification (build + lint + test) — verify-all.sh lives in the PROJECT
 if [ -x "$CLAUDE_DIR/scripts/verify-all.sh" ]; then
-  echo "-> Running pre-commit verification..." >&2
-  if ! bash "$CLAUDE_DIR/scripts/verify-all.sh" >&2; then
-    _block "verify-failed" "BLOCKED: Verification failed. Commit rejected."
+  _vt_bounded "$_CG_SEC" "$_CG_OUT" _vt_fingerprint; _rc=$?
+  _fp=""; [ "$_rc" -eq 0 ] && _fp=$(head -1 "$_CG_OUT" 2>/dev/null)
+  if _vt_record_ok && [ "$_fp" = "$(_vt_recorded_fp)" ] \
+     && [ "$(_vt_script_id "$CLAUDE_DIR/scripts/verify-all.sh")" = "$(_vt_recorded_script)" ]; then
+    echo "-> Verification holds: the tree is the one the verifier step passed." >&2
+  else
+    echo "-> Running pre-commit verification..." >&2
+    _vt_bounded "$_CG_SEC" "$_CG_OUT" bash "$CLAUDE_DIR/scripts/verify-all.sh"; _rc=$?
+    [ "$_rc" -eq 124 ] && _cg_timeout "The verification" \
+      "  The working tree is not the one the verifier step verified (a file changed" \
+      "  after it, or there is no record), and the verification does not fit here." \
+      "  Run the verifier step again — it has no time limit and records the tree:" \
+      "    bash $APD_SHORTCUT_DISPLAY pipeline verifier" \
+      "  then commit without changing a file in between (git add is fine)."
+    _cg_show
+    if [ "$_rc" -ne 0 ]; then
+      _block "verify-failed" "BLOCKED: Verification failed. Commit rejected."
+    fi
   fi
 fi
 # Pipeline reset happens in PostToolUse hook (pipeline-post-commit)

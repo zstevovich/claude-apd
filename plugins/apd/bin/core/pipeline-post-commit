@@ -24,13 +24,40 @@ if [ -z "$COMMAND" ]; then
   exit 0
 fi
 
-# Only react to successful APD commits. The prefix is tolerant of leading
-# whitespace and of multiple spaces between env var and the command, which
-# some hook payload formatters introduce.
-if echo "$COMMAND" | grep -qE "^[[:space:]]*APD_ORCHESTRATOR_COMMIT=1[[:space:]]+" \
-   && echo "$COMMAND" | grep -qiE "git[[:space:]]+commit"; then
+# Only react to a signed commit — wherever in the command it stands
+# (`git status --short && APD_ORCHESTRATOR_COMMIT=1 git commit …` is one; the
+# old test wanted the marker as the command's first word, so that commit left
+# its finished pipeline standing). The judge guard-git asks is asked here too:
+# it answers `commit` for a signed commit statement. Without the binary the
+# text test below decides.
+source "$(dirname "$0")/../lib/apd-guard.sh"
+source "$(dirname "$0")/../lib/verified-tree.sh"
+_signed_commit=false
+_bin=$(_apd_guard_bin)
+if [ -x "$_bin" ]; then
+  _out=$("$_bin" git --command "$COMMAND" --agent-type "" 2>/dev/null); _rc=$?
+  [ "$_rc" -eq 0 ] && [ "$_out" = commit ] && _signed_commit=true
+elif echo "$COMMAND" | grep -qE "(^|[^A-Za-z0-9_])APD_ORCHESTRATOR_COMMIT=1[[:space:]]+" \
+   && echo "$COMMAND" | grep -qiE "git[[:space:]]+(.*[[:space:]])?commit"; then
+  _signed_commit=true
+fi
+
+if [ "$_signed_commit" = true ]; then
   # Check if pipeline exists (it may already be reset)
   if [ -d "$PIPELINE_DIR" ] && ls "$PIPELINE_DIR"/*.done &>/dev/null 2>&1; then
+    # The plain form — the marker first, then `git commit` — resets as it
+    # always did. The forms this script used to miss (the commit behind another
+    # command, `git -C dir commit`) reset when a commit landed in THIS project:
+    # with HEAD still where the verifier step recorded it the commit failed or
+    # went into another repository, and the pipeline is kept, as it was before.
+    _plain=false
+    echo "$COMMAND" | grep -qE "^[[:space:]]*APD_ORCHESTRATOR_COMMIT=1[[:space:]]+" \
+      && echo "$COMMAND" | grep -qiE "git[[:space:]]+commit" && _plain=true
+    _was=$(_vt_recorded_head)
+    if [ "$_plain" = false ] && [ -n "$_was" ] && [ "$_was" = "$(_vt_head)" ]; then
+      echo "Pipeline kept: HEAD did not move, no commit landed in this project." >&2
+      exit 0
+    fi
     bash "$SCRIPT_DIR/pipeline-advance" reset >/dev/null 2>&1
     echo "Pipeline reset after successful commit." >&2
   fi

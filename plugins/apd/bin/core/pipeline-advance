@@ -90,6 +90,8 @@ source "$(dirname "$0")/../lib/dispatch-budget.sh"
 source "$(dirname "$0")/../lib/review-resume.sh"
 # v7.4 — run telemetry (an append-only event log; decides nothing, never fails a step)
 source "$(dirname "$0")/../lib/telemetry.sh"
+# which tree the verifier step verified (read by guard-git before a commit)
+source "$(dirname "$0")/../lib/verified-tree.sh"
 # _audit_info <reason> <detail> — one INFO line in guard-audit.log (SYNTHETIC under verify-apd)
 _audit_info() {
     local _t
@@ -1860,9 +1862,17 @@ function _check() {
                 break
             fi
         done
+        # The record of the verified tree is written below and only there; one
+        # left by an earlier pass of this step vouches for nothing now.
+        rm -f "$PIPELINE_DIR/verified-tree.done"
+        _VT_BEFORE=""
         if [ -n "$VERIFY_ALL" ]; then
             echo "" >&2
             echo "  Running build + tests..." >&2
+            # This run is what the record will vouch for: the script's own
+            # 120 s cache must not turn it into a skip.
+            rm -f "$PIPELINE_DIR/verified.timestamp"
+            _VT_BEFORE=$(_vt_fingerprint)
             _EV_VERIFY_T0=$(date +%s)
             VERIFY_OUT=$(bash "$VERIFY_ALL" 2>&1)
             VERIFY_EXIT=$?
@@ -1881,6 +1891,31 @@ function _check() {
         create_done "verifier"
         # Cache timestamp — verify-all.sh skips rebuild if fresh (<120s)
         echo "$NOW" > "$PIPELINE_DIR/verified.timestamp"
+        # The tree this verification passed on — guard-git skips its own run when
+        # the commit is made from the same tree with the same script, and refuses
+        # rather than time out when it is not. Recorded only when a verification
+        # ran and the tree is the same after it as before: a file edited while it
+        # ran was not verified.
+        _VT_REC=""
+        if [ -n "$VERIFY_ALL" ] && [ -n "$(_vt_head)" ]; then
+            if [ -z "$_VT_BEFORE" ]; then
+                echo "  ${MARK_WARN:-!} git could not write the tree of the working files (a file it cannot read, or a nested" >&2
+                echo "    repository with no commit) — nothing is recorded as verified, and the commit will run the" >&2
+                echo "    verification again." >&2
+            elif [ "$_VT_BEFORE" = "$(_vt_fingerprint)" ]; then
+                _VT_REC="$_VT_BEFORE|$(_vt_script_id "$VERIFY_ALL")"
+            else
+                echo "  ${MARK_WARN:-!} The working tree changed while the verification ran — it is not recorded as verified," >&2
+                echo "    and the commit will run the verification again. If the verification itself writes files" >&2
+                echo "    into the tree (caches, reports), add them to .gitignore." >&2
+            fi
+        fi
+        # Written on every pass in a git checkout — with no tree when there is
+        # nothing to vouch for — because post-commit reads the HEAD this step saw.
+        if [ -n "$(_vt_head)" ]; then
+            [ -n "$_VT_REC" ] || _VT_REC="$(_vt_head).|"
+            create_done "verified-tree" "$_VT_REC" >/dev/null 2>&1
+        fi
         apd_header "COMMIT ALLOWED" "total: $TOTAL"
         show_pipeline ""
         _guard_cancel_report verifier
@@ -2293,7 +2328,7 @@ EOF
                 # If verifier rolled back, also remove cache timestamp and trace summary.
                 # Supervision state falls too — it judged a FINAL diff that is no
                 # longer final once anything re-runs (v6.30).
-                [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md"
+                [ "$step" = "verifier" ] && rm -f "$PIPELINE_DIR/verified.timestamp" "$PIPELINE_DIR/verified-tree.done" "$PIPELINE_DIR/.trace-summary" "$PIPELINE_DIR/.adversarial-summary" "$PIPELINE_DIR/.adversarial-rationale.md" "$PIPELINE_DIR/.supervision-summary" "$PIPELINE_DIR/.supervision-rationale.md"
                 # Rollback to reviewer must also clear the adversarial summary, else
                 # the next verifier sees stale summary + new .adversarial-pending and
                 # mis-reports "Adversarial ran BEFORE reviewer step completed" when
