@@ -1237,12 +1237,21 @@ var stage0rt = []rtPair{
 // make it another path. $1 is what stood before the form, $2 what ended it.
 var reviewedRe = regexp.MustCompile(`(<[ \t]*|(?:^|[;&|(\n])[ \t]*cat[ \t]+)["']?(?:[A-Za-z0-9_./@%+=:,-]*/)?\.apd/pipeline/\.reviewed-files["']?([\s;&|)]|$)`)
 
+// listChangerRe: what could make `cat` another program in the same command.
+var listChangerRe = regexp.MustCompile(`(^|[^A-Za-z0-9_])(alias|hash|enable|function|eval|source|PATH|BASH_ALIASES|BASH_CMDS)([^A-Za-z0-9_]|$)|cat[ \t]*\(`)
+
 // readsOnlyTheList: every mention of the pipeline directory is such a form.
 func readsOnlyTheList(c string) bool {
 	if strings.Contains(c, "<<") { // a heredoc body is text of another language
 		return false
 	}
-	c = quotedOut(c)
+	if listChangerRe.MatchString(c) { // `cat` may be made something else
+		return false
+	}
+	c, ok := quotedOut(c)
+	if !ok {
+		return false
+	}
 	for k := 0; k < 16 && reviewedRe.MatchString(c); k++ {
 		c = reviewedRe.ReplaceAllString(c, " $2")
 	}
@@ -1253,12 +1262,26 @@ func readsOnlyTheList(c string) bool {
 // taken out wherever the shell would not read it as one — inside quotes, or
 // after a backslash. `dos2unix \< list` and `gzip ';' cat list` name the list
 // as an operand of a tool that rewrites it.
-func quotedOut(c string) string {
+//
+// It follows plain quoting only. Where the shell's quoting is anything more —
+// `$'…'` with its escaped quote, a comment, a backtick, a substitution inside
+// double quotes (its text is quoted afresh) — the
+// answer is "cannot tell", and the caller keeps the substring test: a program
+// handed to an interpreter in such a word would otherwise read as bare text.
+func quotedOut(c string) (string, bool) {
 	b := []byte(c)
 	q := byte(0)
 	for i := 0; i < len(b); i++ {
 		x := b[i]
 		switch {
+		case x == '`' && q != '\'':
+			return "", false
+		case q == 0 && x == '#':
+			return "", false
+		case q == 0 && x == '$' && i+1 < len(b) && b[i+1] == '\'':
+			return "", false
+		case q == '"' && x == '$' && i+1 < len(b) && b[i+1] == '(':
+			return "", false
 		case q == 0 && x == '\\':
 			// only what could start a form is taken out: `\.apd/pipeline/…` stays a mention
 			if i+1 < len(b) {
@@ -1277,7 +1300,7 @@ func quotedOut(c string) string {
 			b[i] = 1
 		}
 	}
-	return string(b)
+	return string(b), true
 }
 
 func (j *judge) stage0() bool {

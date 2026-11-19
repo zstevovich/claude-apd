@@ -517,10 +517,16 @@ muts=[
  ('names: a special name declared behind command does not withdraw the rule','internal/bashscope/judge.go','\t\tj.watch(a...)\n\t\tj.declare(a...)\n','\t\tj.declare(a...)\n'),
  ('names: printf with the name on the option leaves the variable a name','internal/bashscope/judge.go','\t\t} else if strings.HasPrefix(x, "-v") {','\t\t} else if false && strings.HasPrefix(x, "-v") {'),
  ('reviewed list: a heredoc body counts as a reading form','internal/bashscope/judge.go','\tif strings.Contains(c, "<<") { // a heredoc body','\tif false && strings.Contains(c, "<<") { // a heredoc body'),
- ('reviewed list: quoted and escaped characters start a reading form','internal/bashscope/judge.go','\tc = quotedOut(c)\n',''),
+ ('reviewed list: quoted and escaped characters start a reading form','internal/bashscope/judge.go','\tc, ok := quotedOut(c)\n','\t_, ok := quotedOut(c)\n'),
  ('reviewed list: an escaped character starts a reading form','internal/bashscope/judge.go','\t\t\t\tif strings.IndexByte(" \\t\\n<;&|(", b[i]) >= 0 {\n\t\t\t\t\tb[i] = 1\n\t\t\t\t}\n',''),
  ('reviewed list: an escaped ordinary character hides a mention','internal/bashscope/judge.go','\t\t\t\tif strings.IndexByte(" \\t\\n<;&|(", b[i]) >= 0 {\n\t\t\t\t\tb[i] = 1\n\t\t\t\t}\n','\t\t\t\tb[i-1], b[i] = 1, 1\n'),
  ('reviewed list: a quoted character starts a reading form','internal/bashscope/judge.go','\t\tcase q != 0 && strings.IndexByte(" \\t\\n<;&|(", x) >= 0:\n\t\t\tb[i] = 1\n',''),
+ ('reviewed list: a backtick is plain text','internal/bashscope/judge.go',"\t\tcase x == '`' && q != '\\'':\n\t\t\treturn \"\", false\n",''),
+ ('reviewed list: a comment is plain text','internal/bashscope/judge.go',"\t\tcase q == 0 && x == '#':\n\t\t\treturn \"\", false\n",''),
+ ('reviewed list: an ANSI-C word is plain quoting','internal/bashscope/judge.go',"\t\tcase q == 0 && x == '$' && i+1 < len(b) && b[i+1] == '\\'':\n\t\t\treturn \"\", false\n",''),
+ ('reviewed list: a substitution inside double quotes is plain text','internal/bashscope/judge.go',"\t\tcase q == '\"' && x == '$' && i+1 < len(b) && b[i+1] == '(':\n\t\t\treturn \"\", false\n",''),
+ ('reviewed list: cat made another program still reads','internal/bashscope/judge.go','\tif listChangerRe.MatchString(c) {','\tif false && listChangerRe.MatchString(c) {'),
+ ('reviewed list: a function named cat is not a changer','internal/bashscope/judge.go','([^A-Za-z0-9_]|$)|cat[ \\t]*\\(`)','([^A-Za-z0-9_]|$)`)'),
  ('reviewed list: cat as an operand of another tool','internal/bashscope/judge.go','(?:^|[;&|(\\n])[ \\t]*cat[ \\t]+)','(?:^|[\\s;&|(])cat[ \\t]+)'),
 ]
 ok=0

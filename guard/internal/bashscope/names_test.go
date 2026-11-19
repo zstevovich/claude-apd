@@ -412,7 +412,17 @@ func TestReviewedFilesListRead(t *testing.T) {
 			`echo x > ` + sp + `/a; perl -e 'open(F, "+< .apd/pipeline/.reviewed-files"); print F 1'`,
 			"rm -f " + sp + "/a; perl <<E\nopen(F, q(+< .apd/pipeline/.reviewed-files)); print F 1\nE",
 			`echo x > ` + sp + `/a; time cat .apd/pipeline/.reviewed-files`,
+			`rm -f ` + sp + `/a; cat() { dos2unix "$@"; }; cat .apd/pipeline/.reviewed-files`,
+			`rm -f ` + sp + `/a; cat () { dos2unix "$@"; }; cat .apd/pipeline/.reviewed-files`,
+			`rm -f ` + sp + `/a; function cat { dos2unix "$@"; }; cat .apd/pipeline/.reviewed-files`,
+			"shopt -s expand_aliases; rm -f " + sp + "/a; alias cat=dos2unix\ncat .apd/pipeline/.reviewed-files",
+			`rm -f ` + sp + `/a; hash -p /usr/bin/dos2unix cat; cat .apd/pipeline/.reviewed-files`,
+			`rm -f ` + sp + `/a; PATH=/x/bin:$PATH; cat .apd/pipeline/.reviewed-files`,
 			`echo x > ` + sp + `/a; dos2unix \.apd/pipeline/.reviewed-files`,
+			`rm -f ` + sp + `/a; perl -e$'#\'\nopen(F,q(+< .apd/pipeline/.reviewed-files));print F 1' \'`,
+			`rm -f ` + sp + `/a; echo "$(perl -e "open(F,q(+< .apd/pipeline/.reviewed-files));print F 1")"`,
+			"rm -f " + sp + "/a; echo \"`perl -e \"open(F,q(+< .apd/pipeline/.reviewed-files));print F 1\"`\"",
+			"rm -f " + sp + "/a # it's\nperl -e 'open(F,q(+< .apd/pipeline/.reviewed-files));print F 1' # '",
 		} {
 			if v := Judge(opts(root, root, cmd, c)); v.Code != PipelineState {
 				t.Errorf("%s: %q, want %q\n  %s", c.name, v.Code, PipelineState, cmd)
