@@ -92,6 +92,106 @@ type Reader struct {
 	unread error
 	// braced: words made by brace expansion so far, over the whole command
 	braced int
+	// NameMarks: an unquoted substitution whose output is one file-name component
+	// is written as a name mark instead of the bare `$`.
+	NameMarks bool
+	// NameFuncs: a function named basename or date is defined somewhere in what
+	// the reader has read — wherever it stands, a loop may reach it first.
+	NameFuncs bool
+}
+
+// NameJudge is asked about a variable written without quotes among the
+// arguments of `basename`: unquoted it may be several words, options included.
+type NameJudge interface {
+	NameVarOK(name string) bool
+}
+
+// Name marks. Each begins with `$`, so every rule that knows nothing of them
+// still reads the word as unresolved.
+const (
+	NameDigits = "$\x1d" // `$(date +%H%M)`: digits and the format's own letters, never empty
+	NameBase   = "$\x1c" // `$(basename …)`: no slash unless it is the lone `/`; blanks and dots are possible
+	NameWhole  = "$\x1b" // a NameBase written inside double quotes in the word itself: one word
+)
+
+var dateFmtRe = regexp.MustCompile(`^\+(%[YmdHMSsjyIuwUVWGgC]|[A-Za-z0-9_:-])+$`)
+
+var nameLitRe = regexp.MustCompile(`^[A-Za-z0-9_./@%+=:,][A-Za-z0-9_./@%+=:,-]*$`)
+
+// nameKind: the mark for a substitution that runs exactly `basename …` or
+// `date +FORMAT` (digits-only conversions), "" for anything else — a prefix
+// assignment, a redirection, a second command. basename takes one or two
+// arguments, each a plain literal that is not an option, a word in double
+// quotes (one word, whatever it holds) or a bare variable the judge vouches
+// for: with at most one operand it prints at most one name, and GNU `-z`, which
+// joins several names into a path, has nothing to join. text gives a node's source.
+func (r *Reader) nameKind(stmts []*syntax.Stmt, v Visitor, text func(syntax.Node) string) string {
+	if len(stmts) != 1 {
+		return ""
+	}
+	s := stmts[0]
+	if s.Negated || s.Background || s.Coprocess || len(s.Redirs) != 0 {
+		return ""
+	}
+	c, ok := s.Cmd.(*syntax.CallExpr)
+	if !ok || len(c.Assigns) != 0 || len(c.Args) == 0 {
+		return ""
+	}
+	switch c.Args[0].Lit() {
+	case "basename":
+		rest := c.Args[1:]
+		if len(rest) < 1 || len(rest) > 2 {
+			return ""
+		}
+		for _, a := range rest {
+			if !nameArg(a, v, text) {
+				return ""
+			}
+		}
+		return NameBase
+	case "date":
+		rest := c.Args[1:]
+		if len(rest) == 2 && rest[0].Lit() == "-u" {
+			rest = rest[1:]
+		}
+		if len(rest) == 1 && dateFmtRe.MatchString(rest[0].Lit()) {
+			return NameDigits
+		}
+	}
+	return ""
+}
+
+func nameArg(a *syntax.Word, v Visitor, text func(syntax.Node) string) bool {
+	if nameLitRe.MatchString(text(a)) {
+		return true
+	}
+	if len(a.Parts) != 1 {
+		return false
+	}
+	switch p := a.Parts[0].(type) {
+	case *syntax.DblQuoted:
+		return !p.Dollar
+	case *syntax.ParamExp:
+		// `$t` or `${t}`: any other form leaves a name here that no variable has
+		nj, ok := v.(NameJudge)
+		return ok && nj.NameVarOK(strings.Trim(text(p), "${}"))
+	}
+	return false
+}
+
+// NameText: the mark for `$(…)` given as text (a substitution kept as written
+// inside double quotes), "" when it is not a name substitution. A text with a
+// slash is never one: read literally it would be more than one component.
+func (r *Reader) NameText(text string, v Visitor) string {
+	if !strings.HasPrefix(text, "$(") || !strings.HasSuffix(text, ")") || strings.Contains(text, "/") {
+		return ""
+	}
+	src := text[2 : len(text)-1]
+	f, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(src), "")
+	if err != nil {
+		return ""
+	}
+	return r.nameKind(f.Stmts, v, func(n syntax.Node) string { return src[n.Pos().Offset():n.End().Offset()] })
 }
 
 type fn struct {
@@ -117,6 +217,12 @@ func (r *Reader) Walk(src string, v Visitor) error {
 	if err != nil {
 		return err
 	}
+	syntax.Walk(f, func(x syntax.Node) bool {
+		if d, ok := x.(*syntax.FuncDecl); ok && d.Name != nil && (d.Name.Value == "basename" || d.Name.Value == "date") {
+			r.NameFuncs = true
+		}
+		return true
+	})
 	w := &walker{Reader: r, src: src, v: v}
 	w.stmts(f.Stmts)
 	err, r.unread = r.unread, nil
@@ -280,7 +386,11 @@ func (w *walker) parts(ps []syntax.WordPart, quoted bool) string {
 				b.WriteString(t)
 			} else {
 				w.scoped(Substitution, func() { w.stmts(x.Stmts) })
-				b.WriteString("$")
+				if m := w.nameKind(x.Stmts, w.v, w.text); w.NameMarks && m != "" {
+					b.WriteString(m)
+				} else {
+					b.WriteString("$")
+				}
 			}
 		case *syntax.ProcSubst:
 			w.scoped(Substitution, func() { w.stmts(x.Stmts) })

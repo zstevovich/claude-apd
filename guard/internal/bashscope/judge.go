@@ -19,6 +19,15 @@ type target struct {
 	apd            bool
 }
 
+// names is what the name-mark rule needs to see across the whole command, the
+// nested shells included (they share the cfg).
+type names struct {
+	off      bool     // the rule is switched off: the command is judged as it was before the rule existed
+	dirs     []string // the directory each marked name was placed in
+	others   []string // every placed write that can leave something but a plain file or directory behind
+	withdraw bool     // the command can change which program a name runs, or how a word is split
+}
+
 type cfg struct {
 	projDir, projCanon, home, tmpdir, pluginRoot string
 	scopeRaw, scopeCanon                         []string
@@ -26,6 +35,7 @@ type cfg struct {
 	budget                                       *int
 	env                                          paths.Env
 	apdRoot                                      string // canonical plugins/apd directory; "" = unknown
+	names                                        *names
 }
 
 type cwdState struct {
@@ -61,7 +71,12 @@ type judge struct {
 	evals       int
 	envN, envV  []string // assignments that reach only the current command's environment
 	reason      string
-	lost        bool // the reader lost track of the shell's state at some point
+	lost        bool              // the reader lost track of the shell's state at some point
+	redirect    bool              // the target being added is a redirection's
+	plain       bool              // … or that of a tool that leaves only plain files or directories (mkdir, touch, tee)
+	nv          map[string]string // variables whose value carries a name mark, as the reader wrote it
+	loopBad     map[string]bool   // loop variables with an item that may be an option or several words
+	declared    map[string]bool   // names a declaration has touched: one may be read-only, and then an assignment changes nothing
 }
 
 // ---------- paths (internal/paths) ----------
@@ -83,6 +98,7 @@ func (c *cfg) inScope(p string) bool { return paths.InScope(p, c.scopeCanon) }
 // ---------- variables ----------
 
 func (j *judge) setvar(n, v string) {
+	delete(j.nv, n)
 	for i := range j.vn {
 		if j.vn[i] == n {
 			j.vv[i] = v
@@ -163,7 +179,230 @@ func varTail(p string) string {
 
 // ---------- targets ----------
 
-func (j *judge) add(t target) { t.apd = j.stmtAPD; j.targets = append(j.targets, t) }
+func (j *judge) add(t target) {
+	t.apd = j.stmtAPD
+	j.targets = append(j.targets, t)
+	if t.abs != "" && !j.redirect && !j.plain {
+		j.c.names.others = append(j.c.names.others, t.abs)
+	}
+}
+
+// ---------- names from a substitution (shell.NameDigits, NameBase, NameWhole) ----------
+//
+// The reader writes a mark where an unquoted `$(basename …)` or `$(date +…)`
+// stands. The judge takes every mark back out the moment a command arrives
+// (unmark), so each rule reads the words exactly as it always did; the marked
+// form is kept only for the targets of redirections and of mkdir, touch and tee,
+// and for variables assigned such a value (nv).
+
+const nameHole = "\x1d" // stands for the unknown part of a placed name; never part of a real scope root
+
+var marks = strings.NewReplacer(shell.NameDigits, "$", shell.NameBase, "$", shell.NameWhole, "$")
+var noMarks = strings.NewReplacer(shell.NameDigits, "", shell.NameBase, "", shell.NameWhole, "")
+var holeMarks = strings.NewReplacer(shell.NameDigits, nameHole, shell.NameBase, nameHole, shell.NameWhole, nameHole)
+
+func hasMark(s string) bool {
+	return strings.Contains(s, shell.NameDigits) || strings.Contains(s, shell.NameBase) || strings.Contains(s, shell.NameWhole)
+}
+
+func unmark(l []string) []string {
+	out := make([]string, len(l))
+	for i, s := range l {
+		out[i] = marks.Replace(s)
+	}
+	return out
+}
+
+// substNamed is subst with the marked value of every variable that has one.
+func (j *judge) substNamed(s string) string {
+	if len(j.nv) == 0 || !strings.Contains(s, "$") {
+		return j.subst(s)
+	}
+	vn, vv := j.vn, j.vv
+	j.vv = append([]string(nil), vv...)
+	for i, n := range vn {
+		if m, ok := j.nv[n]; ok {
+			j.vv[i] = m
+		}
+	}
+	s = j.subst(s)
+	j.vv = vv
+	return s
+}
+
+// textNames turns `$(basename …)` / `$(date +…)` kept as TEXT (it was written
+// inside double quotes) into its mark. whole: the text stands in the word as
+// written, so it is one word; from a variable's value it may be split.
+func (j *judge) textNames(s string, whole bool) string {
+	if !strings.Contains(s, "$(") || j.rd == nil {
+		return s
+	}
+	var b strings.Builder
+	for {
+		k := strings.Index(s, "$(")
+		if k < 0 {
+			break
+		}
+		e := strings.IndexAny(s[k+2:], "()`")
+		if e < 0 || s[k+2+e] != ')' {
+			b.WriteString(s[:k+2])
+			s = s[k+2:]
+			continue
+		}
+		e += k + 3
+		m := j.rd.NameText(s[k:e], j)
+		switch {
+		case m == "":
+			m = s[k:e]
+		case m == shell.NameBase && whole:
+			m = shell.NameWhole
+		}
+		b.WriteString(s[:k] + m)
+		s = s[e:]
+	}
+	return b.String() + s
+}
+
+var namePlainRe = regexp.MustCompile(`^[A-Za-z0-9_./@%+=:,-]*$`)
+var nameValueRe = regexp.MustCompile(`^[A-Za-z0-9_./@%+=:,][A-Za-z0-9_./@%+=:,*?\[\]-]*$`)
+
+// NameVarOK (shell.NameJudge): `$(basename $t .php)` — t, unquoted, is one word
+// that is not an option. Its value is known, begins with an ordinary character
+// and has no blank; a pattern in it expands to file names that begin the same
+// way. A loop variable answers for every item of its list.
+func (j *judge) NameVarOK(n string) bool {
+	if j.loopBad[n] {
+		return false
+	}
+	v, ok := j.assigned(n)
+	return ok && nameValueRe.MatchString(v)
+}
+
+// nameTarget places a target whose only unresolved part is ONE path component
+// built around name marks, in a directory that is literally in the session
+// scratchpad: `$S/out-$(basename $t .php).txt`, `<scratchpad>/rv-$(date +%H%M)/x`.
+// One basename at most: two can spell `../`. The output of such a substitution
+// has no slash, so the write stays in that directory — unless a name it can
+// produce is a symbolic link there. Every existing entry the name can be is
+// therefore resolved; what THIS command may plant, and whether basename and date
+// are still the programs, is settled for the whole command in Judge. s has the
+// variables filled in; word: the target is an argument, not a redirection.
+func (j *judge) nameTarget(s string, word bool) (abs string, ok bool) {
+	if unresolved(noMarks.Replace(s)) { // also refused below, by the plain-characters rule
+		return
+	}
+	if !strings.HasPrefix(s, "/") {
+		if j.cwdUnknown || strings.HasPrefix(s, "~") {
+			return
+		}
+		s = j.cwd + "/" + s
+	}
+	k := strings.Index(s, "$")
+	d := strings.LastIndex(s[:k], "/")
+	dir, comp, tail := s[:d], s[d+1:], ""
+	if i := strings.Index(comp, "/"); i >= 0 {
+		comp, tail = comp[:i], comp[i+1:]
+	}
+	// plain characters only: a pattern, a blank or a brace in the written part is
+	// the shell's to expand, not a name — and so is another variable or
+	// substitution, in this component or after it
+	if dir == "" || hasMark(tail) || !namePlainRe.MatchString(dir+noMarks.Replace(comp)+tail) {
+		return
+	}
+	bases := strings.Count(comp, shell.NameBase) + strings.Count(comp, shell.NameWhole)
+	if bases > 1 || (word && strings.Contains(comp, shell.NameBase)) {
+		// unquoted in an argument a basename with a blank is several words, and
+		// what is written after it stays on the last of them
+		return
+	}
+	if bases == 1 && strings.Trim(noMarks.Replace(comp), ".") == "" {
+		// a basename can be empty, `.` or `..`: the component needs a character of its own that is not a dot
+		return
+	}
+	first := strings.Index(comp, "$")
+	last := strings.LastIndex(comp, "$") + 2
+	pre, post := comp[:first], comp[last:]
+	D := j.c.canonCached(dir, j.cwd, false)
+	if !isScratchpad(D) {
+		return
+	}
+	inside := func(name string) bool {
+		p := D + "/" + name
+		if tail != "" {
+			p += "/" + tail
+		}
+		return isScratchpad(j.c.canonCached(p, "/", false))
+	}
+	if es, err := os.ReadDir(D); err == nil {
+		lp, lq := strings.ToLower(pre), strings.ToLower(post)
+		for _, e := range es {
+			n := strings.ToLower(e.Name()) // a case-insensitive volume opens `A.TXT` as `a.txt`
+			if len(n) >= len(lp)+len(lq) && strings.HasPrefix(n, lp) && strings.HasSuffix(n, lq) && !inside(e.Name()) {
+				return
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return
+	}
+	if bases == 1 && pre != "" && !inside(pre+"/"+post) { // a basename that is the lone `/`
+		return
+	}
+	abs = D + "/" + holeMarks.Replace(comp)
+	if tail != "" {
+		abs += "/" + tail
+	}
+	j.c.names.dirs = append(j.c.names.dirs, D)
+	return abs, true
+}
+
+// addWrite adds the target of a redirection or of mkdir, touch, tee. plain is
+// the word as every other rule reads it, marked the same word with its name
+// marks. A target the name rule does not place is judged from plain, as always.
+func (j *judge) addWrite(plain, marked string, nofollow bool) {
+	if !j.c.names.off && strings.Contains(marked, "$") {
+		s := j.textNames(j.substNamed(j.tilde(j.textNames(marked, true))), false)
+		if hasMark(s) {
+			if abs, ok := j.nameTarget(s, !j.redirect); ok {
+				j.add(target{raw: plain, abs: abs})
+				return
+			}
+		}
+	}
+	j.addTarget(plain, nofollow)
+}
+
+// watch: a name a declaration, read, printf -v or getopts writes — the places
+// where the name is a word and need not be written out. Some decide which
+// program a name runs or how an unquoted word is split; a name that is not
+// written out could be any of them.
+func (j *judge) watch(names ...string) {
+	for _, n := range names {
+		if k := strings.IndexAny(n, "=["); k >= 0 {
+			n = n[:k]
+		}
+		n = strings.TrimSuffix(n, "+")
+		if n == "" || strings.HasPrefix(n, "-") {
+			continue
+		}
+		if in(n, "PATH", "IFS", "BASH_ALIASES", "BASH_CMDS") || !identRe.MatchString(n) {
+			j.c.names.withdraw = true
+		}
+	}
+}
+
+var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// declare notes the names of a declaration (`readonly n=…`, `declare -r n`, `local n`).
+func (j *judge) declare(words ...string) {
+	for _, n := range words {
+		if k := strings.IndexAny(n, "=["); k >= 0 {
+			n = n[:k]
+		}
+		if n = strings.TrimSuffix(n, "+"); n != "" && !strings.HasPrefix(n, "-") {
+			j.declared[n] = true
+		}
+	}
+}
 
 var devFd = regexp.MustCompile(`^/dev/fd/[0-9][0-9]?$`)
 var fdWord = regexp.MustCompile(`^([0-9]+-?|-)$`)
@@ -318,7 +557,7 @@ func (j *judge) recurse(text string, data bool) {
 		return
 	}
 	*j.c.budget--
-	n := &judge{c: j.c, command: text, depth: j.depth + 1, data: data}
+	n := &judge{c: j.c, command: text, depth: j.depth + 1, data: data, nv: map[string]string{}, loopBad: map[string]bool{}, declared: map[string]bool{}}
 	if n.run(j.cwd).Blocked() {
 		r := text
 		if len(r) > 60 {
@@ -338,11 +577,12 @@ type snapshot struct {
 	vn, vv  []string
 	dirs    []cwdState
 	group   int
+	nv      map[string]string
 }
 
 func (j *judge) Enter(s shell.Scope) {
 	j.saved = append(j.saved, snapshot{j.cwd, j.cwdUnknown, append([]string(nil), j.vn...),
-		append([]string(nil), j.vv...), append([]cwdState(nil), j.dirStack...), j.group})
+		append([]string(nil), j.vv...), append([]cwdState(nil), j.dirStack...), j.group, copyMap(j.nv)})
 	if s == shell.Subshell || s == shell.Substitution {
 		j.group++
 	}
@@ -353,6 +593,15 @@ func (j *judge) Leave(shell.Scope) {
 	sn := j.saved[k]
 	j.saved = j.saved[:k]
 	j.cwd, j.cwdUnknown, j.vn, j.vv, j.dirStack, j.group = sn.cwd, sn.unknown, sn.vn, sn.vv, sn.dirs, sn.group
+	j.nv = sn.nv
+}
+
+func copyMap(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 // QuotedSubst: the substitution runs, its output is data for a command judged
@@ -371,6 +620,12 @@ func (j *judge) QuotedSubst(text string) {
 // For: the loop variable takes the first item that is NOT in scope, if there is
 // one, so a write on it in the body is refused; otherwise the first item.
 func (j *judge) For(name string, items []string) {
+	items = unmark(items)
+	for _, raw := range items {
+		if !nameValueRe.MatchString(j.subst(raw)) {
+			j.loopBad[name] = true
+		}
+	}
 	w, first := "", ""
 	for k, raw := range items {
 		if k == 0 {
@@ -394,6 +649,7 @@ func (j *judge) Command(c shell.Command) { j.process(c) }
 func (j *judge) Call(assigns []shell.Assign) {
 	var fr []restore
 	for _, a := range assigns {
+		a.Value = marks.Replace(a.Value)
 		fr = append(fr, restore{a.Name})
 		j.setvar(a.Name, j.valueOf(a))
 	}
@@ -417,6 +673,7 @@ type restore struct{ name string }
 // nothing built from a variable can be placed after this point.
 func (j *judge) Lost(string) {
 	j.lost = true
+	j.nv = map[string]string{}
 	j.cwdUnknown = true
 	for i := range j.vv {
 		j.vv[i] = unknownValue
@@ -591,12 +848,37 @@ func (j *judge) alter(names ...string) {
 }
 
 func (j *judge) process(c shell.Command) {
+	// the words as the reader wrote them, name marks included …
+	mWords, mWrites := c.Words, c.Writes
+	mVals := make([]string, len(c.Assigns))
+	// … and as every rule below reads them
+	c.Words, c.Writes, c.Feeds, c.Reads = unmark(c.Words), unmark(c.Writes), unmark(c.Feeds), unmark(c.Reads)
+	c.Heredoc = marks.Replace(c.Heredoc)
+	as := make([]shell.Assign, len(c.Assigns))
+	for i, a := range c.Assigns {
+		mVals[i] = a.Value
+		a.Value = marks.Replace(a.Value)
+		as[i] = a
+	}
+	c.Assigns = as
 	st := c.Words
 	n := len(st)
 	// `X=v` alone, or under export/local/declare, changes the shell. `X=v cmd`
 	// reaches only cmd's environment: this line's own words and redirections
 	// were expanded before it, and the next command does not see it.
 	persistent := n == 0 || c.Decl != ""
+	if c.Decl != "" {
+		j.watch(st...)
+		j.declare(st...)
+		for _, a := range c.Assigns {
+			j.declare(a.Name)
+		}
+		for _, x := range st {
+			if strings.HasPrefix(x, "-") && strings.Contains(x, "n") { // a name reference: assigning one name writes another
+				j.c.names.withdraw = true
+			}
+		}
+	}
 	if c.Decl != "" && altersValue(st) {
 		// the attribute stays on the name: every later assignment is altered too
 		for _, a := range c.Assigns {
@@ -605,19 +887,32 @@ func (j *judge) process(c shell.Command) {
 		j.alter(st...)
 	}
 	j.envN, j.envV = nil, nil
-	for _, a := range c.Assigns {
+	for i, a := range c.Assigns {
 		v := j.valueOf(a)
 		if persistent {
+			// The marked value stands for the variable only if this is the first
+			// thing the command assigns to it (or it held a marked value already):
+			// an assignment in a branch may not run, an assignment to a read-only
+			// name changes nothing, and then the earlier value is still there.
+			_, had := j.assigned(a.Name)
+			_, hadMark := j.nv[a.Name]
+			m := j.substNamed(mVals[i])
 			j.setvar(a.Name, v)
+			// (a second belt beside that: never an array, never a name a declaration touched)
+			if (!had || hadMark) && !a.Opaque && !a.Append && !j.declared[a.Name] && hasMark(m) {
+				j.nv[a.Name] = m
+			}
 		} else {
 			j.envN, j.envV = append(j.envN, a.Name), append(j.envV, v)
 		}
 	}
 	j.stmtAPD = false
 	writes := func() {
-		for _, x := range c.Writes {
-			j.addTarget(x, false)
+		j.redirect = true
+		for k, x := range c.Writes {
+			j.addWrite(x, mWrites[k], false)
 		}
+		j.redirect = false
 		if c.UnknownRedir {
 			j.addUnknown("a redirection the guard does not know")
 		}
@@ -636,6 +931,19 @@ func (j *judge) process(c shell.Command) {
 	if u.Xargs && (tools.Writer(cmd) || cmd == "git") {
 		// the command's targets come from stdin: not visible
 		j.addUnknown("xargs " + cmd)
+	}
+	if in(cmd, nameChangers...) || in(st[0], nameChangers...) {
+		j.c.names.withdraw = true // as written; once more below, for the command a variable stood for
+	}
+	if (strings.HasPrefix(cmd, "$") || strings.HasPrefix(cmd, "`")) && (!j.data || j.group > 0) {
+		// a command the guard cannot read may be one of the name changers below — but
+		// not the substitution a quoted `"$(…)"` is re-read as: that one is data
+		j.c.names.withdraw = true
+	}
+	// the marked arguments of the command as it was written, when they line up
+	var mArgs []string
+	if mu := tools.Unwrap(mWords); marks.Replace(mu.Cmd) == cmd && len(mu.Args) == len(a) {
+		mArgs = mu.Args
 	}
 
 	switch {
@@ -685,6 +993,7 @@ func (j *judge) process(c shell.Command) {
 			// after it the state counts as unknown.
 			defer j.Lost("a state-changing command behind a variable")
 		}
+		mArgs = nil
 		fed := u.Xargs // `xargs $g`: stdin still supplies part of the arguments
 		u = tools.Unwrap(append(f, a...))
 		u.Xargs = u.Xargs || fed
@@ -703,6 +1012,11 @@ func (j *judge) process(c shell.Command) {
 		}
 	}
 
+	// what can make `basename` or `date` something else than the program: text
+	// run in this shell, a trap, an alias, the hash table, a loaded builtin
+	if in(cmd, nameChangers...) {
+		j.c.names.withdraw = true
+	}
 	if cmd == "bash" || cmd == "sh" {
 		j.stmtAPD = j.apdTool(at(a, 0), at(a, 1))
 	} else {
@@ -718,6 +1032,7 @@ func (j *judge) process(c shell.Command) {
 		}
 	}
 	forget := func(names ...string) {
+		j.watch(names...)
 		for _, x := range names {
 			if nameRe.MatchString(x) {
 				j.setvar(x, unknownValue)
@@ -781,7 +1096,12 @@ func (j *judge) process(c shell.Command) {
 		forget(tools.Positionals(a, `^$`)...)
 	case "export", "local", "declare", "typeset", "readonly":
 		// reached through `command` or `builtin`: the assignments still last
+		j.watch(a...)
+		j.declare(a...)
 		for _, x := range a {
+			if strings.HasPrefix(x, "-") && strings.Contains(x, "n") {
+				j.c.names.withdraw = true
+			}
 			if k := strings.Index(x, "="); k > 0 && nameRe.MatchString(x[:k]) {
 				if altersValue(a) {
 					j.alter(x[:k])
@@ -842,6 +1162,10 @@ func (j *judge) process(c shell.Command) {
 				text += c.Heredoc
 			}
 		}
+		if text != "" || c.Heredoc != "" {
+			// a program on stdin counts even when the guard took an argument for the script
+			j.c.names.withdraw = true
+		}
 		if text != "" && lineMatch(rtRe[lang], text) {
 			j.rtMark(text + "\n" + strings.Join(a, " "))
 		}
@@ -850,13 +1174,24 @@ func (j *judge) process(c shell.Command) {
 			j.addUnknown(cmd + " with its start-up file moved by this command")
 		}
 		if ts, ok := tools.Writes(cmd, a); ok {
-			for _, t := range ts {
-				if t.Unknown != "" {
+			j.plain = in(cmd, "mkdir", "touch", "tee")
+			var mts []tools.Target
+			if j.plain && mArgs != nil { // every other tool is judged from the plain words, and counts as another write besides
+				if m, ok := tools.Writes(cmd, mArgs); ok && len(m) == len(ts) {
+					mts = m
+				}
+			}
+			for k, t := range ts {
+				switch {
+				case t.Unknown != "":
 					j.addUnknown(t.Unknown)
-				} else {
+				case mts != nil && mts[k].Unknown == "":
+					j.addWrite(t.Path, mts[k].Path, t.NoFollow)
+				default:
 					j.addTarget(t.Path, t.NoFollow)
 				}
 			}
+			j.plain = false
 		} else if cmd == "perl" {
 			text, take := "", false
 			for _, x := range a {
@@ -868,6 +1203,9 @@ func (j *judge) process(c shell.Command) {
 				}
 			}
 			text += c.Heredoc
+			if text != "" {
+				j.c.names.withdraw = true
+			}
 			if text != "" && lineMatch(rtRe["perl"], text) {
 				j.rtMark(text + "\n" + strings.Join(a, " "))
 			}
@@ -891,10 +1229,34 @@ var stage0rt = []rtPair{
 	{regexp.MustCompile(`(^|[;&|] *)perl\s+(-e)\s`), regexp.MustCompile(`(?i)open\s*\(|print\s+\$|File::Copy|rename`)},
 }
 
+// reviewedRe: the one file of the pipeline directory a review role is told to
+// read, in a form that only READS it — the source of an input redirection, or
+// the first argument of cat — named in full, with nothing after it that could
+// make it another path. $1 is what stood before the form, $2 what ended it.
+var reviewedRe = regexp.MustCompile(`(<[ \t]*|(?:^|[\s;&|(])cat[ \t]+)["']?(?:[A-Za-z0-9_./@%+=:,-]*/)?\.apd/pipeline/\.reviewed-files["']?([\s;&|)]|$)`)
+
+// readsOnlyTheList: every mention of the pipeline directory is such a form.
+func readsOnlyTheList(c string) bool {
+	for k := 0; k < 16 && reviewedRe.MatchString(c); k++ {
+		c = reviewedRe.ReplaceAllString(c, " $2")
+	}
+	return !strings.Contains(c, ".apd/pipeline")
+}
+
 func (j *judge) stage0() bool {
 	c := fenceCase.ReplaceAllStringFunc(j.command, strings.ToLower)
 	const pp = ".apd/pipeline/"
 	if !strings.Contains(c, pp) {
+		return false
+	}
+	if !j.protectOnly && readsOnlyTheList(c) {
+		// A caller with a scope, or with none at all, has every target placed by
+		// the parser, and nothing in the pipeline directory is ever in a scope: a
+		// command that only READS the list of reviewed files (`while read f; … done
+		// < .apd/pipeline/.reviewed-files`, `$(cat …)`) needs no substring test.
+		// Any other way of naming the list keeps it — a tool the parser does not
+		// place (`awk '{print > "…"}'`, `sed w`, `git checkout`) could write it.
+		// The orchestrator's unplaced targets are let through, so for it the test stays.
 		return false
 	}
 	for _, t := range []string{"pipeline-advance", "apd pipeline", "verify-apd", "pipeline-post-commit", "pipeline-gate", ".guide-marker"} {
@@ -1171,10 +1533,10 @@ func (j *judge) run(cwdArg string) Verdict {
 	if j.command == "" {
 		return Verdict{}
 	}
+	j.protectOnly = len(j.c.scopeRaw) == 0 && !j.c.denyAll
 	if j.stage0() {
 		return block(PipelineState, j.reason)
 	}
-	j.protectOnly = len(j.c.scopeRaw) == 0 && !j.c.denyAll
 	base := cwdArg
 	if base == "" || !isDir(base) {
 		base = j.c.projDir
@@ -1183,8 +1545,13 @@ func (j *judge) run(cwdArg string) Verdict {
 	j.cwd = j.c.canonAbs(base, wd, false)
 	if j.rd == nil {
 		j.rd = shell.NewReader()
+		j.rd.NameMarks = !j.c.names.off
 	}
-	if err := j.rd.Walk(j.command, j); err != nil {
+	err := j.rd.Walk(j.command, j)
+	if j.rd.NameFuncs {
+		j.c.names.withdraw = true
+	}
+	if err != nil {
 		j.addUnknown("command the parser could not read")
 		if j.namesFenced() {
 			j.addOpaque("unreadable command", "the parser stopped: "+err.Error())
@@ -1207,6 +1574,15 @@ func (j *judge) run(cwdArg string) Verdict {
 	return j.decide()
 }
 
+// nameSetupRe: the command names, anywhere in its text, a variable that decides
+// which program a name runs or how an unquoted word is split, reaches a variable
+// through another's value, or assigns one where the judge does not follow it
+// (`${n:=value}`, `select n in …`).
+var nameSetupRe = regexp.MustCompile(`(^|[^A-Za-z0-9_])(PATH|IFS|BASH_ALIASES|BASH_CMDS|select)([^A-Za-z0-9_]|$)|\$\{!|\$\{[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?:?=`)
+
+// nameChangers: builtins that run text in this shell or change what a name runs.
+var nameChangers = []string{"eval", "source", ".", "trap", "alias", "enable", "hash"}
+
 // Options is one call of the guard: the command, where it runs, and what the caller may write.
 type Options struct {
 	Command, Cwd, ProjectDir string
@@ -1218,6 +1594,19 @@ type Options struct {
 
 // Judge answers whether the command may run, and if not, why.
 func Judge(o Options) Verdict {
+	v, withdrawn := judge1(o, false)
+	if withdrawn {
+		// exactly the verdict from before the name rule existed
+		v, _ = judge1(o, true)
+	}
+	return v
+}
+
+// judge1 is one reading of the command. withdrawn: a marked name was placed by
+// what is in its directory NOW, and that holds only if nothing else in the
+// command can put a symbolic link there or change which program `basename` and
+// `date` are — here something can.
+func judge1(o Options, namesOff bool) (v Verdict, withdrawn bool) {
 	c := &cfg{home: o.Home, tmpdir: o.TmpDir, pluginRoot: o.PluginRoot, projDir: o.ProjectDir,
 		scopeRaw: o.Scope, denyAll: o.DenyAllWrites, env: paths.Env{Home: o.Home}}
 	if c.tmpdir == "" {
@@ -1243,6 +1632,21 @@ func Judge(o Options) Verdict {
 			c.scopeCanon = append(c.scopeCanon, c.canonAbs(r, c.projCanon, false))
 		}
 	}
-	j := &judge{c: c, command: o.Command}
-	return j.run(o.Cwd)
+	c.names = &names{off: namesOff}
+	j := &judge{c: c, command: o.Command, nv: map[string]string{}, loopBad: map[string]bool{}, declared: map[string]bool{}}
+	v = j.run(o.Cwd)
+	if len(c.names.dirs) == 0 {
+		return v, false
+	}
+	if c.names.withdraw || nameSetupRe.MatchString(o.Command) {
+		return v, true
+	}
+	for _, d := range c.names.dirs {
+		for _, w := range c.names.others {
+			if strings.HasPrefix(w+"/", d+"/") || strings.HasPrefix(d+"/", w+"/") {
+				return v, true
+			}
+		}
+	}
+	return v, false
 }

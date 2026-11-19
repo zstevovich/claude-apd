@@ -20658,6 +20658,66 @@ _c159 "SPEC names the record, the refusal and the post-commit rule" \
     'grep -q "verified-tree.done" "$REPO_ROOT/docs/SPEC.md" && grep -q "commit-gate-timeout" "$REPO_ROOT/docs/SPEC.md" && ! grep -q "Bash(git commit\*)" "$REPO_ROOT/docs/SPEC.md"'
 rm -rf "$G159_T"
 
+section "160. A name from basename or date in the scratchpad is placed; the list of reviewed files may be named"
+
+# Live blocks on efiskalizacija under v8.0.1 (three pipelines, 51 blocked commands
+# read back from the transcripts): the largest group was a redirect into the
+# session scratchpad whose file NAME came from `$(basename …)` or `$(date +…)`
+# (`> $S/$n.txt` in a loop over test files), refused as an unresolved target, and
+# a review role's `… done < .apd/pipeline/.reviewed-files` refused by the substring
+# test that runs before the parser. An independent audit of the first cut found it
+# NOT SAFE (two basenames spelling `../`, the suffix staying on a split word, GNU
+# `basename -z`, tools the parser does not place writing the list, ways to make
+# `basename` something else) and the rule was cut down to what the rows below say.
+# The judge's own rows and mutations are in guard/internal/bashscope/names_test.go;
+# these rows go through the launcher.
+G160_T="$(mktemp -d "${TMPDIR:-/tmp}/apd-g160.XXXXXX")"; G160_T=$(cd "$G160_T" && pwd -P)
+mkdir -p "$G160_T/src" "$G160_T/lib" "$G160_T/.apd/pipeline" "$G160_T/.claude"
+printf 'PROJECT_NAME=g160\nSTACK=php\n' > "$G160_T/.claude/.apd-config"
+printf 'src/a.php\n' > "$G160_T/.apd/pipeline/.reviewed-files"
+G160_SP="/private/tmp/claude-501/-Users-x/g160/scratchpad"
+# _g160 <label> <expected rc> <command> [guard arguments…]
+_g160() {
+    local label="$1" want="$2" cmd="$3" rc; shift 3
+    ( cd "$G160_T" && APD_PROJECT_DIR="$G160_T" bash "$APD_PLUGIN_ROOT/bin/core/guard-bash-scope" --command "$cmd" "$@" >/dev/null 2>&1 ); rc=$?
+    if [ "$rc" = "$want" ]; then pass "$label (rc=$rc)"; PASSES=$((PASSES + 1)); else fail "$label expected rc=$want got rc=$rc"; FAILS=$((FAILS + 1)); fi
+}
+for _w in "src/" "--deny-all-writes"; do
+    _g160 "[$_w] a loop writes one scratchpad file per test, named by basename" 0 "S=$G160_SP; for t in src/a.php src/b.php; do n=\$(basename \$t .php); echo x > \$S/\$n.txt 2>&1; done" "$_w"
+    _g160 "[$_w] the same with the substitution written in the target" 0 "for t in src/a.php; do echo x > $G160_SP/base-\$(basename \$t .php).txt; done" "$_w"
+    _g160 "[$_w] a bare variable the command never assigned may be an option: refused" 2 "echo x > $G160_SP/base-\$(basename \$t .php).txt" "$_w"
+    _g160 "[$_w] two basenames in one component can spell ../ : refused" 2 "echo x > $G160_SP/\$(basename ..)\$(basename /)x" "$_w"
+    _g160 "[$_w] unquoted in an argument a basename may be several words: refused" 2 "touch $G160_SP/o-\$(basename -a x /)tmp/evil" "$_w"
+    _g160 "[$_w] …in double quotes it is one word" 0 "touch \"$G160_SP/t-\$(basename \"\$f\").txt\"" "$_w"
+    _g160 "[$_w] only a redirection, mkdir, touch and tee: cp is judged as before" 2 "cp src/a.php \"$G160_SP/c-\$(basename \"\$f\")\"" "$_w"
+    _g160 "[$_w] a trap can redefine basename: judged as before" 2 "trap 'basename() { echo a/../..; }' DEBUG; echo x > $G160_SP/o-\$(basename x)" "$_w"
+    _g160 "[$_w] …and inside double quotes" 0 "echo x > \"$G160_SP/pre-\$(basename \"\$f\")\"" "$_w"
+    _g160 "[$_w] a scratchpad directory named by the time" 0 "D=$G160_SP/rv-\$(date +%H%M); [ ! -e \"\$D\" ] && mkdir -p \"\$D\" && echo x > \"\$D/out.txt\"" "$_w"
+    _g160 "[$_w] any other substitution in the name is still refused" 2 "echo x > $G160_SP/p-\$(cat f).txt" "$_w"
+    _g160 "[$_w] a basename that is the whole component is still refused (it can be ..)" 2 "echo x > $G160_SP/\$(basename \$t)" "$_w"
+    _g160 "[$_w] a date format with a slash is still refused" 2 "echo x > $G160_SP/p-\$(date +%D).txt" "$_w"
+    _g160 "[$_w] outside the scratchpad the name is still refused" 2 "echo x > lib/p-\$(basename a).txt" "$_w"
+    _g160 "[$_w] a command that also links into that directory is judged as before" 2 "ln -s /etc/hosts $G160_SP/n/p-a.txt; echo x > $G160_SP/n/p-\$(basename a).txt" "$_w"
+    _g160 "[$_w] …or runs a program handed to an interpreter" 2 "python3 -c 'print(1)'; echo x > $G160_SP/p-\$(basename a).txt" "$_w"
+    _g160 "[$_w] …or names PATH" 2 "PATH=$G160_SP/bin:\$PATH; echo x > $G160_SP/p-\$(basename a).txt" "$_w"
+    _g160 "[$_w] the list of reviewed files read into a loop, output in the scratchpad" 0 "while IFS= read -r f; do cmp -s \"\$f\" \"$G160_SP/og/\$f\" || echo D; done < .apd/pipeline/.reviewed-files; git status --porcelain > $G160_SP/status.txt" "$_w"
+    _g160 "[$_w] …and through cat in a substitution, after a mkdir" 0 "mkdir -p $G160_SP/rv && for f in \$(cat .apd/pipeline/.reviewed-files); do shasum -a 256 \"\$f\"; done > $G160_SP/rv/sha.txt" "$_w"
+    _g160 "[$_w] writing the list is refused" 2 "echo x > .apd/pipeline/.reviewed-files" "$_w"
+    _g160 "[$_w] another file of the pipeline directory beside it keeps the refusal" 2 "echo hi > $G160_SP/x; cat .apd/pipeline/.reviewed-files .apd/pipeline/spec-card.md" "$_w"
+    _g160 "[$_w] a longer name is not the list" 2 "echo hi > $G160_SP/x; cat .apd/pipeline/.reviewed-files.bak" "$_w"
+    _g160 "[$_w] a tool the parser does not place may not name the list" 2 "awk '{print > \".apd/pipeline/.reviewed-files\"}' src/a.php" "$_w"
+    _g160 "[$_w] …nor git" 2 "git add -A 2>/dev/null; git checkout .apd/pipeline/.reviewed-files" "$_w"
+done
+_g160 "[orchestrator] the substring test stays: its unplaced targets are let through" 2 "mkdir -p $G160_SP/rv && for f in \$(cat .apd/pipeline/.reviewed-files); do shasum -a 256 \"\$f\"; done > $G160_SP/rv/sha.txt"
+_g160 "[orchestrator] a name in the scratchpad was never refused" 0 "echo x > $G160_SP/p-\$(basename a).txt"
+if grep -q 'NameMarks' "$APD_PLUGIN_ROOT/../../docs/SPEC.md" && grep -q 'reviewed-files' "$APD_PLUGIN_ROOT/../../guard/internal/bashscope/names_test.go" \
+   && grep -q 'a scratchpad file named by .basename. or .date.' "$APD_PLUGIN_ROOT/../../CHANGELOG.md"; then
+    pass "SPEC names the rule, the judge's rows exist, the CHANGELOG has the entry"; PASSES=$((PASSES + 1))
+else
+    fail "SPEC, the judge's rows or the CHANGELOG entry is missing"; FAILS=$((FAILS + 1))
+fi
+rm -rf "$G160_T"
+
 section "Summary"
 echo "  ${G}PASS:${R} $PASSES"
 echo "  ${R}FAIL:${R} $FAILS"
