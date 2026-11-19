@@ -1231,92 +1231,10 @@ var stage0rt = []rtPair{
 	{regexp.MustCompile(`(^|[;&|] *)perl\s+(-e)\s`), regexp.MustCompile(`(?i)open\s*\(|print\s+\$|File::Copy|rename`)},
 }
 
-// reviewedRe: the one file of the pipeline directory a review role is told to
-// read, in a form that only READS it — the source of an input redirection, or
-// the first argument of cat — named in full, with nothing after it that could
-// make it another path. $1 is what stood before the form, $2 what ended it.
-var reviewedRe = regexp.MustCompile(`(<[ \t]*|(?:^|[;&|(\n])[ \t]*cat[ \t]+)["']?(?:[A-Za-z0-9_./@%+=:,-]*/)?\.apd/pipeline/\.reviewed-files["']?([\s;&|)]|$)`)
-
-// listChangerRe: what could make `cat` another program in the same command.
-var listChangerRe = regexp.MustCompile(`(^|[^A-Za-z0-9_])(alias|hash|enable|function|eval|source|PATH|BASH_ALIASES|BASH_CMDS)([^A-Za-z0-9_]|$)|cat[ \t]*\(`)
-
-// readsOnlyTheList: every mention of the pipeline directory is such a form.
-func readsOnlyTheList(c string) bool {
-	if strings.Contains(c, "<<") { // a heredoc body is text of another language
-		return false
-	}
-	if listChangerRe.MatchString(c) { // `cat` may be made something else
-		return false
-	}
-	c, ok := quotedOut(c)
-	if !ok {
-		return false
-	}
-	for k := 0; k < 16 && reviewedRe.MatchString(c); k++ {
-		c = reviewedRe.ReplaceAllString(c, " $2")
-	}
-	return !strings.Contains(c, ".apd/pipeline")
-}
-
-// quotedOut: the command with every character that could start a reading form
-// taken out wherever the shell would not read it as one — inside quotes, or
-// after a backslash. `dos2unix \< list` and `gzip ';' cat list` name the list
-// as an operand of a tool that rewrites it.
-//
-// It follows plain quoting only. Where the shell's quoting is anything more —
-// `$'…'` with its escaped quote, a comment, a backtick, a substitution inside
-// double quotes (its text is quoted afresh) — the
-// answer is "cannot tell", and the caller keeps the substring test: a program
-// handed to an interpreter in such a word would otherwise read as bare text.
-func quotedOut(c string) (string, bool) {
-	b := []byte(c)
-	q := byte(0)
-	for i := 0; i < len(b); i++ {
-		x := b[i]
-		switch {
-		case x == '`' && q != '\'':
-			return "", false
-		case q == 0 && x == '#':
-			return "", false
-		case q == 0 && x == '$' && i+1 < len(b) && b[i+1] == '\'':
-			return "", false
-		case q == '"' && x == '$' && i+1 < len(b) && b[i+1] == '(':
-			return "", false
-		case q == 0 && x == '\\':
-			// only what could start a form is taken out: `\.apd/pipeline/…` stays a mention
-			if i+1 < len(b) {
-				i++
-				if strings.IndexByte(" \t\n<;&|(", b[i]) >= 0 {
-					b[i] = 1
-				}
-			}
-		case q == 0 && (x == '\'' || x == '"'):
-			q = x
-		case q != 0 && x == q:
-			q = 0
-		case q == '"' && x == '\\' && i+1 < len(b):
-			i++
-		case q != 0 && strings.IndexByte(" \t\n<;&|(", x) >= 0:
-			b[i] = 1
-		}
-	}
-	return string(b), true
-}
-
 func (j *judge) stage0() bool {
 	c := fenceCase.ReplaceAllStringFunc(j.command, strings.ToLower)
 	const pp = ".apd/pipeline/"
 	if !strings.Contains(c, pp) {
-		return false
-	}
-	if !j.protectOnly && readsOnlyTheList(c) {
-		// A caller with a scope, or with none at all, has every target placed by
-		// the parser, and nothing in the pipeline directory is ever in a scope: a
-		// command that only READS the list of reviewed files (`while read f; … done
-		// < .apd/pipeline/.reviewed-files`, `$(cat …)`) needs no substring test.
-		// Any other way of naming the list keeps it — a tool the parser does not
-		// place (`awk '{print > "…"}'`, `sed w`, `git checkout`) could write it.
-		// The orchestrator's unplaced targets are let through, so for it the test stays.
 		return false
 	}
 	for _, t := range []string{"pipeline-advance", "apd pipeline", "verify-apd", "pipeline-post-commit", "pipeline-gate", ".guide-marker"} {
@@ -1593,10 +1511,10 @@ func (j *judge) run(cwdArg string) Verdict {
 	if j.command == "" {
 		return Verdict{}
 	}
-	j.protectOnly = len(j.c.scopeRaw) == 0 && !j.c.denyAll
 	if j.stage0() {
 		return block(PipelineState, j.reason)
 	}
+	j.protectOnly = len(j.c.scopeRaw) == 0 && !j.c.denyAll
 	base := cwdArg
 	if base == "" || !isDir(base) {
 		base = j.c.projDir
