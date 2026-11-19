@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v8.0.2 — 2026-11-19
 
 Fix: a false block of `guard-bash-scope` that cost agents a turn each on a real project — a scratchpad file named by `basename` or `date`.
 
