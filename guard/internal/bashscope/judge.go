@@ -1087,8 +1087,10 @@ func (j *judge) process(c shell.Command) {
 			forget(nf[len(nf)-1])
 		}
 	case "printf":
-		if at(a, 0) == "-v" {
+		if x := at(a, 0); x == "-v" {
 			forget(at(a, 1))
+		} else if strings.HasPrefix(x, "-v") { // `printf -vn …`: the name rides on the option
+			forget(x[2:])
 		}
 	case "getopts":
 		forget(at(a, 1))
@@ -1233,14 +1235,49 @@ var stage0rt = []rtPair{
 // read, in a form that only READS it — the source of an input redirection, or
 // the first argument of cat — named in full, with nothing after it that could
 // make it another path. $1 is what stood before the form, $2 what ended it.
-var reviewedRe = regexp.MustCompile(`(<[ \t]*|(?:^|[\s;&|(])cat[ \t]+)["']?(?:[A-Za-z0-9_./@%+=:,-]*/)?\.apd/pipeline/\.reviewed-files["']?([\s;&|)]|$)`)
+var reviewedRe = regexp.MustCompile(`(<[ \t]*|(?:^|[;&|(\n])[ \t]*cat[ \t]+)["']?(?:[A-Za-z0-9_./@%+=:,-]*/)?\.apd/pipeline/\.reviewed-files["']?([\s;&|)]|$)`)
 
 // readsOnlyTheList: every mention of the pipeline directory is such a form.
 func readsOnlyTheList(c string) bool {
+	if strings.Contains(c, "<<") { // a heredoc body is text of another language
+		return false
+	}
+	c = quotedOut(c)
 	for k := 0; k < 16 && reviewedRe.MatchString(c); k++ {
 		c = reviewedRe.ReplaceAllString(c, " $2")
 	}
 	return !strings.Contains(c, ".apd/pipeline")
+}
+
+// quotedOut: the command with every character that could start a reading form
+// taken out wherever the shell would not read it as one — inside quotes, or
+// after a backslash. `dos2unix \< list` and `gzip ';' cat list` name the list
+// as an operand of a tool that rewrites it.
+func quotedOut(c string) string {
+	b := []byte(c)
+	q := byte(0)
+	for i := 0; i < len(b); i++ {
+		x := b[i]
+		switch {
+		case q == 0 && x == '\\':
+			// only what could start a form is taken out: `\.apd/pipeline/…` stays a mention
+			if i+1 < len(b) {
+				i++
+				if strings.IndexByte(" \t\n<;&|(", b[i]) >= 0 {
+					b[i] = 1
+				}
+			}
+		case q == 0 && (x == '\'' || x == '"'):
+			q = x
+		case q != 0 && x == q:
+			q = 0
+		case q == '"' && x == '\\' && i+1 < len(b):
+			i++
+		case q != 0 && strings.IndexByte(" \t\n<;&|(", x) >= 0:
+			b[i] = 1
+		}
+	}
+	return string(b)
 }
 
 func (j *judge) stage0() bool {

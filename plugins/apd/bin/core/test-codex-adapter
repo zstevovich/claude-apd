@@ -20705,6 +20705,11 @@ for _w in "src/" "--deny-all-writes"; do
     _g160 "[$_w] writing the list is refused" 2 "echo x > .apd/pipeline/.reviewed-files" "$_w"
     _g160 "[$_w] another file of the pipeline directory beside it keeps the refusal" 2 "echo hi > $G160_SP/x; cat .apd/pipeline/.reviewed-files .apd/pipeline/spec-card.md" "$_w"
     _g160 "[$_w] a longer name is not the list" 2 "echo hi > $G160_SP/x; cat .apd/pipeline/.reviewed-files.bak" "$_w"
+    _g160 "[$_w] cat as an operand of a tool that rewrites its files is not a read" 2 "echo hi > $G160_SP/x; dos2unix cat .apd/pipeline/.reviewed-files" "$_w"
+    _g160 "[$_w] an escaped < is an operand, not a redirection" 2 "echo hi > $G160_SP/x; dos2unix \\< .apd/pipeline/.reviewed-files" "$_w"
+    _g160 "[$_w] a backslash before the name does not hide it" 2 "echo hi > $G160_SP/x; dos2unix \\.apd/pipeline/.reviewed-files" "$_w"
+    _g160 "[$_w] a quoted separator before cat starts no command" 2 "echo hi > $G160_SP/x; gzip ';' cat .apd/pipeline/.reviewed-files" "$_w"
+    _g160 "[$_w] printf -vn rewrites the variable that held the name: refused" 2 "n=\$(date +%s); printf -vn %s ../../../victim; echo x > $G160_SP/fresh/q-\$n.x" "$_w"
     _g160 "[$_w] a tool the parser does not place may not name the list" 2 "awk '{print > \".apd/pipeline/.reviewed-files\"}' src/a.php" "$_w"
     _g160 "[$_w] …nor git" 2 "git add -A 2>/dev/null; git checkout .apd/pipeline/.reviewed-files" "$_w"
 done
