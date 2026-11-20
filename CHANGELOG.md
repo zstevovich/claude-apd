@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v8.0.3 — 2026-11-20
 
 Review resume reminds the orchestrator at the dispatch. Two real cycles ran with `APD_REVIEW_RESUME=shadow`: a snapshot was taken after every review and not one reviewer was continued — every re-review was a fresh one (25, 21 and 18 minutes in one cycle), because the steps stood only in the guide. Now, when a stopped code reviewer can be continued, the dispatch of the fix builder and the dispatch of a fresh code reviewer each carry a note naming its agent id, the `review-delta` command and the SendMessage; once per reviewer stop and class, logged as INFO `review-resume-hint`. Advice only — nothing is blocked, and with the switch unset or under Codex nothing changes.
 
