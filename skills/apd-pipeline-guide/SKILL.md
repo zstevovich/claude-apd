@@ -283,6 +283,10 @@ stop. The adversarial reviewer, the supervisor and builders are always
 dispatched fresh. A resume takes one slot of the reviewer dispatch budget, and
 one reviewer can be continued twice — after that, dispatch a fresh one.
 
+APD reminds you at the moment it matters: when a reviewer can be continued,
+the dispatch of the fix builder and the dispatch of a fresh code reviewer each
+come back with a note that names its agent id and these steps. Follow it.
+
 Dispatch a FRESH reviewer instead (the full pass) when the delta shows a file
 outside what was reviewed (`# NEW since the review`, or a file first touched by
 the fix) that is more than a test or a few lines, when the delta says

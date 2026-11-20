@@ -20375,6 +20375,66 @@ _c157 "workflow.md, the pipeline guide and SPEC name the switch and its two valu
 _c157 "the guide names the command the code implements and the cap the code enforces" \
     'grep -q "pipeline review-delta" "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md" && grep -q "^    review-delta)" "$G157_PA" && grep -q "RR_MAX_RESUMES_PER_AGENT=2" "$G157_LIB" && grep -qi "twice" "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md"'
 
+# ---- the reminder at the dispatch (v8.0.3)
+# 2026-11-20, two real cycles in shadow: snapshots taken after every review, not
+# one resume — every re-review was a fresh reviewer (25, 21, 18 min). Nothing
+# said so at the dispatch. Measured on CC 2.1.329: what a PreToolUse hook writes
+# to stderr with exit 0 never reaches the model; `additionalContext` on stdout
+# does. So the reminder is that JSON, and these rows read stdout.
+# _hint157 <dir> <mode> <subagent-type> [env…] — stdout of the pre-spawn guard; stderr → <dir>.he, exit code → <dir>.hrc
+_hint157() { local d="$1" m="$2" t="$3"; shift 3; ( cd "$d" && env "$@" APD_PROJECT_DIR="$d" APD_REVIEW_RESUME="$m" bash "$G157_AR" --subagent-type "$t" 2> "$d.he"; echo $? > "$d.hrc" ); }
+_ctx157() { printf '%s' "$1" | python3 -c 'import sys, json
+d = json.load(sys.stdin)["hookSpecificOutput"]
+assert d["hookEventName"] == "PreToolUse" and "permissionDecision" not in d
+sys.stdout.write(d["additionalContext"])' 2>/dev/null; }
+G157_H=$(_mk157 h); G157_H_OFF=$(_hint157 "$G157_H" "" backend-builder)
+_c157 "reminder, switch unset: the dispatch of a fix builder prints nothing on stdout and logs no hint" \
+    '[ -z "$G157_H_OFF" ] && [ "$(cat "$G157_H.hrc")" = 0 ] && ! _aud157 "$G157_H" | grep -q "review-resume-hint"'
+G157_H_COD=$(_hint157 "$G157_H" shadow backend-builder APD_RUNTIME=codex)
+_c157 "reminder, Codex runtime: nothing either (the switch is off there)" '[ -z "$G157_H_COD" ] && ! _aud157 "$G157_H" | grep -q "review-resume-hint"'
+G157_H_B=$(_hint157 "$G157_H" shadow backend-builder); G157_H_BC=$(_ctx157 "$G157_H_B")
+_c157 "reminder, shadow: the fix builder's dispatch exits 0 and stdout is ONE line of JSON — PreToolUse additionalContext, no decision" \
+    '[ "$(cat "$G157_H.hrc")" = 0 ] && [ "$(printf "%s\n" "$G157_H_B" | wc -l | tr -d " ")" = 1 ] && [ -n "$G157_H_BC" ]'
+_c157 "… it names the reviewer by id, the review-delta command for that id, SendMessage, and that a fresh reviewer is still required in shadow" \
+    'printf "%s" "$G157_H_BC" | grep -q "code reviewer $G157_REV" && printf "%s" "$G157_H_BC" | grep -q "pipeline review-delta $G157_REV > " && printf "%s" "$G157_H_BC" | grep -q "SendMessage to agent id $G157_REV" && printf "%s" "$G157_H_BC" | grep -q "Shadow mode: a fresh code reviewer is still required" && printf "%s" "$G157_H_BC" | grep -q "When this fix is in"'
+_c157 "… the JSON is not on stderr, and the hint is on record once (INFO, id, stop, class, mode)" \
+    '! grep -q "hookSpecificOutput" "$G157_H.he" && [ "$(_aud157 "$G157_H" | grep -c "|INFO|orchestrator|review-resume-hint|task=g157-task@[0-9]* id=$G157_REV stop=.* at=builder mode=shadow")" = 1 ]'
+G157_H_B2=$(_hint157 "$G157_H" shadow backend-builder)
+_c157 "… a second builder dispatch after the same stop says nothing (once per stop and class)" \
+    '[ -z "$G157_H_B2" ] && [ "$(_aud157 "$G157_H" | grep -c "review-resume-hint")" = 1 ]'
+G157_H_A=$(_hint157 "$G157_H" shadow adversarial-reviewer); G157_H_S=$(_hint157 "$G157_H" shadow supervisor)
+_c157 "… the dispatch of the adversarial reviewer or the supervisor carries no reminder" '[ -z "$G157_H_A" ] && [ -z "$G157_H_S" ] && [ "$(_aud157 "$G157_H" | grep -c "review-resume-hint")" = 1 ]'
+_fix157 "$G157_H"; G157_H_R=$(_hint157 "$G157_H" shadow code-reviewer); G157_H_RC=$(_ctx157 "$G157_H_R")
+_c157 "… after the fix, the dispatch of a FRESH code reviewer is reminded too, in its own words, and still goes ahead (exit 0)" \
+    '[ "$(cat "$G157_H.hrc")" = 0 ] && printf "%s" "$G157_H_RC" | grep -q "Do not let the re-review start from zero" && printf "%s" "$G157_H_RC" | grep -q "review-delta $G157_REV" && _aud157 "$G157_H" | grep -q "review-resume-hint|.* id=$G157_REV .* at=reviewer mode=shadow"'
+_sm157 "$G157_H" shadow "$G157_REV" >/dev/null; _led157 "$G157_H" 45 resume code-reviewer "$G157_REV"; _led157 "$G157_H" 55 stop code-reviewer "$G157_REV"
+G157_H_AFT=$(_ctx157 "$(_hint157 "$G157_H" shadow backend-builder)")
+_c157 "… the continued reviewer stopped again: the next fix builder is reminded for the NEW stop (a second line on record for at=builder)" \
+    'printf "%s" "$G157_H_AFT" | grep -q "review-delta $G157_REV" && [ "$(_aud157 "$G157_H" | grep -c "review-resume-hint|.* at=builder")" = 2 ]'
+_sm157 "$G157_H" shadow "$G157_REV" >/dev/null; _led157 "$G157_H" 60 resume code-reviewer "$G157_REV"; _led157 "$G157_H" 70 stop code-reviewer "$G157_REV"
+G157_H_CAP=$(_hint157 "$G157_H" shadow backend-builder)
+_c157 "… continued twice (the cap): no reminder names it any more" '[ "$(_res157 "$G157_H")" = 2 ] && [ -z "$G157_H_CAP" ]'
+G157_HO=$(_mk157 ho); G157_HO_B=$(_ctx157 "$(_hint157 "$G157_HO" on backend-builder)")
+_c157 "reminder, on: the same steps, and the continued reviewer's stop counts — no word of shadow" \
+    'printf "%s" "$G157_HO_B" | grep -q "review-delta $G157_REV" && printf "%s" "$G157_HO_B" | grep -q "stop counts for the reviewer step" && ! printf "%s" "$G157_HO_B" | grep -qi "shadow mode"'
+G157_HQ=$(_mk157 hq); _led157 "$G157_HQ" 25 start backend-builder aabbccddeeff1009; _led157 "$G157_HQ" 28 stop backend-builder aabbccddeeff1009
+G157_HQ_B=$(_hint157 "$G157_HQ" shadow backend-builder)
+_c157 "reminder: no copy of what the reviewer saw (a builder ran since it started) → no reminder, nothing logged" \
+    '[ -z "$G157_HQ_B" ] && [ ! -e "$G157_HQ/.apd/pipeline/.review-snapshot/$G157_REV" ] && ! _aud157 "$G157_HQ" | grep -q "review-resume-hint"'
+G157_HR=$(_mk157 hr); _disp157 "$G157_HR" shadow >/dev/null; _led157 "$G157_HR" 24 start code-reviewer aabbccddeeff2001; _led157 "$G157_HR" 27 stop code-reviewer aabbccddeeff2001
+G157_HR_B=$(_ctx157 "$(_hint157 "$G157_HR" shadow backend-builder)")
+_c157 "reminder: of two reviewers that can be continued, the one that stopped last is named" \
+    '[ -d "$G157_HR/.apd/pipeline/.review-snapshot/$G157_REV" ] && [ -d "$G157_HR/.apd/pipeline/.review-snapshot/aabbccddeeff2001" ] && printf "%s" "$G157_HR_B" | grep -q "review-delta aabbccddeeff2001 " && ! printf "%s" "$G157_HR_B" | grep -q "$G157_REV"'
+G157_HR_OFF=$(_hint157 "$G157_HR" "" code-reviewer); G157_HR_COD=$(_hint157 "$G157_HR" shadow code-reviewer APD_RUNTIME=codex)
+_c157 "reminder: with copies on disk and the switch then unset, or under Codex, a dispatch says nothing" '[ -z "$G157_HR_OFF" ] && [ -z "$G157_HR_COD" ] && ! _aud157 "$G157_HR" | grep -q "at=reviewer"'
+G157_HE=$( PIPELINE_DIR="$G157_H/.apd/pipeline"; APD_REVIEW_RESUME=shadow; APD_SHORTCUT_DISPLAY='/p "q"\r/apd'; . "$G157_LIB"; _rr_hint_json "$G157_REV" builder )
+_c157 "reminder: a quote or a backslash in the printed shortcut path stays valid JSON and comes back as written" \
+    'printf "%s" "$(_ctx157 "$G157_HE")" | grep -qF "bash /p \"q\"\\r/apd pipeline review-delta"'
+_c157 "reminder: an argument that is not an agent id prints nothing" \
+    '[ -z "$( PIPELINE_DIR="$G157_H/.apd/pipeline"; APD_REVIEW_RESUME=shadow; . "$G157_LIB"; _rr_hint_json "a b\"c" builder )" ]'
+_c157 "the pipeline guide and SPEC say the dispatch reminds, and through which channel" \
+    'grep -q "additionalContext" "$REPO_ROOT/docs/SPEC.md" && grep -q "review-resume-hint" "$REPO_ROOT/docs/SPEC.md" && grep -qi "reminds you" "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md" && grep -q "review-resume-hint" "$G157_AR"'
+
 # ---- review-delta leaves nothing in the temporary directory, whoever stops reading
 G157_LK=$(_mk157 leak); _disp157 "$G157_LK" on >/dev/null; _fix157 "$G157_LK"; mkdir -p "$G157_T/tmpd"
 _lk157() { ( cd "$G157_LK" && TMPDIR="$G157_T/tmpd" APD_PROJECT_DIR="$G157_LK" bash "$G157_PA" review-delta 2>/dev/null ); }

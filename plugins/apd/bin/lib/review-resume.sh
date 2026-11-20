@@ -251,6 +251,50 @@ _rr_resume_shadow() {
   awk -F'|' -v id="$1" '$2 == id && $4 == "shadow" { f = 1 } END { exit f ? 0 : 1 }' "$(_rr_resumes)" 2>/dev/null
 }
 
+# _rr_hint_id → the code reviewer the orchestrator could continue NOW (every
+# test of _rr_resume_check passes), the one that stopped last; nothing when
+# there is none or the switch is off.
+_rr_hint_id() {
+  [ "$(_rr_mode)" = "off" ] && return 0
+  [ -f "$PIPELINE_DIR/.agents" ] || return 0
+  local id typ s best="" bs=""
+  while IFS='|' read -r id typ; do
+    _rr_resume_check "$id" >/dev/null 2>&1 || continue   # refuses anything that is not a code reviewer
+    s=$(_rr_last_stop "$id")
+    if [ -z "$bs" ] || [ "$s" \> "$bs" ]; then bs="$s"; best="$id"; fi
+  done <<EOF_RR_HINT
+$(awk -F'|' 'NF >= 4 && $2 == "start" && $4 != "" { print $4 "|" $3 }' "$PIPELINE_DIR/.agents" 2>/dev/null | sort -u)
+EOF_RR_HINT
+  printf '%s' "$best"
+}
+
+# _rr_hint_json <id> <class being dispatched> — the reminder, as the ONE form a
+# PreToolUse hook's words reach the model in: `additionalContext` on stdout.
+# Measured on CC 2.1.329 (2026-11-20): what such a hook writes to stderr with
+# exit 0 is filed in the transcript and never shown to the model; two real
+# cycles ran in shadow with snapshots taken and not one resume, because nothing
+# said so at the moment of the dispatch. Advice only: no decision is returned,
+# the dispatch goes ahead.
+_rr_hint_json() {
+  local id="$1" cls="$2" mode txt apd="${APD_SHORTCUT_DISPLAY:-.claude/bin/apd}"
+  _rr_id_ok "$id" || return 0
+  mode=$(_rr_mode)
+  txt="APD review resume (APD_REVIEW_RESUME=$mode): code reviewer $id has already reviewed this task and APD holds a copy of what it saw."
+  if [ "$cls" = "builder" ]; then
+    txt="$txt When this fix is in, do not start the re-review from zero:"
+  else
+    txt="$txt Do not let the re-review start from zero:"
+  fi
+  txt="$txt (1) bash $apd pipeline review-delta $id > <scratchpad>/review-delta.patch (2) SendMessage to agent id $id: the path of the patch, which findings the fix was for, and a request for a verdict on the delta - fixed or not fixed per finding, plus anything the fix broke."
+  if [ "$mode" = "shadow" ]; then
+    txt="$txt Shadow mode: a fresh code reviewer is still required for the reviewer step; note in the session log how long each of the two took and what the fresh one found that the continued one did not."
+  else
+    txt="$txt The continued reviewer's stop counts for the reviewer step; dispatch a fresh one only when the delta says NEW since the review or NOT COMPARED for more than a test or a few lines."
+  fi
+  txt=$(printf '%s' "$txt" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\000-\037')
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"%s"}}\n' "$txt"
+}
+
 # _rr_latest_id → the reviewer id with the newest snapshot stamp
 _rr_latest_id() {
   local d best="" bs="" s

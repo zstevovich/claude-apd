@@ -136,6 +136,20 @@ fi
 
 _rr_snap
 
+# Review resume, the reminder: a stopped code reviewer that could be continued
+# is named to the orchestrator once per stop and per class being dispatched (the
+# fix builder: "when this is in"; a fresh reviewer: "continue the old one too").
+case "$CLS" in builder|reviewer)
+  _RR_HINT=$(_rr_hint_id 2>/dev/null) || _RR_HINT=""
+  if [ -n "$_RR_HINT" ]; then
+    _RR_KEY="id=$_RR_HINT stop=$(_rr_last_stop "$_RR_HINT") at=$CLS"
+    if ! grep -qF "|review-resume-hint|task=$TASK@$SPEC_EP $_RR_KEY" "${MEMORY_DIR:-/nonexistent}/guard-audit.log" 2>/dev/null; then
+      _rr_hint_json "$_RR_HINT" "$CLS"
+      _audit_info "review-resume-hint" "task=$TASK@$SPEC_EP $_RR_KEY mode=$(_rr_mode)"
+    fi
+  fi ;;
+esac
+
 # --- 3. wall-clock nudge (INFO, never blocks) -----------------------------------
 if _NUDGE=$(_wall_nudge_text); then
   # First crossing only: the previous start was still under the line.
