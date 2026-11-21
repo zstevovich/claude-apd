@@ -485,6 +485,7 @@ All log via shared `log_block` to `<memory>/guard-audit.log` (sanitised newlines
 - Codex: adapter invokes manually (no equivalent hook)
 - Appends `<ts>|<event>|<agent_type>|<agent_id>` to `.apd/pipeline/.agents`
 - Warnings on SubagentStart: builder dispatched without `pipeline-advance builder` call; adversarial dispatched before reviewer.done
+- **v8.0.4 — the parallel same-type gate and review resume:** a line (`start` or `resume`) whose agent id is in `.review-resumes` is not the reference for the gate, so a continued code reviewer and the fresh one shadow requires may be dispatched in the same message. A fresh same-type agent that is still running stays the reference; a `resume` with no record (a capped agent continued) is judged as before.
 - **v6.3 A — zombie sweep on SubagentStop:** runs `ps -axo "pid= command="` against patterns `gradle | tail -f | while.*pgrep | while.*true | while.*sleep | watch -n`, filters out `track-agent` / `/claude` / the sweep itself / `ps -axo`. Surfaces up to 5 hits as WARN + appends `<ts>\|<agent>\|<pid>\|<cmd>` rows to `zombie-audit.log`. Informational — never blocks the agent stop event. Disable: `APD_ZOMBIE_SWEEP=0`. Closes BambiProject Cycle 1 gradle-zombie incident (2026-05-11)
 - Side effect: also writes raw hook payload to `agent-dispatch-debug.log` for troubleshooting Codex adapter mismatches
 

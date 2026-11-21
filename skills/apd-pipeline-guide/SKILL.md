@@ -286,6 +286,8 @@ one reviewer can be continued twice — after that, dispatch a fresh one.
 APD reminds you at the moment it matters: when a reviewer can be continued,
 the dispatch of the fix builder and the dispatch of a fresh code reviewer each
 come back with a note that names its agent id and these steps. Follow it.
+The SendMessage to the continued reviewer and the dispatch of ONE fresh code
+reviewer may go out in the same message; two fresh reviewers may not.
 
 Dispatch a FRESH reviewer instead (the full pass) when the delta shows a file
 outside what was reviewed (`# NEW since the review`, or a file first touched by

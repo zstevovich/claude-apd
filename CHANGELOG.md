@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+Fix: a fresh code reviewer dispatched together with a continued one was not recorded. The first real cycle that used review resume (shadow) sent the SendMessage to the stopped reviewer and the dispatch of the fresh reviewer in one message. `track-agent` took the continued reviewer's `resume` line as "a code reviewer already running" and refused the fresh one's start (`parallel-same-agent`, `elapsed=0s`). SubagentStart is post-spawn, so the agent ran its 24 minutes anyway, unrecorded; the reviewer gate did not count it and another fresh pass was needed — one review and one budget slot lost.
+
+A reviewer whose agent id is in `.review-resumes` is no longer the reference for the parallel gate. Unchanged: a second fresh same-type agent within the window is refused, in either order; a re-started agent with no review-resume record is judged as before; builders are not affected.
+
+**Stated limits.** The refusal at SubagentStart still cannot stop an agent from running — it only leaves its start unrecorded (pre-existing, v6.27 note in the script).
+
 ## v8.0.3 — 2026-11-20
 
 Review resume reminds the orchestrator at the dispatch. Two real cycles ran with `APD_REVIEW_RESUME=shadow`: a snapshot was taken after every review and not one reviewer was continued — every re-review was a fresh one (25, 21 and 18 minutes in one cycle), because the steps stood only in the guide. Now, when a stopped code reviewer can be continued, the dispatch of the fix builder and the dispatch of a fresh code reviewer each carry a note naming its agent id, the `review-delta` command and the SendMessage; once per reviewer stop and class, logged as INFO `review-resume-hint`. Advice only — nothing is blocked, and with the switch unset or under Codex nothing changes.

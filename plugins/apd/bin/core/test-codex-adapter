@@ -20435,6 +20435,34 @@ _c157 "reminder: an argument that is not an agent id prints nothing" \
 _c157 "the pipeline guide and SPEC say the dispatch reminds, and through which channel" \
     'grep -q "additionalContext" "$REPO_ROOT/docs/SPEC.md" && grep -q "review-resume-hint" "$REPO_ROOT/docs/SPEC.md" && grep -qi "reminds you" "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md" && grep -q "review-resume-hint" "$G157_AR"'
 
+# ---- the parallel gate and a continued reviewer (v8.0.4)
+# 2026-11-20, the first real cycle that continued a reviewer: the SendMessage and
+# the fresh reviewer went out in one message; track-agent refused the fresh
+# one's start as parallel-same-agent (elapsed=0s, the reference being the
+# `resume` line), the agent ran anyway and the reviewer gate did not count it.
+G157_TA="$APD_PLUGIN_ROOT/bin/core/track-agent"
+# _ta157 <dir> <type> <id> — a SubagentStart as the hook delivers it; prints the exit code
+_ta157() { ( cd "$1" && APD_PROJECT_DIR="$1" bash "$G157_TA" --event SubagentStart --agent-type "$2" --agent-id "$3" >/dev/null 2>&1 ); echo $?; }
+_rrec157() { printf '%s|%s|code-reviewer|shadow\n' "$(date +"%Y-%m-%d %H:%M:%S")" "$2" >> "$1/.apd/pipeline/.review-resumes"; }
+G157_P1=$(_mk157 p1); _rrec157 "$G157_P1" "$G157_REV"; G157_P1_R=$(_ta157 "$G157_P1" code-reviewer "$G157_REV"); G157_P1_F=$(_ta157 "$G157_P1" code-reviewer aabbccddeeff3001)
+_c157 "parallel gate: a reviewer continued through review resume, then a FRESH code reviewer in the same second — the fresh one's start is recorded" \
+    '[ "$G157_P1_R" = 0 ] && [ "$G157_P1_F" = 0 ] && grep -q "|resume|code-reviewer|$G157_REV$" "$G157_P1/.apd/pipeline/.agents" && grep -q "|start|code-reviewer|aabbccddeeff3001$" "$G157_P1/.apd/pipeline/.agents" && ! _aud157 "$G157_P1" | grep -q "parallel-same-agent"'
+G157_P1_F2=$(_ta157 "$G157_P1" code-reviewer aabbccddeeff3002)
+_c157 "… a SECOND fresh code reviewer right after it is still refused (the running fresh one is the reference), and leaves no start" \
+    '[ "$G157_P1_F2" = 2 ] && ! grep -q "aabbccddeeff3002" "$G157_P1/.apd/pipeline/.agents" && _aud157 "$G157_P1" | grep -q "parallel-same-agent|.*prev_id=aabbccdd"'
+G157_P2=$(_mk157 p2); G157_P2_R=$(_ta157 "$G157_P2" code-reviewer "$G157_REV"); G157_P2_F=$(_ta157 "$G157_P2" code-reviewer aabbccddeeff3003)
+_c157 "parallel gate: a reviewer re-started with NO review-resume record (a capped agent continued), then a fresh one — refused as before" \
+    '[ "$G157_P2_R" = 0 ] && [ "$G157_P2_F" = 2 ] && ! grep -q "aabbccddeeff3003" "$G157_P2/.apd/pipeline/.agents"'
+G157_P3=$(_mk157 p3); _rrec157 "$G157_P3" aabbccddeeff3999; G157_P3_R=$(_ta157 "$G157_P3" code-reviewer "$G157_REV"); G157_P3_F=$(_ta157 "$G157_P3" code-reviewer aabbccddeeff3004)
+_c157 "parallel gate: a record for ANOTHER id excuses nothing" '[ "$G157_P3_R" = 0 ] && [ "$G157_P3_F" = 2 ]'
+G157_P4=$(_mk157 p4); _rrec157 "$G157_P4" "$G157_REV"; G157_P4_F=$(_ta157 "$G157_P4" code-reviewer aabbccddeeff3005); G157_P4_R=$(_ta157 "$G157_P4" code-reviewer "$G157_REV"); G157_P4_F2=$(_ta157 "$G157_P4" code-reviewer aabbccddeeff3006)
+_c157 "parallel gate: fresh reviewer FIRST, then the continuation, then another fresh one — the last is refused (the continuation does not hide the running fresh one)" \
+    '[ "$G157_P4_F" = 0 ] && [ "$G157_P4_R" = 0 ] && [ "$G157_P4_F2" = 2 ] && ! grep -q "aabbccddeeff3006" "$G157_P4/.apd/pipeline/.agents"'
+G157_P5=$(_mk157 p5); G157_P5_A=$(_ta157 "$G157_P5" backend-builder aabbccddeeff3007); G157_P5_B=$(_ta157 "$G157_P5" backend-builder aabbccddeeff3008)
+_c157 "parallel gate: two builders in a row with no review-resume file at all — the second is refused as before" '[ "$G157_P5_A" = 0 ] && [ "$G157_P5_B" = 2 ]'
+_c157 "SPEC and the pipeline guide say a continued reviewer and a fresh one may go out together" \
+    'grep -q "review-resumes. is not the reference" "$REPO_ROOT/docs/SPEC.md" && grep -q "in rr" "$G157_TA" && grep -qi "in the same message" "$REPO_ROOT/skills/apd-pipeline-guide/SKILL.md"'
+
 # ---- review-delta leaves nothing in the temporary directory, whoever stops reading
 G157_LK=$(_mk157 leak); _disp157 "$G157_LK" on >/dev/null; _fix157 "$G157_LK"; mkdir -p "$G157_T/tmpd"
 _lk157() { ( cd "$G157_LK" && TMPDIR="$G157_T/tmpd" APD_PROJECT_DIR="$G157_LK" bash "$G157_PA" review-delta 2>/dev/null ); }
