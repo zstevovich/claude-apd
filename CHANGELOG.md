@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v8.0.4 — 2026-11-21
 
 Fix: a fresh code reviewer dispatched together with a continued one was not recorded. The first real cycle that used review resume (shadow) sent the SendMessage to the stopped reviewer and the dispatch of the fresh reviewer in one message. `track-agent` took the continued reviewer's `resume` line as "a code reviewer already running" and refused the fresh one's start (`parallel-same-agent`, `elapsed=0s`). SubagentStart is post-spawn, so the agent ran its 24 minutes anyway, unrecorded; the reviewer gate did not count it and another fresh pass was needed — one review and one budget slot lost.
 
